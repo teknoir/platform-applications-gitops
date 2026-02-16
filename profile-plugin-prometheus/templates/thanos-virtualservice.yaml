@@ -3,7 +3,7 @@ apiVersion: networking.istio.io/v1beta1
 kind: VirtualService
 metadata:
   name: thanos-query-vsvc
-  namespace: {{ .Values.namespace | default .Release.Namespace }}
+  namespace: {{ .Release.Namespace }}
   labels:
     app: thanos-query
 spec:
@@ -14,10 +14,10 @@ spec:
   http:
   - match:
     - uri:
-        prefix: /{{ .Values.namespace | default .Release.Namespace }}/thanos
+        prefix: /{{ .Release.Namespace }}/thanos
     route:
     - destination:
-        host: thanos-query.{{ .Values.namespace | default .Release.Namespace }}.svc.cluster.local
+        host: thanos-query.{{ .Release.Namespace }}.svc.cluster.local
         port:
           number: 80
 {{- end }}

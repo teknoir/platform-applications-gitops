@@ -2,9 +2,9 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   labels:
-    app: {{ .Values.name }}
-  name: {{ .Values.name }}
-  namespace: {{ .Values.namespace | default .Release.Namespace }}
+    app: prometheus
+  name: prometheus
+  namespace: {{ .Release.Namespace }}
 data:
   alerting_rules.yml: |
     groups:
@@ -161,7 +161,7 @@ data:
       scrape_interval: 1m
       scrape_timeout: 10s
       external_labels:
-        external_tenant: {{ .Values.namespace | default .Release.Namespace }}_{{ .Values.domain }}
+        external_tenant: {{ .Release.Namespace }}_{{ .Values.domain }}
     rule_files:
     - /etc/config/recording_rules.yml
     - /etc/config/alerting_rules.yml
@@ -174,13 +174,13 @@ data:
       static_configs:
       - targets:
         - localhost:9090
-      metrics_path: /{{ .Values.namespace | default .Release.Namespace }}/{{ .Values.name }}/metrics
+      metrics_path: /{{ .Release.Namespace }}/prometheus/metrics
     - job_name: kubernetes-services
       kubernetes_sd_configs:
       - role: service
         namespaces:
           names:
-          - {{ .Values.namespace | default .Release.Namespace }}
+          - {{ .Release.Namespace }}
       metrics_path: /metrics
       params:
         module:
@@ -211,7 +211,7 @@ data:
       - role: pod
         namespaces:
           names:
-          - {{ .Values.namespace | default .Release.Namespace }}
+          - {{ .Release.Namespace }}
       relabel_configs:
       - action: keep
         regex: true
@@ -257,8 +257,8 @@ data:
       alertmanagers:
       - static_configs:
         - targets:
-            - "alertmanager.{{ .Values.namespace | default .Release.Namespace }}.svc.cluster.local:9093"
-        path_prefix: "{{ .Values.namespace | default .Release.Namespace }}/alertmanager"
+            - "alertmanager.{{ .Release.Namespace }}.svc.cluster.local:9093"
+        path_prefix: "{{ .Release.Namespace }}/alertmanager"
   recording_rules.yml: |
     {}
   rules: |
@@ -268,5 +268,5 @@ data:
     type: GCS
     prefix: thanos
     config:
-      bucket: {{ .Values.namespace | default .Release.Namespace }}.{{ .Values.domain }}
+      bucket: {{ .Release.Namespace }}.{{ .Values.domain }}
   {{- end }}

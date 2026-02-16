@@ -1,10 +1,10 @@
 apiVersion: networking.istio.io/v1beta1
 kind: VirtualService
 metadata:
-  name: {{ .Values.name }}-vsvc
-  namespace: {{ .Values.namespace | default .Release.Namespace }}
+  name: prometheus-vsvc
+  namespace: {{ .Release.Namespace }}
   labels:
-    app: {{ .Values.name }}
+    app: prometheus
 spec:
   gateways:
   - istio-system/teknoir-gateway
@@ -13,11 +13,11 @@ spec:
   http:
   - match:
     - uri:
-        prefix: /{{ .Values.namespace | default .Release.Namespace }}/{{ .Values.name }}
+        prefix: /{{ .Release.Namespace }}/prometheus
     rewrite:
-      uri: /{{ .Values.namespace | default .Release.Namespace }}/{{ .Values.name }}
+      uri: /{{ .Release.Namespace }}/prometheus
     route:
     - destination:
-        host: {{ .Values.name }}.{{ .Values.namespace | default .Release.Namespace }}.svc.cluster.local
+        host: prometheus.{{ .Release.Namespace }}.svc.cluster.local
         port:
           number: 80

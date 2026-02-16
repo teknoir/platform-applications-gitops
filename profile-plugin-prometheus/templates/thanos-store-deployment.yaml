@@ -7,7 +7,7 @@ metadata:
     teknoir.org/activity-logs-enabled: "true"
     teknoir.org/activity-logs-section: prometheus
   name: thanos-store
-  namespace: {{ .Values.namespace | default .Release.Namespace }}
+  namespace: {{ .Release.Namespace }}
 spec:
   selector:
     matchLabels:
@@ -23,7 +23,6 @@ spec:
         teknoir.org/activity-logs-section: prometheus
     spec:
       serviceAccountName: {{ .Values.serviceAccountName }}
-      serviceAccount: {{ .Values.serviceAccountName }}
       containers:
         - name: thanos-store
           image: "quay.io/thanos/thanos:{{ .Values.thanosVersion }}"
@@ -45,5 +44,5 @@ spec:
       volumes:
         - name: config-volume
           configMap:
-            name: {{ .Values.name }}
+            name: prometheus
 {{- end }}

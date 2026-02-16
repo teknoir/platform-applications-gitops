@@ -7,7 +7,7 @@ metadata:
     teknoir.org/activity-logs-enabled: "true"
     teknoir.org/activity-logs-section: prometheus
   name: thanos-query
-  namespace: {{ .Values.namespace | default .Release.Namespace }}
+  namespace: {{ .Release.Namespace }}
 spec:
   ports:
     - name: http

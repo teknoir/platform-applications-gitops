@@ -7,7 +7,7 @@ metadata:
     teknoir.org/activity-logs-enabled: "true"
     teknoir.org/activity-logs-section: prometheus
   name: thanos-query
-  namespace: {{ .Values.namespace | default .Release.Namespace }}
+  namespace: {{ .Release.Namespace }}
 spec:
   selector:
     matchLabels:
@@ -22,8 +22,7 @@ spec:
         teknoir.org/activity-logs-enabled: "true"
         teknoir.org/activity-logs-section: prometheus
     spec:
-      serviceAccountName: {{ .Values.name }}
-      serviceAccount: {{ .Values.name }}
+      serviceAccountName: {{ .Values.serviceAccountName }}
       containers:
         - name: thanos-query
           image: "quay.io/thanos/thanos:{{ .Values.thanosVersion }}"
@@ -31,11 +30,11 @@ spec:
           args:
             - query
             - --http-address=0.0.0.0:9090
-            - --web.external-prefix={{ .Values.namespace | default .Release.Namespace }}/thanos
+            - --web.external-prefix={{ .Release.Namespace }}/thanos
             - --web.prefix-header=X-Forwarded-Prefix
             - --grpc-address=0.0.0.0:10901
-            - --endpoint={{ .Values.name }}.{{ .Values.namespace | default .Release.Namespace }}.svc.cluster.local:19090
-            - --endpoint=thanos-store-svc.{{ .Values.namespace | default .Release.Namespace }}.svc.cluster.local:19090
+            - --endpoint=prometheus.{{ .Release.Namespace }}.svc.cluster.local:19090
+            - --endpoint=thanos-store-svc.{{ .Release.Namespace }}.svc.cluster.local:19090
             - --log.level=debug
           ports:
             - name: http

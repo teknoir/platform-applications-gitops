@@ -2,11 +2,11 @@ apiVersion: v1
 kind: Service
 metadata:
   labels:
-    app: {{ .Values.name }}
+    app: prometheus
     teknoir.org/activity-logs-enabled: "true"
     teknoir.org/activity-logs-section: prometheus
-  name: {{ .Values.name }}
-  namespace: {{ .Values.namespace | default .Release.Namespace }}
+  name: prometheus
+  namespace: {{ .Release.Namespace }}
 spec:
   ports:
     - name: http
@@ -20,5 +20,5 @@ spec:
       targetPort: 19090
     {{- end }}
   selector:
-    app: {{ .Values.name }}
+    app: prometheus
   sessionAffinity: None

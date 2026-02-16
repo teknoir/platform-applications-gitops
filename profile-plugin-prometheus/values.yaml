@@ -1,11 +1,9 @@
-name: prometheus
-namespace: ""
 domain: teknoir.online
 domainPrefix: ""
 persistentVolumeClaimSize: 15Gi
-version: v2.52.0
+prometheusVersion: v2.52.0
 thanosVersion: v0.39.2
-serviceAccountName: prometheus
+serviceAccountName: default-editor
 
 thanos:
   enabled: false

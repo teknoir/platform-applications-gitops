@@ -2,9 +2,9 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   labels:
-    app: {{ .Values.name }}
-  name: {{ .Values.namespace | default .Release.Namespace }}-{{ .Values.name }}-config
-  namespace: {{ .Values.namespace | default .Release.Namespace }}
+    app: prometheus
+  name: {{ .Release.Namespace }}-prometheus-config
+  namespace: {{ .Release.Namespace }}
 data:
   user_defined_rules.yml: |
     groups: []

@@ -8,7 +8,7 @@ metadata:
     teknoir.org/activity-logs-enabled: "true"
     teknoir.org/activity-logs-section: prometheus
   name: thanos-compactor-pvc
-  namespace: {{ .Values.namespace | default .Release.Namespace }}
+  namespace: {{ .Release.Namespace }}
 spec:
   accessModes:
     - ReadWriteOnce

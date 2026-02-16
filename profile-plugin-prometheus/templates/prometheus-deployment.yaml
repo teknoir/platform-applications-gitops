@@ -2,22 +2,22 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   labels:
-    app: {{ .Values.name }}
+    app: prometheus
     teknoir.org/activity-logs-enabled: "true"
     teknoir.org/activity-logs-section: prometheus
-  name: {{ .Values.name }}
-  namespace: {{ .Values.namespace | default .Release.Namespace }}
+  name: prometheus
+  namespace: {{ .Release.Namespace }}
 spec:
   selector:
     matchLabels:
-      app: {{ .Values.name }}
+      app: prometheus
   replicas: 1
   strategy:
     type: Recreate
   template:
     metadata:
       labels:
-        app: {{ .Values.name }}
+        app: prometheus
         teknoir.org/activity-logs-enabled: "true"
         teknoir.org/activity-logs-section: prometheus
       annotations:
@@ -28,13 +28,13 @@ spec:
     spec:
       serviceAccountName: {{ .Values.serviceAccountName }}
       containers:
-        - name: {{ .Values.name }}-configmap-reload
+        - name: prometheus-configmap-reload
           image: "jimmidyson/configmap-reload:v0.9.0"
           imagePullPolicy: IfNotPresent
           args:
             - --volume-dir=/etc/config
             - --volume-dir=/etc/user-alerting-rules
-            - --webhook-url=http://127.0.0.1:9090/{{ .Values.namespace | default .Release.Namespace }}/{{ .Values.name }}/-/reload
+            - --webhook-url=http://127.0.0.1:9090/{{ .Release.Namespace }}/prometheus/-/reload
           volumeMounts:
             - name: config-volume
               mountPath: /etc/config
@@ -43,14 +43,14 @@ spec:
               mountPath: /etc/user-alerting-rules
               readOnly: true
         {{- if .Values.thanos.enabled }}
-        - name: {{ .Values.name }}-thanos-sidecar
+        - name: prometheus-thanos-sidecar
           image: "quay.io/thanos/thanos:{{ .Values.thanosVersion }}"
           imagePullPolicy: Always
           args:
             - sidecar
             - --tsdb.path=/data
             - --shipper.upload-compacted
-            - --prometheus.url=http://127.0.0.1:9090/{{ .Values.namespace | default .Release.Namespace }}/{{ .Values.name }}
+            - --prometheus.url=http://127.0.0.1:9090/{{ .Release.Namespace }}/prometheus
             - --objstore.config-file=/etc/config/thanos-bucket-config.yaml
             - --http-address=0.0.0.0:19191
             - --grpc-address=0.0.0.0:19090
@@ -67,8 +67,8 @@ spec:
               mountPath: /data
               subPath: ""
         {{- end }}
-        - name: {{ .Values.name }}
-          image: "quay.io/prometheus/prometheus:{{ .Values.version }}"
+        - name: prometheus
+          image: "quay.io/prometheus/prometheus:{{ .Values.prometheusVersion }}"
           imagePullPolicy: Always
           args:
             - --storage.tsdb.retention.time=15d
@@ -80,8 +80,8 @@ spec:
             - --web.enable-lifecycle
             - --web.enable-remote-write-receiver
             - --log.level=debug
-            - --web.route-prefix=/{{ .Values.namespace | default .Release.Namespace }}/{{ .Values.name }}
-            - --web.external-url=https://{{ .Values.domain }}/{{ .Values.namespace | default .Release.Namespace }}/{{ .Values.name }}
+            - --web.route-prefix=/{{ .Release.Namespace }}/prometheus
+            - --web.external-url=https://{{ .Values.domain }}/{{ .Release.Namespace }}/prometheus
             {{- if .Values.thanos.enabled }}
             - --storage.tsdb.min-block-duration=2h
             - --storage.tsdb.max-block-duration=2h
@@ -92,7 +92,7 @@ spec:
               protocol: TCP
           readinessProbe:
             httpGet:
-              path: /{{ .Values.namespace | default .Release.Namespace }}/{{ .Values.name }}/-/ready
+              path: /{{ .Release.Namespace }}/prometheus/-/ready
               port: 9090
             initialDelaySeconds: 90
             periodSeconds: 5
@@ -101,7 +101,7 @@ spec:
             successThreshold: 1
           livenessProbe:
             httpGet:
-              path: /{{ .Values.namespace | default .Release.Namespace }}/{{ .Values.name }}/-/healthy
+              path: /{{ .Release.Namespace }}/prometheus/-/healthy
               port: 9090
             initialDelaySeconds: 90
             periodSeconds: 15
@@ -111,7 +111,7 @@ spec:
           volumeMounts:
             - name: config-volume
               mountPath: /etc/config
-            - name: {{ .Values.namespace | default .Release.Namespace }}-{{ .Values.name }}-config
+            - name: {{ .Release.Namespace }}-prometheus-config
               mountPath: /etc/custom
             - name: user-alerting-rules
               mountPath: /etc/user-alerting-rules
@@ -130,16 +130,16 @@ spec:
       volumes:
         - name: config-volume
           configMap:
-            name: {{ .Values.name }}
-        - name: {{ .Values.namespace | default .Release.Namespace }}-{{ .Values.name }}-config
+            name: prometheus
+        - name: {{ .Release.Namespace }}-prometheus-config
           configMap:
-            name: {{ .Values.namespace | default .Release.Namespace }}-{{ .Values.name }}-config
+            name: {{ .Release.Namespace }}-prometheus-config
         - name: user-alerting-rules
           configMap:
             name: user-alerting-rules
         - name: storage-volume
           persistentVolumeClaim:
-            claimName: {{ .Values.name }}
+            claimName: prometheus
         - name: istio-certs
           emptyDir:
             medium: Memory
