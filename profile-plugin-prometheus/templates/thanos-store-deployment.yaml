@@ -1,0 +1,49 @@
+{{- if .Values.thanos.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: thanos-store
+    teknoir.org/activity-logs-enabled: "true"
+    teknoir.org/activity-logs-section: prometheus
+  name: thanos-store
+  namespace: {{ .Values.namespace | default .Release.Namespace }}
+spec:
+  selector:
+    matchLabels:
+      app: thanos-store
+  replicas: 1
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: thanos-store
+        teknoir.org/activity-logs-enabled: "true"
+        teknoir.org/activity-logs-section: prometheus
+    spec:
+      serviceAccountName: {{ .Values.serviceAccountName }}
+      serviceAccount: {{ .Values.serviceAccountName }}
+      containers:
+        - name: thanos-store
+          image: "quay.io/thanos/thanos:{{ .Values.thanosVersion }}"
+          imagePullPolicy: Always
+          args:
+            - store
+            - --data-dir=/tmp/thanos/store
+            - --objstore.config-file=/etc/config/thanos-bucket-config.yaml
+            - --http-address=0.0.0.0:19191
+            - --grpc-address=0.0.0.0:19090
+          ports:
+            - name: grpc-sidecar
+              containerPort: 19090
+            - name: http-monitoring
+              containerPort: 19191
+          volumeMounts:
+            - name: config-volume
+              mountPath: /etc/config
+      volumes:
+        - name: config-volume
+          configMap:
+            name: {{ .Values.name }}
+{{- end }}

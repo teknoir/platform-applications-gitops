@@ -1,0 +1,19 @@
+{{- if .Values.thanos.enabled }}
+{{- if .Values.thanos.compactor.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  labels:
+    app: thanos-compactor
+    teknoir.org/activity-logs-enabled: "true"
+    teknoir.org/activity-logs-section: prometheus
+  name: thanos-compactor-pvc
+  namespace: {{ .Values.namespace | default .Release.Namespace }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.thanos.compactor.storage | quote }}
+{{- end }}
+{{- end }}

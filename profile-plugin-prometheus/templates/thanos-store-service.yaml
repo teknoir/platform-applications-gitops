@@ -1,0 +1,20 @@
+{{- if .Values.thanos.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: thanos-store
+    teknoir.org/activity-logs-enabled: "true"
+    teknoir.org/activity-logs-section: prometheus
+  name: thanos-store-svc
+  namespace: {{ .Values.namespace | default .Release.Namespace }}
+spec:
+  ports:
+    - name: grpc-sidecar
+      port: 19090
+      protocol: TCP
+      targetPort: 19090
+  selector:
+    app: thanos-store
+  sessionAffinity: None
+{{- end }}

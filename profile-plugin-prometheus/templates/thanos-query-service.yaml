@@ -1,0 +1,20 @@
+{{- if .Values.thanos.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: thanos-query
+    teknoir.org/activity-logs-enabled: "true"
+    teknoir.org/activity-logs-section: prometheus
+  name: thanos-query
+  namespace: {{ .Values.namespace | default .Release.Namespace }}
+spec:
+  ports:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 9090
+  selector:
+    app: thanos-query
+  sessionAffinity: None
+{{- end }}

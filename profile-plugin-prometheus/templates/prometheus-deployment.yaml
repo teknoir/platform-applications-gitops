@@ -1,0 +1,145 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: {{ .Values.name }}
+    teknoir.org/activity-logs-enabled: "true"
+    teknoir.org/activity-logs-section: prometheus
+  name: {{ .Values.name }}
+  namespace: {{ .Values.namespace | default .Release.Namespace }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ .Values.name }}
+  replicas: 1
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.name }}
+        teknoir.org/activity-logs-enabled: "true"
+        teknoir.org/activity-logs-section: prometheus
+      annotations:
+        proxy.istio.io/config: |
+          proxyMetadata:
+            OUTPUT_CERTS: /etc/istio-output-certs
+        sidecar.istio.io/userVolumeMount: '[{"name": "istio-certs", "mountPath": "/etc/istio-output-certs"}]'
+    spec:
+      serviceAccountName: {{ .Values.serviceAccountName }}
+      containers:
+        - name: {{ .Values.name }}-configmap-reload
+          image: "jimmidyson/configmap-reload:v0.9.0"
+          imagePullPolicy: IfNotPresent
+          args:
+            - --volume-dir=/etc/config
+            - --volume-dir=/etc/user-alerting-rules
+            - --webhook-url=http://127.0.0.1:9090/{{ .Values.namespace | default .Release.Namespace }}/{{ .Values.name }}/-/reload
+          volumeMounts:
+            - name: config-volume
+              mountPath: /etc/config
+              readOnly: true
+            - name: user-alerting-rules
+              mountPath: /etc/user-alerting-rules
+              readOnly: true
+        {{- if .Values.thanos.enabled }}
+        - name: {{ .Values.name }}-thanos-sidecar
+          image: "quay.io/thanos/thanos:{{ .Values.thanosVersion }}"
+          imagePullPolicy: Always
+          args:
+            - sidecar
+            - --tsdb.path=/data
+            - --shipper.upload-compacted
+            - --prometheus.url=http://127.0.0.1:9090/{{ .Values.namespace | default .Release.Namespace }}/{{ .Values.name }}
+            - --objstore.config-file=/etc/config/thanos-bucket-config.yaml
+            - --http-address=0.0.0.0:19191
+            - --grpc-address=0.0.0.0:19090
+          ports:
+            - name: grpc-sidecar
+              containerPort: 19090
+            - name: http-sidecar
+              containerPort: 19191
+          volumeMounts:
+            - name: config-volume
+              mountPath: /etc/config
+              readOnly: true
+            - name: storage-volume
+              mountPath: /data
+              subPath: ""
+        {{- end }}
+        - name: {{ .Values.name }}
+          image: "quay.io/prometheus/prometheus:{{ .Values.version }}"
+          imagePullPolicy: Always
+          args:
+            - --storage.tsdb.retention.time=15d
+            - --storage.tsdb.retention.size=15GB
+            - --config.file=/etc/config/prometheus.yml
+            - --storage.tsdb.path=/data
+            - --web.console.libraries=/etc/prometheus/console_libraries
+            - --web.console.templates=/etc/prometheus/consoles
+            - --web.enable-lifecycle
+            - --web.enable-remote-write-receiver
+            - --log.level=debug
+            - --web.route-prefix=/{{ .Values.namespace | default .Release.Namespace }}/{{ .Values.name }}
+            - --web.external-url=https://{{ .Values.domain }}/{{ .Values.namespace | default .Release.Namespace }}/{{ .Values.name }}
+            {{- if .Values.thanos.enabled }}
+            - --storage.tsdb.min-block-duration=2h
+            - --storage.tsdb.max-block-duration=2h
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 9090
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /{{ .Values.namespace | default .Release.Namespace }}/{{ .Values.name }}/-/ready
+              port: 9090
+            initialDelaySeconds: 90
+            periodSeconds: 5
+            timeoutSeconds: 4
+            failureThreshold: 3
+            successThreshold: 1
+          livenessProbe:
+            httpGet:
+              path: /{{ .Values.namespace | default .Release.Namespace }}/{{ .Values.name }}/-/healthy
+              port: 9090
+            initialDelaySeconds: 90
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 3
+            successThreshold: 1
+          volumeMounts:
+            - name: config-volume
+              mountPath: /etc/config
+            - name: {{ .Values.namespace | default .Release.Namespace }}-{{ .Values.name }}-config
+              mountPath: /etc/custom
+            - name: user-alerting-rules
+              mountPath: /etc/user-alerting-rules
+              readOnly: true
+            - name: storage-volume
+              mountPath: /data
+              subPath: ""
+            - name: istio-certs
+              mountPath: /etc/prom-certs/
+      securityContext:
+        fsGroup: 65534
+        runAsGroup: 65534
+        runAsNonRoot: true
+        runAsUser: 65534
+      terminationGracePeriodSeconds: 300
+      volumes:
+        - name: config-volume
+          configMap:
+            name: {{ .Values.name }}
+        - name: {{ .Values.namespace | default .Release.Namespace }}-{{ .Values.name }}-config
+          configMap:
+            name: {{ .Values.namespace | default .Release.Namespace }}-{{ .Values.name }}-config
+        - name: user-alerting-rules
+          configMap:
+            name: user-alerting-rules
+        - name: storage-volume
+          persistentVolumeClaim:
+            claimName: {{ .Values.name }}
+        - name: istio-certs
+          emptyDir:
+            medium: Memory

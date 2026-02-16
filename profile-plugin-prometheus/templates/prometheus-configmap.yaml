@@ -1,0 +1,272 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: {{ .Values.name }}
+  name: {{ .Values.name }}
+  namespace: {{ .Values.namespace | default .Release.Namespace }}
+data:
+  alerting_rules.yml: |
+    groups:
+      - name: legacy_device_alerts
+        rules:
+          - alert: cpu
+            expr: device_cpu > 0.9
+            for: 5m
+            annotations:
+              summary: "High CPU load on {{ `{{ $labels.device_id }}` }}"
+              description: "{{ `{{ $labels.device_id }}` }} CPU load has been over 90% for 5min"
+          - alert: gpu
+            expr: device_gpu > 0.9
+            for: 5m
+            annotations:
+              summary: "High GPU load on {{ `{{ $labels.device_id }}` }}"
+              description: "{{ `{{ $labels.device_id }}` }} GPU load has been over 90% for 5min"
+          - alert: memory
+            expr: device_memory > 0.9
+            for: 5m
+            annotations:
+              summary: "High memory usage on {{ `{{ $labels.device_id }}` }}"
+              description: "{{ `{{ $labels.device_id }}` }} memory usage has been over 90% for 5min"
+          - alert: disk
+            expr: device_disk > 0.75
+            for: 5m
+            annotations:
+              summary: "Low disk space on {{ `{{ $labels.device_id }}` }}"
+              description: "{{ `{{ $labels.device_id }}` }} disk space usage has been over 75% for 5min"
+          - alert: cpu_temp
+            expr: device_cpu_temp > 75
+            for: 5m
+            annotations:
+              summary: "High CPU temperature {{ `{{ $labels.device_id }}` }}"
+              description: "{{ `{{ $labels.device_id }}` }} CPU temperature has been over 75deg Celsius for 5min"
+          - alert: gpu_temp
+            expr: device_gpu_temp > 75
+            for: 5m
+            annotations:
+              summary: "High GPU temperature {{ `{{ $labels.device_id }}` }}"
+              description: "{{ `{{ $labels.device_id }}` }} GPU temperature has been over 75deg Celsius for 5min"
+          - alert: app_down
+            expr: app_up == 0
+            for: 5m
+            annotations:
+              summary: "{{ `{{ $labels.name }}` }} app is down on {{ `{{ $labels.device_id }}` }}"
+              description: "The application with name {{ `{{ $labels.name }}` }} on the device {{ `{{ $labels.device_id }}` }} is currently not working"
+          - alert: app_restarts
+            expr: rate(app_restarts[5m]) > 0.001
+            for: 5m
+            annotations:
+              summary: "{{ `{{ $labels.name }}` }} app is restarting on {{ `{{ $labels.device_id }}` }}"
+              description: "The application with name {{ `{{ $labels.name }}` }} on the device {{ `{{ $labels.device_id }}` }} is currently restarting frequently"
+          - alert: devstudio_high_cpu
+            expr: irate(process_cpu_user_seconds_total{devstudio_name!=""}[2m]) > 0.9
+            for: 15m
+            annotations:
+              summary: "{{ `{{ $labels.devstudio_name }}` }} has high CPU usage"
+              description: "There is high usage of CPU by {{ `{{ $labels.devstudio_name }}` }} for the last 15 minutes"
+      - name: device_alerts
+        rules:
+          - alert: lost
+            expr: (min by (device_id) (time() - device_last_seen)) > 180
+            for: 2m
+            annotations:
+              summary: "Device {{ `{{ $labels.device_id }}` }} is lost"
+              description: "{{ `{{ $labels.device_id }}` }} in {{ `{{ $labels.namespace }}` }} has not been seen for more than 2 minutes."
+          - alert: PodNotRunning
+            expr: pod_running == 0
+            for: 5m
+            annotations:
+              summary: "Pod {{ `{{ $labels.name }}` }} (version {{ `{{ $labels.version }}` }}) on device {{ `{{ $labels.device_id }}` }} is not running"
+              description: "Pod {{ `{{ $labels.name }}` }} with version {{ `{{ $labels.version }}` }} on device {{ `{{ $labels.device_id }}` }} has not been running for 5 minutes."
+          - alert: DevicePodFrequentRestarts
+            expr: rate(pod_restarts[15m]) > 0.2
+            for: 15m
+            annotations:
+              summary: "Pod {{ `{{ $labels.name }}` }} (version {{ `{{ $labels.version }}` }}) on device {{ `{{ $labels.device_id }}` }} is restarting frequently"
+              description: "Pod {{ `{{ $labels.name }}` }} with version {{ `{{ $labels.version }}` }} on device {{ `{{ $labels.device_id }}` }} has restarted more than 3 times in the last 15 minutes."
+          - alert: DevicePodNotReady
+            expr: pod_ready_containers != pod_total_containers
+            for: 5m
+            annotations:
+              summary: "Pod {{ `{{ $labels.name }}` }} (version {{ `{{ $labels.version }}` }}) on device {{ `{{ $labels.device_id }}` }} is not ready"
+              description: "Pod {{ `{{ $labels.name }}` }} with version {{ `{{ $labels.version }}` }} on device {{ `{{ $labels.device_id }}` }} has containers that are not ready."
+          - alert: DevicePodHighCPUUsage
+            expr: ((pod_cpu_usage / pod_resource_limits_cpu) and (pod_cpu_usage!=0 and pod_resource_limits_cpu!=0)) > 0.9
+            for: 15m
+            annotations:
+              summary: "High CPU usage on Pod {{ `{{ $labels.name }}` }} (version {{ `{{ $labels.version }}` }}) on device {{ `{{ $labels.device_id }}` }}"
+              description: "Pod {{ `{{ $labels.name }}` }} with version {{ `{{ $labels.version }}` }} on device {{ `{{ $labels.device_id }}` }} CPU usage has been over 90% of its limit for 15 minutes."
+          - alert: DevicePodHighMemoryUsage
+            expr: ((pod_memory_usage / pod_resource_limits_memory) and (pod_memory_usage != 0 and pod_resource_limits_memory != 0)) > 0.9
+            for: 15m
+            annotations:
+              summary: "High memory usage on Pod {{ `{{ $labels.name }}` }} (version {{ `{{ $labels.version }}` }}) on device {{ `{{ $labels.device_id }}` }}"
+              description: "Pod {{ `{{ $labels.name }}` }} with version {{ `{{ $labels.version }}` }} on device {{ `{{ $labels.device_id }}` }} memory usage has been over 90% of its limit for 15 minutes."
+          - alert: NodeNotReady
+            expr: node_ready == 0
+            for: 5m
+            annotations:
+              summary: "Node {{ `{{ $labels.name }}` }} - {{ `{{ $labels.device_id }}` }} is not ready"
+              description: "Node {{ `{{ $labels.name }}` }} - {{ `{{ $labels.device_id }}` }} has not been ready for 5 minutes."
+          - alert: NodeHighCPUUsage
+            expr: node_cpu_usage / node_cpu_allocatable > 0.9
+            for: 15m
+            annotations:
+              summary: "High CPU usage on Node {{ `{{ $labels.name }}` }} - {{ `{{ $labels.device_id }}` }}"
+              description: "Node {{ `{{ $labels.name }}` }} - {{ `{{ $labels.device_id }}` }} CPU usage has been over 90% of its allocatable capacity for 15 minutes."
+          - alert: NodeHighMemoryUsage
+            expr: node_memory_usage / node_memory_allocatable > 0.9
+            for: 15m
+            annotations:
+              summary: "High memory usage on Node {{ `{{ $labels.name }}` }} - {{ `{{ $labels.device_id }}` }}"
+              description: "Node {{ `{{ $labels.name }}` }} - {{ `{{ $labels.device_id }}` }} memory usage has been over 90% of its allocatable capacity for 15 minutes."
+          - alert: LowDiskSpace
+            expr: node_storage_usage/node_storage_capacity > 0.75
+            for: 1m
+            labels:
+              alert_type: disk_space
+              severity: warning
+              scope: device
+            annotations:
+              summary: "Low disk space on {{ `{{ $labels.device_id }}` }}"
+              description: "Device {{ `{{ $labels.device_id }}` }} has less than 25% disk space available."
+      - name: internal-llm-alerts
+        rules:
+          - alert: HighLLMProcessingAPIErrorRate
+            labels:
+              team: ml
+            expr: |
+              (
+                rate(llm_processing_service_http_requests_total{status_code!~"2.."}[5m])
+                /
+                rate(llm_processing_service_http_requests_total[5m])
+              ) > 0.05
+            for: 2m
+            annotations:
+              summary: "High error rate detected in LLM processing service API"
+              description: "More than 5% of HTTP responses were non-2xx in the last 5 minutes. Check service health."
+          - alert: PrometheusStorageFilling
+            expr: (predict_linear(prometheus_tsdb_storage_blocks_bytes[1h], 24 * 3600) / prometheus_tsdb_storage_blocks_bytes_total) > 0.8
+            for: 1h
+            labels:
+              severity: warning
+            annotations:
+              summary: "Prometheus storage is filling up"
+              description: "Prometheus storage is predicted to fill within 24 hours."
+  alerts: |
+    {}
+  prometheus.yml: |
+    global:
+      evaluation_interval: 1m
+      scrape_interval: 1m
+      scrape_timeout: 10s
+      external_labels:
+        external_tenant: {{ .Values.namespace | default .Release.Namespace }}_{{ .Values.domain }}
+    rule_files:
+    - /etc/config/recording_rules.yml
+    - /etc/config/alerting_rules.yml
+    - /etc/user-alerting-rules/user_alerting_rules.yml
+    - /etc/config/rules
+    - /etc/config/alerts
+    - /etc/custom/user_defined_rules.yml
+    scrape_configs:
+    - job_name: prometheus
+      static_configs:
+      - targets:
+        - localhost:9090
+      metrics_path: /{{ .Values.namespace | default .Release.Namespace }}/{{ .Values.name }}/metrics
+    - job_name: kubernetes-services
+      kubernetes_sd_configs:
+      - role: service
+        namespaces:
+          names:
+          - {{ .Values.namespace | default .Release.Namespace }}
+      metrics_path: /metrics
+      params:
+        module:
+        - http_2xx
+      relabel_configs:
+      - action: keep
+        regex: true
+        source_labels:
+        - __meta_kubernetes_service_annotation_prometheus_io_probe
+      - source_labels:
+        - __address__
+        target_label: __param_target
+      - replacement: blackbox
+        target_label: __address__
+      - source_labels:
+        - __param_target
+        target_label: instance
+      - action: labelmap
+        regex: __meta_kubernetes_service_label_(.+)
+      - source_labels:
+        - __meta_kubernetes_namespace
+        target_label: kubernetes_namespace
+      - source_labels:
+        - __meta_kubernetes_service_name
+        target_label: kubernetes_name
+    - job_name: kubernetes-pods
+      kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names:
+          - {{ .Values.namespace | default .Release.Namespace }}
+      relabel_configs:
+      - action: keep
+        regex: true
+        source_labels:
+        - __meta_kubernetes_pod_annotation_prometheus_io_scrape
+      - action: replace
+        regex: (https?)
+        source_labels:
+        - __meta_kubernetes_pod_annotation_prometheus_io_scheme
+        target_label: __scheme__
+      - action: replace
+        regex: (.+)
+        source_labels:
+        - __meta_kubernetes_pod_annotation_prometheus_io_path
+        target_label: __metrics_path__
+      - action: replace
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+        source_labels:
+        - __address__
+        - __meta_kubernetes_pod_annotation_prometheus_io_port
+        target_label: __address__
+      - action: labelmap
+        regex: __meta_kubernetes_pod_label_(.+)
+      - action: replace
+        source_labels:
+        - __meta_kubernetes_namespace
+        target_label: kubernetes_namespace
+      - action: replace
+        source_labels:
+        - __meta_kubernetes_pod_name
+        target_label: kubernetes_pod_name
+      - action: drop
+        regex: Pending|Succeeded|Failed
+        source_labels:
+        - __meta_kubernetes_pod_phase
+      metric_relabel_configs:
+      - regex: 'pod_template_hash|security_istio_io_tlsMode|service_istio_io_canonical_name|service_istio_io_canonical_revision|topology_istio_io_network'
+        action: labeldrop
+      scrape_interval: 5s
+      scrape_timeout: 4s
+    alerting:
+      alertmanagers:
+      - static_configs:
+        - targets:
+            - "alertmanager.{{ .Values.namespace | default .Release.Namespace }}.svc.cluster.local:9093"
+        path_prefix: "{{ .Values.namespace | default .Release.Namespace }}/alertmanager"
+  recording_rules.yml: |
+    {}
+  rules: |
+    {}
+  {{- if .Values.thanos.enabled }}
+  thanos-bucket-config.yaml: |
+    type: GCS
+    prefix: thanos
+    config:
+      bucket: {{ .Values.namespace | default .Release.Namespace }}.{{ .Values.domain }}
+  {{- end }}
