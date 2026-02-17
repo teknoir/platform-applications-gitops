@@ -1,0 +1,6 @@
+apiVersion: v2
+name: user-controller
+description: A Helm chart for user-controller
+type: application
+version: 0.0.5
+appVersion: "1.0.0"

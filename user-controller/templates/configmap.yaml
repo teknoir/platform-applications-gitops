@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "user-controller.fullname" . }}-config
+  labels:
+    {{- include "user-controller.labels" . | nindent 4 }}
+data:
+  PROJECT_ID: {{ .Values.config.projectId | quote }}
+  USERID_HEADER: {{ .Values.config.userIdHeader | quote }}
+  USERID_PREFIX: {{ .Values.config.userIdPrefix | quote }}
+  MAIL_CLIENT_API_KEY: {{ .Values.config.mailClientApiKey | quote }}
+  WEB_DOMAIN: {{ .Values.config.webDomain | quote }}

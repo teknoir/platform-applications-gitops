@@ -1,0 +1,531 @@
+apiVersion: teknoir.org/v1
+kind: Claim
+metadata:
+  annotations:
+    teknoir.org/custom-claims-alias: a
+    teknoir.org/display-name: Artifacts
+  labels:
+    teknoir.org/part-of: user-controller
+  name: artifacts
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: teknoir.org/v1
+kind: Claim
+metadata:
+  annotations:
+    teknoir.org/custom-claims-alias: al
+    teknoir.org/display-name: Audit Logging
+  labels:
+    teknoir.org/part-of: user-controller
+  name: audit-logging
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: teknoir.org/v1
+kind: Claim
+metadata:
+  annotations:
+    teknoir.org/custom-claims-alias: c
+    teknoir.org/display-name: Home
+  labels:
+    teknoir.org/part-of: user-controller
+  name: core
+  namespace: {{ .Release.Namespace }}
+spec:
+  authpolicy:
+  - permissions:
+    - read
+    rules:
+    - to:
+      - operation:
+          paths:
+          - /*
+  - permissions:
+    - write
+    rules:
+    - to:
+      - operation:
+          paths:
+          - /*
+  - permissions:
+    - read
+    - write
+    rules:
+    - to:
+      - operation:
+          paths:
+          - /*
+  authpolicymatch: strict
+---
+apiVersion: teknoir.org/v1
+kind: Claim
+metadata:
+  annotations:
+    teknoir.org/custom-claims-alias: ds
+    teknoir.org/display-name: Dev Studio
+  labels:
+    teknoir.org/part-of: user-controller
+  name: dev-studio
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: teknoir.org/v1
+kind: Claim
+metadata:
+  annotations:
+    teknoir.org/custom-claims-alias: d
+    teknoir.org/display-name: Devices
+  labels:
+    teknoir.org/part-of: user-controller
+  name: devices
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: teknoir.org/v1
+kind: Claim
+metadata:
+  annotations:
+    teknoir.org/custom-claims-alias: g
+    teknoir.org/display-name: GitHub
+  labels:
+    teknoir.org/part-of: user-controller
+  name: github
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: teknoir.org/v1
+kind: Claim
+metadata:
+  annotations:
+    teknoir.org/custom-claims-alias: hd
+    teknoir.org/display-name: Help Documentation
+  labels:
+    teknoir.org/part-of: user-controller
+  name: help-documentation
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: teknoir.org/v1
+kind: Claim
+metadata:
+  annotations:
+    teknoir.org/custom-claims-alias: ls
+    teknoir.org/display-name: Label Studio
+  labels:
+    teknoir.org/part-of: user-controller
+  name: label-studio
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: teknoir.org/v1
+kind: Claim
+metadata:
+  annotations:
+    teknoir.org/custom-claims-alias: lp
+    teknoir.org/display-name: Label Studio Projects
+  labels:
+    teknoir.org/part-of: user-controller
+  name: label-studio-projects
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: teknoir.org/v1
+kind: Claim
+metadata:
+  annotations:
+    teknoir.org/custom-claims-alias: mt
+    teknoir.org/display-name: Monitoring Tools
+  labels:
+    teknoir.org/part-of: user-controller
+  name: monitoring-tools
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: teknoir.org/v1
+kind: Claim
+metadata:
+  annotations:
+    teknoir.org/custom-claims-alias: "n"
+    teknoir.org/display-name: Notebooks
+  labels:
+    teknoir.org/part-of: user-controller
+  name: notebooks
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: teknoir.org/v1
+kind: Claim
+metadata:
+  annotations:
+    teknoir.org/custom-claims-alias: o
+    teknoir.org/display-name: Observatory
+  labels:
+    teknoir.org/part-of: user-controller
+  name: observatory
+  namespace: {{ .Release.Namespace }}
+spec:
+  authpolicy:
+  - permissions:
+    - read
+    rules:
+    - to:
+      - operation:
+          methods:
+          - GET
+          paths:
+          - /{{.namespace}}/sdmc*
+          - /{{.namespace}}/ws*
+          - /{{.namespace}}/media-service*
+          - /retrieve_events*
+          - /events*
+          - /feedbacks*
+          - /notifications*
+  - permissions:
+    - write
+    rules:
+    - to:
+      - operation:
+          methods:
+          - GET
+          - PUT
+          - POST
+          - DELETE
+          paths:
+          - /{{.namespace}}/sdmc*
+          - /{{.namespace}}/ws*
+          - /{{.namespace}}/media-service*
+          - /retrieve_events*
+          - /events*
+          - /feedbacks*
+          - /notifications*
+---
+apiVersion: teknoir.org/v1
+kind: Claim
+metadata:
+  annotations:
+    teknoir.org/custom-claims-alias: um
+    teknoir.org/display-name: Role and user Management
+  labels:
+    teknoir.org/part-of: user-controller
+  name: role-user-management
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: teknoir.org/v1
+kind: Claim
+metadata:
+  annotations:
+    teknoir.org/custom-claims-alias: tm
+    teknoir.org/display-name: Teamspace Management
+  labels:
+    teknoir.org/part-of: user-controller
+  name: teamspace-management
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: teknoir.org/v1
+kind: Claim
+metadata:
+  annotations:
+    teknoir.org/custom-claims-alias: v
+    teknoir.org/display-name: Volumes
+  labels:
+    teknoir.org/part-of: user-controller
+  name: volumes
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: teknoir.org/v1
+kind: Claim
+metadata:
+  annotations:
+    teknoir.org/custom-claims-alias: w
+    teknoir.org/display-name: Workflows
+  labels:
+    teknoir.org/part-of: user-controller
+  name: workflows
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: teknoir.org/v1
+kind: ClaimSet
+metadata:
+  annotations:
+    teknoir.org/display-name: Annotation User
+  labels:
+    teknoir.org/part-of: user-controller
+  name: annotation-user
+  namespace: {{ .Release.Namespace }}
+spec:
+  claim_permissions:
+  - name: core
+    permissions:
+    - read
+  - name: label-studio
+    permissions:
+    - read
+  - name: label-studio-projects
+    permissions:
+    - read
+    - write
+  - name: help-documentation
+    permissions:
+    - read
+    - write
+---
+apiVersion: teknoir.org/v1
+kind: ClaimSet
+metadata:
+  annotations:
+    teknoir.org/display-name: Data Scientist
+  labels:
+    teknoir.org/part-of: user-controller
+  name: data-scientist
+  namespace: {{ .Release.Namespace }}
+spec:
+  claim_permissions:
+  - name: core
+    permissions:
+    - write
+  - name: devices
+    permissions:
+    - read
+    - write
+  - name: label-studio
+    permissions:
+    - read
+    - write
+  - name: label-studio-projects
+    permissions:
+    - read
+    - write
+  - name: dev-studio
+    permissions:
+    - read
+    - write
+  - name: notebooks
+    permissions:
+    - read
+    - write
+  - name: workflows
+    permissions:
+    - read
+    - write
+  - name: volumes
+    permissions:
+    - read
+    - write
+  - name: artifacts
+    permissions:
+    - read
+    - write
+  - name: github
+    permissions:
+    - read
+    - write
+  - name: monitoring-tools
+    permissions:
+    - read
+    - write
+  - name: observatory
+    permissions:
+    - read
+    - write
+  - name: help-documentation
+    permissions:
+    - read
+    - write
+  - name: audit-logging
+    permissions:
+    - read
+---
+apiVersion: teknoir.org/v1
+kind: ClaimSet
+metadata:
+  annotations:
+    teknoir.org/display-name: Developer
+  labels:
+    teknoir.org/part-of: user-controller
+  name: developer
+  namespace: {{ .Release.Namespace }}
+spec:
+  claim_permissions:
+  - name: core
+    permissions:
+    - write
+  - name: devices
+    permissions:
+    - read
+    - write
+  - name: dev-studio
+    permissions:
+    - read
+    - write
+  - name: notebooks
+    permissions:
+    - read
+    - write
+  - name: workflows
+    permissions:
+    - read
+    - write
+  - name: volumes
+    permissions:
+    - read
+    - write
+  - name: artifacts
+    permissions:
+    - read
+    - write
+  - name: github
+    permissions:
+    - read
+    - write
+  - name: monitoring-tools
+    permissions:
+    - read
+    - write
+  - name: observatory
+    permissions:
+    - read
+    - write
+  - name: help-documentation
+    permissions:
+    - read
+    - write
+  - name: audit-logging
+    permissions:
+    - read
+---
+apiVersion: teknoir.org/v1
+kind: ClaimSet
+metadata:
+  annotations:
+    teknoir.org/display-name: Operations Manager
+  labels:
+    teknoir.org/part-of: user-controller
+  name: operations-manager
+  namespace: {{ .Release.Namespace }}
+spec:
+  claim_permissions:
+  - name: core
+    permissions:
+    - write
+  - name: devices
+    permissions:
+    - read
+  - name: dev-studio
+    permissions:
+    - read
+  - name: monitoring-tools
+    permissions:
+    - read
+    - write
+  - name: observatory
+    permissions:
+    - read
+    - write
+  - name: help-documentation
+    permissions:
+    - read
+    - write
+---
+apiVersion: teknoir.org/v1
+kind: ClaimSet
+metadata:
+  annotations:
+    teknoir.org/display-name: Operator
+  labels:
+    teknoir.org/part-of: user-controller
+  name: operator
+  namespace: {{ .Release.Namespace }}
+spec:
+  claim_permissions:
+  - name: core
+    permissions:
+    - read
+  - name: devices
+    permissions:
+    - read
+  - name: observatory
+    permissions:
+    - read
+    - write
+  - name: help-documentation
+    permissions:
+    - read
+    - write
+---
+apiVersion: teknoir.org/v1
+kind: ClaimSet
+metadata:
+  annotations:
+    teknoir.org/display-name: Owner
+  labels:
+    teknoir.org/part-of: user-controller
+  name: owner
+  namespace: {{ .Release.Namespace }}
+spec:
+  claim_permissions:
+  - name: core
+    permissions:
+    - read
+    - write
+  - name: devices
+    permissions:
+    - read
+    - write
+  - name: label-studio
+    permissions:
+    - read
+    - write
+  - name: label-studio-projects
+    permissions:
+    - read
+    - write
+  - name: dev-studio
+    permissions:
+    - read
+    - write
+  - name: notebooks
+    permissions:
+    - read
+    - write
+  - name: workflows
+    permissions:
+    - read
+    - write
+  - name: volumes
+    permissions:
+    - read
+    - write
+  - name: artifacts
+    permissions:
+    - read
+    - write
+  - name: github
+    permissions:
+    - read
+    - write
+  - name: monitoring-tools
+    permissions:
+    - read
+    - write
+  - name: observatory
+    permissions:
+    - read
+    - write
+  - name: help-documentation
+    permissions:
+    - read
+    - write
+  - name: role-user-management
+    permissions:
+    - read
+    - write
+  - name: audit-logging
+    permissions:
+    - read
+---
+apiVersion: teknoir.org/v1
+kind: ClaimSet
+metadata:
+  annotations:
+    teknoir.org/display-name: Surveillance Viewer
+  labels:
+    teknoir.org/part-of: user-controller
+  name: surveillance-viewer
+  namespace: {{ .Release.Namespace }}
+spec:
+  claim_permissions:
+  - name: observatory
+    permissions:
+    - read
+    - write
