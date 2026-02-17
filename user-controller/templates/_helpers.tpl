@@ -54,14 +54,3 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 control-plane: controller-manager
 teknoir.org/part-of: user-controller
 {{- end }}
-
-{{/*
-Create the name of the service account to use
-*/}}
-{{- define "user-controller.serviceAccountName" -}}
-{{- if .Values.serviceAccount.create }}
-{{- default (include "user-controller.fullname" .) .Values.serviceAccount.name }}
-{{- else }}
-{{- default "default" .Values.serviceAccount.name }}
-{{- end }}
-{{- end }}

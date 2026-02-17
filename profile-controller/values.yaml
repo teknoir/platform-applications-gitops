@@ -26,28 +26,21 @@ securityContext: {}
   # runAsUser: 1000
 
 serviceAccount:
-  # Specifies whether a service account should be created
-  create: true
   # Annotations to add to the service account
   annotations: {}
-  # The name of the service account to use.
-  # If not set and create is true, a name is generated using the fullname template
-  name: ""
+
 
 config:
-  admin: ""
+  admin: "anders.aslund@teknoir.ai"
   workloadIdentity: ""
-  userIdHeader: "teknoi-userid"
+  userIdHeader: "X-Auth-Request-Email"
   userIdPrefix: ""
   projectId: ""
-  domain: ""
+  domain: "teknoir.online"
   domainPrefix: ""
-  region: ""
-  dnsZone: ""
-  istioRevision: ""
-
-rbac:
-  create: true
+  region: "us-central1"
+  dnsZone: "teknoir-online"
+  istioRevision: "1.28.3"
 
 resources: {}
   # limits:
