@@ -6,7 +6,10 @@ emqx:
   persistence:
     enabled: true
     size: 1Gi
+  apiKey: teknoir
+  apiSecret: teknoir
   emqxConfig:
+    EMQX_API_KEY__BOOTSTRAP_FILE: "/opt/emqx-bootstrap/api-keys.txt"
     EMQX_CLUSTER__DISCOVERY_STRATEGY: "k8s"
     EMQX_DASHBOARD__DEFAULT_USERNAME: "teknoir"
     EMQX_DASHBOARD__DEFAULT_PASSWORD: "teknoir"
@@ -32,6 +35,14 @@ emqx:
   pdb:
     enabled: false
     maxUnavailable: 1
+  extraVolumeMounts:
+    - name: emqx-bootstrap-api-keys
+      mountPath: /opt/emqx-bootstrap
+      readOnly: true
+  extraVolumes:
+    - name: emqx-bootstrap-api-keys
+      secret:
+        secretName: emqx-bootstrap-api-keys
 #  podAnnotations:
 #    sidecar.istio.io/userVolume: '{"tls-secret":{"secret":{"secretName":"test-organisation-wildcard-tls","optional":true}}}'
 #    sidecar.istio.io/userVolumeMount: '{"tls-secret":{"mountPath":"/etc/istio/tls-certs/","readOnly":true}}'
