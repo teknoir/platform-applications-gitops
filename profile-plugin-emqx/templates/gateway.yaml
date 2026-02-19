@@ -1,0 +1,30 @@
+{{/*---*/}}
+{{/*# Sidecar Gateway for TLS termination*/}}
+{{/*apiVersion: networking.istio.io/v1beta1*/}}
+{{/*kind: Gateway*/}}
+{{/*metadata:*/}}
+{{/*  name: emqx-sidecar-gateway*/}}
+{{/*  namespace: {{ .Release.Namespace }}*/}}
+{{/*spec:*/}}
+{{/*  selector:*/}}
+{{/*    app.kubernetes.io/name: emqx*/}}
+{{/*    app.kubernetes.io/instance: {{ .Release.Name }}*/}}
+{{/*  servers:*/}}
+{{/*    - port:*/}}
+{{/*        number: 8084*/}}
+{{/*        name: https-mqtt*/}}
+{{/*        protocol: TLS*/}}
+{{/*      tls:*/}}
+{{/*        mode: SIMPLE*/}}
+{{/*        credentialName: {{ .Release.Namespace }}-wildcard-tls*/}}
+{{/*      hosts:*/}}
+{{/*        - 'mqtt.{{ .Release.Namespace }}.{{ .Values.domain }}'*/}}
+{{/*    - port:*/}}
+{{/*        number: 8883*/}}
+{{/*        name: tls-mqtt*/}}
+{{/*        protocol: TLS*/}}
+{{/*      tls:*/}}
+{{/*        mode: SIMPLE*/}}
+{{/*        credentialName: {{ .Release.Namespace }}-wildcard-tls*/}}
+{{/*      hosts:*/}}
+{{/*        - 'mqtt.{{ .Release.Namespace }}.{{ .Values.domain }}'*/}}

@@ -1,0 +1,18 @@
+{{/*---*/}}
+{{/*apiVersion: security.istio.io/v1*/}}
+{{/*kind: PeerAuthentication*/}}
+{{/*metadata:*/}}
+{{/*  name: emqx-disable-peer-auth*/}}
+{{/*  namespace: {{ .Release.Namespace }}*/}}
+{{/*spec:*/}}
+{{/*  selector:*/}}
+{{/*    matchLabels:*/}}
+{{/*      app.kubernetes.io/name: emqx*/}}
+{{/*      app.kubernetes.io/instance: {{ .Release.Name }}*/}}
+{{/*  mtls:*/}}
+{{/*    mode: STRICT*/}}
+{{/*  portLevelMtls:*/}}
+{{/*    18883:*/}}
+{{/*      mode: DISABLE*/}}
+{{/*    18084:*/}}
+{{/*      mode: DISABLE*/}}

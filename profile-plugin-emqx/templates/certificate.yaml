@@ -1,0 +1,15 @@
+{{/*---*/}}
+{{/*apiVersion: cert-manager.io/v1*/}}
+{{/*kind: Certificate*/}}
+{{/*metadata:*/}}
+{{/*  name: {{ .Release.Namespace }}-wildcard*/}}
+{{/*  namespace: {{ .Release.Namespace }}*/}}
+{{/*spec:*/}}
+{{/*  secretName: {{ .Release.Namespace }}-wildcard-tls*/}}
+{{/*  commonName: "*.{{ .Release.Namespace }}.{{ .Values.domain }}"*/}}
+{{/*  dnsNames:*/}}
+{{/*    - "*.{{ .Release.Namespace }}.{{ .Values.domain }}"*/}}
+{{/*    - "{{ .Release.Namespace }}.{{ .Values.domain }}"*/}}
+{{/*  issuerRef:*/}}
+{{/*    name: letsencrypt-dns*/}}
+{{/*    kind: ClusterIssuer*/}}

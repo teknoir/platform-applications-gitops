@@ -1,0 +1,22 @@
+{{/*---*/}}
+{{/*apiVersion: v1*/}}
+{{/*kind: Service*/}}
+{{/*metadata:*/}}
+{{/*  name: emqx-tls*/}}
+{{/*  namespace: {{ .Release.Namespace }}*/}}
+{{/*  labels:*/}}
+{{/*    app.kubernetes.io/name: emqx*/}}
+{{/*    app.kubernetes.io/instance: {{ .Release.Name }}*/}}
+{{/*spec:*/}}
+{{/*  ports:*/}}
+{{/*    - name: tls-mqtt*/}}
+{{/*      port: 18883*/}}
+{{/*      protocol: TCP*/}}
+{{/*      targetPort: 18883*/}}
+{{/*    - name: tls-http*/}}
+{{/*      port: 18084*/}}
+{{/*      protocol: TCP*/}}
+{{/*      targetPort: 18084*/}}
+{{/*  selector:*/}}
+{{/*    app.kubernetes.io/name: emqx*/}}
+{{/*    app.kubernetes.io/instance: {{ .Release.Name }}*/}}

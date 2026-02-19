@@ -1,0 +1,44 @@
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: emqx-dashboard
+  namespace: {{ .Release.Namespace }}
+spec:
+  host: emqx-dashboard.{{ .Release.Namespace }}.svc.cluster.local
+  exportTo:
+    - "teknoir-system"
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+    connectionPool:
+      tcp:
+        maxConnections: 10000
+
+{{/*---*/}}
+{{/*apiVersion: networking.istio.io/v1beta1*/}}
+{{/*kind: DestinationRule*/}}
+{{/*metadata:*/}}
+{{/*  name: emqx-headless*/}}
+{{/*  namespace: {{ .Release.Namespace }}*/}}
+{{/*spec:*/}}
+{{/*  host: emqx-headless.{{ .Release.Namespace }}.svc.cluster.local*/}}
+{{/*  exportTo:*/}}
+{{/*    - "teknoir-system"*/}}
+{{/*  trafficPolicy:*/}}
+{{/*    tls:*/}}
+{{/*      mode: DISABLE*/}}
+
+{{/*---*/}}
+{{/*apiVersion: networking.istio.io/v1beta1*/}}
+{{/*kind: DestinationRule*/}}
+{{/*metadata:*/}}
+{{/*  name: emqx-tls*/}}
+{{/*  namespace: {{ .Release.Namespace }}*/}}
+{{/*spec:*/}}
+{{/*  host: emqx-tls.{{ .Release.Namespace }}.svc.cluster.local*/}}
+{{/*  exportTo:*/}}
+{{/*    - "kube-system"*/}}
+{{/*  trafficPolicy:*/}}
+{{/*    tls:*/}}
+{{/*      mode: DISABLE*/}}

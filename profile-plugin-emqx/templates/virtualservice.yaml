@@ -1,0 +1,96 @@
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: mqtt-ws
+  namespace: {{ .Release.Namespace }}
+spec:
+  hosts:
+    - 'mqtt-{{ .Release.Namespace }}.{{ .Values.domain }}'
+  gateways:
+    - istio-system/teknoir-gateway-public
+  http:
+    - route:
+        - destination:
+            host: emqx-headless.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: 8083
+
+{{/*---*/}}
+{{/*apiVersion: networking.istio.io/v1beta1*/}}
+{{/*kind: VirtualService*/}}
+{{/*metadata:*/}}
+{{/*  name: emqx-tls*/}}
+{{/*  namespace: {{ .Release.Namespace }}*/}}
+{{/*spec:*/}}
+{{/*  hosts:*/}}
+{{/*    - '*.{{ .Release.Namespace }}.{{ .Values.domain }}'*/}}
+{{/*  gateways:*/}}
+{{/*    - istio-system/teknoir-gateway*/}}
+{{/*  tls:*/}}
+{{/*    - match:*/}}
+{{/*        - port: 8084*/}}
+{{/*          sniHosts:*/}}
+{{/*            - 'mqtt.{{ .Release.Namespace }}.{{ .Values.domain }}'*/}}
+{{/*      route:*/}}
+{{/*        - destination:*/}}
+{{/*            host: emqx-headless.{{ .Release.Namespace }}.svc.cluster.local*/}}
+{{/*            port:*/}}
+{{/*              number: 8084*/}}
+{{/*    - match:*/}}
+{{/*        - port: 8883*/}}
+{{/*          sniHosts:*/}}
+{{/*            - 'mqtt.{{ .Release.Namespace }}.{{ .Values.domain }}'*/}}
+{{/*      route:*/}}
+{{/*        - destination:*/}}
+{{/*            host: emqx-headless.{{ .Release.Namespace }}.svc.cluster.local*/}}
+{{/*            port:*/}}
+{{/*              number: 8883*/}}
+
+{{/*---*/}}
+{{/*# VirtualService for sidecar Gateway*/}}
+{{/*apiVersion: networking.istio.io/v1beta1*/}}
+{{/*kind: VirtualService*/}}
+{{/*metadata:*/}}
+{{/*  name: emqx-sidecar*/}}
+{{/*  namespace: {{ .Release.Namespace }}*/}}
+{{/*spec:*/}}
+{{/*  hosts:*/}}
+{{/*    - 'mqtt.{{ .Release.Namespace }}.{{ .Values.domain }}'*/}}
+{{/*  gateways:*/}}
+{{/*    - emqx-sidecar-gateway*/}}
+{{/*  tcp:*/}}
+{{/*    - match:*/}}
+{{/*        - port: 8084*/}}
+{{/*      route:*/}}
+{{/*        - destination:*/}}
+{{/*            host: localhost*/}}
+{{/*            port:*/}}
+{{/*              number: 8083*/}}
+{{/*    - match:*/}}
+{{/*        - port: 8883*/}}
+{{/*      route:*/}}
+{{/*        - destination:*/}}
+{{/*            host: localhost*/}}
+{{/*            port:*/}}
+{{/*              number: 1883*/}}
+
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: emqx-dashboard
+  namespace: {{ .Release.Namespace }}
+spec:
+  hosts:
+    - 'emqx-dashboard-{{ .Release.Namespace }}.{{ .Values.domain }}'
+  gateways:
+    - istio-system/teknoir-gateway
+  http:
+    - route:
+        - destination:
+            host: emqx.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: 18083
+
+

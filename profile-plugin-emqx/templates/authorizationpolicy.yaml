@@ -1,0 +1,51 @@
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: emqx-authz
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: emqx
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  action: ALLOW
+  rules:
+    - to:
+        - operation:
+            ports: [ "1883", "8883", "8083", "8084", "18083" ]
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: emqx-api
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: emqx
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  action: ALLOW
+  rules:
+    - to:
+      - operation:
+          methods: ["GET", "POST", "PUT", "DELETE"]
+    - from:
+        - source:
+            namespaces:
+              - "teknoir-system"
+
+{{/*---*/}}
+{{/*apiVersion: security.istio.io/v1beta1*/}}
+{{/*kind: AuthorizationPolicy*/}}
+{{/*metadata:*/}}
+{{/*  name: public-allow*/}}
+{{/*  namespace: teknoir-auth*/}}
+{{/*spec:*/}}
+{{/*  selector:*/}}
+{{/*    matchLabels:*/}}
+{{/*      app: my-public-app*/}}
+{{/*  action: ALLOW*/}}
+{{/*  rules:*/}}
+{{/*    - {}*/}}

@@ -1,0 +1,37 @@
+domain: teknoir.online
+domainPrefix: ""
+
+emqx:
+  replicaCount: 1
+  persistence:
+    enabled: true
+    size: 1Gi
+  emqxConfig:
+    EMQX_CLUSTER__DISCOVERY_STRATEGY: "k8s"
+    EMQX_DASHBOARD__DEFAULT_USERNAME: "teknoir"
+    EMQX_DASHBOARD__DEFAULT_PASSWORD: "teknoir"
+    # --AUTHENTICATION & AUTHORIZATION ---
+    # 1. Built-in Database Authentication
+    EMQX_AUTHENTICATION__1__ENABLE: "true"
+    EMQX_AUTHENTICATION__1__MECHANISM: "password_based"
+    EMQX_AUTHENTICATION__1__BACKEND: "built_in_database"
+    # 2. JWKS Authentication
+    EMQX_AUTHENTICATION__2__ENABLE: "true"
+    EMQX_AUTHENTICATION__2__MECHANISM: "jwt"
+    EMQX_AUTHENTICATION__2__USE_JWKS: "true"
+    EMQX_AUTHENTICATION__2__ENDPOINT: "http://jwks:8083/api/v1/keys"
+    EMQX_AUTHENTICATION__2__FROM: "password"
+    #refresh_interval = 60
+    EMQX_AUTHENTICATION__2__REFRESH_INTERVAL: "60"
+    #ssl = {enable = false}
+    EMQX_AUTHENTICATION__2__SSL__ENABLE: "false"
+    #acl_claim_name = "acl"
+    EMQX_AUTHENTICATION__2__ACL_CLAIM_NAME: "acl"
+    #verify_claims = {aud = "{{.projectId}}"}
+    EMQX_AUTHENTICATION__2__VERIFY_CLAIMS: '{aud= \"teknoir\"}'
+  pdb:
+    enabled: false
+    maxUnavailable: 1
+#  podAnnotations:
+#    sidecar.istio.io/userVolume: '{"tls-secret":{"secret":{"secretName":"test-organisation-wildcard-tls","optional":true}}}'
+#    sidecar.istio.io/userVolumeMount: '{"tls-secret":{"mountPath":"/etc/istio/tls-certs/","readOnly":true}}'

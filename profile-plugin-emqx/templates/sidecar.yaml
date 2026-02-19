@@ -1,0 +1,30 @@
+{{/*---*/}}
+{{/*apiVersion: networking.istio.io/v1*/}}
+{{/*kind: Sidecar*/}}
+{{/*metadata:*/}}
+{{/*  name: emqx-ingress-sidecar*/}}
+{{/*  namespace: {{ .Release.Namespace }}*/}}
+{{/*spec:*/}}
+{{/*  workloadSelector:*/}}
+{{/*    labels:*/}}
+{{/*      app.kubernetes.io/name: emqx*/}}
+{{/*      app.kubernetes.io/instance: {{ .Release.Name }}*/}}
+{{/*  ingress:*/}}
+{{/*    - port:*/}}
+{{/*        number: 18084*/}}
+{{/*        protocol: HTTPS*/}}
+{{/*        name: https-mqtt*/}}
+{{/*      defaultEndpoint: 0.0.0.0:8083*/}}
+{{/*      tls:*/}}
+{{/*        mode: SIMPLE*/}}
+{{/*        privateKey: "/etc/istio/tls-certs/tls.key"*/}}
+{{/*        serverCertificate: "/etc/istio/tls-certs/tls.crt"*/}}
+{{/*    - port:*/}}
+{{/*        number: 18883*/}}
+{{/*        protocol: TLS*/}}
+{{/*        name: tls-mqtt*/}}
+{{/*      defaultEndpoint: 0.0.0.0:1883*/}}
+{{/*      tls:*/}}
+{{/*        mode: SIMPLE*/}}
+{{/*        privateKey: "/etc/istio/tls-certs/tls.key"*/}}
+{{/*        serverCertificate: "/etc/istio/tls-certs/tls.crt"*/}}
