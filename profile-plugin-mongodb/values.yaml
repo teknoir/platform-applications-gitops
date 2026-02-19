@@ -1,0 +1,6 @@
+domain: teknoir.online
+domainPrefix: ""
+persistentVolumeClaimSize: 100Gi
+mongodbVersion: 8.2.1
+exporterVersion: 0.47
+#mcpServerVersion: 1.2.0
