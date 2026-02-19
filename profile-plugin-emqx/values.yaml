@@ -38,6 +38,7 @@ emqx:
   extraVolumeMounts:
     - name: emqx-bootstrap-api-keys
       mountPath: /opt/emqx-bootstrap
+      subPath: api-keys.txt
       readOnly: true
   extraVolumes:
     - name: emqx-bootstrap-api-keys

@@ -2,7 +2,7 @@ apiVersion: v2
 name: profile-plugin-emqx
 description: A Helm chart for EMQX used by Profile Controller
 type: application
-version: 0.0.14
+version: 0.0.15
 appVersion: "v5.8.9"
 dependencies:
   - name: emqx
