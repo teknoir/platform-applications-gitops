@@ -1,0 +1,333 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.name }}-device-map-v2-dashboard
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{ .Values.labelSelectorKey }}: {{ .Values.labelSelectorValue }}
+data:
+  device_map_v2_dashboard.json: |
+        {
+          "annotations": {
+            "list": [
+              {
+                "builtIn": 1,
+                "datasource": {
+                  "type": "datasource",
+                  "uid": "grafana"
+                },
+                "enable": true,
+                "hide": true,
+                "iconColor": "rgba(0, 211, 255, 1)",
+                "name": "Annotations & Alerts",
+                "type": "dashboard"
+              }
+            ]
+          },
+          "editable": true,
+          "fiscalYearStartMonth": 0,
+          "graphTooltip": 0,
+          "id": 11,
+          "links": [],
+          "panels": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "MI3qGOaIk"
+              },
+              "description": "Shows devices on map. \nGreen color- 0 apps are down on device",
+              "fieldConfig": {
+                "defaults": {
+                  "color": {
+                    "mode": "thresholds"
+                  },
+                  "custom": {
+                    "hideFrom": {
+                      "legend": false,
+                      "tooltip": false,
+                      "viz": false
+                    }
+                  },
+                  "mappings": [],
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "color": "green",
+                        "value": null
+                      },
+                      {
+                        "color": "orange",
+                        "value": 300
+                      },
+                      {
+                        "color": "red",
+                        "value": 172800
+                      }
+                    ]
+                  },
+                  "unit": "s"
+                },
+                "overrides": [
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "Last seen"
+                    },
+                    "properties": [
+                      {
+                        "id": "unit",
+                        "value": "s"
+                      }
+                    ]
+                  },
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "Longitude"
+                    },
+                    "properties": [
+                      {
+                        "id": "decimals",
+                        "value": 6
+                      },
+                      {
+                        "id": "unit",
+                        "value": "short"
+                      }
+                    ]
+                  },
+                  {
+                    "matcher": {
+                      "id": "byName",
+                      "options": "Latitude"
+                    },
+                    "properties": [
+                      {
+                        "id": "decimals",
+                        "value": 6
+                      },
+                      {
+                        "id": "unit",
+                        "value": "short"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "gridPos": {
+                "h": 14,
+                "w": 24,
+                "x": 0,
+                "y": 0
+              },
+              "id": 2,
+              "links": [
+                {
+                  "targetBlank": true,
+                  "title": "Edit",
+                  "url": "https://{{ .Values.domainPrefix }}{{ .Values.domain }}/_/devices/{{ .Release.Namespace }}/${__data.fields[0]}"
+                }
+              ],
+              "maxDataPoints": 4,
+              "options": {
+                "basemap": {
+                  "name": "Basemap",
+                  "type": "default"
+                },
+                "controls": {
+                  "mouseWheelZoom": true,
+                  "showAttribution": true,
+                  "showDebug": false,
+                  "showMeasure": false,
+                  "showScale": true,
+                  "showZoom": true
+                },
+                "layers": [
+                  {
+                    "config": {
+                      "showLegend": false,
+                      "style": {
+                        "color": {
+                          "field": "Last seen",
+                          "fixed": "green"
+                        },
+                        "opacity": 0.7,
+                        "rotation": {
+                          "fixed": 0,
+                          "max": 360,
+                          "min": -360,
+                          "mode": "mod"
+                        },
+                        "size": {
+                          "fixed": 5,
+                          "max": 2,
+                          "min": 2
+                        },
+                        "symbol": {
+                          "fixed": "img/icons/marker/circle.svg",
+                          "mode": "fixed"
+                        },
+                        "symbolAlign": {
+                          "horizontal": "center",
+                          "vertical": "center"
+                        },
+                        "textConfig": {
+                          "fontSize": 12,
+                          "offsetX": 0,
+                          "offsetY": 0,
+                          "textAlign": "center",
+                          "textBaseline": "middle"
+                        }
+                      }
+                    },
+                    "location": {
+                      "latitude": "Latitude",
+                      "longitude": "Longitude",
+                      "mode": "coords"
+                    },
+                    "name": "Device",
+                    "tooltip": true,
+                    "type": "markers"
+                  }
+                ],
+                "tooltip": {
+                  "mode": "details"
+                },
+                "view": {
+                  "allLayers": true,
+                  "id": "north-america",
+                  "lat": 40,
+                  "lon": -100,
+                  "zoom": 4
+                }
+              },
+              "pluginVersion": "",
+              "targets": [
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "MI3qGOaIk"
+                  },
+                  "editorMode": "code",
+                  "exemplar": false,
+                  "expr": "device_longitude",
+                  "format": "table",
+                  "instant": true,
+                  "interval": "",
+                  "legendFormat": "",
+                  "range": false,
+                  "refId": "Longitude"
+                },
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "MI3qGOaIk"
+                  },
+                  "editorMode": "code",
+                  "exemplar": false,
+                  "expr": "device_latitude",
+                  "format": "table",
+                  "hide": false,
+                  "instant": true,
+                  "interval": "",
+                  "legendFormat": "",
+                  "range": false,
+                  "refId": "Latitude"
+                },
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "MI3qGOaIk"
+                  },
+                  "editorMode": "code",
+                  "exemplar": false,
+                  "expr": "time() - device_last_seen",
+                  "format": "table",
+                  "hide": false,
+                  "instant": true,
+                  "interval": "",
+                  "legendFormat": "__auto",
+                  "range": false,
+                  "refId": "Last_Seen"
+                }
+              ],
+              "title": "Device Location",
+              "transformations": [
+                {
+                  "id": "seriesToColumns",
+                  "options": {
+                    "byField": "device_id"
+                  }
+                },
+                {
+                  "id": "filterByValue",
+                  "options": {
+                    "filters": [
+                      {
+                        "config": {
+                          "id": "regex",
+                          "options": {
+                            "value": "undefined"
+                          }
+                        },
+                        "fieldName": "Longitude"
+                      },
+                      {
+                        "config": {
+                          "id": "regex",
+                          "options": {
+                            "value": "undefined"
+                          }
+                        },
+                        "fieldName": "Latitude"
+                      }
+                    ],
+                    "match": "any",
+                    "type": "exclude"
+                  }
+                },
+                {
+                  "id": "filterFieldsByName",
+                  "options": {
+                    "include": {
+                      "pattern": "/^(Value|device_id)/"
+                    }
+                  }
+                },
+                {
+                  "id": "organize",
+                  "options": {
+                    "excludeByName": {},
+                    "includeByName": {},
+                    "indexByName": {},
+                    "renameByName": {
+                      "Value #Last_Seen": "Last seen",
+                      "Value #Latitude": "Latitude",
+                      "Value #Longitude": "Longitude",
+                      "device_id": "Name"
+                    }
+                  }
+                }
+              ],
+              "transparent": true,
+              "type": "geomap"
+            }
+          ],
+          "refresh": "10s",
+          "schemaVersion": 39,
+          "tags": [],
+          "templating": {
+            "list": []
+          },
+          "time": {
+            "from": "now-2m",
+            "to": "now"
+          },
+          "timepicker": {},
+          "timezone": "",
+          "title": "Device MAP v2",
+          "uid": "device-map-v2",
+          "version": 17,
+          "weekStart": ""
+        }

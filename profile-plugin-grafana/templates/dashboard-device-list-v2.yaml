@@ -1,0 +1,523 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.name }}-device-list-v2-dashboards
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{ .Values.labelSelectorKey }}: {{ .Values.labelSelectorValue }}
+data:
+  device_list_v2_dashboards.json: |
+    {
+      "annotations": {
+        "list": [
+          {
+            "builtIn": 1,
+            "datasource": {
+              "type": "datasource",
+              "uid": "grafana"
+            },
+            "enable": true,
+            "hide": true,
+            "iconColor": "rgba(0, 211, 255, 1)",
+            "name": "Annotations & Alerts",
+            "type": "dashboard"
+          }
+        ]
+      },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 0,
+      "id": 9,
+      "links": [],
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "MI3qGOaIk"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "filterable": false,
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.8
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.9
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "device"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 225
+                  },
+                  {
+                    "id": "links",
+                    "value": [
+                      {
+                        "targetBlank": true,
+                        "title": "${__data.fields[0]}",
+                        "url": "https://{{ .Values.domainPrefix }}{{ .Values.domain }}/_/devices/{{ .Release.Namespace }}/${__data.fields[0]}"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "last seen"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "s"
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-text"
+                    }
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "#dddddd",
+                          "value": null
+                        },
+                        {
+                          "color": "#EAB839",
+                          "value": 300
+                        },
+                        {
+                          "color": "red",
+                          "value": 172800
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "options": {
+                          "from": 31536000,
+                          "result": {
+                            "text": "never"
+                          },
+                          "to": 60000000000000000
+                        },
+                        "type": "range"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "custom.width",
+                    "value": 100
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "alerts"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-text"
+                    }
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "#dddddd",
+                          "value": null
+                        },
+                        {
+                          "color": "red",
+                          "value": 1
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "options": {
+                          "0": {
+                            "text": "none"
+                          }
+                        },
+                        "type": "value"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "custom.width",
+                    "value": 75
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "cpu"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "percentunit"
+                  },
+                  {
+                    "id": "custom.filterable"
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "percentage",
+                      "steps": [
+                        {
+                          "color": "green",
+                          "value": null
+                        },
+                        {
+                          "color": "red",
+                          "value": 80
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "mode": "lcd",
+                      "type": "gauge",
+                      "valueDisplayMode": "color"
+                    }
+                  },
+                  {
+                    "id": "min",
+                    "value": 0
+                  },
+                  {
+                    "id": "max",
+                    "value": 1
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "memory"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "percentunit"
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "percentage",
+                      "steps": [
+                        {
+                          "color": "green",
+                          "value": null
+                        },
+                        {
+                          "color": "red",
+                          "value": 80
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "mode": "lcd",
+                      "type": "gauge",
+                      "valueDisplayMode": "color"
+                    }
+                  },
+                  {
+                    "id": "min",
+                    "value": 0
+                  },
+                  {
+                    "id": "max",
+                    "value": 1
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "last config change"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "dateTimeFromNow"
+                  },
+                  {
+                    "id": "custom.width",
+                    "value": 200
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 10,
+            "w": 24,
+            "x": 0,
+            "y": 0
+          },
+          "id": 2,
+          "options": {
+            "cellHeight": "sm",
+            "footer": {
+              "countRows": false,
+              "fields": "",
+              "reducer": [
+                "sum"
+              ],
+              "show": false
+            },
+            "showHeader": true,
+            "sortBy": [
+              {
+                "desc": false,
+                "displayName": "device"
+              }
+            ]
+          },
+          "pluginVersion": "",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "MI3qGOaIk"
+              },
+              "expr": "time() - device_last_seen",
+              "format": "table",
+              "hide": false,
+              "instant": true,
+              "interval": "",
+              "legendFormat": "",
+              "refId": "last seen"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "MI3qGOaIk"
+              },
+              "expr": "device_updated_at*1000",
+              "format": "table",
+              "hide": false,
+              "instant": true,
+              "interval": "",
+              "legendFormat": "",
+              "refId": "updated at"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "MI3qGOaIk"
+              },
+              "editorMode": "code",
+              "expr": "sum by (device_id)(ALERTS)",
+              "format": "table",
+              "hide": false,
+              "instant": true,
+              "interval": "",
+              "legendFormat": "",
+              "refId": "alerts"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "MI3qGOaIk"
+              },
+              "expr": "device_apps_loaded",
+              "format": "table",
+              "instant": true,
+              "interval": "",
+              "legendFormat": "",
+              "refId": "apps_loaded"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "MI3qGOaIk"
+              },
+              "expr": "device_apps_down",
+              "format": "table",
+              "hide": false,
+              "instant": true,
+              "interval": "",
+              "legendFormat": "",
+              "refId": "apps_down"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "MI3qGOaIk"
+              },
+              "editorMode": "code",
+              "expr": "sum by (device_id)(node_cpu_usage/node_cpu_allocatable)",
+              "format": "table",
+              "hide": false,
+              "interval": "",
+              "legendFormat": "",
+              "range": true,
+              "refId": "cpu"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "MI3qGOaIk"
+              },
+              "editorMode": "code",
+              "expr": "sum by (device_id)(node_memory_usage/node_memory_allocatable)",
+              "format": "table",
+              "hide": false,
+              "interval": "",
+              "legendFormat": "",
+              "range": true,
+              "refId": "memory"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "MI3qGOaIk"
+              },
+              "expr": "avg_over_time(device_disk[2m])",
+              "format": "table",
+              "hide": true,
+              "interval": "",
+              "legendFormat": "",
+              "refId": "disk"
+            }
+          ],
+          "title": "Query devices and sort by column below",
+          "transformations": [
+            {
+              "id": "seriesToColumns",
+              "options": {
+                "byField": "device_id"
+              }
+            },
+            {
+              "id": "filterFieldsByName",
+              "options": {
+                "include": {
+                  "names": [
+                    "device_id",
+                    "Value #last seen",
+                    "Value #updated at",
+                    "Value #alerts",
+                    "Value #apps_down",
+                    "Value #cpu",
+                    "Value #memory",
+                    "Value #disk"
+                  ]
+                }
+              }
+            },
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {},
+                "includeByName": {},
+                "indexByName": {
+                  "Value #alerts": 4,
+                  "Value #cpu": 1,
+                  "Value #last seen": 3,
+                  "Value #memory": 2,
+                  "Value #updated at": 5,
+                  "device_id": 0
+                },
+                "renameByName": {
+                  "Value #alerts": "alerts",
+                  "Value #apps_down": "apps down",
+                  "Value #apps_loaded": "apps loaded",
+                  "Value #cpu": "cpu",
+                  "Value #disk": "disk",
+                  "Value #last seen": "last seen",
+                  "Value #memory": "memory",
+                  "Value #updated at": "last config change",
+                  "device_id": "device"
+                }
+              }
+            }
+          ],
+          "transparent": true,
+          "type": "table"
+        }
+      ],
+      "refresh": "10s",
+      "schemaVersion": 39,
+      "tags": [],
+      "templating": {
+        "list": [
+          {
+            "datasource": {
+              "type": "prometheus",
+              "uid": "MI3qGOaIk"
+            },
+            "filters": [],
+            "hide": 0,
+            "name": "query",
+            "skipUrlSync": false,
+            "type": "adhoc"
+          }
+        ]
+      },
+      "time": {
+        "from": "now-2m",
+        "to": "now"
+      },
+      "timepicker": {},
+      "timezone": "",
+      "title": "Devices v2",
+      "uid": "devices-new",
+      "version": 6,
+      "weekStart": ""
+    }

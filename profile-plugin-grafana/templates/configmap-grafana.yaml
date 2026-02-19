@@ -1,0 +1,99 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Values.name }}
+    {{ .Values.labelSelectorKey }}: {{ .Values.labelSelectorValue }}
+data:
+  grafana.ini: |
+    instance_name = {{ .Release.Namespace }}
+    [server]
+    domain = {{ .Values.domainPrefix }}{{ .Values.domain }}
+    root_url = %(protocol)s://%(domain)s/{{ .Release.Namespace }}/{{ .Values.name }}/
+    serve_from_sub_path = true
+    router_logging = true
+    [dataproxy]
+    logging = true
+    [security]
+    disable_initial_admin_creation = true
+    disable_brute_force_login_protection = true
+    cookie_secure = true
+    allow_embedding = true
+    [users]
+    default_theme = dark
+    [auth]
+    disable_login_form = true
+    disable_signout_menu = true
+    [auth.anonymous]
+    enabled = true
+    org_role = Editor
+    hide_version = true
+    [analytics]
+    check_for_updates = false
+    reporting_enabled = false
+    [grafana_net]
+    url = https://grafana.net
+    [log]
+    mode = console
+    level = debug
+    [paths]
+    data = /var/lib/grafana/data
+    logs = /var/log/grafana
+    plugins = /var/lib/grafana/plugins
+    provisioning = /etc/grafana/provisioning
+
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+    - name: Prometheus
+      type: prometheus
+      access: proxy
+      isDefault: true
+      url: http://prometheus.{{ .Release.Namespace }}.svc.cluster.local/{{ .Release.Namespace }}/prometheus
+      uid: "MI3qGOaIk"
+    - name: Thanos
+      type: prometheus
+      access: proxy
+      isDefault: false
+      url: http://thanos-query.{{ .Release.Namespace }}.svc.cluster.local/{{ .Release.Namespace }}/thanos
+      uid: "thanos-query"
+    - name: InfluxDB_v2_Flux
+      type: influxdb
+      access: proxy
+      url: http://influxdb2.{{ .Release.Namespace }}.svc.cluster.local
+      secureJsonData:
+        token: 1FdsQAXKOFwbaWucDHHt5DLpOy2t0w09
+      jsonData:
+        version: Flux
+        organization: influxdata
+        defaultBucket: default
+        tlsSkipVerify: true
+      uid: "II3qGOaIk"
+    - name: Postgres
+      type: postgres
+      url: http://postgres.{{ .Release.Namespace }}.svc.cluster.local
+      user: postgres
+      secureJsonData:
+        password: {{ .Values.password }}
+      jsonData:
+        database: grafana
+        sslmode: 'disable'
+        maxOpenConns: 100
+        maxIdleConns: 100
+        maxIdleConnsAuto: true
+        connMaxLifetime: 14400
+        postgresVersion: 15 # 903=9.3, 904=9.4, 905=9.5, 906=9.6, 1000=10
+        timescaledb: false
+      uid: "PI3qGOaIk"
+
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+    - name: dashboards
+      type: file
+      updateIntervalSeconds: 60
+      options:
+        path: /etc/grafana/dashboards
+        foldersFromFilesStructure: true

@@ -1,0 +1,156 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{ .Values.labelSelectorKey }}: {{ .Values.labelSelectorValue }}
+    teknoir.org/activity-logs-enabled: "true"
+    teknoir.org/activity-logs-section: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: {{ .Values.name }}
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        name: {{ .Values.name }}
+        {{ .Values.labelSelectorKey }}: {{ .Values.labelSelectorValue }}
+        teknoir.org/activity-logs-enabled: "true"
+        teknoir.org/activity-logs-section: grafana
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap-grafana.yaml") . | sha256sum }}
+        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true }'
+    spec:
+      serviceAccountName: {{ .Values.name }}
+      securityContext:
+        fsGroup: 472
+        runAsGroup: 472
+        runAsUser: 472
+      containers:
+        - name: {{ .Values.name }}
+          image: "grafana/grafana-oss:{{ .Values.version }}"
+          imagePullPolicy: Always
+          env:
+            - name: GF_INSTALL_PLUGINS
+              value: "grafana-piechart-panel,grafana-worldmap-panel"
+          volumeMounts:
+            - name: config
+              mountPath: "/etc/grafana/grafana.ini"
+              subPath: grafana.ini
+            - name: storage
+              mountPath: "/var/lib/grafana"
+            - name: config
+              mountPath: "/etc/grafana/provisioning/datasources/datasources.yaml"
+              subPath: datasources.yaml
+            - name: config
+              mountPath: "/etc/grafana/provisioning/dashboards/dashboards.yaml"
+              subPath: dashboards.yaml
+            - name: console-v2-dashboard
+              mountPath: "/etc/grafana/dashboards/console_v2_dashboard.json"
+              subPath: console_v2_dashboard.json
+            - name: device-v2-dashboard
+              mountPath: "/etc/grafana/dashboards/device_v2_dashboard.json"
+              subPath: device_v2_dashboard.json
+            - name: device-map-v2-dashboard
+              mountPath: "/etc/grafana/dashboards/device_map_v2_dashboard.json"
+              subPath: device_map_v2_dashboard.json
+            - name: device-list-v2-dashboards
+              mountPath: "/etc/grafana/dashboards/device_list_v2_dashboard.json"
+              subPath: device_list_v2_dashboard.json
+            - name: devstudios-dashboards
+              mountPath: "/etc/grafana/dashboards/devstudios_dashboard.json"
+              subPath: devstudios_dashboard.json
+            - name: mqtt-dashboards
+              mountPath: "/etc/grafana/dashboards/mqtt_dashboard.json"
+              subPath: mqtt_dashboard.json
+            - name: mongodb-dashboards
+              mountPath: "/etc/grafana/dashboards/mongodb_dashboard.json"
+              subPath: mongodb_dashboard.json
+            - name: historian-api-dashboards
+              mountPath: "/etc/grafana/dashboards/historian-api_dashboard.json"
+              subPath: historian-api_dashboard.json
+            - name: model-monitoring-dashboards
+              mountPath: "/etc/grafana/dashboards/model-monitoring_dashboard.json"
+              subPath: model-monitoring_dashboard.json
+            - name: file-transfer-dashboards
+              mountPath: "/etc/grafana/dashboards/file-transfer_dashboard.json"
+              subPath: file-transfer_dashboard.json
+            - name: file-transfer-device-dashboards
+              mountPath: "/etc/grafana/dashboards/file-transfer-device_dashboard.json"
+              subPath: file-transfer-device_dashboard.json
+            - name: line-crossing-dashboards
+              mountPath: "/etc/grafana/dashboards/line-crossing_dashboard.json"
+              subPath: line-crossing_dashboard.json
+            - name: postgres-prom-queries-dashboards
+              mountPath: "/etc/grafana/dashboards/postgres_prom_queries.json"
+              subPath: postgres_prom_queries.json
+            - name: nvidia-gpu-metrics-dashboards
+              mountPath: "/etc/grafana/dashboards/nvidia-gpu_dashboard.json"
+              subPath: nvidia-gpu_dashboard.json
+            - name: llm-proc-api-dashboard
+              mountPath: "/etc/grafana/dashboards/llm-proc-api_dashboard.json"
+              subPath: llm-proc-api_dashboard.json
+          ports:
+            - name: service
+              containerPort: 80
+              protocol: TCP
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          resources: {}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ .Values.name }}
+        - name: console-v2-dashboard
+          configMap:
+            name: {{ .Values.name }}-console-v2-dashboard
+        - name: device-v2-dashboard
+          configMap:
+            name: {{ .Values.name }}-device-v2-dashboard
+        - name: device-map-v2-dashboard
+          configMap:
+            name: {{ .Values.name }}-device-map-v2-dashboard
+        - name: device-list-v2-dashboards
+          configMap:
+            name: {{ .Values.name }}-device-list-v2-dashboards
+        - name: devstudios-dashboards
+          configMap:
+            name: {{ .Values.name }}-devstudios-dashboards
+        - name: mqtt-dashboards
+          configMap:
+            name: {{ .Values.name }}-mqtt-dashboards
+        - name: mongodb-dashboards
+          configMap:
+            name: {{ .Values.name }}-mongodb-dashboards
+        - name: historian-api-dashboards
+          configMap:
+            name: {{ .Values.name }}-historian-api-dashboards
+        - name: model-monitoring-dashboards
+          configMap:
+            name: {{ .Values.name }}-model-monitoring-dashboards
+        - name: file-transfer-dashboards
+          configMap:
+            name: {{ .Values.name }}-file-transfer-dashboards
+        - name: file-transfer-device-dashboards
+          configMap:
+            name: {{ .Values.name }}-file-transfer-device-dashboards
+        - name: line-crossing-dashboards
+          configMap:
+            name: {{ .Values.name }}-line-crossing-dashboards
+        - name: postgres-prom-queries-dashboards
+          configMap:
+            name: {{ .Values.name }}-postgres-prom-queries-dashboards
+        - name: nvidia-gpu-metrics-dashboards
+          configMap:
+            name: {{ .Values.name }}-nvidia-gpu-dashboards
+        - name: llm-proc-api-dashboard
+          configMap:
+            name: {{ .Values.name }}-llm-proc-api-dashboard
+        - name: storage
+          persistentVolumeClaim:
+            claimName: {{ .Values.name }}

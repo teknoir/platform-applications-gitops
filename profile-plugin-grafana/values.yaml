@@ -1,0 +1,10 @@
+name: grafana
+domain: teknoir.online
+domainPrefix: ""
+password: "admin"
+version: 10.1.1
+labelSelectorKey: "teknoir.io/backstage-plugin"
+labelSelectorValue: grafana
+pvc:
+  size: 5Gi
+  storageClassName: ""

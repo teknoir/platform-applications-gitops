@@ -1,0 +1,23 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: {{ .Values.name }}-vsvc
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{ .Values.labelSelectorKey }}: {{ .Values.labelSelectorValue }}
+spec:
+  gateways:
+    - istio-system/teknoir-gateway
+  hosts:
+    - '*'
+  http:
+    - match:
+        - uri:
+            prefix: /{{ .Release.Namespace }}/{{ .Values.name }}
+      rewrite:
+        uri: /{{ .Release.Namespace }}/{{ .Values.name }}
+      route:
+        - destination:
+            host: {{ .Values.name }}.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: 80
