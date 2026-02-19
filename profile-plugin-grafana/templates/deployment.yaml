@@ -32,7 +32,7 @@ spec:
         runAsUser: 472
       containers:
         - name: {{ .Values.name }}
-          image: "grafana/grafana-oss:{{ .Values.version }}"
+          image: "grafana/grafana-oss:12.3.3"
           imagePullPolicy: Always
           env:
             - name: GF_INSTALL_PLUGINS
