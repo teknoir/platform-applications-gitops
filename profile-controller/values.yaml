@@ -55,6 +55,3 @@ nodeSelector: {}
 tolerations: []
 
 affinity: {}
-
-istio:
-  inject: false

@@ -12,8 +12,6 @@ spec:
       {{- include "profile-controller.selectorLabels" . | nindent 6 }}
   template:
     metadata:
-      annotations:
-        sidecar.istio.io/inject: {{ .Values.istio.inject | quote }}
       labels:
         {{- include "profile-controller.selectorLabels" . | nindent 8 }}
     spec:
