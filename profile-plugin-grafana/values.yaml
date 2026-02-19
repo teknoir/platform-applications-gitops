@@ -1,6 +1,6 @@
 name: grafana
 domain: teknoir.online
-domainPrefix: ""
+domainPrefix:
 password: "admin"
 labelSelectorKey: "teknoir.io/backstage-plugin"
 labelSelectorValue: grafana

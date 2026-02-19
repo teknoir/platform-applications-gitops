@@ -1,5 +1,5 @@
 domain: teknoir.online
-domainPrefix: ""
+domainPrefix:
 
 emqx:
   replicaCount: 1

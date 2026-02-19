@@ -1,5 +1,5 @@
 domain: teknoir.online
-domainPrefix: ""
+domainPrefix:
 persistentVolumeClaimSize: 100Gi
 mongodbVersion: 8.2.1
 exporterVersion: 0.47
