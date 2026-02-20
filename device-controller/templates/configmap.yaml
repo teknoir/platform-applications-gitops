@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "device-controller.fullname" . }}-parameters
+  labels:
+    {{- include "device-controller.labels" . | nindent 4 }}
+data:
+  DEADEND: {{ .Values.config.deadend | quote }}
+  DOMAIN: {{ .Values.config.domain | quote }}
+  DOMAIN_PREFIX: {{ .Values.config.domainPrefix | quote }}
+  ISTIO_GATEWAY: {{ .Values.config.istioGateway | quote }}
+  PROJECT_ID: {{ .Values.config.projectId | quote }}
+  REGION: {{ .Values.config.region | quote }}
