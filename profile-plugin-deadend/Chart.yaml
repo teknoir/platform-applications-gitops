@@ -1,6 +1,6 @@
 apiVersion: v2
-name: deadend
+name: profile-plugin-deadend
 description: HelmChart to deploy the Deadend Bastion resources to a Teknoir Cluster.
 type: application
-version: 0.0.18
+version: 0.0.19
 appVersion: "0.0.1"
