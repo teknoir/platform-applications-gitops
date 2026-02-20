@@ -1,0 +1,80 @@
+{{/*---*/}}
+{{/*apiVersion: networking.istio.io/v1beta1*/}}
+{{/*kind: VirtualService*/}}
+{{/*metadata:*/}}
+{{/*  name: deadend*/}}
+{{/*  namespace: {{ .Release.Namespace }}*/}}
+{{/*spec:*/}}
+{{/*  hosts:*/}}
+{{/*    - 'deadend-{{ .Release.Namespace }}.{{ .Values.domain }}'*/}}
+{{/*  gateways:*/}}
+{{/*    - istio-system/teknoir-gateway-public*/}}
+{{/*  http:*/}}
+{{/*    - route:*/}}
+{{/*        - destination:*/}}
+{{/*            host: deadend.{{ .Release.Namespace }}.svc.cluster.local*/}}
+{{/*            port:*/}}
+{{/*              number: 2222*/}}
+
+{{/*---*/}}
+{{/*apiVersion: networking.istio.io/v1beta1*/}}
+{{/*kind: VirtualService*/}}
+{{/*metadata:*/}}
+{{/*  name: deadend*/}}
+{{/*  namespace: {{ .Release.Namespace }}*/}}
+{{/*spec:*/}}
+{{/*  hosts:*/}}
+{{/*    - 'deadend-{{ .Release.Namespace }}.{{ .Values.domain }}'*/}}
+{{/*  gateways:*/}}
+{{/*    - istio-system/teknoir-gateway-public*/}}
+{{/*  tls:*/}}
+{{/*    - match:*/}}
+{{/*        - port: 2222*/}}
+{{/*          sniHosts:*/}}
+{{/*            - 'deadend-{{ .Release.Namespace }}.{{ .Values.domain }}'*/}}
+{{/*      route:*/}}
+{{/*        - destination:*/}}
+{{/*            host: deadend.{{ .Release.Namespace }}.svc.cluster.local*/}}
+{{/*            port:*/}}
+{{/*              number: 2222*/}}
+
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: deadend
+  namespace: {{ .Release.Namespace }}
+spec:
+  hosts:
+    - 'deadend-{{ .Release.Namespace }}.{{ .Values.domain }}'
+  gateways:
+    - istio-system/teknoir-gateway-public
+  tcp:
+    - match:
+        - port: 2222
+      route:
+        - destination:
+            host: deadend.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: 2222
+
+{{/*---*/}}
+{{/*apiVersion: networking.istio.io/v1beta1*/}}
+{{/*kind: VirtualService*/}}
+{{/*metadata:*/}}
+{{/*  name: deadendproxy*/}}
+{{/*  namespace: {{ .Release.Namespace }}*/}}
+{{/*spec:*/}}
+{{/*  hosts:*/}}
+{{/*    - deadendproxy*/}}
+{{/*    - deadendproxy.{{ .Release.Namespace }}.svc.cluster.local*/}}
+{{/*  exportTo:*/}}
+{{/*    - "*"*/}}
+{{/*  tcp:*/}}
+{{/*    - match:*/}}
+{{/*        - port: 8118*/}}
+{{/*      route:*/}}
+{{/*        - destination:*/}}
+{{/*            host: deadendproxy.{{ .Release.Namespace }}.svc.cluster.local*/}}
+{{/*            port:*/}}
+{{/*              number: 8118*/}}

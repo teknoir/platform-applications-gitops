@@ -1,0 +1,45 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: deadend
+  name: deadend
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: deadend
+  template:
+    metadata:
+      labels:
+        app: deadend
+    spec:
+      imagePullSecrets:
+        - name: gcr-json-key
+      containers:
+      - name: deadend
+        image: "us-docker.pkg.dev/teknoir/gcr.io/deadend:{{ .Values.imageTag }}"
+        imagePullPolicy: Always
+        ports:
+          - containerPort: 22
+            name: tcp-ssh
+            protocol: TCP
+        volumeMounts:
+          - name: deadend-authorized-keys
+            mountPath: /secret-keys
+      - name: privoxy
+        image: "us-docker.pkg.dev/teknoir/gcr.io/deadend-privoxy:{{ .Values.imageTag }}"
+        imagePullPolicy: Always
+        ports:
+          - containerPort: 8118
+            name: tcp
+            protocol: TCP
+      volumes:
+        - name: deadend-authorized-keys
+          secret:
+            secretName: deadend-authorized-keys-secret
+            defaultMode: 0644
+      serviceAccountName: deadend-service-account
+

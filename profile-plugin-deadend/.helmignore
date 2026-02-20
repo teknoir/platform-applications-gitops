@@ -1,0 +1,11 @@
+# Common Helm ignore entries
+.DS_Store
+*.swp
+*.tmp
+*.bak
+.git/
+.gitignore
+.idea/
+node_modules/
+venv/
+__pycache__/

@@ -1,0 +1,16 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: deadend-role
+  namespace: {{ .Release.Namespace }}
+rules:
+  - apiGroups:
+      - kubeflow.org
+    resources:
+      - services
+      - services/status
+    verbs:
+      - get
+      - list
+      - watch
