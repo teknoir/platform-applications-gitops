@@ -4,14 +4,7 @@ kind: Service
 metadata:
   name: deadend
   namespace: {{ .Release.Namespace }}
-  annotations:
-    networking.gke.io/load-balancer-type: "External"
-    cloud.google.com/l4-rbs: "enabled"
 spec:
-  type: LoadBalancer
-  externalTrafficPolicy: Local
-  sessionAffinity: ClientIP
-{{/*  loadBalancerIP: {{ .Values.loadBalancerIP }}*/}}
   selector:
     app: deadend
   ports:
@@ -19,20 +12,3 @@ spec:
       port: 2222
       targetPort: 22
       protocol: TCP
-      appProtocol: tcp
-
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: deadendproxy
-  namespace: {{ .Release.Namespace }}
-spec:
-  selector:
-    app: deadend
-  ports:
-    - name: tcp
-      port: 8118
-      targetPort: 8118
-      protocol: TCP
-      appProtocol: tcp

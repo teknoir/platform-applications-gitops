@@ -2,5 +2,5 @@ apiVersion: v2
 name: profile-controller
 description: A Helm chart for Teknoir Profile Controller
 type: application
-version: 0.0.20
+version: 0.0.21
 appVersion: "1.0.0"

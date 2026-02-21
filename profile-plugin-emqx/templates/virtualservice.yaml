@@ -16,6 +16,25 @@ spec:
             port:
               number: 8083
 
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: mqtt
+  namespace: {{ .Release.Namespace }}
+spec:
+  hosts:
+    - 'mqtt-{{ .Release.Namespace }}.{{ .Values.domain }}'
+  gateways:
+    - istio-system/teknoir-gateway-public
+  tcp:
+    - match:
+        - port: 8883
+      route:
+        - destination:
+            host: emqx-headless.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: 1883
 {{/*---*/}}
 {{/*apiVersion: networking.istio.io/v1beta1*/}}
 {{/*kind: VirtualService*/}}

@@ -1,0 +1,14 @@
+{{/*---*/}}
+{{/*apiVersion: cert-manager.io/v1*/}}
+{{/*kind: Certificate*/}}
+{{/*metadata:*/}}
+{{/*  name: deadend-{{ .Release.Namespace }}*/}}
+{{/*  namespace: {{ .Release.Namespace }}*/}}
+{{/*spec:*/}}
+{{/*  secretName: deadend-{{ .Release.Namespace }}-tls*/}}
+{{/*  commonName: "deadend-{{ .Release.Namespace }}.{{ .Values.domain }}"*/}}
+{{/*  dnsNames:*/}}
+{{/*    - "deadend-{{ .Release.Namespace }}.{{ .Values.domain }}"*/}}
+{{/*  issuerRef:*/}}
+{{/*    name: letsencrypt-dns*/}}
+{{/*    kind: ClusterIssuer*/}}
