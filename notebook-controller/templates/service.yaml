@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    {{- toYaml .Values.commonLabels | nindent 4 }}
+  name: notebook-controller-service
+  namespace: {{ .Values.namespace }}
+spec:
+  ports:
+  - port: 443
+  selector:
+    {{- toYaml .Values.commonLabels | nindent 4 }}

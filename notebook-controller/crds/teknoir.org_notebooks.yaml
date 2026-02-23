@@ -1,0 +1,150 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.8.0
+  labels:
+    app: notebook-controller
+    kustomize.component: notebook-controller
+  name: notebooks.teknoir.org
+spec:
+  group: teknoir.org
+  names:
+    kind: Notebook
+    listKind: NotebookList
+    plural: notebooks
+    singular: notebook
+  scope: Namespaced
+  versions:
+    - additionalPrinterColumns:
+        - description: Container state status
+          jsonPath: .status.containerState
+          name: ContainerState
+          type: string
+      name: v1
+      schema:
+        openAPIV3Schema:
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              properties:
+                template:
+                  properties:
+                    cpu:
+                      type: string
+                    gcsfuse:
+                      type: boolean
+                    gpus:
+                      items:
+                        properties:
+                          num:
+                            type: string
+                          vendor:
+                            type: string
+                          vendors:
+                            items:
+                              properties:
+                                limitsKey:
+                                  type: string
+                                uiName:
+                                  type: string
+                              type: object
+                            type: array
+                        type: object
+                      type: array
+                    image:
+                      type: string
+                    memory:
+                      type: string
+                    workspaceVolume:
+                      properties:
+                        accessModes:
+                          type: string
+                        mountPath:
+                          type: string
+                        name:
+                          type: string
+                        size:
+                          type: string
+                        type:
+                          type: string
+                      type: object
+                  type: object
+              type: object
+            status:
+              properties:
+                conditions:
+                  items:
+                    properties:
+                      lastProbeTime:
+                        format: date-time
+                        type: string
+                      message:
+                        type: string
+                      reason:
+                        type: string
+                      type:
+                        type: string
+                    required:
+                      - type
+                    type: object
+                  type: array
+                containerState:
+                  properties:
+                    running:
+                      properties:
+                        startedAt:
+                          format: date-time
+                          type: string
+                      type: object
+                    terminated:
+                      properties:
+                        containerID:
+                          type: string
+                        exitCode:
+                          format: int32
+                          type: integer
+                        finishedAt:
+                          format: date-time
+                          type: string
+                        message:
+                          type: string
+                        reason:
+                          type: string
+                        signal:
+                          format: int32
+                          type: integer
+                        startedAt:
+                          format: date-time
+                          type: string
+                      required:
+                        - exitCode
+                      type: object
+                    waiting:
+                      properties:
+                        message:
+                          type: string
+                        reason:
+                          type: string
+                      type: object
+                  type: object
+              required:
+                - conditions
+                - containerState
+              type: object
+          type: object
+      served: true
+      storage: true
+      subresources:
+        status: {}
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []

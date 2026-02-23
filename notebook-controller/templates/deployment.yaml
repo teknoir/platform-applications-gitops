@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    {{- toYaml .Values.commonLabels | nindent 4 }}
+  name: notebook-controller-deployment
+  namespace: {{ .Values.namespace }}
+spec:
+  selector:
+    matchLabels:
+      {{- toYaml .Values.commonLabels | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        sidecar.istio.io/inject: "false"
+      labels:
+        {{- toYaml .Values.commonLabels | nindent 8 }}
+    spec:
+      containers:
+      - command:
+        - /manager
+        env:
+        - name: USE_ISTIO
+          value: {{ .Values.parameters.USE_ISTIO | quote }}
+        - name: ISTIO_GATEWAY
+          value: {{ .Values.parameters.ISTIO_GATEWAY | quote }}
+        - name: ADD_FSGROUP
+          value: {{ .Values.addFsGroup | quote }}
+        - name: POD_LABELS
+          value: {{ .Values.parameters.POD_LABELS | quote }}
+        - name: PROJECT_ID
+          value: {{ index .Values.parameters "project-id" | quote }}
+        - name: DOMAIN
+          value: {{ .Values.parameters.domain | quote }}
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        livenessProbe:
+          httpGet:
+            path: /metrics
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        name: manager
+        ports:
+        - containerPort: 8080
+          name: metrics
+          protocol: TCP
+      imagePullSecrets:
+        {{- toYaml .Values.imagePullSecrets | nindent 8 }}
+      serviceAccountName: {{ .Values.serviceAccount.name }}

@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    {{- toYaml .Values.commonLabels | nindent 4 }}
+  name: notebook-controller-parameters
+  namespace: {{ .Values.namespace }}
+data:
+{{- range $key, $value := .Values.parameters }}
+  {{ $key }}: {{ $value | quote }}
+{{- end }}
