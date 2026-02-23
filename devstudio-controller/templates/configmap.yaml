@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "devstudio-controller.fullname" . }}-parameters
+  labels:
+    {{- include "devstudio-controller.labels" . | nindent 4 }}
+data:
+  USE_ISTIO: {{ .Values.config.useIstio | quote }}
+  ISTIO_GATEWAY: {{ .Values.config.istioGateway | quote }}
+  POD_LABELS: {{ .Values.config.podLabels | quote }}
+  project-id: {{ .Values.config.projectId | quote }}
+  domain: {{ .Values.config.domain | quote }}

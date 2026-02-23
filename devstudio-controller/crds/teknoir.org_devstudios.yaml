@@ -1,0 +1,192 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.15.0
+  name: devstudios.teknoir.org
+spec:
+  group: teknoir.org
+  names:
+    kind: Devstudio
+    listKind: DevstudioList
+    plural: devstudios
+    singular: devstudio
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - description: PODs running
+      jsonPath: .status.readyReplicas
+      name: ReadyReplicas
+      type: integer
+    - description: Container state status
+      jsonPath: .status.containerState
+      name: ContainerState
+      type: string
+    name: v1
+    schema:
+      openAPIV3Schema:
+        description: Devstudio is the Schema for the devstudios API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: DevstudioSpec defines the desired state of Devstudio
+            properties:
+              disabled:
+                type: boolean
+              cpu:
+                type: string
+              gcsfuse:
+                type: boolean
+              gpus:
+                items:
+                  properties:
+                    num:
+                      type: string
+                    vendor:
+                      type: string
+                    vendors:
+                      items:
+                        properties:
+                          limitsKey:
+                            type: string
+                          uiName:
+                            type: string
+                        type: object
+                      type: array
+                  type: object
+                type: array
+              image:
+                type: string
+              memory:
+                type: string
+              workspaceVolume:
+                properties:
+                  accessModes:
+                    type: string
+                  mountPath:
+                    type: string
+                  name:
+                    type: string
+                  size:
+                    type: string
+                  type:
+                    type: string
+                type: object
+            type: object
+          status:
+            description: DevstudioStatus defines the observed state of Devstudio
+            properties:
+              conditions:
+                description: Conditions is an array of current conditions
+                items:
+                  properties:
+                    lastProbeTime:
+                      description: Last time we probed the condition.
+                      format: date-time
+                      type: string
+                    message:
+                      description: Message regarding why the container is in the current
+                        state.
+                      type: string
+                    reason:
+                      description: (brief) reason the container is in the current
+                        state
+                      type: string
+                    type:
+                      description: Type is the type of the condition. Possible values
+                        are Running|Waiting|Terminated
+                      type: string
+                  required:
+                  - type
+                  type: object
+                type: array
+              containerState:
+                description: ContainerState is the state of underlying container.
+                properties:
+                  running:
+                    description: Details about a running container
+                    properties:
+                      startedAt:
+                        description: Time at which the container was last (re-)started
+                        format: date-time
+                        type: string
+                    type: object
+                  terminated:
+                    description: Details about a terminated container
+                    properties:
+                      containerID:
+                        description: Container's ID in the format '<type>://<container_id>'
+                        type: string
+                      exitCode:
+                        description: Exit status from the last termination of the
+                          container
+                        format: int32
+                        type: integer
+                      finishedAt:
+                        description: Time at which the container last terminated
+                        format: date-time
+                        type: string
+                      message:
+                        description: Message regarding the last termination of the
+                          container
+                        type: string
+                      reason:
+                        description: (brief) reason from the last termination of the
+                          container
+                        type: string
+                      signal:
+                        description: Signal from the last termination of the container
+                        format: int32
+                        type: integer
+                      startedAt:
+                        description: Time at which previous execution of the container
+                          started
+                        format: date-time
+                        type: string
+                    required:
+                    - exitCode
+                    type: object
+                  waiting:
+                    description: Details about a waiting container
+                    properties:
+                      message:
+                        description: Message regarding why the container is not yet
+                          running.
+                        type: string
+                      reason:
+                        description: (brief) reason the container is not yet running.
+                        type: string
+                    type: object
+                type: object
+              readyReplicas:
+                description: ReadyReplicas is the number of Pods created by the StatefulSet
+                  controller that have a Ready Condition.
+                format: int32
+                type: integer
+            required:
+            - conditions
+            - containerState
+            - readyReplicas
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

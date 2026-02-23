@@ -1,0 +1,154 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "devstudio-controller.fullname" . }}-role
+  labels:
+    {{- include "devstudio-controller.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - persistentvolumeclaims
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - delete
+  - update
+- apiGroups:
+  - apps
+  resources:
+  - statefulsets
+  verbs:
+  - '*'
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - services
+  verbs:
+  - '*'
+- apiGroups:
+  - networking.istio.io
+  resources:
+  - virtualservices
+  verbs:
+  - '*'
+- apiGroups:
+  - teknoir.org
+  resources:
+  - devstudios
+  - devstudios/finalizers
+  - devstudios/status
+  verbs:
+  - '*'
+- apiGroups:
+  - kubeflow.org
+  resources:
+  - devstudios
+  - devstudios/finalizers
+  - devstudios/status
+  verbs:
+  - '*'
+- apiGroups:
+  - security.istio.io
+  resources:
+  - authorizationpolicies
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - delete
+  - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "devstudio-controller.fullname" . }}-role-binding
+  labels:
+    {{- include "devstudio-controller.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "devstudio-controller.fullname" . }}-role
+subjects:
+- kind: ServiceAccount
+  name: {{ include "devstudio-controller.serviceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
+# TODO: remove when devstudio.kubeflow.org CRD is removed
+- kind: ServiceAccount
+  name: {{ include "devstudio-controller.serviceAccountName" . }}
+  namespace: teknoir
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "devstudio-controller.fullname" . }}-leader-election-role
+  labels:
+    {{- include "devstudio-controller.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "devstudio-controller.fullname" . }}-leader-election-rolebinding
+  labels:
+    {{- include "devstudio-controller.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "devstudio-controller.fullname" . }}-leader-election-role
+subjects:
+- kind: ServiceAccount
+  name: {{ include "devstudio-controller.serviceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
