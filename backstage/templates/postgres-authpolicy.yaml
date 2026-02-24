@@ -2,7 +2,7 @@
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
-  name: postgres-admin-allow
+  name: backstage-postgres-admin-allow
   namespace: {{ .Release.Namespace }}
 spec:
   action: ALLOW
@@ -17,4 +17,4 @@ spec:
         - "5432"
   selector:
     matchLabels:
-      app: postgres
+      app: backstage-postgres

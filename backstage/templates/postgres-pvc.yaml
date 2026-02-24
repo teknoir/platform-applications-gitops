@@ -2,10 +2,10 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: postgres-storage-claim
+  name: backstage-postgres-storage-claim
   namespace: {{ .Release.Namespace }}
   labels:
-    app: backstage
+    app: backstage-backstage
 spec:
   accessModes:
     - ReadWriteOnce

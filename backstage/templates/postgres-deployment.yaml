@@ -2,21 +2,21 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: postgres
+  name: backstage-postgres
   namespace: {{ .Release.Namespace }}
   labels:
-    app: postgres
+    app: backstage-postgres
 spec:
   replicas: {{ .Values.postgres.replicas }}
   strategy:
     type: Recreate
   selector:
     matchLabels:
-      app: postgres
+      app: backstage-postgres
   template:
     metadata:
       labels:
-        app: postgres
+        app: backstage-postgres
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/path: "/metrics"
@@ -68,4 +68,4 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: postgres-storage-claim
+            claimName: backstage-postgres-storage-claim

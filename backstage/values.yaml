@@ -20,7 +20,6 @@ backstageApi:
   replicas: 1
   image: backstage-api-image
   imagePullPolicy: Always
-  serviceAccountName: admin-service-account
   imagePullSecrets:
     - name: gcr-json-key
   nodeOptions: '--max-old-space-size=8192'

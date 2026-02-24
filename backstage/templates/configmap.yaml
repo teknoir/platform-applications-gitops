@@ -1,11 +1,11 @@
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: parameters
-  namespace: {{ .Release.Namespace }}
-data:
-  D_DOMAIN: {{ .Values.config.domain | quote }}
-  D_CONFIG: {{ .Values.config.config | quote }}
-  D_LOG_LEVEL: {{ .Values.config.logLevel | quote }}
-  D_PROMETHEUS_URL: {{ .Values.config.prometheusUrl | quote }}
+{{/*---*/}}
+{{/*apiVersion: v1*/}}
+{{/*kind: ConfigMap*/}}
+{{/*metadata:*/}}
+{{/*  name: backstage-parameters*/}}
+{{/*  namespace: {{ .Release.Namespace }}*/}}
+{{/*data:*/}}
+{{/*  D_DOMAIN: {{ .Values.config.domain | quote }}*/}}
+{{/*  D_CONFIG: {{ .Values.config.config | quote }}*/}}
+{{/*  D_LOG_LEVEL: {{ .Values.config.logLevel | quote }}*/}}
+{{/*  D_PROMETHEUS_URL: {{ .Values.config.prometheusUrl | quote }}*/}}

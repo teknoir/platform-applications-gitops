@@ -48,7 +48,7 @@ spec:
         - name: backstage-github-app-secret
           secret:
             secretName: {{ .Values.backstageApi.secrets.githubAppSecretName }}
-      serviceAccountName: {{ .Values.backstageApi.serviceAccountName }}
+      serviceAccountName: backstage-api
       imagePullSecrets:
         {{- toYaml .Values.backstageApi.imagePullSecrets | nindent 8 }}
       containers:
