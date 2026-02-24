@@ -43,3 +43,20 @@ spec:
       when:
         - key: request.auth.principal
           notValues: [ "cluster.local/ns/{{ .Values.istio.ingressNamespace }}/sa/{{ .Values.istio.ingressServiceAccount }}" ]
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: backstage-postgres-allow
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    matchLabels:
+      app: backstage-postgres
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            namespaces:
+              - {{ .Release.Namespace }}

@@ -82,16 +82,7 @@ spec:
           volumeMounts:
             - name: backstage-github-app-secret
               readOnly: true
-{{/*              subPath: github-app-backstage-teknoir-credentials.yaml*/}}
-              mountPath: /app/secrets #github-app-backstage-teknoir-credentials.yaml
-{{/*            - name: backstage-github-app-secret*/}}
-{{/*              readOnly: true*/}}
-{{/*              subPath: backend-auth-backstage-secrets.yaml*/}}
-{{/*              mountPath: /app/backend-auth-backstage-secrets.yaml*/}}
-{{/*            - name: backstage-github-app-secret*/}}
-{{/*              readOnly: true*/}}
-{{/*              subPath: admin-credentials.json*/}}
-{{/*              mountPath: /app/admin-credentials.json*/}}
+              mountPath: /app/secrets
           readinessProbe:
             httpGet:
               port: 7007
