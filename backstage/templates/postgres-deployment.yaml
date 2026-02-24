@@ -1,0 +1,71 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: postgres
+spec:
+  replicas: {{ .Values.postgres.replicas }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "9187"
+    spec:
+      containers:
+        - name: postgres
+          image: {{ .Values.postgres.image }}
+          imagePullPolicy: {{ .Values.postgres.imagePullPolicy }}
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          readinessProbe:
+            exec:
+              command: ["psql", "-U", "backstage", "-d", "postgres", "-c", "SELECT 1"]
+            initialDelaySeconds: 15
+            timeoutSeconds: 2
+          livenessProbe:
+            exec:
+              command: ["psql", "-U", "backstage", "-d", "postgres", "-c", "SELECT 1"]
+            initialDelaySeconds: 45
+            timeoutSeconds: 2
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          envFrom:
+            - secretRef:
+                name: {{ .Values.backstageApi.secrets.postgresSecretName }}
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            - name: POSTGRES_INITDB_ARGS
+              value: --auth-host=scram-sha-256
+        - name: prometheus-exporter
+          image: {{ .Values.postgres.exporter.image }}
+          args: ["--no-collector.stat_bgwriter"]
+          imagePullPolicy: {{ .Values.postgres.exporter.imagePullPolicy }}
+          ports:
+            - name: metrics
+              containerPort: 9187
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: {{ .Values.backstageApi.secrets.postgresSecretName }}
+          env:
+            - name: DATA_SOURCE_URI
+              value: "localhost:5432/postgres?sslmode=disable"
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: postgres-storage-claim

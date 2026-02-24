@@ -1,0 +1,53 @@
+# Default values for backstage
+
+# Parameters from params.env
+config:
+  domain: "teknoir.online"
+  config: app-config.production.yaml
+  logLevel: info
+  prometheusUrl: http://prometheus.__NAMESPACE__.svc.cluster.local:80
+
+# Backstage frontend deployment
+backstage:
+  replicas: 1
+  image: backstage-image
+  imagePullPolicy: Always
+  imagePullSecrets:
+    - name: gcr-json-key
+
+# Backstage API deployment
+backstageApi:
+  replicas: 1
+  image: backstage-api-image
+  imagePullPolicy: Always
+  serviceAccountName: admin-service-account
+  imagePullSecrets:
+    - name: gcr-json-key
+  nodeOptions: '--max-old-space-size=8192'
+  secrets:
+    postgresSecretName: postgres-secrets
+    githubAppSecretName: backstage-github-app-secret
+  googleApplicationCredentials: '/app/admin-credentials.json'
+
+# PostgreSQL database configuration
+postgres:
+  replicas: 1
+  image: postgres:17-alpine
+  imagePullPolicy: Always
+  storage: 10Gi
+  exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    imagePullPolicy: Always
+
+# Istio configuration (optional)
+istio:
+  gateway: istio-system/teknoir-gateway
+  ingressNamespace: istio-system
+  ingressServiceAccount: istio-ingressgateway
+  metricsNamespace: monitoring-system
+  jwt:
+    issuer: https://auth.teknoir.online/auth/realms/master
+    jwksUri: https://auth.teknoir.online/auth/realms/master/protocol/openid-connect/certs
+    fromHeaders:
+      - name: X-Forwarded-Access-Token
+      - name: X-Auth-Request-Access-Token

@@ -1,0 +1,102 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backstage
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: {{ .Values.backstage.replicas }}
+  selector:
+    matchLabels:
+      app: backstage
+  template:
+    metadata:
+      labels:
+        app: backstage
+    spec:
+      imagePullSecrets:
+        {{- toYaml .Values.backstage.imagePullSecrets | nindent 8 }}
+      containers:
+        - name: backstage
+          image: {{ .Values.backstage.image }}
+          imagePullPolicy: {{ .Values.backstage.imagePullPolicy }}
+          ports:
+            - name: http-web
+              containerPort: 80
+          env:
+            - name: LOG_LEVEL
+              value: {{ .Values.config.logLevel | quote }}
+            - name: PROMETHEUS_URL
+              value: {{ .Values.config.prometheusUrl | quote }}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backstage-api
+spec:
+  replicas: {{ .Values.backstageApi.replicas }}
+  selector:
+    matchLabels:
+      app: backstage-api
+  template:
+    metadata:
+      labels:
+        app: backstage-api
+    spec:
+      volumes:
+        - name: backstage-github-app-secret
+          secret:
+            secretName: {{ .Values.backstageApi.secrets.githubAppSecretName }}
+      serviceAccountName: {{ .Values.backstageApi.serviceAccountName }}
+      imagePullSecrets:
+        {{- toYaml .Values.backstageApi.imagePullSecrets | nindent 8 }}
+      containers:
+        - name: backstage-api
+          image: {{ .Values.backstageApi.image }}
+          imagePullPolicy: {{ .Values.backstageApi.imagePullPolicy }}
+          ports:
+            - name: http-api
+              containerPort: 7007
+            - name: http-metrics
+              containerPort: 9464
+          envFrom:
+            - secretRef:
+                name: {{ .Values.backstageApi.secrets.postgresSecretName }}
+          env:
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: {{ .Values.backstageApi.googleApplicationCredentials | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.config.logLevel | quote }}
+            - name: PROMETHEUS_URL
+              value: {{ .Values.config.prometheusUrl | quote }}
+            - name: NODE_OPTIONS
+              value: {{ .Values.backstageApi.nodeOptions | quote }}
+          command:
+            - /bin/bash
+            - '-c'
+            - |
+              node packages/backend \
+              --config app-config.yaml \
+              --config {{ .Values.config.config }}
+          volumeMounts:
+            - name: backstage-github-app-secret
+              readOnly: true
+              subPath: github-app-backstage-teknoir-credentials.yaml
+              mountPath: /app/github-app-backstage-teknoir-credentials.yaml
+            - name: backstage-github-app-secret
+              readOnly: true
+              subPath: backend-auth-backstage-secrets.yaml
+              mountPath: /app/backend-auth-backstage-secrets.yaml
+            - name: backstage-github-app-secret
+              readOnly: true
+              subPath: admin-credentials.json
+              mountPath: /app/admin-credentials.json
+          readinessProbe:
+            httpGet:
+              port: 7007
+              path: /api/healthcheck
+          livenessProbe:
+            httpGet:
+              port: 7007
+              path: /api/healthcheck

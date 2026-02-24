@@ -1,0 +1,37 @@
+---
+apiVersion: security.istio.io/v1beta1
+kind: RequestAuthentication
+metadata:
+  name: backstage-request-auth
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    matchLabels:
+      app: backstage
+  jwtRules:
+    - issuer: {{ .Values.istio.jwt.issuer | quote }}
+      jwksUri: {{ .Values.istio.jwt.jwksUri | quote }}
+      outputPayloadToHeader: verified-jwt
+      fromHeaders:
+        {{- range .Values.istio.jwt.fromHeaders }}
+        - name: {{ .name }}
+        {{- end }}
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: RequestAuthentication
+metadata:
+  name: backstage-api-request-auth
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    matchLabels:
+      app: backstage-api
+  jwtRules:
+    - issuer: {{ .Values.istio.jwt.issuer | quote }}
+      jwksUri: {{ .Values.istio.jwt.jwksUri | quote }}
+      outputPayloadToHeader: verified-jwt
+      fromHeaders:
+        {{- range .Values.istio.jwt.fromHeaders }}
+        - name: {{ .name }}
+        {{- end }}

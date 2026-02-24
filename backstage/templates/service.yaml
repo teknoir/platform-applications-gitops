@@ -1,0 +1,37 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backstage
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: backstage
+spec:
+  selector:
+    app: backstage
+  ports:
+    - name: http-web
+      appProtocol: http
+      port: 80
+      targetPort: 80
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backstage-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: backstage-api
+spec:
+  selector:
+    app: backstage-api
+  ports:
+    - name: http-api
+      appProtocol: http
+      port: 80
+      targetPort: 7007
+    - name: http-metrics
+      appProtocol: http
+      port: 9464
+      targetPort: 9464

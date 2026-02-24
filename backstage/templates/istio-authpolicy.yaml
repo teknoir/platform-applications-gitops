@@ -1,0 +1,45 @@
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: backstage-auth-policy
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    matchLabels:
+      app: backstage
+  action: ALLOW
+  rules:
+    # Allow calls only from gateway, no internal calls
+    - from:
+        - source:
+            principals: [ "cluster.local/ns/{{ .Values.istio.ingressNamespace }}/sa/{{ .Values.istio.ingressServiceAccount }}" ]
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: backstage-api-auth-policy
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    matchLabels:
+      app: backstage-api
+  action: ALLOW
+  rules:
+    # Allow calls only from gateway, no internal calls
+    - from:
+        - source:
+            principals: [ "cluster.local/ns/{{ .Values.istio.ingressNamespace }}/sa/{{ .Values.istio.ingressServiceAccount }}" ]
+    # Allow calls from all namespaces to the catalog API and auth refresh endpoint
+    # These endpoints are portected by Backstage auth system
+    - from:
+        - source:
+            namespaces: [ '*' ]
+      to:
+        - operation:
+            methods: ["GET", "POST"]
+            paths: ["/api/catalog/entities/*", "/api/auth/teknoir/refresh"]
+      when:
+        - key: request.auth.principal
+          notValues: [ "cluster.local/ns/{{ .Values.istio.ingressNamespace }}/sa/{{ .Values.istio.ingressServiceAccount }}" ]
