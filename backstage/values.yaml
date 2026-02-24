@@ -26,7 +26,7 @@ backstageApi:
   secrets:
     postgresSecretName: postgres-secrets
     githubAppSecretName: backstage-github-app-secret
-  googleApplicationCredentials: '/app/admin-credentials.json'
+  googleApplicationCredentials: '/app/secrets/admin-credentials.json'
 
 # PostgreSQL database configuration
 postgres:
