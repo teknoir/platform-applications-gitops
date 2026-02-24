@@ -1,7 +1,9 @@
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "user-controller.fullname" . }}
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "user-controller.labels" . | nindent 4 }}
 spec:

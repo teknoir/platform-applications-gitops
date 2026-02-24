@@ -1,12 +1,8 @@
 # Default values for notebook-controller.
 
-# Namespace to deploy the resources
-namespace: teknoir-system
-
 # Labels to add to all resources
 commonLabels:
   app: notebook-controller
-  kustomize.component: notebook-controller
 
 image:
   repository: gcr.io/teknoir/notebook-controller
@@ -23,7 +19,7 @@ addFsGroup: "true"
 
 parameters:
   USE_ISTIO: "true"
-  ISTIO_GATEWAY: teknoir/teknoir-gateway
+  ISTIO_GATEWAY: tistio-system/teknoir-gateway
   POD_LABELS: gcp-cred-secret=user-gcp-sa,gcp-cred-secret-filename=user-gcp-sa.json
   project-id: teknoir
-  domain: teknoir.cloud
+  domain: teknoir.online

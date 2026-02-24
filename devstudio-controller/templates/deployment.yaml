@@ -1,7 +1,9 @@
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "devstudio-controller.fullname" . }}-deployment
+  name: {{ include "devstudio-controller.fullname" . }}
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "devstudio-controller.labels" . | nindent 4 }}
     control-plane: controller-manager

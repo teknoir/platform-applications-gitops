@@ -1,10 +1,11 @@
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
+  name: notebook-controller
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- toYaml .Values.commonLabels | nindent 4 }}
-  name: notebook-controller-deployment
-  namespace: {{ .Values.namespace }}
 spec:
   selector:
     matchLabels:

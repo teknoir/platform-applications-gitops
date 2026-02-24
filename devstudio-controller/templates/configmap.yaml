@@ -1,7 +1,9 @@
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "devstudio-controller.fullname" . }}-parameters
+  name: {{ include "devstudio-controller.fullname" . }}
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "devstudio-controller.labels" . | nindent 4 }}
 data:

@@ -1,7 +1,9 @@
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: {{ include "devstudio-controller.fullname" . }}-role
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "devstudio-controller.labels" . | nindent 4 }}
 rules:
@@ -79,11 +81,13 @@ rules:
   - create
   - delete
   - update
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   name: {{ include "devstudio-controller.fullname" . }}-role-binding
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "devstudio-controller.labels" . | nindent 4 }}
 roleRef:
@@ -98,11 +102,13 @@ subjects:
 - kind: ServiceAccount
   name: {{ include "devstudio-controller.serviceAccountName" . }}
   namespace: teknoir
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: {{ include "devstudio-controller.fullname" . }}-leader-election-role
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "devstudio-controller.labels" . | nindent 4 }}
 rules:
@@ -137,11 +143,13 @@ rules:
   verbs:
   - create
   - patch
+
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: {{ include "devstudio-controller.fullname" . }}-leader-election-rolebinding
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "devstudio-controller.labels" . | nindent 4 }}
 roleRef:
