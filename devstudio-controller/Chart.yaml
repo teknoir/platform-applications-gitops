@@ -2,5 +2,5 @@ apiVersion: v2
 name: devstudio-controller
 description: A Helm chart for devstudio-controller
 type: application
-version: 0.0.30
+version: 0.0.31
 appVersion: "1.0.0"

@@ -24,7 +24,8 @@ backstageApi:
     - name: gcr-json-key
   nodeOptions: '--max-old-space-size=8192'
   secrets:
-    postgresSecretName: postgres-secrets
+    postgresSecretName: backstage-postgres-secrets
+    keycloakSecretName: backstage-keycloak-secrets
     githubAppSecretName: backstage-github-app-secret
   googleApplicationCredentials: '/app/secrets/admin-credentials.json'
 
