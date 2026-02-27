@@ -1,0 +1,48 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: backstage-api-resources-role
+rules:
+- apiGroups:
+  - teknoir.org
+  resources:
+  - devices
+  - users
+  - profiles
+  - devstudios
+  - notebooks
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - teknoir.org
+  resources:
+  - devices/status
+  - users/status
+  - profiles/status
+  - devstudios/status
+  - notebooks/status
+  verbs:
+  - get
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: backstage-api-resources-rolebinding
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: backstage-api-resources-role
+subjects:
+- kind: ServiceAccount
+  name: backstage-api
+  namespace: {{ .Release.Namespace }}
+

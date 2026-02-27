@@ -12,8 +12,8 @@ spec:
   action: ALLOW
   rules:
     - to:
-        - operation:
-            ports: [ "1883", "8883", "8083", "8084", "18083" ]
+      - operation:
+          ports: [ "1883", "8883", "8083", "8084", "18083" ]
 
 ---
 apiVersion: security.istio.io/v1beta1
@@ -35,17 +35,3 @@ spec:
         - source:
             namespaces:
               - "teknoir-system"
-
-{{/*---*/}}
-{{/*apiVersion: security.istio.io/v1beta1*/}}
-{{/*kind: AuthorizationPolicy*/}}
-{{/*metadata:*/}}
-{{/*  name: public-allow*/}}
-{{/*  namespace: teknoir-auth*/}}
-{{/*spec:*/}}
-{{/*  selector:*/}}
-{{/*    matchLabels:*/}}
-{{/*      app: my-public-app*/}}
-{{/*  action: ALLOW*/}}
-{{/*  rules:*/}}
-{{/*    - {}*/}}
