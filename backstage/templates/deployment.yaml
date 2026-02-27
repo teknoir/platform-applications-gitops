@@ -74,6 +74,11 @@ spec:
               value: {{ .Values.config.prometheusUrl | quote }}
             - name: NODE_OPTIONS
               value: {{ .Values.backstageApi.nodeOptions | quote }}
+            - name: SERVICE_ACCOUNT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: backstage-k8s-sa-token
+                  key: token
           command:
             - /bin/bash
             - '-c'

@@ -2,5 +2,5 @@ apiVersion: v2
 name: notebook-controller
 description: A Helm chart for notebook-controller
 type: application
-version: 0.0.32
+version: 0.0.33
 appVersion: "1.0.0"
