@@ -1,12 +1,13 @@
-apiVersion: security.istio.io/v1beta1
-kind: PeerAuthentication
-metadata:
-  name: backstage-api-peer-auth-mtls-port
-  namespace: {{ .Release.Namespace }}
-spec:
-  selector:
-    matchLabels:
-      app: backstage-api
-  portLevelMtls:
-    "9464":
-      mode: DISABLE
+{{/*---*/}}
+{{/*apiVersion: security.istio.io/v1beta1*/}}
+{{/*kind: PeerAuthentication*/}}
+{{/*metadata:*/}}
+{{/*  name: backstage-api-peer-auth-mtls-port*/}}
+{{/*  namespace: {{ .Release.Namespace }}*/}}
+{{/*spec:*/}}
+{{/*  selector:*/}}
+{{/*    matchLabels:*/}}
+{{/*      app: backstage-api*/}}
+{{/*  portLevelMtls:*/}}
+{{/*    "9464":*/}}
+{{/*      mode: DISABLE*/}}

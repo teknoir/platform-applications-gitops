@@ -1,16 +1,16 @@
-apiVersion: security.istio.io/v1beta1
-kind: AuthorizationPolicy
-metadata:
-  name: backstage-api-auth-policy-promop-metrics
-  namespace: {{ .Release.Namespace }}
-spec:
-  action: ALLOW
-  rules:
-  - from:
-    - source:
-        namespaces: [{{ .Values.istio.metricsNamespace | quote }}]
-  - to:
-    - operation:
-        paths: ["/metrics"]
-        methods: ["GET"]
-        ports: ["9464"]
+{{/*apiVersion: security.istio.io/v1beta1*/}}
+{{/*kind: AuthorizationPolicy*/}}
+{{/*metadata:*/}}
+{{/*  name: backstage-api-auth-policy-promop-metrics*/}}
+{{/*  namespace: {{ .Release.Namespace }}*/}}
+{{/*spec:*/}}
+{{/*  action: ALLOW*/}}
+{{/*  rules:*/}}
+{{/*  - from:*/}}
+{{/*    - source:*/}}
+{{/*        namespaces: [{{ .Values.istio.metricsNamespace | quote }}]*/}}
+{{/*  - to:*/}}
+{{/*    - operation:*/}}
+{{/*        paths: ["/metrics"]*/}}
+{{/*        methods: ["GET"]*/}}
+{{/*        ports: ["9464"]*/}}
