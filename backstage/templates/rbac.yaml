@@ -12,6 +12,8 @@ rules:
   - profiles
   - devstudios
   - notebooks
+  - claims
+  - claimsets
   verbs:
   - create
   - delete
