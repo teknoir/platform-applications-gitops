@@ -49,6 +49,6 @@ istio:
     issuer: https://auth.teknoir.online/auth/realms/master
     jwksUri: https://auth.teknoir.online/auth/realms/master/protocol/openid-connect/certs
     fromHeaders:
-      - name: Authorization
+#      - name: Authorization
       - name: X-Forwarded-Access-Token
       - name: X-Auth-Request-Access-Token
