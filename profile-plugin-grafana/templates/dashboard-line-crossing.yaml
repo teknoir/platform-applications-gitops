@@ -6,7 +6,7 @@ metadata:
   labels:
     {{ .Values.labelSelectorKey }}: {{ .Values.labelSelectorValue }}
 data:
-  line_crossing_dashboards.json: |
+  line_crossing_dashboard.json: |
     {
       "annotations": {
         "list": [

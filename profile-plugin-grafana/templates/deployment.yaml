@@ -35,8 +35,8 @@ spec:
           image: "grafana/grafana-oss:12.3.3"
           imagePullPolicy: Always
           env:
-            - name: GF_INSTALL_PLUGINS
-              value: "grafana-piechart-panel,grafana-worldmap-panel"
+{{/*            - name: GF_INSTALL_PLUGINS*/}}
+{{/*              value: "grafana-piechart-panel,grafana-worldmap-panel"*/}}
           volumeMounts:
             - name: config
               mountPath: "/etc/grafana/grafana.ini"
@@ -59,41 +59,41 @@ spec:
               mountPath: "/etc/grafana/dashboards/device_map_v2_dashboard.json"
               subPath: device_map_v2_dashboard.json
             - name: device-list-v2-dashboards
-              mountPath: "/etc/grafana/dashboards/device_list_v2_dashboard.json"
-              subPath: device_list_v2_dashboard.json
+              mountPath: "/etc/grafana/dashboards/device_list_v2_dashboards.json"
+              subPath: device_list_v2_dashboards.json
             - name: devstudios-dashboards
               mountPath: "/etc/grafana/dashboards/devstudios_dashboard.json"
               subPath: devstudios_dashboard.json
             - name: mqtt-dashboards
-              mountPath: "/etc/grafana/dashboards/mqtt_dashboard.json"
-              subPath: mqtt_dashboard.json
+              mountPath: "/etc/grafana/dashboards/mqtt_dashboards.json"
+              subPath: mqtt_dashboards.json
             - name: mongodb-dashboards
-              mountPath: "/etc/grafana/dashboards/mongodb_dashboard.json"
-              subPath: mongodb_dashboard.json
+              mountPath: "/etc/grafana/dashboards/mongodb_dashboards.json"
+              subPath: mongodb_dashboards.json
             - name: historian-api-dashboards
-              mountPath: "/etc/grafana/dashboards/historian-api_dashboard.json"
-              subPath: historian-api_dashboard.json
+              mountPath: "/etc/grafana/dashboards/historian_api_dashboard.json"
+              subPath: historian_api_dashboard.json
             - name: model-monitoring-dashboards
-              mountPath: "/etc/grafana/dashboards/model-monitoring_dashboard.json"
-              subPath: model-monitoring_dashboard.json
+              mountPath: "/etc/grafana/dashboards/model_monitoring_dashboards.json"
+              subPath: model_monitoring_dashboards.json
             - name: file-transfer-dashboards
-              mountPath: "/etc/grafana/dashboards/file-transfer_dashboard.json"
-              subPath: file-transfer_dashboard.json
+              mountPath: "/etc/grafana/dashboards/file_transfer_dashboard.json"
+              subPath: file_transfer_dashboard.json
             - name: file-transfer-device-dashboards
-              mountPath: "/etc/grafana/dashboards/file-transfer-device_dashboard.json"
-              subPath: file-transfer-device_dashboard.json
+              mountPath: "/etc/grafana/dashboards/file_transfer_device_dashboard.json"
+              subPath: file_transfer_device_dashboard.json
             - name: line-crossing-dashboards
-              mountPath: "/etc/grafana/dashboards/line-crossing_dashboard.json"
-              subPath: line-crossing_dashboard.json
+              mountPath: "/etc/grafana/dashboards/line_crossing_dashboard.json"
+              subPath: line_crossing_dashboard.json
             - name: postgres-prom-queries-dashboards
-              mountPath: "/etc/grafana/dashboards/postgres_prom_queries.json"
-              subPath: postgres_prom_queries.json
+              mountPath: "/etc/grafana/dashboards/postgres_prom_queries_dashboards.json"
+              subPath: postgres_prom_queries_dashboards.json
             - name: nvidia-gpu-metrics-dashboards
-              mountPath: "/etc/grafana/dashboards/nvidia-gpu_dashboard.json"
-              subPath: nvidia-gpu_dashboard.json
+              mountPath: "/etc/grafana/dashboards/nvidia_gpu_dashboards.json"
+              subPath: nvidia_gpu_dashboards.json
             - name: llm-proc-api-dashboard
-              mountPath: "/etc/grafana/dashboards/llm-proc-api_dashboard.json"
-              subPath: llm-proc-api_dashboard.json
+              mountPath: "/etc/grafana/dashboards/llm_proc_api_dashboard.json"
+              subPath: llm_proc_api_dashboard.json
           ports:
             - name: service
               containerPort: 80

@@ -6,7 +6,7 @@ metadata:
   labels:
     {{ .Values.labelSelectorKey }}: {{ .Values.labelSelectorValue }}
 data:
-  file_transfer_dashboards.json: |
+  file_transfer_dashboard.json: |
     {
       "annotations": {
         "list": [

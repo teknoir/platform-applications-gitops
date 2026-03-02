@@ -6,7 +6,7 @@ metadata:
   labels:
     {{ .Values.labelSelectorKey }}: {{ .Values.labelSelectorValue }}
 data:
-  devstudios_dashboards.json: |
+  devstudios_dashboard.json: |
     {
       "annotations": {
         "list": [

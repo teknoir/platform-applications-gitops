@@ -6,7 +6,7 @@ metadata:
   labels:
     {{ .Values.labelSelectorKey }}: {{ .Values.labelSelectorValue }}
 data:
-  historian_api_dashboards.json: |
+  historian_api_dashboard.json: |
     {
       "annotations": {
         "list": [
