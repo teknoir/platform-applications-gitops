@@ -15,30 +15,36 @@ spec:
       tcp:
         maxConnections: 10000
 
-{{/*---*/}}
-{{/*apiVersion: networking.istio.io/v1beta1*/}}
-{{/*kind: DestinationRule*/}}
-{{/*metadata:*/}}
-{{/*  name: emqx-headless*/}}
-{{/*  namespace: {{ .Release.Namespace }}*/}}
-{{/*spec:*/}}
-{{/*  host: emqx-headless.{{ .Release.Namespace }}.svc.cluster.local*/}}
-{{/*  exportTo:*/}}
-{{/*    - "teknoir-system"*/}}
-{{/*  trafficPolicy:*/}}
-{{/*    tls:*/}}
-{{/*      mode: DISABLE*/}}
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: emqx-headless
+spec:
+  host: emqx-headless.{{ .Release.Namespace }}.svc.cluster.local
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 100000  # Scale this to your device count
+        connectTimeout: 10s
+        tcpKeepalive:
+          time: 60s             # Start probes after 60s of inactivity
+          interval: 20s
+          probes: 3
 
-{{/*---*/}}
-{{/*apiVersion: networking.istio.io/v1beta1*/}}
-{{/*kind: DestinationRule*/}}
-{{/*metadata:*/}}
-{{/*  name: emqx-tls*/}}
-{{/*  namespace: {{ .Release.Namespace }}*/}}
-{{/*spec:*/}}
-{{/*  host: emqx-tls.{{ .Release.Namespace }}.svc.cluster.local*/}}
-{{/*  exportTo:*/}}
-{{/*    - "kube-system"*/}}
-{{/*  trafficPolicy:*/}}
-{{/*    tls:*/}}
-{{/*      mode: DISABLE*/}}
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: emqx
+spec:
+  host: emqx.{{ .Release.Namespace }}.svc.cluster.local
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 100000  # Scale this to your device count
+        connectTimeout: 10s
+        tcpKeepalive:
+          time: 60s             # Start probes after 60s of inactivity
+          interval: 20s
+          probes: 3
