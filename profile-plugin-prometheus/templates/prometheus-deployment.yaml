@@ -26,7 +26,7 @@ spec:
             OUTPUT_CERTS: /etc/istio-output-certs
         sidecar.istio.io/userVolumeMount: '[{"name": "istio-certs", "mountPath": "/etc/istio-output-certs"}]'
     spec:
-      serviceAccountName: {{ .Values.serviceAccount.name | default "prometheus" }}
+      serviceAccountName: prometheus
       containers:
         - name: prometheus-configmap-reload
           image: "jimmidyson/configmap-reload:v0.9.0"
