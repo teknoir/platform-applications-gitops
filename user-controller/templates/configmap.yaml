@@ -10,3 +10,4 @@ data:
   PROJECT_ID: {{ .Values.config.projectId | quote }}
   MAIL_CLIENT_API_KEY: {{ .Values.config.mailClientApiKey | quote }}
   WEB_DOMAIN: {{ .Values.config.webDomain | quote }}
+  KEYCLOAK_URL: "http://keycloak-http.teknoir-auth"
