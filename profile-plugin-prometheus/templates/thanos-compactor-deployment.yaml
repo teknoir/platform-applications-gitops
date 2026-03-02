@@ -23,7 +23,7 @@ spec:
         teknoir.org/activity-logs-enabled: "true"
         teknoir.org/activity-logs-section: prometheus
     spec:
-      serviceAccountName: {{ .Values.serviceAccountName }}
+      serviceAccountName: default-editor
       containers:
         - name: thanos-compactor
           image: "quay.io/thanos/thanos:{{ .Values.thanosVersion }}"

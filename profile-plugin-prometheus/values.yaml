@@ -3,7 +3,6 @@ domainPrefix:
 persistentVolumeClaimSize: 15Gi
 prometheusVersion: v2.52.0
 thanosVersion: v0.39.2
-serviceAccountName: default-editor
 
 thanos:
   enabled: false
