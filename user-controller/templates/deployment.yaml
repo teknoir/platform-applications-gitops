@@ -40,13 +40,11 @@ spec:
         - /manager
         args:
         - --leader-elect
-        - -project-id
-        - {{ .Values.config.projectId | quote }}
-        - -mail-client-api-key
-        - {{ .Values.config.mailClientApiKey | quote }}
-        env:
-        - name: WEB_DOMAIN
-          value: {{ .Values.config.webDomain | quote }}
+        envFrom:
+          - secretRef:
+              name: backstage-keycloak-secrets
+          - configMapRef:
+              name: {{ include "user-controller.fullname" . }}-config
         ports:
         - name: metrics
           containerPort: 8080
