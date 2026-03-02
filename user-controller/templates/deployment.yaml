@@ -40,10 +40,6 @@ spec:
         - /manager
         args:
         - --leader-elect
-        - -userid-header
-        - {{ .Values.config.userIdHeader | quote }}
-        - -userid-prefix
-        - {{ .Values.config.userIdPrefix | quote }}
         - -project-id
         - {{ .Values.config.projectId | quote }}
         - -mail-client-api-key
