@@ -1,8 +1,13 @@
 domain: teknoir.online
 domainPrefix:
-historianApiVersion: main-0.0.40
-historianMiddleendVersion: dev-latest
-historianSynchronizerVersion: dev
+historianApiVersion: latest
+historianMiddleendVersion: dev-3b2429a
 mongodbVersion: 8.2.1
 exporterVersion: 0.47
 persistentVolumeClaimSize: 10Gi
+historianStreamsVersion: dev-b2133d3
+streams:
+  - stream: "alerts"
+  - stream: "movements"
+#  - stream: "alert-snapshots"
+#  - stream: "movement-snapshots"
