@@ -48,51 +48,51 @@ subjects:
   name: backstage-api
   namespace: {{ .Release.Namespace }}
 
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: backstage-api-read-only-role
-rules:
-  - apiGroups:
-      - '*'
-    resources:
-      - pods
-      - pods/log
-      - configmaps
-      - services
-      - deployments
-      - replicasets
-      - horizontalpodautoscalers
-      - ingresses
-      - statefulsets
-      - limitranges
-      - resourcequotas
-      - daemonsets
-    verbs:
-      - create
-      - delete
-      - get
-      - list
-      - patch
-      - update
-      - watch
-  - apiGroups:
-      - batch
-    resources:
-      - jobs
-      - cronjobs
-    verbs:
-      - get
-      - list
-      - watch
-  - apiGroups:
-      - metrics.k8s.io
-    resources:
-      - pods
-    verbs:
-      - get
-      - list
+{{/*---*/}}
+{{/*apiVersion: rbac.authorization.k8s.io/v1*/}}
+{{/*kind: ClusterRole*/}}
+{{/*metadata:*/}}
+{{/*  name: backstage-api-read-only-role*/}}
+{{/*rules:*/}}
+{{/*  - apiGroups:*/}}
+{{/*      - '*'*/}}
+{{/*    resources:*/}}
+{{/*      - pods*/}}
+{{/*      - pods/log*/}}
+{{/*      - configmaps*/}}
+{{/*      - services*/}}
+{{/*      - deployments*/}}
+{{/*      - replicasets*/}}
+{{/*      - horizontalpodautoscalers*/}}
+{{/*      - ingresses*/}}
+{{/*      - statefulsets*/}}
+{{/*      - limitranges*/}}
+{{/*      - resourcequotas*/}}
+{{/*      - daemonsets*/}}
+{{/*    verbs:*/}}
+{{/*      - create*/}}
+{{/*      - delete*/}}
+{{/*      - get*/}}
+{{/*      - list*/}}
+{{/*      - patch*/}}
+{{/*      - update*/}}
+{{/*      - watch*/}}
+{{/*  - apiGroups:*/}}
+{{/*      - batch*/}}
+{{/*    resources:*/}}
+{{/*      - jobs*/}}
+{{/*      - cronjobs*/}}
+{{/*    verbs:*/}}
+{{/*      - get*/}}
+{{/*      - list*/}}
+{{/*      - watch*/}}
+{{/*  - apiGroups:*/}}
+{{/*      - metrics.k8s.io*/}}
+{{/*    resources:*/}}
+{{/*      - pods*/}}
+{{/*    verbs:*/}}
+{{/*      - get*/}}
+{{/*      - list*/}}
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -103,7 +103,7 @@ metadata:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: backstage-api-read-only-role
+  name: teknoir-admin
 subjects:
   - kind: ServiceAccount
     name: backstage-api
