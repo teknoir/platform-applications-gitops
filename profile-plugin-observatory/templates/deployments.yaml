@@ -198,87 +198,87 @@ spec:
             value: "{{ .Values.projectId }}"
           - name: GCLOUD_STORAGE_BUCKET
             value: "{{ .Release.Namespace }}.{{ .Values.domain }}"
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: observatory-media-pipeline
-  namespace: {{ .Release.Namespace }}
-  labels:
-    app: observatory-media-pipeline
-    app.kubernetes.io/name: observatory-media-pipeline
-    app.kubernetes.io/instance: observatory-media-pipeline
-    app.kubernetes.io/part-of: observatory
-    owner: teknoir
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: observatory-media-pipeline
-  template:
-    metadata:
-      labels:
-        app: observatory-media-pipeline
-        app.kubernetes.io/name: observatory-media-pipeline
-        app.kubernetes.io/instance: observatory-media-pipeline
-        app.kubernetes.io/part-of: observatory
-        owner: teknoir
-    spec:
-      serviceAccountName: {{ .Values.serviceAccountName }}
-      containers:
-        - name: video-pipeline
-          image: "us-docker.pkg.dev/teknoir/gcr.io/observatory-event-processing:{{ .Values.mediaPipelineVersion }}"
-          imagePullPolicy: Always
-          env:
-            - name: STREAM
-              value: boxer-assemble-clip
-            - name: CLIENT_ID
-              value: boxer-assemble-clip
-            - name: DEBUG_LEVEL
-              value: INFO
-            - name: LABEL_NAMESPACE
-              value: {{ .Release.Namespace }}
-            - name: MQTT_SERVICE_HOST
-              value: emqx
-            - name: MQTT_SERVICE_PORT
-              value: "1883"
-            - name: MQTT_USERNAME
-              valueFrom:
-                secretKeyRef:
-                  name: emqx-bootstrap-user
-                  key: username
-            - name: MQTT_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: emqx-bootstrap-user
-                  key: password
-            - name: LABEL_DOMAIN
-              value: "{{ .Values.domainPrefix }}{{ if .Values.domainPrefix }}.{{ end }}{{ .Values.domain }}"
-        - name: snapshot-pipeline
-          image: "us-docker.pkg.dev/teknoir/gcr.io/observatory-event-processing:{{ .Values.mediaPipelineVersion }}"
-          imagePullPolicy: Always
-          env:
-            - name: STREAM
-              value: boxer-snapshot
-            - name: CLIENT_ID
-              value: boxer-snapshot
-            - name: DEBUG_LEVEL
-              value: INFO
-            - name: LABEL_NAMESPACE
-              value: {{ .Release.Namespace }}
-            - name: MQTT_SERVICE_HOST
-              value: emqx
-            - name: MQTT_SERVICE_PORT
-              value: "1883"
-            - name: MQTT_USERNAME
-              valueFrom:
-                secretKeyRef:
-                  name: emqx-bootstrap-user
-                  key: username
-            - name: MQTT_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: emqx-bootstrap-user
-                  key: password
-            - name: LABEL_DOMAIN
-              value: "{{ .Values.domainPrefix }}{{ if .Values.domainPrefix }}.{{ end }}{{ .Values.domain }}"
+{{/*---*/}}
+{{/*apiVersion: apps/v1*/}}
+{{/*kind: Deployment*/}}
+{{/*metadata:*/}}
+{{/*  name: observatory-media-pipeline*/}}
+{{/*  namespace: {{ .Release.Namespace }}*/}}
+{{/*  labels:*/}}
+{{/*    app: observatory-media-pipeline*/}}
+{{/*    app.kubernetes.io/name: observatory-media-pipeline*/}}
+{{/*    app.kubernetes.io/instance: observatory-media-pipeline*/}}
+{{/*    app.kubernetes.io/part-of: observatory*/}}
+{{/*    owner: teknoir*/}}
+{{/*spec:*/}}
+{{/*  replicas: 1*/}}
+{{/*  selector:*/}}
+{{/*    matchLabels:*/}}
+{{/*      app: observatory-media-pipeline*/}}
+{{/*  template:*/}}
+{{/*    metadata:*/}}
+{{/*      labels:*/}}
+{{/*        app: observatory-media-pipeline*/}}
+{{/*        app.kubernetes.io/name: observatory-media-pipeline*/}}
+{{/*        app.kubernetes.io/instance: observatory-media-pipeline*/}}
+{{/*        app.kubernetes.io/part-of: observatory*/}}
+{{/*        owner: teknoir*/}}
+{{/*    spec:*/}}
+{{/*      serviceAccountName: {{ .Values.serviceAccountName }}*/}}
+{{/*      containers:*/}}
+{{/*        - name: video-pipeline*/}}
+{{/*          image: "us-docker.pkg.dev/teknoir/gcr.io/observatory-event-processing:{{ .Values.mediaPipelineVersion }}"*/}}
+{{/*          imagePullPolicy: Always*/}}
+{{/*          env:*/}}
+{{/*            - name: STREAM*/}}
+{{/*              value: boxer-assemble-clip*/}}
+{{/*            - name: CLIENT_ID*/}}
+{{/*              value: boxer-assemble-clip*/}}
+{{/*            - name: DEBUG_LEVEL*/}}
+{{/*              value: INFO*/}}
+{{/*            - name: LABEL_NAMESPACE*/}}
+{{/*              value: {{ .Release.Namespace }}*/}}
+{{/*            - name: MQTT_SERVICE_HOST*/}}
+{{/*              value: emqx*/}}
+{{/*            - name: MQTT_SERVICE_PORT*/}}
+{{/*              value: "1883"*/}}
+{{/*            - name: MQTT_USERNAME*/}}
+{{/*              valueFrom:*/}}
+{{/*                secretKeyRef:*/}}
+{{/*                  name: emqx-bootstrap-user*/}}
+{{/*                  key: username*/}}
+{{/*            - name: MQTT_PASSWORD*/}}
+{{/*              valueFrom:*/}}
+{{/*                secretKeyRef:*/}}
+{{/*                  name: emqx-bootstrap-user*/}}
+{{/*                  key: password*/}}
+{{/*            - name: LABEL_DOMAIN*/}}
+{{/*              value: "{{ .Values.domainPrefix }}{{ if .Values.domainPrefix }}.{{ end }}{{ .Values.domain }}"*/}}
+{{/*        - name: snapshot-pipeline*/}}
+{{/*          image: "us-docker.pkg.dev/teknoir/gcr.io/observatory-event-processing:{{ .Values.mediaPipelineVersion }}"*/}}
+{{/*          imagePullPolicy: Always*/}}
+{{/*          env:*/}}
+{{/*            - name: STREAM*/}}
+{{/*              value: boxer-snapshot*/}}
+{{/*            - name: CLIENT_ID*/}}
+{{/*              value: boxer-snapshot*/}}
+{{/*            - name: DEBUG_LEVEL*/}}
+{{/*              value: INFO*/}}
+{{/*            - name: LABEL_NAMESPACE*/}}
+{{/*              value: {{ .Release.Namespace }}*/}}
+{{/*            - name: MQTT_SERVICE_HOST*/}}
+{{/*              value: emqx*/}}
+{{/*            - name: MQTT_SERVICE_PORT*/}}
+{{/*              value: "1883"*/}}
+{{/*            - name: MQTT_USERNAME*/}}
+{{/*              valueFrom:*/}}
+{{/*                secretKeyRef:*/}}
+{{/*                  name: emqx-bootstrap-user*/}}
+{{/*                  key: username*/}}
+{{/*            - name: MQTT_PASSWORD*/}}
+{{/*              valueFrom:*/}}
+{{/*                secretKeyRef:*/}}
+{{/*                  name: emqx-bootstrap-user*/}}
+{{/*                  key: password*/}}
+{{/*            - name: LABEL_DOMAIN*/}}
+{{/*              value: "{{ .Values.domainPrefix }}{{ if .Values.domainPrefix }}.{{ end }}{{ .Values.domain }}"*/}}
