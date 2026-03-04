@@ -1,0 +1,284 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: observatory
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: observatory
+    app.kubernetes.io/name: observatory
+    app.kubernetes.io/instance: observatory
+    app.kubernetes.io/part-of: observatory
+    owner: teknoir
+spec:
+  strategy:
+    type: Recreate
+  replicas: 1
+  selector:
+    matchLabels:
+      app: observatory
+  template:
+    metadata:
+      labels:
+        app: observatory
+        app.kubernetes.io/name: observatory
+        app.kubernetes.io/instance: observatory
+        app.kubernetes.io/part-of: observatory
+        owner: teknoir
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "8000"
+    spec:
+      containers:
+        - name: observatory
+          image: "us-docker.pkg.dev/teknoir/gcr.io/sdmc:{{ .Values.observatoryVersion }}"
+          imagePullPolicy: Always
+          ports:
+            - name: http-sdmc
+              containerPort: 5173
+          env:
+          - name: APP_NAME
+            value: "sdmc"
+          - name: APP_VERSION
+            value: "{{ .Values.observatoryVersion }}"
+          - name: NAMESPACE
+            value: "{{ .Release.Namespace }}"
+          - name: DOMAIN
+            value: "{{ .Values.domainPrefix }}{{ if .Values.domainPrefix }}.{{ end }}{{ .Values.domain }}"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: observatory-wss-mqtt
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: observatory-wss-mqtt
+    app.kubernetes.io/name: observatory-wss-mqtt
+    app.kubernetes.io/instance: observatory-wss-mqtt
+    app.kubernetes.io/part-of: observatory
+    owner: teknoir
+spec:
+  strategy:
+    type: Recreate
+  replicas: 1
+  selector:
+    matchLabels:
+      app: observatory-wss-mqtt
+  template:
+    metadata:
+      labels:
+        app: observatory-wss-mqtt
+        app.kubernetes.io/name: observatory-wss-mqtt
+        app.kubernetes.io/instance: observatory-wss-mqtt
+        app.kubernetes.io/part-of: observatory
+        owner: teknoir
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "8000"
+    spec:
+      serviceAccountName: {{ .Values.serviceAccountName }}
+      containers:
+        - name: keydb
+          image: "eqalpha/keydb:{{ .Values.keydbVersion }}"
+          command: ["keydb-server"]
+          args:
+            - "--dir"
+            - "/data"
+          readinessProbe:
+            exec:
+              command: ["keydb-cli", "--raw", "incr", "ping"]
+            initialDelaySeconds: 10
+            timeoutSeconds: 2
+          ports:
+            - containerPort: 6379
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 2000Mi
+            requests:
+              cpu: 100m
+              memory: 20Mi
+          volumeMounts:
+            - name: keydb-persistent-storage
+              mountPath: /data
+        - name: observatory-wss-mqtt
+          image: "us-docker.pkg.dev/teknoir/gcr.io/wss-mqtt:{{ .Values.wssMqttVersion }}"
+          imagePullPolicy: Always
+          env:
+          - name: APP_NAME
+            value: "wss-mqtt"
+          - name: APP_VERSION
+            value: "{{ .Values.wssMqttVersion }}"
+          - name: WSS_PORT
+            value: "8080"
+          - name: CHECK_ACTIVE_INTERVAL
+            value: "10000"
+          - name: TIME_INTERVAL
+            value: "60000"
+          - name: FLUSH_CACHE_BUFFER_INTERVAL
+            value: "{{ .Values.flushCacheBufferInterval }}"
+          - name: MQTT_HOST
+            value: "emqx"
+          - name: MQTT_PORT
+            value: "1883"
+          - name: MQTT_USER
+            valueFrom:
+              secretKeyRef:
+                name: emqx-bootstrap-user
+                key: username
+          - name: MQTT_PASS
+            valueFrom:
+              secretKeyRef:
+                name: emqx-bootstrap-user
+                key: password
+          - name: MQTT_IN_0
+            value: "{{ .Values.inferenceTopic }}"
+          - name: LOG_LEVEL
+            value: "{{ .Values.logLevel }}"
+        - name: observatory-snapshot-exporter
+          image: "us-docker.pkg.dev/teknoir/gcr.io/snapshot-exporter:{{ .Values.snapshotExporterVersion }}"
+          imagePullPolicy: Always
+          env:
+          - name: APP_NAME
+            value: "snapshot-exporter"
+          - name: APP_VERSION
+            value: "{{ .Values.snapshotExporterVersion }}"
+          - name: SCHEDULER_INTERVAL
+            value: "{{ .Values.flushCacheBufferInterval }}"
+          - name: LOG_LEVEL
+            value: "{{ .Values.logLevel }}"
+          - name: GOOGLE_CLOUD_PROJECT
+            value: "{{ .Values.projectId }}"
+          - name: GCLOUD_STORAGE_BUCKET
+            value: "{{ .Release.Namespace }}.{{ .Values.domain }}"
+      volumes:
+        - name: keydb-persistent-storage
+          persistentVolumeClaim:
+            claimName: observatory-wss-mqtt-pvc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: observatory-media-service
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: observatory-media-service
+    app.kubernetes.io/name: observatory-media-service
+    app.kubernetes.io/instance: observatory-media-service
+    app.kubernetes.io/part-of: observatory
+    owner: teknoir
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: observatory-media-service
+  template:
+    metadata:
+      labels:
+        app: observatory-media-service
+        app.kubernetes.io/name: observatory-media-service
+        app.kubernetes.io/instance: observatory-media-service
+        app.kubernetes.io/part-of: observatory
+        owner: teknoir
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "8000"
+    spec:
+      serviceAccountName: {{ .Values.serviceAccountName }}
+      containers:
+        - name: observatory-media-service
+          image: "us-docker.pkg.dev/teknoir/gcr.io/gcs-media-service:{{ .Values.mediaServiceVersion }}"
+          imagePullPolicy: Always
+          env:
+          - name: BASE_URL
+            value: "/{{ .Release.Namespace }}/media-service/api"
+          - name: GOOGLE_CLOUD_PROJECT
+            value: "{{ .Values.projectId }}"
+          - name: GCLOUD_STORAGE_BUCKET
+            value: "{{ .Release.Namespace }}.{{ .Values.domain }}"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: observatory-media-pipeline
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: observatory-media-pipeline
+    app.kubernetes.io/name: observatory-media-pipeline
+    app.kubernetes.io/instance: observatory-media-pipeline
+    app.kubernetes.io/part-of: observatory
+    owner: teknoir
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: observatory-media-pipeline
+  template:
+    metadata:
+      labels:
+        app: observatory-media-pipeline
+        app.kubernetes.io/name: observatory-media-pipeline
+        app.kubernetes.io/instance: observatory-media-pipeline
+        app.kubernetes.io/part-of: observatory
+        owner: teknoir
+    spec:
+      serviceAccountName: {{ .Values.serviceAccountName }}
+      containers:
+        - name: video-pipeline
+          image: "us-docker.pkg.dev/teknoir/gcr.io/observatory-event-processing:{{ .Values.mediaPipelineVersion }}"
+          imagePullPolicy: Always
+          env:
+            - name: STREAM
+              value: boxer-assemble-clip
+            - name: CLIENT_ID
+              value: boxer-assemble-clip
+            - name: DEBUG_LEVEL
+              value: INFO
+            - name: LABEL_NAMESPACE
+              value: {{ .Release.Namespace }}
+            - name: MQTT_SERVICE_HOST
+              value: emqx
+            - name: MQTT_SERVICE_PORT
+              value: "1883"
+            - name: MQTT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: emqx-bootstrap-user
+                  key: username
+            - name: MQTT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: emqx-bootstrap-user
+                  key: password
+            - name: LABEL_DOMAIN
+              value: "{{ .Values.domainPrefix }}{{ if .Values.domainPrefix }}.{{ end }}{{ .Values.domain }}"
+        - name: snapshot-pipeline
+          image: "us-docker.pkg.dev/teknoir/gcr.io/observatory-event-processing:{{ .Values.mediaPipelineVersion }}"
+          imagePullPolicy: Always
+          env:
+            - name: STREAM
+              value: boxer-snapshot
+            - name: CLIENT_ID
+              value: boxer-snapshot
+            - name: DEBUG_LEVEL
+              value: INFO
+            - name: LABEL_NAMESPACE
+              value: {{ .Release.Namespace }}
+            - name: MQTT_SERVICE_HOST
+              value: emqx
+            - name: MQTT_SERVICE_PORT
+              value: "1883"
+            - name: MQTT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: emqx-bootstrap-user
+                  key: username
+            - name: MQTT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: emqx-bootstrap-user
+                  key: password
+            - name: LABEL_DOMAIN
+              value: "{{ .Values.domainPrefix }}{{ if .Values.domainPrefix }}.{{ end }}{{ .Values.domain }}"

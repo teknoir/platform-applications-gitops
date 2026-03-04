@@ -1,0 +1,62 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: observatory
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: observatory
+    app.kubernetes.io/instance: observatory
+    app.kubernetes.io/part-of: observatory
+    owner: teknoir
+spec:
+  ports:
+    - name: http-sdmc
+      port: 80
+      protocol: TCP
+      targetPort: 5173
+  selector:
+    app.kubernetes.io/name: observatory
+    app.kubernetes.io/instance: observatory
+    owner: teknoir
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: observatory-wss-mqtt
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: observatory-wss-mqtt
+    app.kubernetes.io/instance: observatory-wss-mqtt
+    app.kubernetes.io/part-of: observatory
+    owner: teknoir
+spec:
+  ports:
+    - name: http-sdmc-wss-mqtt
+      port: 8080
+      protocol: TCP
+      targetPort: 8080
+  selector:
+    app.kubernetes.io/name: observatory-wss-mqtt
+    app.kubernetes.io/instance: observatory-wss-mqtt
+    owner: teknoir
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: observatory-media-service
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: observatory-media-service
+    app.kubernetes.io/instance: observatory-media-service
+    app.kubernetes.io/part-of: observatory
+    owner: teknoir
+spec:
+  ports:
+    - name: http-observatory-media-service
+      port: 80
+      protocol: TCP
+      targetPort: 8000
+  selector:
+    app.kubernetes.io/name: observatory-media-service
+    app.kubernetes.io/instance: observatory-media-service
+    owner: teknoir

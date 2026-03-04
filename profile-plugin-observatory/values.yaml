@@ -1,0 +1,16 @@
+domain: teknoir.online
+domainPrefix:
+
+observatoryVersion: dev-latest
+wssMqttVersion: dev-latest
+snapshotExporterVersion: dev-latest
+mediaServiceVersion: latest
+mediaPipelineVersion: latest
+keydbVersion: x86_64_v6.3.4
+
+logLevel: info
+inferenceTopic: "/devices/+/events/inference"
+flushCacheBufferInterval: "30000"
+
+pvcSize: 10Gi
+serviceAccountName: default-editor

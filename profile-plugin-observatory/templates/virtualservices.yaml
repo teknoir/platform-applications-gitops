@@ -1,0 +1,80 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: observatory-vsvc
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: observatory
+    app.kubernetes.io/instance: observatory
+    app.kubernetes.io/part-of: observatory
+    owner: teknoir
+  annotations:
+    teknoir.org/public-urls-selector: '{ "http": { "query": "spec.http.[0].match.[0].uri.prefix" } }'
+spec:
+  gateways:
+  - istio-system/teknoir-gateway
+  hosts:
+  - {{ .Values.domainPrefix }}{{ if .Values.domainPrefix }}.{{ end }}{{ .Values.domain }}
+  http:
+  - match:
+    - uri:
+        prefix: /{{ .Release.Namespace }}/observatory
+    route:
+    - destination:
+        host: observatory.{{ .Release.Namespace }}.svc.cluster.local
+        port:
+          number: 80
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: observatory-wss-mqtt-vsvc
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: observatory-wss-mqtt
+    app.kubernetes.io/instance: observatory-wss-mqtt
+    app.kubernetes.io/part-of: observatory
+    owner: teknoir
+  annotations:
+    teknoir.org/public-urls-selector: '{ "http": { "query": "spec.http.[0].match.[0].uri.prefix" } }'
+spec:
+  gateways:
+  - istio-system/teknoir-gateway
+  hosts:
+  - {{ .Values.domainPrefix }}{{ if .Values.domainPrefix }}.{{ end }}{{ .Values.domain }}
+  http:
+  - match:
+    - uri:
+        prefix: /{{ .Release.Namespace }}/observatory-wss-mqtt
+    route:
+    - destination:
+        host: observatory-wss-mqtt.{{ .Release.Namespace }}.svc.cluster.local
+        port:
+          number: 8080
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: observatory-media-service-vsvc
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: observatory-media-service
+    app.kubernetes.io/instance: observatory-media-service
+    app.kubernetes.io/part-of: observatory
+    owner: teknoir
+  annotations:
+    teknoir.org/public-urls-selector: '{ "http": { "query": "spec.http.[0].match.[0].uri.prefix" } }'
+spec:
+  gateways:
+  - istio-system/teknoir-gateway
+  hosts:
+  - {{ .Values.domainPrefix }}{{ if .Values.domainPrefix }}.{{ end }}{{ .Values.domain }}
+  http:
+  - match:
+    - uri:
+        prefix: /{{ .Release.Namespace }}/media-service
+    route:
+    - destination:
+        host: observatory-media-service.{{ .Release.Namespace }}.svc.cluster.local
+        port:
+          number: 80
