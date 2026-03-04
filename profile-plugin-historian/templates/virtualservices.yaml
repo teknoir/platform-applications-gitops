@@ -1,0 +1,56 @@
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: historian-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    backstage.teknoir.org/plugin: historian-api
+    app.kubernetes.io/name: historian-api
+    app.kubernetes.io/instance: historian-api
+    owner: teknoir
+spec:
+  gateways:
+  - istio-system/teknoir-gateway
+  hosts:
+  - {{ .Values.domainPrefix }}{{ if .Values.domainPrefix }}.{{ end }}{{ .Values.domain }}
+  http:
+  - match:
+    - uri:
+        prefix: /{{ .Release.Namespace }}/historian-api/
+    rewrite:
+      uri: /
+    route:
+    - destination:
+        host: historian-api.{{ .Release.Namespace }}.svc.cluster.local
+        port:
+          number: 8000
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: historian-middleend
+  namespace: {{ .Release.Namespace }}
+  labels:
+    backstage.teknoir.org/plugin: historian-middleend
+    app.kubernetes.io/name: historian-middleend
+    app.kubernetes.io/instance: historian-middleend
+    owner: teknoir
+  annotations:
+    teknoir.org/public-urls-selector: '{ "http": { "query": "spec.http.[0].match.[0].uri.prefix" } }'
+spec:
+  gateways:
+  - istio-system/teknoir-gateway
+  hosts:
+  - {{ .Values.domainPrefix }}{{ if .Values.domainPrefix }}.{{ end }}{{ .Values.domain }}
+  http:
+  - match:
+    - uri:
+        prefix: /{{ .Release.Namespace }}/historian-middleend/
+    rewrite:
+      uri: /
+    route:
+    - destination:
+        host: historian-middleend.{{ .Release.Namespace }}.svc.cluster.local
+        port:
+          number: 80

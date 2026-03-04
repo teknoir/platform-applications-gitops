@@ -1,0 +1,57 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: historian-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    backstage.teknoir.org/plugin: historian-api
+    app.kubernetes.io/name: historian-api
+    app.kubernetes.io/instance: historian-api
+    owner: teknoir
+spec:
+  ports:
+    - name: historian-api
+      port: 8000
+      targetPort: historian-api
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: historian-api
+    app.kubernetes.io/instance: historian-api
+    owner: teknoir
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: historian-middleend
+  namespace: {{ .Release.Namespace }}
+  labels:
+    backstage.teknoir.org/plugin: historian-middleend
+    app.kubernetes.io/name: historian-middleend
+    app.kubernetes.io/instance: historian-middleend
+    owner: teknoir
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: historian-middleend
+    app.kubernetes.io/instance: historian-middleend
+    owner: teknoir
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: historian-mongodb
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: historian-mongodb
+spec:
+  ports:
+    - name: mongodb
+      port: 27017
+      targetPort: 27017
+  selector:
+    app: historian-mongodb

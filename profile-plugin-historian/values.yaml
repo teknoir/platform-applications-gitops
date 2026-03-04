@@ -1,0 +1,8 @@
+domain: teknoir.online
+domainPrefix:
+historianApiVersion: main-0.0.40
+historianMiddleendVersion: dev-latest
+historianSynchronizerVersion: dev
+mongodbVersion: 8.2.1
+exporterVersion: 0.47
+persistentVolumeClaimSize: 10Gi

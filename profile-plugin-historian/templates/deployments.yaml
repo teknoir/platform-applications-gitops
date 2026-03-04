@@ -1,0 +1,177 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: historian-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    backstage.teknoir.org/plugin: historian-api
+    app.kubernetes.io/name: historian-api
+    app.kubernetes.io/instance: historian-api
+    owner: teknoir
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: historian-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: historian-api
+        backstage.teknoir.org/plugin: historian-api
+        app.kubernetes.io/instance: historian-api
+        owner: teknoir
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "8000"
+    spec:
+      containers:
+        - name: historian-api
+          image: "us-docker.pkg.dev/teknoir/gcr.io/historian-api:{{ .Values.historianApiVersion }}"
+          imagePullPolicy: Always
+          ports:
+            - name: historian-api
+              containerPort: 8000
+          env:
+            - name: USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: historian-mongodb-credentials
+                  key: username
+            - name: PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: historian-mongodb-credentials
+                  key: password
+            - name: DOMAIN
+              value: 'historian-mongodb'
+            - name: PORT
+              value: '27017'
+            - name: DATABASE
+              value: 'historian'
+            - name: DEFAULT_TTL_SECONDS
+              value: '2678400'
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: historian-middleend
+  namespace: {{ .Release.Namespace }}
+  labels:
+    backstage.teknoir.org/plugin: historian-middleend
+    app.kubernetes.io/name: historian-middleend
+    app.kubernetes.io/instance: historian-middleend
+    owner: teknoir
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: historian-middleend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: historian-middleend
+        backstage.teknoir.org/plugin: historian-middleend
+        app.kubernetes.io/instance: historian-middleend
+        owner: teknoir
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "8000"
+    spec:
+      containers:
+        - name: historian-middleend
+          image: "us-docker.pkg.dev/teknoir/gcr.io/historian-middle-end-api:{{ .Values.historianMiddleendVersion }}"
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: historian-mongodb-credentials
+                  key: username
+            - name: PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: historian-mongodb-credentials
+                  key: password
+            - name: DOMAIN
+              value: 'historian-mongodb'
+            - name: PORT
+              value: '27017'
+            - name: DATABASE
+              value: 'historian'
+{{- $syncs := list "alerts" "movements" "alert-snapshots" "movement-snapshots" -}}
+{{- range $sync := $syncs }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: historian-sync-{{ $sync }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    app: historian-sync
+    app.kubernetes.io/name: historian-sync
+    app.kubernetes.io/component: {{ $sync }}
+    app.kubernetes.io/instance: historian-sync
+    app.kubernetes.io/part-of: historian-sync
+    owner: teknoir
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: historian-sync
+      app.kubernetes.io/component: {{ $sync }}
+  template:
+    metadata:
+      labels:
+        app: historian-sync
+        app.kubernetes.io/name: historian-sync
+        app.kubernetes.io/component: {{ $sync }}
+        app.kubernetes.io/instance: historian-sync
+        app.kubernetes.io/part-of: historian-sync
+        owner: teknoir
+    spec:
+      serviceAccountName: default-editor
+      containers:
+        - name: historian-sync-{{ $sync }}
+          image: "us-docker.pkg.dev/teknoir/gcr.io/observatory-event-processing:{{ $.Values.historianSynchronizerVersion }}"
+          imagePullPolicy: Always
+          env:
+            - name: STREAM
+              value: sync-{{ $sync }}
+            - name: CLIENT_ID
+              value: "historian-sync-{{ $sync }}"
+            - name: DEBUG_LEVEL
+              value: DEBUG
+            - name: LABEL_NAMESPACE
+              value: {{ $.Release.Namespace }}
+            - name: LABEL_DOMAIN
+              value: {{ $.Values.domain }}
+            - name: MQTT_SERVICE_HOST
+              value: emqx
+            - name: MQTT_SERVICE_PORT
+              value: "1883"
+            - name: MQTT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: emqx-bootstrap-user
+                  key: username
+            - name: MQTT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: emqx-bootstrap-user
+                  key: password
+            - name: MONGODB_URI
+              value: {{ include "mongodb.service_uri" $ | quote }}
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2000m"
+              memory: "4Gi"
+{{- end }}
