@@ -5,6 +5,8 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     app: observatory-wss-mqtt
+  annotations:
+    teknoir.org/plugin: observatory
 spec:
   action: ALLOW
   rules:

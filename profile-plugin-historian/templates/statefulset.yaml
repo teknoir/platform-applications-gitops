@@ -4,6 +4,8 @@ kind: StatefulSet
 metadata:
   name: historian-mongodb
   namespace: {{ .Release.Namespace }}
+  annotations:
+    teknoir.org/plugin: historian
   labels:
     app: historian-mongodb
 spec:
@@ -14,9 +16,8 @@ spec:
       app: historian-mongodb
   template:
     metadata:
-      labels:
-        app: historian-mongodb
       annotations:
+        teknoir.org/plugin: historian
         prometheus.io/scrape: "true"
         prometheus.io/path: "/metrics"
         prometheus.io/port: "9216"

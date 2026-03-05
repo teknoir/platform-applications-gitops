@@ -4,6 +4,8 @@ kind: AuthorizationPolicy
 metadata:
   name: deadend
   namespace: {{ .Release.Namespace }}
+  annotations:
+    teknoir.org/plugin: deadend
 spec:
   selector:
     matchLabels:

@@ -6,6 +6,8 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     app: prometheus
+  annotations:
+    teknoir.org/plugin: prometheus
 rules:
   - apiGroups: [""]
     resources:

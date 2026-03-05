@@ -3,6 +3,8 @@ kind: Deployment
 metadata:
   name: {{ .Values.name }}
   namespace: {{ .Release.Namespace }}
+  annotations:
+    teknoir.org/plugin: grafana
   labels:
     {{ .Values.labelSelectorKey }}: {{ .Values.labelSelectorValue }}
     teknoir.org/activity-logs-enabled: "true"
@@ -22,6 +24,7 @@ spec:
         teknoir.org/activity-logs-enabled: "true"
         teknoir.org/activity-logs-section: grafana
       annotations:
+        teknoir.org/plugin: grafana
         checksum/config: {{ include (print $.Template.BasePath "/configmap-grafana.yaml") . | sha256sum }}
         proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true }'
     spec:

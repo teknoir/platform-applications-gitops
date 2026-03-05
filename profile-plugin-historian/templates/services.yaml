@@ -4,6 +4,8 @@ kind: Service
 metadata:
   name: historian-api
   namespace: {{ .Release.Namespace }}
+  annotations:
+    teknoir.org/plugin: historian
   labels:
     backstage.teknoir.org/plugin: historian-api
     app.kubernetes.io/name: historian-api
@@ -25,6 +27,8 @@ kind: Service
 metadata:
   name: historian-middleend
   namespace: {{ .Release.Namespace }}
+  annotations:
+    teknoir.org/plugin: historian
   labels:
     backstage.teknoir.org/plugin: historian-middleend
     app.kubernetes.io/name: historian-middleend
@@ -46,6 +50,8 @@ kind: Service
 metadata:
   name: historian-mongodb
   namespace: {{ .Release.Namespace }}
+  annotations:
+    teknoir.org/plugin: historian
   labels:
     app: historian-mongodb
 spec:

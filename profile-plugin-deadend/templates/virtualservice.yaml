@@ -42,6 +42,8 @@
 apiVersion: networking.istio.io/v1beta1
 kind: VirtualService
 metadata:
+  annotations:
+    teknoir.org/plugin: deadend
   name: deadend
   namespace: {{ .Release.Namespace }}
 spec:

@@ -8,6 +8,8 @@ metadata:
     teknoir.org/activity-logs-section: prometheus
   name: thanos-query
   namespace: {{ .Release.Namespace }}
+  annotations:
+    teknoir.org/plugin: prometheus
 spec:
   selector:
     matchLabels:

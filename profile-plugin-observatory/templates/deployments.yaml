@@ -3,6 +3,8 @@ kind: Deployment
 metadata:
   name: observatory
   namespace: {{ .Release.Namespace }}
+  annotations:
+    teknoir.org/plugin: observatory
   labels:
     app: observatory
     app.kubernetes.io/name: observatory
@@ -18,13 +20,8 @@ spec:
       app: observatory
   template:
     metadata:
-      labels:
-        app: observatory
-        app.kubernetes.io/name: observatory
-        app.kubernetes.io/instance: observatory
-        app.kubernetes.io/part-of: observatory
-        owner: teknoir
       annotations:
+        teknoir.org/plugin: observatory
         prometheus.io/scrape: "true"
         prometheus.io/path: "/metrics"
         prometheus.io/port: "8000"
@@ -51,6 +48,8 @@ kind: Deployment
 metadata:
   name: observatory-wss-mqtt
   namespace: {{ .Release.Namespace }}
+  annotations:
+    teknoir.org/plugin: observatory
   labels:
     app: observatory-wss-mqtt
     app.kubernetes.io/name: observatory-wss-mqtt
@@ -66,13 +65,8 @@ spec:
       app: observatory-wss-mqtt
   template:
     metadata:
-      labels:
-        app: observatory-wss-mqtt
-        app.kubernetes.io/name: observatory-wss-mqtt
-        app.kubernetes.io/instance: observatory-wss-mqtt
-        app.kubernetes.io/part-of: observatory
-        owner: teknoir
       annotations:
+        teknoir.org/plugin: observatory
         prometheus.io/scrape: "true"
         prometheus.io/path: "/metrics"
         prometheus.io/port: "8000"
@@ -162,6 +156,8 @@ kind: Deployment
 metadata:
   name: observatory-media-service
   namespace: {{ .Release.Namespace }}
+  annotations:
+    teknoir.org/plugin: observatory
   labels:
     app: observatory-media-service
     app.kubernetes.io/name: observatory-media-service
@@ -175,13 +171,8 @@ spec:
       app: observatory-media-service
   template:
     metadata:
-      labels:
-        app: observatory-media-service
-        app.kubernetes.io/name: observatory-media-service
-        app.kubernetes.io/instance: observatory-media-service
-        app.kubernetes.io/part-of: observatory
-        owner: teknoir
       annotations:
+        teknoir.org/plugin: observatory
         prometheus.io/scrape: "true"
         prometheus.io/path: "/metrics"
         prometheus.io/port: "8000"

@@ -1,3 +1,4 @@
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -7,6 +8,8 @@ metadata:
     teknoir.org/activity-logs-section: prometheus
   name: prometheus
   namespace: {{ .Release.Namespace }}
+  annotations:
+    teknoir.org/plugin: prometheus
 spec:
   selector:
     matchLabels:

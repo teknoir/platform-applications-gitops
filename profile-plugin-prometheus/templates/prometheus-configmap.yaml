@@ -5,6 +5,8 @@ metadata:
     app: prometheus
   name: prometheus
   namespace: {{ .Release.Namespace }}
+  annotations:
+    teknoir.org/plugin: prometheus
 data:
   alerting_rules.yml: |
     groups:

@@ -5,6 +5,8 @@ metadata:
     app: prometheus
   name: {{ .Release.Namespace }}-prometheus-config
   namespace: {{ .Release.Namespace }}
+  annotations:
+    teknoir.org/plugin: prometheus
 data:
   user_defined_rules.yml: |
     groups: []

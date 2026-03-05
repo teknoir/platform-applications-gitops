@@ -2,6 +2,8 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
+  annotations:
+    teknoir.org/plugin: deadend
   name: deadend-role
   namespace: {{ .Release.Namespace }}
 rules:

@@ -4,6 +4,8 @@ kind: DestinationRule
 metadata:
   name: emqx-dashboard
   namespace: {{ .Release.Namespace }}
+  annotations:
+    teknoir.org/plugin: emqx
 spec:
   host: emqx-dashboard.{{ .Release.Namespace }}.svc.cluster.local
   exportTo:
@@ -20,6 +22,8 @@ apiVersion: networking.istio.io/v1alpha3
 kind: DestinationRule
 metadata:
   name: emqx-headless
+  annotations:
+    teknoir.org/plugin: emqx
 spec:
   host: emqx-headless.{{ .Release.Namespace }}.svc.cluster.local
   trafficPolicy:
@@ -37,6 +41,8 @@ apiVersion: networking.istio.io/v1alpha3
 kind: DestinationRule
 metadata:
   name: emqx
+  annotations:
+    teknoir.org/plugin: emqx
 spec:
   host: emqx.{{ .Release.Namespace }}.svc.cluster.local
   trafficPolicy:

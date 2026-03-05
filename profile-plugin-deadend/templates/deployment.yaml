@@ -2,6 +2,8 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
+  annotations:
+    teknoir.org/plugin: deadend
   labels:
     app: deadend
   name: deadend
@@ -13,6 +15,8 @@ spec:
       app: deadend
   template:
     metadata:
+      annotations:
+        teknoir.org/plugin: deadend
       labels:
         app: deadend
     spec:

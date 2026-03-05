@@ -6,6 +6,8 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     app: mongodb
+  annotations:
+    teknoir.org/plugin: mongodb
 spec:
   serviceName: mongodb
   replicas: 1
@@ -17,6 +19,7 @@ spec:
       labels:
         app: mongodb
       annotations:
+        teknoir.org/plugin: mongodb
         prometheus.io/scrape: "true"
         prometheus.io/path: "/metrics"
         prometheus.io/port: "9216"

@@ -6,6 +6,8 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     app: thanos-query
+  annotations:
+    teknoir.org/plugin: prometheus
 spec:
   gateways:
   - istio-system/teknoir-gateway

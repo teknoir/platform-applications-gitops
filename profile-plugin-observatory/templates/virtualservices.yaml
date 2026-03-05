@@ -3,12 +3,8 @@ kind: VirtualService
 metadata:
   name: observatory-vsvc
   namespace: {{ .Release.Namespace }}
-  labels:
-    app.kubernetes.io/name: observatory
-    app.kubernetes.io/instance: observatory
-    app.kubernetes.io/part-of: observatory
-    owner: teknoir
   annotations:
+    teknoir.org/plugin: observatory
     teknoir.org/public-urls-selector: '{ "http": { "query": "spec.http.[0].match.[0].uri.prefix" } }'
 spec:
   gateways:
@@ -30,12 +26,8 @@ kind: VirtualService
 metadata:
   name: observatory-wss-mqtt-vsvc
   namespace: {{ .Release.Namespace }}
-  labels:
-    app.kubernetes.io/name: observatory-wss-mqtt
-    app.kubernetes.io/instance: observatory-wss-mqtt
-    app.kubernetes.io/part-of: observatory
-    owner: teknoir
   annotations:
+    teknoir.org/plugin: observatory
     teknoir.org/public-urls-selector: '{ "http": { "query": "spec.http.[0].match.[0].uri.prefix" } }'
 spec:
   gateways:
@@ -57,12 +49,8 @@ kind: VirtualService
 metadata:
   name: observatory-media-service-vsvc
   namespace: {{ .Release.Namespace }}
-  labels:
-    app.kubernetes.io/name: observatory-media-service
-    app.kubernetes.io/instance: observatory-media-service
-    app.kubernetes.io/part-of: observatory
-    owner: teknoir
   annotations:
+    teknoir.org/plugin: observatory
     teknoir.org/public-urls-selector: '{ "http": { "query": "spec.http.[0].match.[0].uri.prefix" } }'
 spec:
   gateways:

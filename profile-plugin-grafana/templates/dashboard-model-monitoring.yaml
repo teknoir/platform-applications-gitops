@@ -5,6 +5,8 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{ .Values.labelSelectorKey }}: {{ .Values.labelSelectorValue }}
+  annotations:
+    teknoir.org/plugin: grafana
 data:
   model_monitoring_dashboards.json: |
     {

@@ -2,6 +2,8 @@
 apiVersion: networking.istio.io/v1beta1
 kind: VirtualService
 metadata:
+  annotations:
+    teknoir.org/plugin: emqx
   name: mqtt-ws
   namespace: {{ .Release.Namespace }}
 spec:
@@ -20,6 +22,8 @@ spec:
 apiVersion: networking.istio.io/v1beta1
 kind: VirtualService
 metadata:
+  annotations:
+    teknoir.org/plugin: emqx
   name: mqtt
   namespace: {{ .Release.Namespace }}
 spec:
@@ -40,6 +44,8 @@ spec:
 apiVersion: networking.istio.io/v1beta1
 kind: VirtualService
 metadata:
+  annotations:
+    teknoir.org/plugin: emqx
   name: emqx-dashboard
   namespace: {{ .Release.Namespace }}
 spec:

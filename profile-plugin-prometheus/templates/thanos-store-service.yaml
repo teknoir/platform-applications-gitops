@@ -8,6 +8,8 @@ metadata:
     teknoir.org/activity-logs-section: prometheus
   name: thanos-store-svc
   namespace: {{ .Release.Namespace }}
+  annotations:
+    teknoir.org/plugin: prometheus
 spec:
   ports:
     - name: grpc-sidecar
