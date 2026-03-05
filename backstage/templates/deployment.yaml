@@ -48,6 +48,9 @@ spec:
         - name: backstage-github-app-secret
           secret:
             secretName: {{ .Values.backstageApi.secrets.githubAppSecretName }}
+        - name: techdocs-persistent-storage
+          persistentVolumeClaim:
+            claimName: backstage-techdocs
       serviceAccountName: backstage-api
       imagePullSecrets:
         {{- toYaml .Values.backstageApi.imagePullSecrets | nindent 8 }}
@@ -90,6 +93,8 @@ spec:
             - name: backstage-github-app-secret
               readOnly: true
               mountPath: /app/secrets
+            - name: techdocs-persistent-storage
+              mountPath: /app/techdocs
           readinessProbe:
             httpGet:
               port: 7007
