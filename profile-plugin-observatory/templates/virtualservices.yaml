@@ -3,8 +3,9 @@ kind: VirtualService
 metadata:
   name: observatory-vsvc
   namespace: {{ .Release.Namespace }}
-  annotations:
+  labels:
     teknoir.org/plugin: observatory
+  annotations:
     teknoir.org/public-urls-selector: '{ "http": { "query": "spec.http.[0].match.[0].uri.prefix" } }'
 spec:
   gateways:
@@ -26,8 +27,9 @@ kind: VirtualService
 metadata:
   name: observatory-wss-mqtt-vsvc
   namespace: {{ .Release.Namespace }}
-  annotations:
+  labels:
     teknoir.org/plugin: observatory
+  annotations:
     teknoir.org/public-urls-selector: '{ "http": { "query": "spec.http.[0].match.[0].uri.prefix" } }'
 spec:
   gateways:
@@ -49,8 +51,9 @@ kind: VirtualService
 metadata:
   name: observatory-media-service-vsvc
   namespace: {{ .Release.Namespace }}
-  annotations:
+  labels:
     teknoir.org/plugin: observatory
+  annotations:
     teknoir.org/public-urls-selector: '{ "http": { "query": "spec.http.[0].match.[0].uri.prefix" } }'
 spec:
   gateways:

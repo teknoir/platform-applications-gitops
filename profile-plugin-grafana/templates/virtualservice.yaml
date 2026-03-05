@@ -5,8 +5,9 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{ .Values.labelSelectorKey }}: {{ .Values.labelSelectorValue }}
-  annotations:
     teknoir.org/plugin: grafana
+  annotations:
+    teknoir.org/public-urls-selector: '{ "http": { "query": "spec.http.[0].match.[0].uri.prefix" } }'
 spec:
   gateways:
     - istio-system/teknoir-gateway

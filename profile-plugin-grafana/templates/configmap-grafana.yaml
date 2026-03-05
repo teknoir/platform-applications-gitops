@@ -6,7 +6,6 @@ metadata:
   labels:
     app: {{ .Values.name }}
     {{ .Values.labelSelectorKey }}: {{ .Values.labelSelectorValue }}
-  annotations:
     teknoir.org/plugin: grafana
 data:
   grafana.ini: |

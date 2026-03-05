@@ -2,7 +2,7 @@
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
-  annotations:
+  labels:
     teknoir.org/plugin: emqx
   name: emqx-authz
   namespace: {{ .Release.Namespace }}
@@ -21,7 +21,7 @@ spec:
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
-  annotations:
+  labels:
     teknoir.org/plugin: emqx
   name: emqx-api
   namespace: {{ .Release.Namespace }}

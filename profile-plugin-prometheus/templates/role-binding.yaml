@@ -6,7 +6,6 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     app: prometheus
-  annotations:
     teknoir.org/plugin: prometheus
 roleRef:
   apiGroup: rbac.authorization.k8s.io

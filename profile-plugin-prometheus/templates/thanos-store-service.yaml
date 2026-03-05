@@ -6,10 +6,9 @@ metadata:
     app: thanos-store
     teknoir.org/activity-logs-enabled: "true"
     teknoir.org/activity-logs-section: prometheus
+    teknoir.org/plugin: prometheus
   name: thanos-store-svc
   namespace: {{ .Release.Namespace }}
-  annotations:
-    teknoir.org/plugin: prometheus
 spec:
   ports:
     - name: grpc-sidecar

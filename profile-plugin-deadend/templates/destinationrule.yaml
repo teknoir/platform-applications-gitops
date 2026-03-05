@@ -2,7 +2,7 @@
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
-  annotations:
+  labels:
     teknoir.org/plugin: deadend
   name: deadendproxy
   namespace: {{ .Release.Namespace }}

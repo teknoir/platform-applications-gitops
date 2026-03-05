@@ -4,10 +4,9 @@ kind: PersistentVolumeClaim
 metadata:
   labels:
     app: prometheus
+    teknoir.org/plugin: prometheus
   name: prometheus
   namespace: {{ .Release.Namespace }}
-  annotations:
-    teknoir.org/plugin: prometheus
 spec:
   accessModes:
     - ReadWriteOnce

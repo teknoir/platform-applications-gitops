@@ -4,13 +4,12 @@ kind: Service
 metadata:
   name: historian-api
   namespace: {{ .Release.Namespace }}
-  annotations:
-    teknoir.org/plugin: historian
   labels:
     backstage.teknoir.org/plugin: historian-api
     app.kubernetes.io/name: historian-api
     app.kubernetes.io/instance: historian-api
     owner: teknoir
+    teknoir.org/plugin: historian
 spec:
   ports:
     - name: historian-api
@@ -27,13 +26,12 @@ kind: Service
 metadata:
   name: historian-middleend
   namespace: {{ .Release.Namespace }}
-  annotations:
-    teknoir.org/plugin: historian
   labels:
     backstage.teknoir.org/plugin: historian-middleend
     app.kubernetes.io/name: historian-middleend
     app.kubernetes.io/instance: historian-middleend
     owner: teknoir
+    teknoir.org/plugin: historian
 spec:
   ports:
     - name: http
@@ -50,10 +48,9 @@ kind: Service
 metadata:
   name: historian-mongodb
   namespace: {{ .Release.Namespace }}
-  annotations:
-    teknoir.org/plugin: historian
   labels:
     app: historian-mongodb
+    teknoir.org/plugin: historian
 spec:
   ports:
     - name: mongodb

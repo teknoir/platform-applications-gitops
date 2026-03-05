@@ -6,10 +6,9 @@ metadata:
     app: prometheus
     teknoir.org/activity-logs-enabled: "true"
     teknoir.org/activity-logs-section: prometheus
+    teknoir.org/plugin: prometheus
   name: prometheus
   namespace: {{ .Release.Namespace }}
-  annotations:
-    teknoir.org/plugin: prometheus
 spec:
   selector:
     matchLabels:
@@ -23,6 +22,7 @@ spec:
         app: prometheus
         teknoir.org/activity-logs-enabled: "true"
         teknoir.org/activity-logs-section: prometheus
+        teknoir.org/plugin: prometheus
       annotations:
         proxy.istio.io/config: |
           proxyMetadata:

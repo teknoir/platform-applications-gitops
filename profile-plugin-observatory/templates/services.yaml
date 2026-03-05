@@ -3,9 +3,8 @@ kind: Service
 metadata:
   name: observatory
   namespace: {{ .Release.Namespace }}
-  annotations:
-    teknoir.org/plugin: observatory
   labels:
+    teknoir.org/plugin: observatory
     app.kubernetes.io/name: observatory
     app.kubernetes.io/instance: observatory
     app.kubernetes.io/part-of: observatory
@@ -26,9 +25,8 @@ kind: Service
 metadata:
   name: observatory-wss-mqtt
   namespace: {{ .Release.Namespace }}
-  annotations:
-    teknoir.org/plugin: observatory
   labels:
+    teknoir.org/plugin: observatory
     app.kubernetes.io/name: observatory-wss-mqtt
     app.kubernetes.io/instance: observatory-wss-mqtt
     app.kubernetes.io/part-of: observatory
@@ -49,9 +47,8 @@ kind: Service
 metadata:
   name: observatory-media-service
   namespace: {{ .Release.Namespace }}
-  annotations:
-    teknoir.org/plugin: observatory
   labels:
+    teknoir.org/plugin: observatory
     app.kubernetes.io/name: observatory-media-service
     app.kubernetes.io/instance: observatory-media-service
     app.kubernetes.io/part-of: observatory

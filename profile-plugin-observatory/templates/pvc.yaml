@@ -3,7 +3,7 @@ kind: PersistentVolumeClaim
 metadata:
   name: observatory-wss-mqtt-pvc
   namespace: {{ .Release.Namespace }}
-  annotations:
+  labels:
     teknoir.org/plugin: observatory
 spec:
   accessModes:

@@ -9,7 +9,6 @@ metadata:
     app.kubernetes.io/name: historian-api
     app.kubernetes.io/instance: historian-api
     owner: teknoir
-  annotations:
     teknoir.org/plugin: historian
 spec:
   replicas: 1
@@ -18,8 +17,13 @@ spec:
       app.kubernetes.io/name: historian-api
   template:
     metadata:
-      annotations:
+      labels:
+        app.kubernetes.io/name: historian-api
+        backstage.teknoir.org/plugin: historian-api
+        app.kubernetes.io/instance: historian-api
+        owner: teknoir
         teknoir.org/plugin: historian
+      annotations:
         prometheus.io/scrape: "true"
         prometheus.io/path: "/metrics"
         prometheus.io/port: "8000"
@@ -61,7 +65,6 @@ metadata:
     app.kubernetes.io/name: historian-middleend
     app.kubernetes.io/instance: historian-middleend
     owner: teknoir
-  annotations:
     teknoir.org/plugin: historian
 spec:
   replicas: 1
@@ -70,8 +73,13 @@ spec:
       app.kubernetes.io/name: historian-middleend
   template:
     metadata:
-      annotations:
+      labels:
+        app.kubernetes.io/name: historian-middleend
+        backstage.teknoir.org/plugin: historian-middleend
+        app.kubernetes.io/instance: historian-middleend
+        owner: teknoir
         teknoir.org/plugin: historian
+      annotations:
         prometheus.io/scrape: "true"
         prometheus.io/path: "/metrics"
         prometheus.io/port: "8000"
@@ -115,7 +123,6 @@ metadata:
     app.kubernetes.io/instance: historian-sync
     app.kubernetes.io/part-of: historian-sync
     owner: teknoir
-  annotations:
     teknoir.org/plugin: historian
 spec:
   replicas: 1
@@ -125,8 +132,6 @@ spec:
       app.kubernetes.io/component: {{ .stream }}
   template:
     metadata:
-      annotations:
-        teknoir.org/plugin: historian
       labels:
         app: historian-sync
         app.kubernetes.io/name: historian-sync
@@ -134,6 +139,7 @@ spec:
         app.kubernetes.io/instance: historian-sync
         app.kubernetes.io/part-of: historian-sync
         owner: teknoir
+        teknoir.org/plugin: historian
     spec:
       serviceAccountName: default-editor
       containers:

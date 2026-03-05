@@ -2,9 +2,8 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  annotations:
-    teknoir.org/plugin: deadend
   labels:
+    teknoir.org/plugin: deadend
     app: deadend
   name: deadend
   namespace: {{ .Release.Namespace }}
@@ -15,9 +14,8 @@ spec:
       app: deadend
   template:
     metadata:
-      annotations:
-        teknoir.org/plugin: deadend
       labels:
+        teknoir.org/plugin: deadend
         app: deadend
     spec:
       imagePullSecrets:

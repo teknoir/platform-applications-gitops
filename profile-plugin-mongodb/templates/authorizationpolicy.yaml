@@ -4,7 +4,7 @@ kind: AuthorizationPolicy
 metadata:
   name: mongodb-teknoir-system-allow
   namespace: {{ .Release.Namespace }}
-  annotations:
+  labels:
     teknoir.org/plugin: mongodb
 spec:
   selector:

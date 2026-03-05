@@ -5,7 +5,6 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{ .Values.labelSelectorKey }}: {{ .Values.labelSelectorValue }}
-  annotations:
     teknoir.org/plugin: grafana
 data:
   file_transfer_device_dashboard.json: |
