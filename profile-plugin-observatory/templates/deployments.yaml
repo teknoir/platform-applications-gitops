@@ -1,3 +1,4 @@
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -76,10 +77,10 @@ spec:
         app.kubernetes.io/instance: observatory-wss-mqtt
         app.kubernetes.io/part-of: observatory
         owner: teknoir
-      annotations:
-        prometheus.io/scrape: "true"
-        prometheus.io/path: "/metrics"
-        prometheus.io/port: "8000"
+{{/*      annotations:*/}}
+{{/*        prometheus.io/scrape: "true"*/}}
+{{/*        prometheus.io/path: "/metrics"*/}}
+{{/*        prometheus.io/port: "8000"*/}}
     spec:
       serviceAccountName: {{ .Values.serviceAccountName }}
       containers:
