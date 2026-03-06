@@ -30,7 +30,7 @@ metadata:
   labels:
     teknoir.org/plugin: observatory
   annotations:
-    teknoir.org/public-urls-selector: '{ "http": { "query": "spec.http.[0].match.[0].uri.prefix" } }'
+    teknoir.org/public-urls-selector: '{ "websocket": { "query": "spec.http.[0].match.[0].uri.prefix" } }'
 spec:
   gateways:
   - istio-system/teknoir-gateway
