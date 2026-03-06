@@ -2,7 +2,7 @@ domain: teknoir.online
 domainPrefix:
 
 observatoryVersion: main-39f7560
-wssMqttVersion: dev-20250812-152255
+wssMqttVersion: dev-440733c
 snapshotExporterVersion: dev-latest
 mediaServiceVersion: latest
 mediaPipelineVersion: dev-b2133d3
