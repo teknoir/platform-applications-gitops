@@ -38,7 +38,7 @@ spec:
   - {{ .Values.domainPrefix }}{{ if .Values.domainPrefix }}.{{ end }}{{ .Values.domain }}
   http:
   - name: "observatory-wss-route"
-  - match:
+    match:
     - uri:
         prefix: /{{ .Release.Namespace }}/observatory-wss-mqtt
     route:
