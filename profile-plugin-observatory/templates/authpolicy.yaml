@@ -1,7 +1,7 @@
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
-  name: observatory-wss-mqtt-auth-policy
+  name: observatory-ws
   namespace: {{ .Release.Namespace }}
   labels:
     app: observatory-wss-mqtt
@@ -9,12 +9,9 @@ metadata:
 spec:
   action: ALLOW
   rules:
-    - from:
-        - source:
-            principals: ["cluster.local/ns/teknoir-system/sa/admin-service-account"]
     - to:
       - operation:
-          methods: ["GET"]
+          paths: ["/test-organisation/observatory-wss-mqtt"]
           ports: ["8080"]
   selector:
     matchLabels:
