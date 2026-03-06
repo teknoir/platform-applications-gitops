@@ -33,7 +33,7 @@ metadata:
     owner: teknoir
 spec:
   ports:
-    - name: http-sdmc-wss-mqtt
+    - name: http-ws
       port: 8080
       protocol: TCP
       targetPort: 8080

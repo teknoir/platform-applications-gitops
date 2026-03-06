@@ -111,7 +111,7 @@ spec:
           image: "us-docker.pkg.dev/teknoir/gcr.io/wss-mqtt:{{ .Values.wssMqttVersion }}"
           imagePullPolicy: Always
           ports:
-            - name: http-sdmc-wss-mqtt
+            - name: http-ws
               containerPort: 8080
           env:
           - name: APP_NAME
