@@ -14,6 +14,8 @@ rules:
   - notebooks
   - claims
   - claimsets
+  - helmcharts
+  - virtualservices
   verbs:
   - create
   - delete
