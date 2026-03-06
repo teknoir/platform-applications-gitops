@@ -13,20 +13,7 @@ spec:
   hosts:
   - {{ .Values.domainPrefix }}{{ if .Values.domainPrefix }}.{{ end }}{{ .Values.domain }}
   http:
-  - name: "observatory-wss-route"
-    match:
-      - uri:
-          prefix: /{{ .Release.Namespace }}/observatory-wss-mqtt
-    route:
-      - destination:
-          host: observatory-wss-mqtt.{{ .Release.Namespace }}.svc.cluster.local
-          port:
-            number: 8080
-    timeout: 3600s
-    retries:
-      attempts: 0 # Disable retries for websockets
-  - name: "observatory-ui-route"
-    match:
+  - match:
     - uri:
         prefix: /{{ .Release.Namespace }}/observatory
     route:
@@ -34,6 +21,35 @@ spec:
         host: observatory.{{ .Release.Namespace }}.svc.cluster.local
         port:
           number: 80
+
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: observatory-wss-mqtt-vsvc
+  namespace: {{ .Release.Namespace }}
+  labels:
+    teknoir.org/plugin: observatory
+  annotations:
+    teknoir.org/public-urls-selector: '{ "websocket": { "query": "spec.http.[0].match.[0].uri.prefix" } }'
+spec:
+  gateways:
+  - istio-system/teknoir-gateway
+  hosts:
+  - {{ .Values.domainPrefix }}{{ if .Values.domainPrefix }}.{{ end }}{{ .Values.domain }}
+  http:
+  - name: "observatory-wss-route"
+    match:
+    - uri:
+        prefix: /{{ .Release.Namespace }}/ws/observatory
+    route:
+    - destination:
+        host: observatory-wss-mqtt.{{ .Release.Namespace }}.svc.cluster.local
+        port:
+          number: 8080
+    timeout: 3600s
+    retries:
+      attempts: 0 # Disable retries for websockets
 
 ---
 apiVersion: networking.istio.io/v1beta1
