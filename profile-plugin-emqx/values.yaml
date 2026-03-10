@@ -32,6 +32,7 @@ emqx:
     EMQX_AUTHENTICATION__2__ACL_CLAIM_NAME: "acl"
     #verify_claims = {aud = "{{.projectId}}"}
     EMQX_AUTHENTICATION__2__VERIFY_CLAIMS: '{aud= \"teknoir\"}'
+    EMQX_MAX_PACKET_SIZE: "3M"
   pdb:
     enabled: false
     maxUnavailable: 1
