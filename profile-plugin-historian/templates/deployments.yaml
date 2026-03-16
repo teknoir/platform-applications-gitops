@@ -172,7 +172,10 @@ spec:
                   name: emqx-bootstrap-user
                   key: password
             - name: MONGODB_URI
-              value: {{ include "mongodb.service_uri" $ | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: historian-mongodb-credentials
+                  key: service_uri
           resources:
             requests:
               cpu: "50m"

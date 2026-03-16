@@ -12,7 +12,7 @@ spec:
   gateways:
     - istio-system/teknoir-gateway
   hosts:
-    - '*'
+    - {{ .Values.domainPrefix }}{{ if .Values.domainPrefix }}.{{ end }}{{ .Values.domain }}
   http:
     - match:
         - uri:
