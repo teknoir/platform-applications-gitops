@@ -9,8 +9,8 @@ spec:
     matchLabels:
       app: backstage
   jwtRules:
-    - issuer: {{ .Values.istio.jwt.issuer | quote }}
-      jwksUri: {{ .Values.istio.jwt.jwksUri | quote }}
+    - issuer: "https://auth.{{ .Values.config.domain }}/auth/realms/master"
+      jwksUri: "https://auth.{{ .Values.config.domain }}/auth/realms/master/protocol/openid-connect/certs"
       outputPayloadToHeader: verified-jwt
       fromHeaders:
         {{- range .Values.istio.jwt.fromHeaders }}
@@ -28,8 +28,8 @@ spec:
     matchLabels:
       app: backstage-api
   jwtRules:
-    - issuer: {{ .Values.istio.jwt.issuer | quote }}
-      jwksUri: {{ .Values.istio.jwt.jwksUri | quote }}
+    - issuer: "https://auth.{{ .Values.config.domain }}/auth/realms/master"
+      jwksUri: "https://auth.{{ .Values.config.domain }}/auth/realms/master/protocol/openid-connect/certs"
       outputPayloadToHeader: verified-jwt
       fromHeaders:
         {{- range .Values.istio.jwt.fromHeaders }}
