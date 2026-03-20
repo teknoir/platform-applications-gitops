@@ -28,17 +28,19 @@ metadata:
   namespace: {{ .Release.Namespace }}
 spec:
   hosts:
-    - 'mqtt-{{ .Release.Namespace }}.{{ .Values.domain }}'
+    - "*.{{ .Values.domain }}"
   gateways:
     - istio-system/teknoir-gateway-public
-  tcp:
+  tls:
     - match:
         - port: 8883
+          sniHosts:
+            - mqtt-{{ .Release.Namespace }}.{{ .Values.domain }}
       route:
         - destination:
             host: emqx-headless.{{ .Release.Namespace }}.svc.cluster.local
             port:
-              number: 1883
+              number: 8883
 
 ---
 apiVersion: networking.istio.io/v1beta1

@@ -33,6 +33,12 @@ emqx:
     #verify_claims = {aud = "{{.projectId}}"}
     EMQX_AUTHENTICATION__2__VERIFY_CLAIMS: '{aud= \"teknoir\"}'
     EMQX_MAX_PACKET_SIZE: "3M"
+    EMQX_LISTENER__SSL__KEYFILE: "/opt/emqx/etc/certs/tls.key"
+    EMQX_LISTENER__SSL__CERTFILE: "/opt/emqx/etc/certs/tls.crt"
+    EMQX_LISTENER__SSL__EXTERNAL__KEYFILE: "/opt/emqx/etc/certs/tls.key"
+    EMQX_LISTENER__SSL__EXTERNAL__CERTFILE: "/opt/emqx/etc/certs/tls.crt"
+    EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__KEYFILE: "/opt/emqx/etc/certs/tls.key"
+    EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__CERTFILE: "/opt/emqx/etc/certs/tls.crt"
   pdb:
     enabled: false
     maxUnavailable: 1
@@ -40,10 +46,13 @@ emqx:
     - name: emqx-bootstrap-api-keys
       mountPath: /opt/emqx-bootstrap
       readOnly: true
+    - name: emqx-certs
+      mountPath: /opt/emqx/etc/certs
+      readOnly: true
   extraVolumes:
     - name: emqx-bootstrap-api-keys
       secret:
         secretName: emqx-bootstrap-api-keys
-#  podAnnotations:
-#    sidecar.istio.io/userVolume: '{"tls-secret":{"secret":{"secretName":"test-organisation-wildcard-tls","optional":true}}}'
-#    sidecar.istio.io/userVolumeMount: '{"tls-secret":{"mountPath":"/etc/istio/tls-certs/","readOnly":true}}'
+    - name: emqx-certs
+      secret:
+        secretName: teknoir-cloud-wildcard-tls-copied

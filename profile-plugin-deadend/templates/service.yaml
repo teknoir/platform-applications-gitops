@@ -10,7 +10,6 @@ spec:
   selector:
     app: deadend
   ports:
-    - name: tcp-ssh
+    - name: tls-ssh
       port: 2222
-      targetPort: 22
-      protocol: TCP
+      targetPort: 2222

@@ -31,17 +31,32 @@ spec:
         volumeMounts:
           - name: deadend-authorized-keys
             mountPath: /secret-keys
-{{/*      - name: privoxy*/}}
-{{/*        image: "us-docker.pkg.dev/teknoir/gcr.io/deadend-privoxy:{{ .Values.imageTag }}"*/}}
-{{/*        imagePullPolicy: Always*/}}
-{{/*        ports:*/}}
-{{/*          - containerPort: 8118*/}}
-{{/*            name: tcp*/}}
-{{/*            protocol: TCP*/}}
+      - name: tls-terminator
+        image: alpine:latest
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            apk add --no-cache stunnel
+            stunnel /etc/stunnel/stunnel.conf
+        ports:
+          - containerPort: 2222
+        volumeMounts:
+          - name: certs
+            mountPath: /etc/stunnel/certs
+            readOnly: true
+          - name: stunnel-config
+            mountPath: /etc/stunnel/stunnel.conf
+            subPath: stunnel.conf
       volumes:
         - name: deadend-authorized-keys
           secret:
             secretName: deadend-authorized-keys-secret
             defaultMode: 0644
+        - name: certs
+          secret:
+            secretName: teknoir-cloud-wildcard-tls-copied
+        - name: stunnel-config
+          configMap:
+            name: deadend-stunnel-config
       serviceAccountName: deadend-service-account
 

@@ -8,12 +8,14 @@ metadata:
   namespace: {{ .Release.Namespace }}
 spec:
   hosts:
-    - 'deadend-{{ .Release.Namespace }}.{{ .Values.domain }}'
+    - "*.{{ .Values.domain }}"
   gateways:
     - istio-system/teknoir-gateway-public
-  tcp:
+  tls:
     - match:
         - port: 2222
+          sniHosts:
+            - deadend-{{ .Release.Namespace }}.{{ .Values.domain }}
       route:
         - destination:
             host: deadend.{{ .Release.Namespace }}.svc.cluster.local
