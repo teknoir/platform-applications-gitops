@@ -13,3 +13,6 @@ spec:
     - name: tls-ssh
       port: 2222
       targetPort: 2222
+    - name: tcp-ssh
+      port: 22
+      targetPort: 22
