@@ -47,6 +47,13 @@ spec:
           - name: stunnel-config
             mountPath: /etc/stunnel/stunnel.conf
             subPath: stunnel.conf
+        resources:
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+          requests:
+            cpu: 25m
+            memory: 20Mi
       volumes:
         - name: deadend-authorized-keys
           secret:

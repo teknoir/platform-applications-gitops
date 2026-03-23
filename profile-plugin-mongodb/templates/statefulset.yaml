@@ -73,6 +73,13 @@ spec:
                 secretKeyRef:
                   name: mongodb-credentials
                   key: password
+          resources:
+            limits:
+              cpu: 1500m
+              memory: 8000Mi
+            requests:
+              cpu: 25m
+              memory: 128Mi
   volumeClaimTemplates:
     - metadata:
         name: data

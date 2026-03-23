@@ -102,7 +102,7 @@ spec:
               cpu: 1000m
               memory: 2000Mi
             requests:
-              cpu: 100m
+              cpu: 25m
               memory: 20Mi
           volumeMounts:
             - name: keydb-persistent-storage
@@ -160,6 +160,13 @@ spec:
             value: "{{ .Values.projectId }}"
           - name: GCLOUD_STORAGE_BUCKET
             value: "{{ .Release.Namespace }}.{{ .Values.domain }}"
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 1000Mi
+            requests:
+              cpu: 25m
+              memory: 20Mi
       volumes:
         - name: keydb-persistent-storage
           persistentVolumeClaim:
@@ -208,3 +215,10 @@ spec:
             value: "{{ .Values.projectId }}"
           - name: GCLOUD_STORAGE_BUCKET
             value: "{{ .Release.Namespace }}.{{ .Values.domain }}"
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 1000Mi
+            requests:
+              cpu: 25m
+              memory: 20Mi
