@@ -96,10 +96,12 @@ spec:
             - name: techdocs-persistent-storage
               mountPath: /app/techdocs
           readinessProbe:
+            initialDelaySeconds: 60
             httpGet:
               port: 7007
               path: /api/healthcheck
           livenessProbe:
+            initialDelaySeconds: 60
             httpGet:
               port: 7007
               path: /api/healthcheck
