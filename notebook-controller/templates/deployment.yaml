@@ -14,8 +14,8 @@ spec:
     metadata:
       annotations:
         prometheus.io/scrape: "true"
-        sidecar.istio.io/inject: "false"
       labels:
+        sidecar.istio.io/inject: "false"
         {{- toYaml .Values.commonLabels | nindent 8 }}
     spec:
       containers:

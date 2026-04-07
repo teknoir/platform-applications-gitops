@@ -28,9 +28,9 @@ serviceAccount:
 podAnnotations:
   kubectl.kubernetes.io/default-container: manager
   prometheus.io/scrape: "true"
-  sidecar.istio.io/inject: "false"
 
-podLabels: {}
+podLabels:
+  sidecar.istio.io/inject: "false"
 
 podSecurityContext:
   runAsNonRoot: true

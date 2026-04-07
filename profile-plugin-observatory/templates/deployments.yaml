@@ -102,7 +102,7 @@ spec:
               cpu: 1000m
               memory: 2000Mi
             requests:
-              cpu: 25m
+              cpu: 10m
               memory: 20Mi
           volumeMounts:
             - name: keydb-persistent-storage
@@ -165,7 +165,7 @@ spec:
               cpu: 1000m
               memory: 1000Mi
             requests:
-              cpu: 25m
+              cpu: 10m
               memory: 20Mi
       volumes:
         - name: keydb-persistent-storage
@@ -220,5 +220,5 @@ spec:
               cpu: 1000m
               memory: 1000Mi
             requests:
-              cpu: 25m
+              cpu: 10m
               memory: 20Mi

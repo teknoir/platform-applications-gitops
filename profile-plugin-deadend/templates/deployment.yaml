@@ -18,8 +18,6 @@ spec:
         teknoir.org/plugin: deadend
         app: deadend
     spec:
-      imagePullSecrets:
-        - name: gcr-json-key
       containers:
       - name: deadend
         image: "us-docker.pkg.dev/teknoir/gcr.io/deadend:{{ .Values.imageTag }}"

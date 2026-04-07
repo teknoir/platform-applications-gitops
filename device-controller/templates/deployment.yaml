@@ -21,6 +21,7 @@ spec:
       labels:
         {{- include "device-controller.selectorLabels" . | nindent 8 }}
         control-plane: controller-manager
+        sidecar.istio.io/inject: "false"
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
