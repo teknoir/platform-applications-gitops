@@ -140,6 +140,8 @@ spec:
   sources: [ ]
   project: {{ .Values.project }}
   syncPolicy:
+    syncOptions:
+      - ServerSideApply=true
     automated:
       prune: true
       selfHeal: true
