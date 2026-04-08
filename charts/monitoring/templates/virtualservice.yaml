@@ -1,0 +1,75 @@
+{{- $namespace := .Values.namespace | default .Release.Namespace -}}
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  labels:
+    app: grafana-prom-op
+  name: grafana-prom-op-vsvc
+  namespace: {{ $namespace }}
+spec:
+  gateways:
+  - istio-system/teknoir-gateway
+  hosts:
+  - '*'
+  http:
+  - match:
+    - uri:
+        prefix: /{{ $namespace }}/grafana
+    rewrite:
+      uri: /{{ $namespace }}/grafana
+    route:
+    - destination:
+        host: monitoring-grafana.{{ $namespace }}.svc.cluster.local
+        port:
+          number: 80
+
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  labels:
+    app: prometheus-operator
+  name: prometheus-operator-vsvc
+  namespace: {{ $namespace }}
+spec:
+  gateways:
+  - istio-system/teknoir-gateway
+  hosts:
+  - '*'
+  http:
+  - match:
+    - uri:
+        prefix: /{{ $namespace }}/prometheus
+    rewrite:
+      uri: /{{ $namespace }}/prometheus
+    route:
+    - destination:
+        host: monitoring-prometheus.{{ $namespace }}.svc.cluster.local
+        port:
+          number: 9090
+
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  labels:
+    app: alertmanager-prom-op
+  name: alertmanager-prom-op-vsvc
+  namespace: {{ $namespace }}
+spec:
+  gateways:
+    - istio-system/teknoir-gateway
+  hosts:
+    - '*'
+  http:
+    - match:
+        - uri:
+            prefix: /{{ $namespace }}/alertmanager
+      rewrite:
+        uri: /{{ $namespace }}/alertmanager
+      route:
+        - destination:
+            host: monitoring-alertmanager.{{ $namespace }}.svc.cluster.local
+            port:
+              number: 9093

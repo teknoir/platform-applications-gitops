@@ -1,0 +1,51 @@
+{{/*---*/}}
+{{/*apiVersion: security.istio.io/v1beta1*/}}
+{{/*kind: AuthorizationPolicy*/}}
+{{/*metadata:*/}}
+{{/*  name: harbor-allow-ingress*/}}
+{{/*  namespace: {{ .Release.Namespace }}*/}}
+{{/*spec:*/}}
+{{/*  selector:*/}}
+{{/*    matchLabels:*/}}
+{{/*      # Targets the harbor proxy (nginx) which is the entry point*/}}
+{{/*      component: nginx*/}}
+{{/*  action: ALLOW*/}}
+{{/*  rules:*/}}
+{{/*    - from:*/}}
+{{/*        - source:*/}}
+{{/*            principals:*/}}
+{{/*              - "cluster.local/ns/istio-system/sa/istio-ingressgateway"*/}}
+
+{{- $namespace := .Values.namespace | default .Release.Namespace -}}
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: harbor-allow-ingress
+  namespace: {{ $namespace }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: harbor
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - "cluster.local/ns/istio-system/sa/istio-ingressgateway"
+
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: harbor-allow-internal
+  namespace: {{ $namespace }}
+spec:
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            namespaces:
+              - {{ $namespace | quote }}
+              - "teknoir-auth"

@@ -1,0 +1,10 @@
+---
+{{- $namespace := .Values.namespace | default .Release.Namespace -}}
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: harbor-strict-mtls
+  namespace: {{ $namespace }}
+spec:
+  mtls:
+    mode: STRICT
