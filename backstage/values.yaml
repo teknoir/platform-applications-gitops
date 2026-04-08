@@ -1,16 +1,16 @@
-# Default values for backstage
+# GitOps values for backstage
 
 # Parameters from params.env
 config:
-  domain: "teknoir.online"
-  config: app-config.teknoir-online.yaml
+  domain: "teknoir.cloud"
+  config: app-config.teknoir-cloud.yaml
   logLevel: info
   prometheusUrl: http://prometheus.__NAMESPACE__.svc.cluster.local:80
 
 # Backstage frontend deployment
 backstage:
   replicas: 1
-  image: backstage-image
+  image: us-central1-docker.pkg.dev/teknoir-mgmt/apps/backstage-app:teknoir-cloud-20260407-131739
   imagePullPolicy: Always
   imagePullSecrets:
     - name: gcr-json-key
@@ -18,7 +18,7 @@ backstage:
 # Backstage API deployment
 backstageApi:
   replicas: 1
-  image: backstage-api-image
+  image: us-central1-docker.pkg.dev/teknoir-mgmt/apps/backstage:teknoir-cloud-20260407-131739
   imagePullPolicy: Always
   imagePullSecrets:
     - name: gcr-json-key

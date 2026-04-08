@@ -1,0 +1,36 @@
+{{- $namespace := .Values.namespace | default .Release.Namespace -}}
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: grafana-mtls
+  namespace: {{ $namespace }}
+spec:
+  host: "monitoring-grafana.{{ $namespace }}.svc.cluster.local"
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: prometheus-mtls
+  namespace: {{ $namespace }}
+spec:
+  host: "monitoring-prometheus.{{ $namespace }}.svc.cluster.local"
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: alertmanager-mtls
+  namespace: {{ $namespace }}
+spec:
+  host: "monitoring-alertmanager.{{ $namespace }}.svc.cluster.local"
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL

@@ -1,0 +1,26 @@
+{{/*---*/}}
+{{/*apiVersion: networking.istio.io/v1alpha3*/}}
+{{/*kind: EnvoyFilter*/}}
+{{/*metadata:*/}}
+{{/*  name: harbor-bypass-ext-authz*/}}
+{{/*  namespace: {{ .Values.istio.gateway.namespace | default "istio-system" }}*/}}
+{{/*spec:*/}}
+{{/*  workloadSelector:*/}}
+{{/*    labels:*/}}
+{{/*      # Targets the ingress gateway*/}}
+{{/*      istio: ingressgateway*/}}
+{{/*  configPatches:*/}}
+{{/*    - applyTo: VIRTUAL_HOST*/}}
+{{/*      match:*/}}
+{{/*        context: GATEWAY*/}}
+{{/*        routeConfiguration:*/}}
+{{/*          vhost:*/}}
+{{/*            # Matches the Harbor domain setup in your VirtualService*/}}
+{{/*            name: "{{ .Values.hostname }}:443"*/}}
+{{/*      patch:*/}}
+{{/*        operation: MERGE*/}}
+{{/*        value:*/}}
+{{/*          typed_per_filter_config:*/}}
+{{/*            envoy.filters.http.ext_authz:*/}}
+{{/*              "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute*/}}
+{{/*              disabled: true*/}}

@@ -1,0 +1,57 @@
+{{/*apiVersion: networking.istio.io/v1beta1*/}}
+{{/*kind: VirtualService*/}}
+{{/*metadata:*/}}
+{{/*  name: harbor*/}}
+{{/*  namespace: {{ .Release.Namespace }}*/}}
+{{/*spec:*/}}
+{{/*  hosts:*/}}
+{{/*    - {{ .Values.hostname | quote }}*/}}
+{{/*  gateways:*/}}
+{{/*    - {{ .Values.istio.gateway.namespace }}/{{ .Values.istio.gateway.name }}*/}}
+{{/*  http:*/}}
+{{/*    - name: harbor*/}}
+{{/*      route:*/}}
+{{/*        - destination:*/}}
+{{/*            host: harbor-proxy.{{ .Release.Namespace }}.svc.cluster.local*/}}
+{{/*            port:*/}}
+{{/*              number: 80*/}}
+
+---
+{{- $domain := .Values.domain | default (hasKey .Values "global" | ternary (index (.Values.global | default dict) "domain") "") | default "teknoir.online" -}}
+{{- $hostname := .Values.hostname | default (printf "harbor.%s" $domain) -}}
+{{- $namespace := .Values.namespace | default .Release.Namespace -}}
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: harbor
+  namespace: {{ $namespace }}
+spec:
+  hosts:
+    - {{ $hostname | quote }}
+  gateways:
+    - {{ .Values.istio.gateway.namespace }}/{{ .Values.istio.gateway.name }}
+  http:
+    # Route API and Core requests directly to harbor-core
+    - name: harbor-core
+      match:
+        - uri:
+            prefix: /api/
+        - uri:
+            prefix: /c/
+        - uri:
+            prefix: /v2/
+        - uri:
+            prefix: /service/
+      route:
+        - destination:
+            host: harbor-core.{{ $namespace }}.svc.cluster.local
+            port:
+              number: 80
+
+    # Route everything else (UI/static assets) to harbor-portal
+    - name: harbor-portal
+      route:
+        - destination:
+            host: harbor-portal.{{ $namespace }}.svc.cluster.local
+            port:
+              number: 80
