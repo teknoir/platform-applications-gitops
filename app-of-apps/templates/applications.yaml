@@ -11,7 +11,7 @@ spec:
     path: charts/notebook-controller
     repoURL: https://github.com/teknoir/profile-controller-helm
     targetRevision: {{ .Values.project }}
-  sources: []
+  sources: [ ]
   project: {{ .Values.project }}
   syncPolicy:
     automated:
@@ -32,7 +32,7 @@ spec:
     path: charts/devstudio-controller
     repoURL: https://github.com/teknoir/profile-controller-helm
     targetRevision: {{ .Values.project }}
-  sources: []
+  sources: [ ]
   project: {{ .Values.project }}
   syncPolicy:
     automated:
@@ -53,7 +53,7 @@ spec:
     path: charts/user-controller
     repoURL: https://github.com/teknoir/profile-controller-helm
     targetRevision: {{ .Values.project }}
-  sources: []
+  sources: [ ]
   project: {{ .Values.project }}
   syncPolicy:
     automated:
@@ -74,7 +74,7 @@ spec:
     path: charts/profile-controller
     repoURL: https://github.com/teknoir/profile-controller-helm
     targetRevision: {{ .Values.project }}
-  sources: []
+  sources: [ ]
   project: {{ .Values.project }}
   syncPolicy:
     automated:
@@ -95,7 +95,49 @@ spec:
     path: charts/device-controller
     repoURL: https://github.com/teknoir/profile-controller-helm
     targetRevision: {{ .Values.project }}
-  sources: []
+  sources: [ ]
+  project: {{ .Values.project }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      enabled: true
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: backstage
+spec:
+  destination:
+    namespace: teknoir-system
+    server: https://kubernetes.default.svc
+  source:
+    path: charts/backstage
+    repoURL: https://github.com/teknoir/profile-controller-helm
+    targetRevision: {{ .Values.project }}
+  sources: [ ]
+  project: {{ .Values.project }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      enabled: true
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring
+spec:
+  destination:
+    namespace: teknoir-system
+    server: https://kubernetes.default.svc
+  source:
+    path: charts/monitoring
+    repoURL: https://github.com/teknoir/profile-controller-helm
+    targetRevision: {{ .Values.project }}
+  sources: [ ]
   project: {{ .Values.project }}
   syncPolicy:
     automated:
