@@ -1,4 +1,4 @@
-# Stage 8 - Harbor Integration
+# Harbor
 
 This stage deploys Harbor, an open-source trusted cloud-native registry that stores, signs, and scans content.
 
@@ -13,7 +13,7 @@ The Harbor integration is designed to work with the platform's existing Istio an
 ## Prerequisites
 - Keycloak (Stage 7) must be deployed and accessible.
 - Harbor secrets generated using `scripts/gen-harbor-secrets.sh`.
-- DNS record for `harbor.teknoir.online` pointing to the cluster ingress IP.
+- DNS record for `harbor.<teknoir domain>` pointing to the cluster ingress IP.
 
 ## Keycloak Configuration
 Before configuring Harbor, you must create a client in Keycloak:
@@ -22,8 +22,8 @@ Before configuring Harbor, you must create a client in Keycloak:
 2. **Client ID**: `harbor`
 3. **Client Protocol**: `openid-connect` (Standard flow)
 4. **Access Type**: `confidential` (Client authentication ON)
-5. **Valid Redirect URIs**: `https://harbor.teknoir.online/*`
-6. **Base URL**: `https://harbor.teknoir.online`
+5. **Valid Redirect URIs**: `https://harbor.<teknoir domain>/*`
+6. **Base URL**: `https://harbor.<teknoir domain>`
 
 After creating the client, go to the **Credentials** tab and copy the **Client Secret**.
 
@@ -34,7 +34,7 @@ kubectl get secret harbor-secret -o yaml | yq .data.HARBOR_ADMIN_PASSWORD | base
 ```
 1. Go to Configuration > Authentication > **Auth Mode**: `OIDC`
 2. **OIDC Provider Name**: `Keycloak`
-3. **OIDC Endpoint**: `https://auth.teknoir.online/auth/realms/master`
+3. **OIDC Endpoint**: `https://auth.<teknoir domain>/auth/realms/master`
 4. **OIDC Client ID**: `harbor`
 5. **OIDC Client Secret**: (Paste from Keycloak)
 6. **Group Filter**: (Optional, e.g., `member`)
@@ -51,7 +51,7 @@ Docker and Helm CLI clients do not support OIDC redirects directly. To use the r
 3. Copy your **CLI Secret**.
 4. Use this CLI secret as your password when logging in via CLI:
    ```bash
-   docker login harbor.teknoir.online
+   docker login harbor.<teknoir domain>
    # Username: (your email/username)
    # Password: (paste CLI secret)
    ```
