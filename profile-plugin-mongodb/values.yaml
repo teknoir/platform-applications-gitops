@@ -1,4 +1,4 @@
-domain: teknoir.online
+domain: teknoir.cloud
 domainPrefix:
 persistentVolumeClaimSize: 100Gi
 mongodbVersion: 8.2.1

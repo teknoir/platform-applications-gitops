@@ -1,4 +1,4 @@
-domain: teknoir.online
+domain: teknoir.cloud
 domainPrefix:
 persistentVolumeClaimSize: 15Gi
 prometheusVersion: v2.52.0
