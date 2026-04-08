@@ -1,7 +1,0 @@
----
-apiVersion: v2
-name: app-of-apps
-description: A Helm chart for Teknoir Platform GitOps Applications.
-type: application
-version: 0.0.1
-appVersion: "0.0.1"

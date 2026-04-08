@@ -1,2 +1,0 @@
-# Backstage Helm Chart
-
