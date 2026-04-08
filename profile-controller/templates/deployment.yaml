@@ -36,16 +36,10 @@ spec:
         - $(USERID_HEADER)
         - "-userid-prefix"
         - $(USERID_PREFIX)
-        - "-project-id"
-        - $(PROJECT_ID)
-        - "-region"
-        - $(REGION)
         - "-domain"
         - $(DOMAIN)
         - "-domain-prefix"
         - $(DOMAIN_PREFIX)
-        - "-dns-zone"
-        - $(DNS_ZONE)
         - "-istio-revision"
         - $(ISTIO_REVISION)
         envFrom:
