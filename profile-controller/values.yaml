@@ -4,7 +4,7 @@ replicaCount: 1
 
 image:
   repository: us-central1-docker.pkg.dev/teknoir-mgmt/controllers/profile-controller
-  tag: 20260408-154601
+  tag: 20260408-164105
   pullPolicy: Always
 
 imagePullSecrets:
