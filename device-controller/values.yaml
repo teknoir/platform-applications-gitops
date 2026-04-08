@@ -1,13 +1,15 @@
+# GitOps values for device-controller
+
 replicaCount: 1
 
 image:
-  repository: device-controller-image
+  repository: us-central1-docker.pkg.dev/teknoir-mgmt/controllers/device-controller
+  tag: 20260320-184914
   pullPolicy: Always
-  # Overrides the image tag whose default is the chart appVersion.
-  tag: ""
 
 imagePullSecrets:
   - name: gcr-json-key
+
 nameOverride: ""
 fullnameOverride: ""
 
@@ -41,7 +43,6 @@ config:
   projectId: teknoir
   region: us-central1
   domain: teknoir.cloud
-  deadend: deadend.teknoir.cloud
   domainPrefix: ""
   istioGateway: teknoir/teknoir-gateway
 

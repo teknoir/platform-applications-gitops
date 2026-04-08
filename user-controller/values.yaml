@@ -1,9 +1,11 @@
+# GitOps values for user-controller
+
 replicaCount: 1
 
 image:
-  repository: user-controller-image
+  repository: us-central1-docker.pkg.dev/teknoir-mgmt/controllers/user-controller
+  tag: 20260318-194139
   pullPolicy: Always
-  # tag: ""
 
 imagePullSecrets:
   - name: gcr-json-key

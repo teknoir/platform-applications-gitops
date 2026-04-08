@@ -1,14 +1,11 @@
-# Default values for devstudio-controller.
-# This is a YAML-formatted file.
-# Declare variables to be passed into your templates.
+# GitOps values for devstudio-controller.
 
 replicaCount: 1
 
 image:
-  repository: devstudio-controller-image
+  repository: us-central1-docker.pkg.dev/teknoir-mgmt/controllers/devstudio-controller
+  tag: 20260319-092223
   pullPolicy: Always
-  # Overrides the image tag whose default is the chart appVersion.
-  tag: ""
 
 imagePullSecrets:
   - name: gcr-json-key
@@ -60,5 +57,5 @@ config:
   istioGateway: "istio-system/teknoir-gateway"
   podLabels: "gcp-cred-secret=user-gcp-sa,gcp-cred-secret-filename=user-gcp-sa.json"
   projectId: "teknoir"
-  domain: "teknoir.online"
+  domain: "teknoir.cloud"
   addFsgroup: "false"

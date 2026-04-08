@@ -1,15 +1,11 @@
-# Default values for profile-controller.
-
-# nameOverride: ""
-# fullnameOverride: ""
+# GitOps values for profile-controller.
 
 replicaCount: 1
 
 image:
-  repository: gcr.io/teknoir-poc/profile-controller
-  pullPolicy: IfNotPresent
-  # Overrides the image tag whose default is the chart appVersion.
-  tag: "kube-1.3"
+  repository: us-central1-docker.pkg.dev/teknoir-mgmt/controllers/profile-controller
+  tag: 20260407-16041
+  pullPolicy: Always
 
 imagePullSecrets:
   - name: gcr-json-key
@@ -35,12 +31,12 @@ config:
   workloadIdentity: ""
   userIdHeader: "X-Auth-Request-Email"
   userIdPrefix: ""
-  projectId: ""
-  domain: "teknoir.online"
+  projectId: "teknoir"
+  domain: "teknoir.cloud"
   domainPrefix: ""
   region: "us-central1"
-  dnsZone: "teknoir-online"
-  istioRevision: "1.28.3"
+  dnsZone: "teknoir-cloud"
+  istioRevision: "1.29.0"
 
 resources: {}
   # limits:

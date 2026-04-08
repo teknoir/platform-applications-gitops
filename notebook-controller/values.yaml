@@ -1,4 +1,4 @@
-# Default values for notebook-controller.
+# GitOps values for notebook-controller.
 
 # Labels to add to all resources
 commonLabels:
@@ -22,4 +22,4 @@ parameters:
   ISTIO_GATEWAY: istio-system/teknoir-gateway
   POD_LABELS: gcp-cred-secret=user-gcp-sa,gcp-cred-secret-filename=user-gcp-sa.json
   project-id: teknoir
-  domain: teknoir.online
+  domain: teknoir.cloud
