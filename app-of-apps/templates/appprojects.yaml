@@ -4,12 +4,17 @@ kind: AppProject
 metadata:
   name: default
 spec:
-  sourceRepos: []
+  sourceRepos:
+    - '*'
   sourceNamespaces: []
-  destinations: []
-  namespaceResourceBlacklist:
-    - group: '*'
-      kind: '*'
+  destinations:
+    - namespace: 'teknoir-system'
+      server: 'https://kubernetes.default.svc'
+  clusterResourceWhitelist:
+    - group: 'argoproj.io'
+      kind: 'AppProject'
+    - group: 'argoproj.io'
+      kind: 'Application'
 
 ---
 apiVersion: argoproj.io/v1alpha1
