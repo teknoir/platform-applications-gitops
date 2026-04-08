@@ -141,7 +141,7 @@ spec:
   project: {{ .Values.project }}
   syncPolicy:
     syncOptions:
-      - Replace=true
+      - ServerSideApply=true
     automated:
       prune: true
       selfHeal: true
