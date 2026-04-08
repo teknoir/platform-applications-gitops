@@ -2,24 +2,6 @@
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
-  name: default
-spec:
-  sourceRepos:
-    - '*'
-  sourceNamespaces: []
-  destinations:
-    - namespace: 'teknoir-system'
-      server: 'https://kubernetes.default.svc'
-  clusterResourceWhitelist:
-    - group: 'argoproj.io'
-      kind: 'AppProject'
-    - group: 'argoproj.io'
-      kind: 'Application'
-
----
-apiVersion: argoproj.io/v1alpha1
-kind: AppProject
-metadata:
   name: {{ .Values.project }}
   namespace: teknoir-system
 spec:
