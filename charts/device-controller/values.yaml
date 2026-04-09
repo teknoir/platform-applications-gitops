@@ -44,7 +44,7 @@ config:
   region: us-central1
   domain: teknoir.cloud
   domainPrefix: ""
-  istioGateway: teknoir/teknoir-gateway
+  istioGateway: istio-system/teknoir-gateway
 
 resources:
   limits:
