@@ -60,6 +60,22 @@ spec:
       prune: true
       selfHeal: true
       enabled: true
+  ignoreDifferences:
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: teknoir-admin
+      jqPathExpressions:
+        - .rules
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: teknoir-edit
+      jqPathExpressions:
+        - .rules
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: teknoir-view
+      jqPathExpressions:
+        - .rules
 
 ---
 apiVersion: argoproj.io/v1alpha1
