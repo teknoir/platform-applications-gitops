@@ -3,12 +3,12 @@
 replicaCount: 1
 
 image:
-  repository: us-central1-docker.pkg.dev/teknoir-mgmt/controllers/profile-controller
-  tag: 20260408-223431
+  repository: ghcr.io/teknoir/profile-controller
+  tag: teknoir-cloud-20260410-092016
   pullPolicy: Always
 
 imagePullSecrets:
-  - name: gcr-json-key
+  - name: ghcr-token
 
 podSecurityContext: {}
   # fsGroup: 2000
