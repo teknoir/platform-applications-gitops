@@ -91,6 +91,10 @@ spec:
         prometheus.io/path: "/metrics"
         prometheus.io/port: "8000"
     spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: historian-middleend
           image: "us-docker.pkg.dev/teknoir/gcr.io/historian-middle-end-api:{{ .Values.historianMiddleendVersion }}"

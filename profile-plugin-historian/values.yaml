@@ -1,11 +1,16 @@
 domain: teknoir.cloud
 domainPrefix:
+
 historianApiVersion: latest
-historianMiddleendVersion: dev-3b2429a
+historianMiddleendVersion: latest
+historianStreamsVersion: latest
 mongodbVersion: 8.2.1
 exporterVersion: 0.47
+
+imagePullSecrets:
+  - name: ghcr-token
+
 persistentVolumeClaimSize: 10Gi
-historianStreamsVersion: dev-b2133d3
 streams:
   - stream: "alerts"
   - stream: "movements"

@@ -1,3 +1,7 @@
-jwksVersion: main
+jwksVersion: latest
 redisVersion: 6.2.6-v9
+
+imagePullSecrets:
+  - name: ghcr-token
+
 persistentVolumeClaimSize: 10Gi

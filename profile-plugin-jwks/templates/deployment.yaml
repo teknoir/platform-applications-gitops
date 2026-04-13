@@ -21,6 +21,10 @@ spec:
       annotations:
         proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true }'
     spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: jwks
           image: "ghcr.io/teknoir/jwks-server:{{ .Values.jwksVersion }}"

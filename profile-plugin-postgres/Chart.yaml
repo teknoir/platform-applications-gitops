@@ -2,5 +2,5 @@ apiVersion: v2
 name: profile-plugin-postgres
 description: HelmChart to deploy the PostgreSQL database resources to a Teknoir Cluster.
 type: application
-version: 0.0.84
+version: 0.0.85
 appVersion: "pg15"
