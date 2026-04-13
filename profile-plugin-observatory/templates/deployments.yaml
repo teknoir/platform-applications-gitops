@@ -32,9 +32,13 @@ spec:
         prometheus.io/path: "/metrics"
         prometheus.io/port: "8000"
     spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: observatory
-          image: "us-docker.pkg.dev/teknoir/gcr.io/sdmc:{{ .Values.observatoryVersion }}"
+          image: "ghcr.io/teknoir/observatory:{{ .Values.observatoryVersion }}"
           imagePullPolicy: Always
           ports:
             - name: http-sdmc
@@ -83,6 +87,10 @@ spec:
 {{/*        prometheus.io/port: "8000"*/}}
     spec:
       serviceAccountName: {{ .Values.serviceAccountName }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: keydb
           image: "eqalpha/keydb:{{ .Values.keydbVersion }}"
@@ -108,7 +116,7 @@ spec:
             - name: keydb-persistent-storage
               mountPath: /data
         - name: observatory-wss-mqtt
-          image: "us-docker.pkg.dev/teknoir/gcr.io/wss-mqtt:{{ .Values.wssMqttVersion }}"
+          image: "ghcr.io/teknoir/observatory-wss-mqtt:{{ .Values.wssMqttVersion }}"
           imagePullPolicy: Always
           ports:
             - name: http-ws
@@ -145,7 +153,7 @@ spec:
           - name: LOG_LEVEL
             value: "{{ .Values.logLevel }}"
         - name: observatory-snapshot-exporter
-          image: "us-docker.pkg.dev/teknoir/gcr.io/snapshot-exporter:{{ .Values.snapshotExporterVersion }}"
+          image: "ghcr.io/teknoir/observatory-snapshot-exporter:{{ .Values.snapshotExporterVersion }}"
           imagePullPolicy: Always
           env:
           - name: APP_NAME
@@ -204,9 +212,13 @@ spec:
         prometheus.io/port: "8000"
     spec:
       serviceAccountName: {{ .Values.serviceAccountName }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: observatory-media-service
-          image: "us-docker.pkg.dev/teknoir/gcr.io/gcs-media-service:{{ .Values.mediaServiceVersion }}"
+          image: "ghcr.io/teknoir/observatory-media-service:{{ .Values.mediaServiceVersion }}"
           imagePullPolicy: Always
           env:
           - name: BASE_URL

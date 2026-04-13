@@ -23,7 +23,7 @@ spec:
     spec:
       containers:
         - name: jwks
-          image: "gcr.io/teknoir/jwks-server:{{ .Values.jwksVersion }}"
+          image: "ghcr.io/teknoir/jwks-server:{{ .Values.jwksVersion }}"
           imagePullPolicy: Always
           env:
             - name: PORT

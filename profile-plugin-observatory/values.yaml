@@ -1,12 +1,14 @@
 domain: teknoir.cloud
 domainPrefix:
 
-observatoryVersion: main-39f7560
-wssMqttVersion: dev-440733c
-snapshotExporterVersion: dev-latest
+observatoryVersion: latest
+wssMqttVersion: latest
+snapshotExporterVersion: latest
 mediaServiceVersion: latest
-mediaPipelineVersion: dev-b2133d3
 keydbVersion: x86_64_v6.3.4
+
+imagePullSecrets:
+  - name: ghcr-token
 
 logLevel: info
 inferenceTopic: "/devices/+/events/inference"
