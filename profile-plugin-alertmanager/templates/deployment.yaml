@@ -44,7 +44,14 @@ spec:
         volumeMounts:
         - name: config-volume
           mountPath: /etc/alertmanager
+        - name: slack-secret-volume
+          mountPath: /etc/alertmanager/slack_api_url
+          subPath: slack_api_url
+          readOnly: true
       volumes:
       - name: config-volume
         configMap:
           name: alertmanager-config
+      - name: slack-secret-volume
+        secret:
+          secretName: {{ .Values.slackSecretName }}

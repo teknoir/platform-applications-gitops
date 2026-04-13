@@ -2,3 +2,4 @@ domain: teknoir.cloud
 domainPrefix: ""
 alertmanagerVersion: v0.27.0
 channelName: device-monitoring
+slackSecretName: alertmanager-slack-secret
