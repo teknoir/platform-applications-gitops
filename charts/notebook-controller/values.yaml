@@ -10,7 +10,7 @@ image:
   pullPolicy: Always
 
 imagePullSecrets:
-  - name: gcr-json-key
+  - name: ghcr-token
 
 serviceAccount:
   name: notebook-controller-service-account
