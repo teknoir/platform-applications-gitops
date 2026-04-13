@@ -1,3 +1,5 @@
 domain: teknoir.cloud
-imageTag: "latest"
+imageTag: teknoir-cluster-20260413-111253
 authorizedKeys: ""
+imagePullSecrets:
+  - name: ghcr-token

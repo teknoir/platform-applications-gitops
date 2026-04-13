@@ -18,9 +18,13 @@ spec:
         teknoir.org/plugin: deadend
         app: deadend
     spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
       - name: deadend
-        image: "us-docker.pkg.dev/teknoir/gcr.io/deadend:{{ .Values.imageTag }}"
+        image: "ghcr.io/teknoir/deadend:{{ .Values.imageTag }}"
         imagePullPolicy: Always
         ports:
           - containerPort: 22
