@@ -3,8 +3,8 @@
 replicaCount: 1
 
 image:
-  repository: us-central1-docker.pkg.dev/teknoir-mgmt/controllers/device-controller
-  tag: 20260320-184914
+  repository: ghcr.io/teknoir/device-controller
+  tag: teknoir-cloud-20260413-054206
   pullPolicy: Always
 
 imagePullSecrets:

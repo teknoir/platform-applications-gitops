@@ -3,8 +3,8 @@
 replicaCount: 1
 
 image:
-  repository: us-central1-docker.pkg.dev/teknoir-mgmt/controllers/user-controller
-  tag: 20260318-194139
+  repository: ghcr.io/teknoir/user-controller
+  tag: teknoir-cloud-20260413-054338
   pullPolicy: Always
 
 imagePullSecrets:

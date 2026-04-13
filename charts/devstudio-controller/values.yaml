@@ -3,8 +3,8 @@
 replicaCount: 1
 
 image:
-  repository: us-central1-docker.pkg.dev/teknoir-mgmt/controllers/devstudio-controller
-  tag: 20260319-092223
+  repository: ghcr.io/teknoir/devstudio-controller
+  tag: teknoir-cloud-20260413-055008
   pullPolicy: Always
 
 imagePullSecrets:

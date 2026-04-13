@@ -5,8 +5,8 @@ commonLabels:
   app: notebook-controller
 
 image:
-  repository: us-central1-docker.pkg.dev/teknoir-mgmt/controllers/notebook-controller
-  tag: 20260330-084828
+  repository: ghcr.io/teknoir/notebook-controller
+  tag: teknoir-cloud-20260413-055422
   pullPolicy: Always
 
 imagePullSecrets:
