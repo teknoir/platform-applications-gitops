@@ -26,9 +26,12 @@ spec:
         teknoir.org/plugin: fleet-metrics
     spec:
       serviceAccountName: default-editor
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: fleet-metrics-metrics-proc
-          image: "us-docker.pkg.dev/teknoir/gcr.io/fleet-metrics-proc:{{ .Values.fleetMetricsVersion }}"
+          image: "ghcr.io/teknoir/fleet-metrics/metrics-processor:{{ .Values.fleetMetricsVersion }}"
           imagePullPolicy: Always
           env:
             - name: CLIENT_ID
@@ -65,7 +68,7 @@ spec:
             - name: org-config
               mountPath: /data/org-config/
         - name: fleet-metrics-metrics-pub
-          image: "us-docker.pkg.dev/teknoir/gcr.io/fleet-metrics-pub:{{ .Values.fleetMetricsVersion }}"
+          image: "ghcr.io/teknoir/fleet-metrics/metrics-publisher:{{ .Values.fleetMetricsVersion }}"
           imagePullPolicy: Always
           livenessProbe:
             httpGet:
