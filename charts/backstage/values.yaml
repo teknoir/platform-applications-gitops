@@ -10,18 +10,18 @@ config:
 # Backstage frontend deployment
 backstage:
   replicas: 1
-  image: us-central1-docker.pkg.dev/teknoir-mgmt/apps/backstage-app:teknoir-cloud-20260407-131739
+  image: ghcr.io/teknoir/backstage-app:teknoir-cloud-20260413-063941
   imagePullPolicy: Always
   imagePullSecrets:
-    - name: gcr-json-key
+    - name: ghcr-token
 
 # Backstage API deployment
 backstageApi:
   replicas: 1
-  image: us-central1-docker.pkg.dev/teknoir-mgmt/apps/backstage:teknoir-cloud-20260407-131739
+  image: ghcr.io/teknoir/backstage:teknoir-cloud-20260413-063941
   imagePullPolicy: Always
   imagePullSecrets:
-    - name: gcr-json-key
+    - name: ghcr-token
   nodeOptions: '--max-old-space-size=8192'
   secrets:
     postgresSecretName: backstage-postgres-secrets
