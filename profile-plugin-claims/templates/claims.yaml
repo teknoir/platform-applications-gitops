@@ -1,0 +1,31 @@
+{{- $claims := list
+  (dict "name" "core" "alias" "c" "displayName" "Core")
+  (dict "name" "devices" "alias" "d" "displayName" "Devices")
+  (dict "name" "label-studio" "alias" "ls" "displayName" "Label Studio")
+  (dict "name" "label-studio-projects" "alias" "lp" "displayName" "Label Studio Projects")
+  (dict "name" "dev-studio" "alias" "ds" "displayName" "Dev Studio")
+  (dict "name" "notebooks" "alias" "n" "displayName" "Notebooks")
+  (dict "name" "workflows" "alias" "w" "displayName" "Workflows")
+  (dict "name" "volumes" "alias" "v" "displayName" "Volumes")
+  (dict "name" "artifacts" "alias" "a" "displayName" "Artifacts")
+  (dict "name" "github" "alias" "g" "displayName" "GitHub")
+  (dict "name" "monitoring-tools" "alias" "mt" "displayName" "Monitoring Tools")
+  (dict "name" "observatory" "alias" "o" "displayName" "Observatory")
+  (dict "name" "help-documentation" "alias" "hd" "displayName" "Help Documentation")
+  (dict "name" "role-user-management" "alias" "um" "displayName" "Role and user Management")
+  (dict "name" "audit-logging" "alias" "al" "displayName" "Audit Logging")
+  (dict "name" "teamspace-management" "alias" "tm" "displayName" "Teamspace Management")
+-}}
+{{- range $claims }}
+---
+apiVersion: teknoir.org/v1
+kind: Claim
+metadata:
+  name: {{ .name }}
+  namespace: {{ $.Release.Namespace }}
+  annotations:
+    teknoir.org/custom-claims-alias: {{ .alias | quote }}
+    teknoir.org/display-name: {{ .displayName | quote }}
+  labels:
+    teknoir.org/plugin: claims
+{{- end }}

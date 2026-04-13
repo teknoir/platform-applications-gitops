@@ -1,0 +1,145 @@
+{{- $password := (include "postgres.password" .) -}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/instance: postgres
+    teknoir.org/plugin: postgres
+    owner: teknoir
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+      app.kubernetes.io/instance: postgres
+      owner: teknoir
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres
+        app.kubernetes.io/instance: postgres
+        owner: teknoir
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "9187"
+        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true }'
+    spec:
+      initContainers:
+        - name: init-postgres-config
+          image: "debian:bullseye-slim"
+          imagePullPolicy: IfNotPresent
+          command:
+            - "/bin/bash"
+            - "-c"
+            - |
+              set -ex
+              PGDATA_PATH=/var/lib/postgresql/data/pgdata
+              if [ -f "$PGDATA_PATH/postgresql.conf" ]; then
+                sed -i 's/^#shared_preload_libraries.*/shared_preload_libraries = '\''pg_stat_statements'\''/' $PGDATA_PATH/postgresql.conf
+                sed -i 's/^shared_preload_libraries.*/shared_preload_libraries = '\''pg_stat_statements'\''/' $PGDATA_PATH/postgresql.conf
+
+                if grep -q "pg_stat_statements.track" $PGDATA_PATH/postgresql.conf; then
+                  echo "pg_stat_statements.track = all" >> $PGDATA_PATH/postgresql.conf
+                fi
+
+              fi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      containers:
+        - name: postgres
+          image: "pgvector/pgvector:{{ .Values.postgresVersion }}"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          readinessProbe:
+            exec:
+              command: ["psql", "-U", "postgres", "-d", "labelstudio", "-c", "SELECT 1"]
+            initialDelaySeconds: 15
+            timeoutSeconds: 2
+          livenessProbe:
+            exec:
+              command: ["psql", "-U", "postgres", "-d", "labelstudio", "-c", "SELECT 1"]
+            initialDelaySeconds: 45
+            timeoutSeconds: 2
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: password
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: password
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            - name: POSTGRES_DB
+              value: "labelstudio"
+        - name: prometheus-exporter
+          image: "prometheuscommunity/postgres-exporter"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: metrics
+              containerPort: 9187
+              protocol: TCP
+          env:
+            - name: DATA_SOURCE_NAME
+              value: "postgresql://postgres:{{ $password }}@localhost:5432?sslmode=disable"
+          args:
+            - "--collector.stat_statements"
+            - "--extend.query-path=/etc/queries.yaml"
+          volumeMounts:
+            - name: queries-config
+              mountPath: /etc/queries.yaml
+              subPath: queries.yaml
+        - name: pgadmin
+          image: dpage/pgadmin4:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: pgadmin
+              containerPort: 80
+              protocol: TCP
+          env:
+            - name: PGADMIN_DEFAULT_EMAIL
+              value: "postgres@teknoir.ai"
+            - name: PGADMIN_DEFAULT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: password
+            - name: PGADMIN_CONFIG_SERVER_MODE
+              value: "False"
+            - name: PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED
+              value: "False"
+            - name: PGADMIN_SERVER_JSON_FILE
+              value: "/pgadmin4/servers.json"
+            - name: SCRIPT_NAME
+              value: "/{{ .Release.Namespace }}/postgres"
+          volumeMounts:
+            - name: pgadmin-config
+              mountPath: /pgadmin4/servers.json
+              subPath: servers.json
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: postgres
+        - name: pgadmin-config
+          configMap:
+            name: postgres-pgadmin-config
+        - name: queries-config
+          configMap:
+            name: postgres-prometheus-queries-config

@@ -1,0 +1,17 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: useralerts
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: useralerts
+    teknoir.org/plugin: useralerts
+spec:
+  selector:
+    app: useralerts
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 8080

@@ -1,0 +1,50 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: alertmanager
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/instance: alertmanager
+    app.kubernetes.io/part-of: prometheus
+    teknoir.org/plugin: alertmanager
+    owner: teknoir
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alertmanager
+  template:
+    metadata:
+      labels:
+        app: alertmanager
+    spec:
+      containers:
+      - name: alertmanager-configmap-reload
+        image: "jimmidyson/configmap-reload:v0.4.0"
+        imagePullPolicy: IfNotPresent
+        args:
+          - --volume-dir=/etc/alertmanager
+          - --webhook-url=http://127.0.0.1:9093/{{ .Release.Namespace }}/alertmanager/-/reload
+        volumeMounts:
+          - name: config-volume
+            mountPath: /etc/alertmanager
+      - name: alertmanager
+        image: "prom/alertmanager:{{ .Values.alertmanagerVersion }}"
+        args:
+          - --config.file=/etc/alertmanager/alertmanager.yml
+          - --log.level=debug
+          - --web.route-prefix=/{{ .Release.Namespace }}/alertmanager
+          - --web.external-url=https://{{ .Values.domainPrefix }}{{ .Values.domain }}/{{ .Release.Namespace }}/alertmanager
+        ports:
+        - name: alertmanager
+          containerPort: 9093
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/alertmanager
+      volumes:
+      - name: config-volume
+        configMap:
+          name: alertmanager-config

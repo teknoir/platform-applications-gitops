@@ -1,0 +1,3 @@
+jwksVersion: main
+redisVersion: 6.2.6-v9
+persistentVolumeClaimSize: 10Gi

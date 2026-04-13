@@ -1,0 +1,3 @@
+domain: teknoir.cloud
+postgresVersion: pg15
+storageSize: 100Gi

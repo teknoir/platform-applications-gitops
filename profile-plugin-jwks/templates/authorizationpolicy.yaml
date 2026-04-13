@@ -1,0 +1,22 @@
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  labels:
+    app: jwks
+    teknoir.org/plugin: jwks
+  name: jwks
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    matchLabels:
+      app: jwks
+  action: ALLOW
+  rules:
+    - to:
+      - operation:
+          methods: ["GET", "POST", "PUT", "DELETE"]
+    - from:
+        - source:
+            namespaces:
+              - "teknoir-system"

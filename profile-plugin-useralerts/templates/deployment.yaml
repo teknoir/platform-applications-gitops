@@ -1,0 +1,45 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: useralerts
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: useralerts
+    app.kubernetes.io/name: useralerts
+    app.kubernetes.io/instance: useralerts
+    teknoir.org/plugin: useralerts
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: useralerts
+  template:
+    metadata:
+      labels:
+        app: useralerts
+    spec:
+      serviceAccountName: default-editor
+      containers:
+        - name: useralerts
+          image: "us-docker.pkg.dev/teknoir/gcr.io/useralerts:{{ .Values.version }}"
+          imagePullPolicy: Always
+          env:
+            - name: NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            - name: EMQX_URL
+              value: "mqtt://emqx.{{ .Release.Namespace }}.svc.cluster.local:1883"
+            - name: EMQX_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: emqx-bootstrap-user
+                  key: username
+            - name: EMQX_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: emqx-bootstrap-user
+                  key: password
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP

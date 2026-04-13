@@ -1,0 +1,115 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: fleet-metrics
+    teknoir.org/plugin: fleet-metrics
+  name: fleet-metrics
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: fleet-metrics
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "9090"
+        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true }'
+      labels:
+        app: fleet-metrics
+        teknoir.org/plugin: fleet-metrics
+    spec:
+      serviceAccountName: default-editor
+      containers:
+        - name: fleet-metrics-metrics-proc
+          image: "us-docker.pkg.dev/teknoir/gcr.io/fleet-metrics-proc:{{ .Values.fleetMetricsVersion }}"
+          imagePullPolicy: Always
+          env:
+            - name: CLIENT_ID
+              value: "fleet-metrics"
+            - name: BROKER_URL
+              value: "mqtt://emqx:1883"
+            - name: USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: emqx-bootstrap-user
+                  key: username
+            - name: PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: emqx-bootstrap-user
+                  key: password
+            - name: NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            - name: MONGODB_URI
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb-credentials
+                  key: service_uri
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 7000Mi
+            requests:
+              cpu: 25m
+              memory: 20Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: org-config
+              mountPath: /data/org-config/
+        - name: fleet-metrics-metrics-pub
+          image: "us-docker.pkg.dev/teknoir/gcr.io/fleet-metrics-pub:{{ .Values.fleetMetricsVersion }}"
+          imagePullPolicy: Always
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9090
+            initialDelaySeconds: 25
+            periodSeconds: 20
+          ports:
+            - containerPort: 9090
+              name: http
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 9090
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 2000Mi
+            requests:
+              cpu: 25m
+              memory: 20Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+        - name: redis
+          image: "redis/redis-stack-server:{{ .Values.redisVersion }}"
+          ports:
+            - containerPort: 6379
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 2000Mi
+            requests:
+              cpu: 25m
+              memory: 20Mi
+          volumeMounts:
+            - name: redis-persistent-storage
+              mountPath: /data
+      volumes:
+        - name: redis-persistent-storage
+          persistentVolumeClaim:
+            claimName: fleet-metrics
+        - name: org-config
+          configMap:
+            name: org-config

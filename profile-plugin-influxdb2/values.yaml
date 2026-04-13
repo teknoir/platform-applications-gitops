@@ -1,0 +1,4 @@
+domain: teknoir.cloud
+domainPrefix: ""
+influxVersion: 2.7-alpine
+persistentVolumeClaimSize: 50Gi

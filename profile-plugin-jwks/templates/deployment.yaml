@@ -1,0 +1,73 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: jwks
+    teknoir.org/plugin: jwks
+  name: jwks
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: jwks
+  template:
+    metadata:
+      labels:
+        app: jwks
+      annotations:
+        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true }'
+    spec:
+      containers:
+        - name: jwks
+          image: "gcr.io/teknoir/jwks-server:{{ .Values.jwksVersion }}"
+          imagePullPolicy: Always
+          env:
+            - name: PORT
+              value: "8083"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8083
+            initialDelaySeconds: 25
+            periodSeconds: 20
+          ports:
+            - containerPort: 8083
+              name: http
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8083
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            limits:
+              cpu: 250m
+              memory: 2000Mi
+            requests:
+              cpu: 25m
+              memory: 20Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+        - name: redis
+          image: "redis/redis-stack-server:{{ .Values.redisVersion }}"
+          ports:
+            - containerPort: 6379
+          resources:
+            limits:
+              cpu: 250m
+              memory: 2000Mi
+            requests:
+              cpu: 25m
+              memory: 20Mi
+          volumeMounts:
+            - name: redis-persistent-storage
+              mountPath: /data
+      volumes:
+        - name: redis-persistent-storage
+          persistentVolumeClaim:
+            claimName: jwks

@@ -1,0 +1,19 @@
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: influxdb2
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: influxdb2
+    app.kubernetes.io/instance: influxdb2
+    teknoir.org/plugin: influxdb2
+    owner: teknoir
+  annotations:
+    helm.sh/resource-policy: "keep"
+spec:
+  accessModes:
+    - "ReadWriteOnce"
+  resources:
+    requests:
+      storage: {{ .Values.persistentVolumeClaimSize | quote }}

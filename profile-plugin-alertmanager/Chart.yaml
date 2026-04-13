@@ -1,0 +1,6 @@
+apiVersion: v2
+name: profile-plugin-alertmanager
+description: HelmChart to deploy the Prometheus Alertmanager resources to a Teknoir Cluster.
+type: application
+version: 0.0.82
+appVersion: "v0.27.0"
