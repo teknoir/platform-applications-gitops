@@ -2,7 +2,7 @@
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
-  name: mongodb-teknoir-system-allow
+  name: mongodb-allow
   namespace: {{ .Release.Namespace }}
   labels:
     teknoir.org/plugin: mongodb
@@ -16,3 +16,4 @@ spec:
         - source:
             namespaces:
               - "teknoir-system"
+              - "{{ .Release.Namespace }}"

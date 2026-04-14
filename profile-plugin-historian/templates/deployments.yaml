@@ -30,7 +30,7 @@ spec:
     spec:
       containers:
         - name: historian-api
-          image: "us-docker.pkg.dev/teknoir/gcr.io/historian-api:{{ .Values.historianApiVersion }}"
+          image: "ghcr.io/teknoir/historian-api:{{ .Values.historianApiVersion }}"
           imagePullPolicy: Always
           ports:
             - name: historian-api
@@ -97,7 +97,7 @@ spec:
       {{- end }}
       containers:
         - name: historian-middleend
-          image: "us-docker.pkg.dev/teknoir/gcr.io/historian-middle-end-api:{{ .Values.historianMiddleendVersion }}"
+          image: "ghcr.io/teknoir/historian-middle-end-api:{{ .Values.historianMiddleendVersion }}"
           imagePullPolicy: Always
           ports:
             - name: http
@@ -162,7 +162,7 @@ spec:
       serviceAccountName: default-editor
       containers:
         - name: historian-sync-{{ .stream }}
-          image: "us-docker.pkg.dev/teknoir/gcr.io/observatory-event-processing:{{ $.Values.historianStreamsVersion }}"
+          image: "ghcr.io/teknoir/observatory-event-processing-app:{{ $.Values.historianStreamsVersion }}"
           imagePullPolicy: Always
           env:
             - name: STREAM
