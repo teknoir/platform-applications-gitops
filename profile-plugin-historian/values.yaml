@@ -12,7 +12,7 @@ imagePullSecrets:
 
 persistentVolumeClaimSize: 10Gi
 streams:
-  - stream: "alerts"
-  - stream: "movements"
+  - stream: "sync-alerts"
+  - stream: "sync-movements"
 #  - stream: "alert-snapshots"
 #  - stream: "movement-snapshots"
