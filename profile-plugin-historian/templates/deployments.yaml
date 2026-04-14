@@ -28,6 +28,10 @@ spec:
         prometheus.io/path: "/metrics"
         prometheus.io/port: "8000"
     spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: historian-api
           image: "ghcr.io/teknoir/historian-api:{{ .Values.historianApiVersion }}"
@@ -127,6 +131,8 @@ spec:
             requests:
               cpu: 25m
               memory: 20Mi
+
+
 {{- range .Values.streams }}
 ---
 apiVersion: apps/v1
@@ -160,6 +166,10 @@ spec:
         teknoir.org/plugin: historian
     spec:
       serviceAccountName: default-editor
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: historian-sync-{{ .stream }}
           image: "ghcr.io/teknoir/observatory-event-processing-app:{{ $.Values.historianStreamsVersion }}"
