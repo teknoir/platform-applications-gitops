@@ -138,7 +138,7 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: historian-sync-{{ .stream }}
+  name: historian-{{ .stream }}
   namespace: {{ $.Release.Namespace }}
   labels:
     app: historian-sync
@@ -171,14 +171,14 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
-        - name: historian-sync-{{ .stream }}
+        - name: historian-{{ .stream }}
           image: "ghcr.io/teknoir/observatory-event-processing-app:{{ $.Values.historianStreamsVersion }}"
           imagePullPolicy: Always
           env:
             - name: STREAM
-              value: sync-{{ .stream }}
+              value: {{ .stream }}
             - name: CLIENT_ID
-              value: "historian-sync-{{ .stream }}"
+              value: "historian-{{ .stream }}"
             - name: DEBUG_LEVEL
               value: DEBUG
             - name: LABEL_NAMESPACE

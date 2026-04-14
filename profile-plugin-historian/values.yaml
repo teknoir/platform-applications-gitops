@@ -11,8 +11,10 @@ imagePullSecrets:
   - name: ghcr-token
 
 persistentVolumeClaimSize: 10Gi
+
+# Historian Event Processing Streams
 streams:
   - stream: "sync-alerts"
   - stream: "sync-movements"
-#  - stream: "alert-snapshots"
-#  - stream: "movement-snapshots"
+#  - stream: "sync-alert-snapshots"
+#  - stream: "sync-movement-snapshots"
