@@ -4,7 +4,7 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/teknoir/device-controller
-  tag: teknoir-cloud-20260413-054206
+  tag: latest
   pullPolicy: Always
 
 imagePullSecrets:
