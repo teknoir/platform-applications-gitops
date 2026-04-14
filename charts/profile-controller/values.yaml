@@ -4,7 +4,7 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/teknoir/profile-controller
-  tag: teknoir-cloud-20260413-140752
+  tag: teknoir-cloud-20260414-143006
   pullPolicy: Always
 
 imagePullSecrets:
