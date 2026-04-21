@@ -1,0 +1,76 @@
+{{- $domain := .Values.global.domain | default "teknoir.cloud" -}}
+{{- $hosts := .Values.hosts | default (list $domain (printf "*.%s" $domain)) -}}
+{{- $credentialName := (printf "%s-wildcard-tls" (replace "." "-" $domain)) -}}
+---
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: teknoir-gateway
+  namespace: istio-system
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+  - port:
+      number: 80
+      name: http
+      protocol: HTTP
+    hosts:
+{{- range $hosts }}
+    - {{ . | quote }}
+{{- end }}
+    tls:
+      httpsRedirect: true
+  - port:
+      number: 443
+      name: https
+      protocol: HTTPS
+    hosts:
+{{- range $hosts }}
+    - {{ . | quote }}
+{{- end }}
+    tls:
+      mode: SIMPLE
+      credentialName: {{ $credentialName | quote }}
+
+---
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: teknoir-gateway-public
+  namespace: istio-system
+spec:
+  selector:
+    istio: ingressgateway-public
+  servers:
+    - port:
+        name: tls-mqtt
+        number: 8883
+        protocol: TLS
+      hosts:
+{{- range $hosts }}
+        - {{ . | quote }}
+{{- end }}
+      tls:
+        mode: PASSTHROUGH
+    - port:
+        name: https-mqtt
+        number: 8084
+        protocol: HTTPS
+      hosts:
+{{- range $hosts }}
+        - {{ . | quote }}
+{{- end }}
+      tls:
+        mode: SIMPLE
+        credentialName: {{ $credentialName | quote }}
+    - port:
+        name: tls-ssh
+        number: 2222
+        protocol: TLS
+      hosts:
+{{- range $hosts }}
+        - {{ . | quote }}
+{{- end }}
+      tls:
+        mode: PASSTHROUGH

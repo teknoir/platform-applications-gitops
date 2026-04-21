@@ -1,0 +1,26 @@
+apiVersion: v2
+name: istio
+description: A Helm Chart for Teknoir Istio GitOps
+type: application
+version: 0.0.1
+appVersion: "1.0.0"
+dependencies:
+  - name: base
+    alias: istio-base
+    version: 1.29.2
+    repository: "https://istio-release.storage.googleapis.com/charts"
+  - name: istiod
+    version: 1.29.2
+    repository: "https://istio-release.storage.googleapis.com/charts"
+  - name: gateway
+    alias: istio-ingressgateway
+    version: 1.29.2
+    repository: "https://istio-release.storage.googleapis.com/charts"
+  - name: gateway
+    alias: istio-ingressgateway-public
+    version: 1.29.2
+    repository: "https://istio-release.storage.googleapis.com/charts"
+  - name: gateway
+    alias: istio-egressgateway
+    version: 1.29.2
+    repository: "https://istio-release.storage.googleapis.com/charts"

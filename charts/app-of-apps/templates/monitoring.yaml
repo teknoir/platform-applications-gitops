@@ -2,18 +2,20 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: backstage
+  name: monitoring
 spec:
   destination:
     namespace: teknoir-system
     server: https://kubernetes.default.svc
   source:
-    path: charts/backstage
+    path: charts/monitoring
     repoURL: https://github.com/teknoir/platform-applications-gitops
     targetRevision: {{ .Values.project }}
   sources: [ ]
   project: {{ .Values.project }}
   syncPolicy:
+    syncOptions:
+      - ServerSideApply=true
     automated:
       prune: true
       selfHeal: true

@@ -1,0 +1,68 @@
+# Values for istio.
+
+global:
+  domain: teknoir.cloud
+
+# Dependency configurations
+# Only keeping values that change defaults or are required by the dependencies
+
+istio-base: {}
+
+istiod:
+  global:
+    proxy:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 50Mi
+
+istio-ingressgateway:
+  name: istio-ingressgateway
+  labels:
+    istio: ingressgateway
+  service:
+    type: LoadBalancer
+    ports:
+      - name: status-port
+        port: 15021
+        protocol: TCP
+        targetPort: 15021
+      - name: http2
+        port: 80
+        protocol: TCP
+        targetPort: 80
+      - name: https
+        port: 443
+        protocol: TCP
+        targetPort: 443
+
+istio-ingressgateway-public:
+  name: istio-ingressgateway-public
+  labels:
+    istio: ingressgateway-public
+  service:
+    type: LoadBalancer
+    ports:
+      - name: status-port
+        port: 16021
+        protocol: TCP
+        targetPort: 15021
+      - name: tls-ssh
+        port: 2222
+        targetPort: 2222
+        protocol: TCP
+      - name: https-mqtt
+        port: 8084
+        targetPort: 8084
+        protocol: TCP
+      - name: tls-mqtt
+        port: 8883
+        targetPort: 8883
+        protocol: TCP
+
+istio-egressgateway:
+  name: istio-egressgateway
+  labels:
+    istio: egressgateway
+  service:
+    type: ClusterIP
