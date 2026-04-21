@@ -20,3 +20,16 @@ spec:
       prune: true
       selfHeal: true
       enabled: true
+  ignoreDifferences:
+    - group: ""
+      kind: Secret
+      name: monitoring-grafana
+      jsonPointers:
+        - /data
+        - /stringData
+{{/*    - group: ""*/}}
+{{/*      kind: Secret*/}}
+{{/*      name: historian-mongodb-credentials*/}}
+{{/*      jsonPointers:*/}}
+{{/*        - /data*/}}
+{{/*        - /stringData*/}}
