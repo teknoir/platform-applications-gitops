@@ -1,5 +1,5 @@
 {{- if .Values.oauth2Proxy.enabled -}}
-{{- $domain := .Values.domain | default (index .Values "global" "domain") | default "teknoir.online" -}}
+{{- $domain := .Values.domain | default "teknoir.cloud" -}}
 {{- $secretName := .Values.oauth2Proxy.secret.existingName | default "oauth2-proxy-secret" -}}
 {{- $provider := .Values.oauth2Proxy.provider | default "oidc" -}}
 {{- $issuerUrl := .Values.oauth2Proxy.oidc.issuerUrl | default (printf "https://auth.%s/auth/realms/master" $domain) -}}

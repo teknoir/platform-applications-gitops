@@ -1,4 +1,5 @@
-# Default values for auth.
+# Values for auth.
+domain: "teknoir.cloud"
 namespace: teknoir-auth
 
 keycloak:
@@ -32,9 +33,9 @@ keycloak:
     - name: KC_BOOTSTRAP_ADMIN_PASSWORD
       value: change-me
     - name: KC_HOSTNAME
-      value: 'auth.{{ .Values.global.domain | default "teknoir.online" }}'
+      value: 'auth.{{ .Values.global.domain | default "teknoir.cloud" }}'
     - name: KC_HOSTNAME_URL
-      value: 'https://auth.{{ .Values.global.domain | default "teknoir.online" }}'
+      value: 'https://auth.{{ .Values.global.domain | default "teknoir.cloud" }}'
     - name: KC_DB_USERNAME
       valueFrom:
         secretKeyRef:

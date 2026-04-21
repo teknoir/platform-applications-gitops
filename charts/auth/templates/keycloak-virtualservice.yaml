@@ -1,4 +1,4 @@
-{{- $domain := .Values.domain | default (index .Values "global" "domain") | default "teknoir.online" -}}
+{{- $domain := .Values.domain | default "teknoir.cloud" -}}
 {{- $namespace := .Values.namespace | default .Release.Namespace -}}
 apiVersion: networking.istio.io/v1beta1
 kind: VirtualService
