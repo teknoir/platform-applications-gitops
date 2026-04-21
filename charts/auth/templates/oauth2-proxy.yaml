@@ -1,0 +1,125 @@
+{{- if .Values.oauth2Proxy.enabled -}}
+{{- $domain := .Values.domain | default (index .Values "global" "domain") | default "teknoir.online" -}}
+{{- $secretName := .Values.oauth2Proxy.secret.existingName | default "oauth2-proxy-secret" -}}
+{{- $provider := .Values.oauth2Proxy.provider | default "oidc" -}}
+{{- $issuerUrl := .Values.oauth2Proxy.oidc.issuerUrl | default (printf "https://auth.%s/auth/realms/master" $domain) -}}
+{{- $issuer := trimSuffix "/" $issuerUrl -}}
+{{- $cookieDomain := .Values.oauth2Proxy.cookie.domain | default $domain -}}
+{{- $redirectUrl := .Values.oauth2Proxy.redirectUrl | default (printf "https://%s/oauth2/callback" $domain) -}}
+{{- $namespace := .Values.namespace | default .Release.Namespace -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: oauth2-proxy
+  namespace: {{ $namespace }}
+spec:
+  selector:
+    app: oauth2-proxy
+  ports:
+    - name: http
+      port: {{ .Values.oauth2Proxy.service.port }}
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oauth2-proxy
+  namespace: {{ $namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oauth2-proxy
+  template:
+    metadata:
+      labels:
+        app: oauth2-proxy
+    spec:
+      containers:
+        - name: oauth2-proxy
+          image: {{ .Values.oauth2Proxy.image.repository }}:{{ .Values.oauth2Proxy.image.tag }}
+          args:
+            - --provider={{ $provider }}
+            - --oidc-issuer-url={{ $issuerUrl }}
+            - --client-id={{ .Values.oauth2Proxy.oidc.clientId }}
+{{- if eq $provider "keycloak-oidc" }}
+            - --login-url={{ .Values.oauth2Proxy.oidc.loginUrl | default (printf "%s/protocol/openid-connect/auth" $issuer) }}
+            - --redeem-url={{ .Values.oauth2Proxy.oidc.redeemUrl | default (printf "%s/protocol/openid-connect/token" $issuer) }}
+            - --profile-url={{ .Values.oauth2Proxy.oidc.profileUrl | default (printf "%s/protocol/openid-connect/userinfo" $issuer) }}
+{{- end }}
+            - --cookie-domain={{ $cookieDomain }}
+{{- if .Values.oauth2Proxy.cookie.name }}
+            - --cookie-name={{ .Values.oauth2Proxy.cookie.name }}
+{{- end }}
+            - --cookie-secure=true
+            - --cookie-samesite={{ .Values.oauth2Proxy.cookie.sameSite | default "lax" }}
+{{- if .Values.oauth2Proxy.cookie.path }}
+            - --cookie-path={{ .Values.oauth2Proxy.cookie.path }}
+{{- end }}
+{{- if .Values.oauth2Proxy.cookie.csrfPerRequest }}
+            - --cookie-csrf-per-request=true
+{{- else }}
+            - --cookie-csrf-per-request=false
+{{- end }}
+{{- if .Values.oauth2Proxy.cookie.csrfExpire }}
+            - --cookie-csrf-expire={{ .Values.oauth2Proxy.cookie.csrfExpire }}
+{{- end }}
+{{- if .Values.oauth2Proxy.cookie.refresh }}
+            - --cookie-refresh={{ .Values.oauth2Proxy.cookie.refresh }}
+{{- end }}
+{{- if .Values.oauth2Proxy.cookie.expire }}
+            - --cookie-expire={{ .Values.oauth2Proxy.cookie.expire }}
+{{- end }}
+            - --email-domain={{ join "," .Values.oauth2Proxy.emailDomains }}
+            - --redirect-url={{ $redirectUrl }}
+{{- range .Values.oauth2Proxy.whitelistDomains }}
+            - --whitelist-domain={{ . | quote }}
+{{- end }}
+{{- range .Values.oauth2Proxy.extraAudiences }}
+            - --oidc-extra-audience={{ . | quote }}
+{{- end }}
+            - --code-challenge-method={{ .Values.oauth2Proxy.pkceMethod }}
+{{- if .Values.oauth2Proxy.passAccessToken }}
+            - --pass-access-token=true
+{{- end }}
+{{- if .Values.oauth2Proxy.redis.enabled }}
+            - --session-store-type=redis
+            - --redis-connection-url=redis://{{ .Values.oauth2Proxy.redis.host }}.{{ $namespace }}.svc.cluster.local:{{ .Values.oauth2Proxy.redis.port }}/{{ .Values.oauth2Proxy.redis.database }}
+{{- end }}
+{{- if .Values.oauth2Proxy.sessionCookieMinimal }}
+            - --session-cookie-minimal=true
+{{- end }}
+{{- if .Values.oauth2Proxy.reverseProxy }}
+            - --reverse-proxy=true
+{{- end }}
+            - --set-xauthrequest=true
+            - --upstream=static://200
+            - --http-address=0.0.0.0:{{ .Values.oauth2Proxy.service.port }}
+{{- range .Values.oauth2Proxy.allowedRoles }}
+            - --allowed-role={{ . | quote }}
+{{- end }}
+{{- range .Values.oauth2Proxy.allowedGroups }}
+            - --allowed-group={{ . | quote }}
+{{- end }}
+          env:
+            - name: OAUTH2_PROXY_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: client-secret
+            - name: OAUTH2_PROXY_COOKIE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: cookie-secret
+{{- if .Values.oauth2Proxy.redis.enabled }}
+            - name: OAUTH2_PROXY_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.oauth2Proxy.redis.secretName }}
+                  key: {{ .Values.oauth2Proxy.redis.passwordKey }}
+{{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.oauth2Proxy.service.port }}
+{{- end -}}

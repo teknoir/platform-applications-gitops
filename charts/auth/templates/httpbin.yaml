@@ -1,0 +1,93 @@
+{{- $domain := .Values.domain | default (index .Values "global" "domain") | default "teknoir.online" -}}
+{{- $hosts := .Values.httpbin.virtualService.hosts | default (list (printf "httpbin.%s" $domain)) -}}
+{{- $jwksIssuer := .Values.istio.auth.jwksIssuer | default (printf "https://auth.%s/auth/realms/master" $domain) -}}
+{{- $jwksUri := .Values.istio.auth.jwksUri | default (printf "%s/protocol/openid-connect/certs" (trimSuffix "/" $jwksIssuer)) -}}
+{{- $namespace := .Values.namespace | default .Release.Namespace -}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: httpbin
+  namespace: {{ $namespace }}
+spec:
+  selector:
+    app: httpbin
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: httpbin
+  namespace: {{ $namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: httpbin
+  template:
+    metadata:
+      labels:
+        app: httpbin
+    spec:
+      containers:
+        - name: httpbin
+          image: {{ .Values.httpbin.image.repository }}:{{ .Values.httpbin.image.tag }}
+          ports:
+            - name: http
+              containerPort: 80
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: httpbin
+  namespace: {{ $namespace }}
+spec:
+  hosts:
+{{- range $hosts }}
+  - {{ . | quote }}
+{{- end }}
+  gateways:
+    - istio-system/teknoir-gateway
+  http:
+    - route:
+        - destination:
+            host: httpbin.{{ $namespace }}.svc.cluster.local
+            port:
+              number: 80
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: RequestAuthentication
+metadata:
+  name: httpbin-jwt
+  namespace: {{ $namespace }}
+spec:
+  selector:
+    matchLabels:
+      app: httpbin
+  jwtRules:
+    - issuer: {{ $jwksIssuer | quote }}
+      jwksUri: {{ $jwksUri | quote }}
+      outputPayloadToHeader: verified-jwt
+      fromHeaders:
+        - name: X-Forwarded-Access-Token
+        - name: X-Auth-Request-Access-Token
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: httpbin-require-jwt
+  namespace: {{ $namespace }}
+spec:
+  selector:
+    matchLabels:
+      app: httpbin
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            requestPrincipals: ["*"]

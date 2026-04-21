@@ -1,0 +1,268 @@
+{{- $domain := .Values.domain | default (index .Values "global" "domain") | default "teknoir.online" -}}
+{{- $jwksUri := .Values.istio.auth.jwksUri | default (printf "%s/protocol/openid-connect/certs" (trimSuffix "/" (.Values.istio.auth.jwksIssuer | default (printf "https://auth.%s/auth/realms/master" $domain)))) -}}
+{{- $authPath := .Values.istio.auth.oauth2ProxyAuthPath | default "/oauth2/auth" -}}
+{{- $oauth2RouteName := .Values.istio.auth.oauth2ProxyRouteName | default "oauth2-proxy-auth" -}}
+{{- $keycloakRouteName := .Values.istio.auth.keycloakRouteName | default "keycloak" -}}
+{{- $oauth2SharedHost := .Values.oauth2Proxy.sharedHost | default $domain -}}
+{{- $cookieName := .Values.oauth2Proxy.cookie.name | default "_oauth2_proxy" -}}
+{{- $namespace := .Values.namespace | default .Release.Namespace -}}
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: oauth2-proxy-ext-authz
+  namespace: {{ .Values.istio.gateway.namespace | default "istio-system" }}
+spec:
+  workloadSelector:
+    labels:
+{{- toYaml .Values.istio.gateway.selector | nindent 6 }}
+  configPatches:
+    - applyTo: HTTP_FILTER
+      match:
+        context: GATEWAY
+        listener:
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+      patch:
+        operation: INSERT_FIRST
+        value:
+          name: envoy.filters.http.ext_authz
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
+            transport_api_version: V3
+            http_service:
+              server_uri:
+                uri: http://oauth2-proxy.{{ $namespace }}.svc.cluster.local:{{ .Values.oauth2Proxy.service.port }}
+                cluster: outbound|{{ .Values.oauth2Proxy.service.port }}||oauth2-proxy.{{ $namespace }}.svc.cluster.local
+                timeout: 10s
+              path_prefix: {{ $authPath | quote }}
+              authorization_request:
+                allowed_headers:
+                  patterns:
+                    - exact: cookie
+                    - exact: authorization
+                    - exact: x-forwarded-proto
+                    - exact: x-forwarded-host
+                    - exact: x-forwarded-uri
+              authorization_response:
+                allowed_upstream_headers:
+                  patterns:
+                    - exact: x-forwarded-access-token
+                    - exact: x-auth-request-access-token
+                    - exact: x-auth-request-user
+                    - exact: x-auth-request-email
+                    - exact: x-auth-request-preferred-username
+                allowed_client_headers:
+                  patterns:
+                    - exact: set-cookie
+                    - exact: location
+    - applyTo: HTTP_FILTER
+      match:
+        context: GATEWAY
+        listener:
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+              subFilter:
+                name: envoy.filters.http.ext_authz
+      patch:
+        operation: INSERT_BEFORE
+        value:
+          name: envoy.filters.http.lua
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+            inlineCode: |
+              local function urlencode(str)
+                if str == nil then
+                  return ""
+                end
+                return string.gsub(str, "([^%w%-_%.~])", function(c)
+                  return string.format("%%%02X", string.byte(c))
+                end)
+              end
+
+              local function build_rd(h)
+                local scheme = h:get("x-forwarded-proto") or "https"
+                local host = h:get("x-forwarded-host") or h:get(":authority") or h:get("host") or ""
+                local path = h:get("x-forwarded-uri") or h:get(":path") or "/"
+                return scheme .. "://" .. host .. path, path
+              end
+
+              local function has_session_cookie(h)
+                local cookie = h:get("cookie") or ""
+                if cookie == "" then
+                  return false
+                end
+                return string.find(cookie, "{{ $cookieName }}=") ~= nil
+              end
+
+              function envoy_on_request(handle)
+                local h = handle:headers()
+                local rd, path = build_rd(h)
+                local md = handle:streamInfo():dynamicMetadata()
+                md:set("oauth2_proxy", "rd", rd)
+                md:set("oauth2_proxy", "path", path)
+                md:set("oauth2_proxy", "has_session", has_session_cookie(h) and "true" or "false")
+              end
+
+              function envoy_on_response(handle)
+                local status = handle:headers():get(":status")
+                if status ~= "401" and status ~= "403" then
+                  return
+                end
+                local md = handle:streamInfo():dynamicMetadata():get("oauth2_proxy") or {}
+                local path = md["path"] or ""
+                if string.sub(path, 1, 7) == "/oauth2" then
+                  return
+                end
+                if md["has_session"] == "true" then
+                  return
+                end
+                local rd = md["rd"] or ""
+                if rd == "" then
+                  rd, _ = build_rd(handle:headers())
+                end
+                local location = "https://{{ $oauth2SharedHost }}/oauth2/start?rd=" .. urlencode(rd)
+                handle:headers():replace(":status", "302")
+                handle:headers():replace("location", location)
+                handle:headers():replace("content-length", "0")
+              end
+    - applyTo: VIRTUAL_HOST
+      match:
+        context: GATEWAY
+        routeConfiguration:
+          gateway: "{{ .Values.istio.gateway.namespace }}/{{ .Values.istio.gateway.name }}"
+          vhost:
+            name: {{ printf "auth.%s:443" $domain | quote }}
+      patch:
+        operation: MERGE
+        value:
+          typed_per_filter_config:
+            envoy.filters.http.ext_authz:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute
+              disabled: true
+    - applyTo: VIRTUAL_HOST
+      match:
+        context: GATEWAY
+        routeConfiguration:
+          gateway: "{{ .Values.istio.gateway.namespace }}/{{ .Values.istio.gateway.name }}"
+          vhost:
+            name: {{ printf "harbor.%s:443" $domain | quote }}
+      patch:
+        operation: MERGE
+        value:
+          typed_per_filter_config:
+            envoy.filters.http.ext_authz:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute
+              disabled: true
+            envoy.filters.http.lua:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.LuaPerRoute
+              disabled: true
+    - applyTo: VIRTUAL_HOST
+      match:
+        context: GATEWAY
+        routeConfiguration:
+          gateway: "{{ .Values.istio.gateway.namespace }}/{{ .Values.istio.gateway.name }}"
+          vhost:
+            name: {{ printf "argocd.%s:443" $domain | quote }}
+      patch:
+        operation: MERGE
+        value:
+          typed_per_filter_config:
+            envoy.filters.http.ext_authz:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute
+              disabled: true
+    - applyTo: HTTP_ROUTE
+      match:
+        context: GATEWAY
+        routeConfiguration:
+          gateway: "{{ .Values.istio.gateway.namespace }}/{{ .Values.istio.gateway.name }}"
+          vhost:
+            route:
+              name: {{ $oauth2RouteName | quote }}
+      patch:
+        operation: MERGE
+        value:
+          typed_per_filter_config:
+            envoy.filters.http.ext_authz:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute
+              disabled: true
+    - applyTo: HTTP_ROUTE
+      match:
+        context: GATEWAY
+        routeConfiguration:
+          gateway: "{{ .Values.istio.gateway.namespace }}/{{ .Values.istio.gateway.name }}"
+          vhost:
+            route:
+              name: {{ $keycloakRouteName | quote }}
+      patch:
+        operation: MERGE
+        value:
+          typed_per_filter_config:
+            envoy.filters.http.ext_authz:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute
+              disabled: true
+            envoy.filters.http.lua:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.LuaPerRoute
+              disabled: true
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: oauth2-proxy-allow
+  namespace: {{ $namespace }}
+spec:
+  selector:
+    matchLabels:
+      app: oauth2-proxy
+  action: ALLOW
+  rules:
+    - {}
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: oauth2-proxy-redis-allow
+  namespace: {{ $namespace }}
+spec:
+  selector:
+    matchLabels:
+      app: oauth2-proxy-redis
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            namespaces:
+              - {{ $namespace }}
+---
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: strict-mtls-auth
+  namespace: {{ $namespace }}
+spec:
+  mtls:
+    mode: STRICT
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: keycloak-istio-mtls
+  namespace: {{ $namespace }}
+spec:
+  host: keycloak-http.{{ $namespace }}.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: oauth2-proxy-istio-mtls
+  namespace: {{ $namespace }}
+spec:
+  host: oauth2-proxy.{{ $namespace }}.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL

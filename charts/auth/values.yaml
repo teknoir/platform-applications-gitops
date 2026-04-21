@@ -1,0 +1,108 @@
+# Default values for auth.
+namespace: teknoir-auth
+
+keycloak:
+  enabled: true
+  fullnameOverride: keycloak
+  image:
+    repository: us-docker.pkg.dev/teknoir/gcr.io/keycloak-themed
+    tag: "local-20260310-110746"
+    pullPolicy: IfNotPresent
+  service:
+    httpPort: 80
+  database:
+    vendor: postgres
+    hostname: keycloak-db
+    port: 5432
+    database: keycloak
+    existingSecret: keycloak-db-secret
+    existingSecretKey: password
+  proxy:
+    mode: xforwarded
+  command:
+    - "/opt/keycloak/bin/kc.sh"
+  args:
+    - "start"
+    - "--http-enabled=true"
+    - "--http-port=8080"
+    - "--hostname-strict=false"
+  extraEnv: |
+    - name: KC_BOOTSTRAP_ADMIN_USERNAME
+      value: admin
+    - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+      value: change-me
+    - name: KC_HOSTNAME
+      value: 'auth.{{ .Values.global.domain | default "teknoir.online" }}'
+    - name: KC_HOSTNAME_URL
+      value: 'https://auth.{{ .Values.global.domain | default "teknoir.online" }}'
+    - name: KC_DB_USERNAME
+      valueFrom:
+        secretKeyRef:
+          name: keycloak-db-secret
+          key: username
+
+oauth2Proxy:
+  enabled: true
+  secret:
+    existingName: "oauth2-proxy-secret"
+  image:
+    repository: quay.io/oauth2-proxy/oauth2-proxy
+    tag: v7.6.0
+  oidc:
+    issuerUrl: ""
+    clientId: teknoir
+  cookie:
+    domain: ""
+    name: _teknoir_oauth2_proxy
+    sameSite: none
+    path: /
+    csrfPerRequest: false
+    csrfExpire: 10m
+    refresh: 1m
+    expire: 12h
+  redirectUrl: ""
+  whitelistDomains: []
+  authHosts: []
+  sharedHost: ""
+  emailDomains:
+    - "*"
+  provider: keycloak-oidc
+  pkceMethod: S256
+  extraAudiences:
+    - master-realm
+    - account
+  allowedRoles: []
+  allowedGroups: []
+  passAccessToken: true
+  sessionCookieMinimal: false
+  reverseProxy: true
+  redis:
+    enabled: true
+    host: oauth2-proxy-redis
+    port: 6379
+    database: 0
+    secretName: oauth2-proxy-redis-secret
+    passwordKey: password
+    connectionUrlKey: connection-url
+    storage:
+      size: 1Gi
+      hostPath: /opt/teknoir/oauth2-proxy/redis
+  service:
+    port: 4180
+
+istio:
+  gateway:
+    name: teknoir-gateway
+    namespace: istio-system
+    selector:
+      istio: ingressgateway
+  auth:
+    jwksIssuer: ""
+    jwksUri: ""
+
+httpbin:
+  image:
+    repository: docker.io/kennethreitz/httpbin
+    tag: latest
+  virtualService:
+    hosts: []

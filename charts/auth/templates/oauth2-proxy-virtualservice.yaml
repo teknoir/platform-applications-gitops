@@ -1,0 +1,26 @@
+{{- $domain := .Values.domain | default (index .Values "global" "domain") | default "teknoir.online" -}}
+{{- $authHosts := .Values.oauth2Proxy.authHosts | default (list $domain (printf "*.%s" $domain)) -}}
+{{- $namespace := .Values.namespace | default .Release.Namespace -}}
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: oauth2-proxy
+  namespace: {{ $namespace }}
+spec:
+  hosts:
+{{- range $authHosts }}
+    - {{ . | quote }}
+{{- end }}
+  gateways:
+    - istio-system/teknoir-gateway
+  http:
+    - name: oauth2-proxy-auth
+      match:
+        - uri:
+            prefix: /oauth2
+      route:
+        - destination:
+            host: oauth2-proxy.{{ $namespace }}.svc.cluster.local
+            port:
+              number: {{ .Values.oauth2Proxy.service.port }}

@@ -1,0 +1,85 @@
+{{- if .Values.oauth2Proxy.redis.enabled -}}
+{{- $namespace := .Values.namespace | default .Release.Namespace -}}
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{ .Values.oauth2Proxy.redis.host }}-pv
+spec:
+  capacity:
+    storage: {{ .Values.oauth2Proxy.redis.storage.size }}
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: {{ .Values.oauth2Proxy.redis.storage.hostPath | quote }}
+    type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.oauth2Proxy.redis.host }}-pvc
+  namespace: {{ $namespace }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.oauth2Proxy.redis.storage.size }}
+  storageClassName: ""
+  volumeName: {{ .Values.oauth2Proxy.redis.host }}-pv
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.oauth2Proxy.redis.host }}
+  namespace: {{ $namespace }}
+spec:
+  selector:
+    app: {{ .Values.oauth2Proxy.redis.host }}
+  ports:
+    - name: redis
+      port: {{ .Values.oauth2Proxy.redis.port }}
+      targetPort: redis
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.oauth2Proxy.redis.host }}
+  namespace: {{ $namespace }}
+spec:
+  serviceName: {{ .Values.oauth2Proxy.redis.host }}
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.oauth2Proxy.redis.host }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.oauth2Proxy.redis.host }}
+    spec:
+      containers:
+        - name: redis
+          image: docker.io/redis:7.2-alpine
+          command:
+            - sh
+            - -c
+            - redis-server --requirepass "$REDIS_PASSWORD" --appendonly yes
+          ports:
+            - name: redis
+              containerPort: {{ .Values.oauth2Proxy.redis.port }}
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.oauth2Proxy.redis.secretName }}
+                  key: {{ .Values.oauth2Proxy.redis.passwordKey }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Values.oauth2Proxy.redis.host }}-pvc
+{{- end -}}
