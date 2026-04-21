@@ -1,0 +1,74 @@
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-dns
+spec:
+  acme:
+    email: {{ printf "admin@%s" .Values.domain | quote }}
+    server: "https://acme-v02.api.letsencrypt.org/directory"
+    privateKeySecretRef:
+      name: letsencrypt-dns-account-key
+    solvers:
+      - selector:
+          dnsZones:
+            - "{{ .Values.domain }}"
+        dns01:
+          webhook:
+            groupName: acme.webhook.godaddy.com
+            solverName: godaddy
+            config:
+              apiKeySecretRef:
+                name: godaddy-api-key-prod
+                key: token
+              production: true
+              ttl: 600
+
+{{/*---*/}}
+{{/*apiVersion: cert-manager.io/v1*/}}
+{{/*kind: ClusterIssuer*/}}
+{{/*metadata:*/}}
+{{/*  name: letsencrypt-dns*/}}
+{{/*spec:*/}}
+{{/*  acme:*/}}
+{{/*    email: {{ printf "admin@%s" $domain | quote }}*/}}
+{{/*    server: "https://acme-v02.api.letsencrypt.org/directory"*/}}
+{{/*    privateKeySecretRef:*/}}
+{{/*      name: letsencrypt-dns-account-key*/}}
+{{/*    solvers:*/}}
+{{/*      - selector:*/}}
+{{/*          dnsZones:*/}}
+{{/*            - "{{ $domain }}"*/}}
+{{/*        dns01:*/}}
+{{/*          webhook:*/}}
+{{/*            groupName: acme.webhook.loopia.com*/}}
+{{/*            solverName: loopia*/}}
+{{/*            config:*/}}
+{{/*              usernameSecretKeyRef:*/}}
+{{/*                name: loopia-credentials*/}}
+{{/*                key: username*/}}
+{{/*              passwordSecretKeyRef:*/}}
+{{/*                name: loopia-credentials*/}}
+{{/*                key: password*/}}
+
+{{/*---*/}}
+{{/*apiVersion: cert-manager.io/v1*/}}
+{{/*kind: ClusterIssuer*/}}
+{{/*metadata:*/}}
+{{/*  name: letsencrypt-dns*/}}
+{{/*spec:*/}}
+{{/*  acme:*/}}
+{{/*    email: {{ printf "admin@%s" $domain | quote }}*/}}
+{{/*    server: "https://acme-v02.api.letsencrypt.org/directory"*/}}
+{{/*    privateKeySecretRef:*/}}
+{{/*      name: letsencrypt-dns-account-key*/}}
+{{/*    solvers:*/}}
+{{/*      - selector:*/}}
+{{/*          dnsZones:*/}}
+{{/*            - "{{ $domain }}"*/}}
+{{/*        dns01:*/}}
+{{/*          cloudDNS:*/}}
+{{/*            project: {{ .Values.letsencrypt.cloudDNS.project | quote }}*/}}
+{{/*            serviceAccountSecretRef:*/}}
+{{/*              name: {{ .Values.letsencrypt.cloudDNS.serviceAccountSecretRef.name | quote }}*/}}
+{{/*              key: {{ .Values.letsencrypt.cloudDNS.serviceAccountSecretRef.key | quote }}*/}}

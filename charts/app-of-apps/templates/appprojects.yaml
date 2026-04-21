@@ -13,3 +13,51 @@ spec:
       server: '*'
   sourceRepos:
     - '*'
+
+{{/*---*/}}
+{{/*apiVersion: argoproj.io/v1alpha1*/}}
+{{/*kind: AppProject*/}}
+{{/*metadata:*/}}
+{{/*  name: teknoir-auth*/}}
+{{/*  namespace: teknoir-auth*/}}
+{{/*spec:*/}}
+{{/*  clusterResourceWhitelist:*/}}
+{{/*    - group: '*'*/}}
+{{/*      kind: '*'*/}}
+{{/*  destinations:*/}}
+{{/*    - namespace: '*'*/}}
+{{/*      server: '*'*/}}
+{{/*  sourceRepos:*/}}
+{{/*    - '*'*/}}
+
+{{/*---*/}}
+{{/*apiVersion: argoproj.io/v1alpha1*/}}
+{{/*kind: AppProject*/}}
+{{/*metadata:*/}}
+{{/*  name: cert-manager*/}}
+{{/*  namespace: cert-manager*/}}
+{{/*spec:*/}}
+{{/*  clusterResourceWhitelist:*/}}
+{{/*    - group: '*'*/}}
+{{/*      kind: '*'*/}}
+{{/*  destinations:*/}}
+{{/*    - namespace: '*'*/}}
+{{/*      server: '*'*/}}
+{{/*  sourceRepos:*/}}
+{{/*    - '*'*/}}
+
+{{/*---*/}}
+{{/*apiVersion: argoproj.io/v1alpha1*/}}
+{{/*kind: AppProject*/}}
+{{/*metadata:*/}}
+{{/*  name: istio-system*/}}
+{{/*  namespace: istio-system*/}}
+{{/*spec:*/}}
+{{/*  clusterResourceWhitelist:*/}}
+{{/*    - group: '*'*/}}
+{{/*      kind: '*'*/}}
+{{/*  destinations:*/}}
+{{/*    - namespace: '*'*/}}
+{{/*      server: '*'*/}}
+{{/*  sourceRepos:*/}}
+{{/*    - '*'*/}}

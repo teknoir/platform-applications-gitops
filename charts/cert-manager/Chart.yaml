@@ -1,0 +1,17 @@
+---
+apiVersion: v2
+name: cert-manager
+description: TLS certificates for workloads in Kubernetes
+type: application
+version: 0.0.1
+appVersion: "1.20.1"
+dependencies:
+  - name: cert-manager
+    version: 1.20.1
+    repository: https://charts.jetstack.io
+  - name: godaddy-webhook
+    version: 0.7.0
+    repository: https://snowdrop.github.io/godaddy-webhook
+#  - name: cert-manager-webhook-loopia
+#    version: x
+#    repository: https://identitry.github.io/cert-manager-webhook-loopia

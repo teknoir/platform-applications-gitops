@@ -1,0 +1,31 @@
+# Values for cert-manager
+domain: "teknoir.cloud"
+
+cert-manager:
+  fullnameOverride: cert-manager
+  crds:
+    enabled: true
+
+godaddy-webhook:
+  fullnameOverride: godaddy-webhook
+  groupName: acme.webhook.godaddy.com
+
+cert-manager-webhook-loopia:
+  fullnameOverride: cert-manager-webhook-loopia
+  groupName: acme.webhook.loopia.com
+
+
+#letsencrypt:
+#  server: https://acme-v02.api.letsencrypt.org/directory
+#  cloudDNS:
+#    project: "teknoir"
+#    serviceAccountSecretRef:
+#      name: "clouddns-dns01"
+#      key: key.json
+#  certificate:
+#    commonName: ""
+#    dnsNames: []
+#    secretName: ""
+#
+#  # Can be clouddns, godaddy, loopia
+#  solver: godaddy

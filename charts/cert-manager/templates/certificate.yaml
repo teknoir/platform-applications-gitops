@@ -1,0 +1,20 @@
+{{- $domain := .Values.domain | default "teknoir.cloud" -}}
+{{- $dnsNames := (list $domain (printf "*.%s" $domain)) -}}
+{{- $commonName := (printf "*.%s" $domain) -}}
+{{- $secretName := (printf "%s-wildcard-tls" (replace "." "-" $domain)) -}}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: teknoir-wildcard
+  namespace: istio-system
+spec:
+  secretName: {{ $secretName | quote }}
+  commonName: {{ $commonName | quote }}
+  dnsNames:
+{{- range $dnsNames }}
+    - {{ . | quote }}
+{{- end }}
+  issuerRef:
+    name: letsencrypt-dns
+    kind: ClusterIssuer
