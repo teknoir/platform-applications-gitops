@@ -8,7 +8,9 @@ keycloak:
   image:
     repository: ghcr.io/teknoir/keycloak-theme
     tag: latest
-    pullPolicy: IfNotPresent
+    pullPolicy: Always
+  imagePullSecrets:
+    - name: ghcr-token
   service:
     httpPort: 80
   database:
@@ -62,7 +64,10 @@ oauth2Proxy:
     refresh: 1m
     expire: 12h
   redirectUrl: ""
-  whitelistDomains: []
+#  whitelistDomains: []
+  whitelistDomains:
+    - "teknoir.cloud"
+    - "*.teknoir.cloud"
   authHosts: []
   sharedHost: ""
   emailDomains:
