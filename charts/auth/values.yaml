@@ -6,8 +6,8 @@ keycloak:
   enabled: true
   fullnameOverride: keycloak
   image:
-    repository: us-docker.pkg.dev/teknoir/gcr.io/keycloak-themed
-    tag: "local-20260310-110746"
+    repository: ghcr.io/teknoir/keycloak-theme
+    tag: latest
     pullPolicy: IfNotPresent
   service:
     httpPort: 80
@@ -33,9 +33,9 @@ keycloak:
     - name: KC_BOOTSTRAP_ADMIN_PASSWORD
       value: change-me
     - name: KC_HOSTNAME
-      value: 'auth.{{ .Values.global.domain | default "teknoir.cloud" }}'
+      value: auth.teknoir.cloud
     - name: KC_HOSTNAME_URL
-      value: 'https://auth.{{ .Values.global.domain | default "teknoir.cloud" }}'
+      value: https://auth.teknoir.cloud
     - name: KC_DB_USERNAME
       valueFrom:
         secretKeyRef:
