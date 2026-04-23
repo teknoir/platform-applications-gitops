@@ -22,6 +22,13 @@ istio-ingressgateway:
     istio: ingressgateway
   service:
     type: LoadBalancer
+    loadBalancerClass: eks.amazonaws.com/nlb
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+      service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+      service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol: HTTP
+      service.beta.kubernetes.io/aws-load-balancer-healthcheck-path: /healthz/ready
+      service.beta.kubernetes.io/aws-load-balancer-healthcheck-port:
     ports:
       - name: status-port
         port: 15021
