@@ -32,10 +32,10 @@ config:
   userIdHeader: "X-Auth-Request-Email"
   userIdPrefix: ""
   projectId: "teknoir"
-  domain: "teknoir.cloud"
+  domain: "teknoir.online"
   domainPrefix: ""
   region: "us-central1"
-  dnsZone: "teknoir-cloud"
+  dnsZone: "teknoir-online"
   istioRevision: "1.29.0"
 
 resources: {}

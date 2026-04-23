@@ -1,4 +1,4 @@
-{{- $domain := .Values.domain | default "teknoir.cloud" -}}
+{{- $domain := .Values.domain | default "teknoir.online" -}}
 {{- $hosts := .Values.httpbin.virtualService.hosts | default (list (printf "httpbin.%s" $domain)) -}}
 {{- $jwksIssuer := .Values.istio.auth.jwksIssuer | default (printf "https://auth.%s/auth/realms/master" $domain) -}}
 {{- $jwksUri := .Values.istio.auth.jwksUri | default (printf "%s/protocol/openid-connect/certs" (trimSuffix "/" $jwksIssuer)) -}}

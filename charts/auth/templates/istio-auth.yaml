@@ -1,4 +1,4 @@
-{{- $domain := .Values.domain | default "teknoir.cloud" -}}
+{{- $domain := .Values.domain | default "teknoir.online" -}}
 {{- $jwksUri := .Values.istio.auth.jwksUri | default (printf "%s/protocol/openid-connect/certs" (trimSuffix "/" (.Values.istio.auth.jwksIssuer | default (printf "https://auth.%s/auth/realms/master" $domain)))) -}}
 {{- $authPath := .Values.istio.auth.oauth2ProxyAuthPath | default "/oauth2/auth" -}}
 {{- $oauth2RouteName := .Values.istio.auth.oauth2ProxyRouteName | default "oauth2-proxy-auth" -}}

@@ -57,5 +57,5 @@ config:
   istioGateway: "istio-system/teknoir-gateway"
   podLabels: "gcp-cred-secret=user-gcp-sa,gcp-cred-secret-filename=user-gcp-sa.json"
   projectId: "teknoir"
-  domain: "teknoir.cloud"
+  domain: "teknoir.online"
   addFsgroup: "false"

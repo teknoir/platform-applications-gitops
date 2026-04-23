@@ -42,7 +42,7 @@ securityContext:
 config:
   projectId: teknoir
   region: us-central1
-  domain: teknoir.cloud
+  domain: teknoir.online
   domainPrefix: ""
   istioGateway: istio-system/teknoir-gateway
 

@@ -1,4 +1,4 @@
-{{- $domain := .Values.global.domain | default "teknoir.cloud" -}}
+{{- $domain := .Values.global.domain | default "teknoir.online" -}}
 {{- $hosts := .Values.hosts | default (list $domain (printf "*.%s" $domain)) -}}
 {{- $credentialName := (printf "%s-wildcard-tls" (replace "." "-" $domain)) -}}
 ---

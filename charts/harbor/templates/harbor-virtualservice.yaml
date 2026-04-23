@@ -17,7 +17,7 @@
 {{/*              number: 80*/}}
 
 ---
-{{- $domain := .Values.domain | default (hasKey .Values "global" | ternary (index (.Values.global | default dict) "domain") "") | default "teknoir.cloud" -}}
+{{- $domain := .Values.domain | default (hasKey .Values "global" | ternary (index (.Values.global | default dict) "domain") "") | default "teknoir.online" -}}
 {{- $hostname := .Values.hostname | default (printf "harbor.%s" $domain) -}}
 {{- $namespace := .Values.namespace | default .Release.Namespace -}}
 apiVersion: networking.istio.io/v1beta1

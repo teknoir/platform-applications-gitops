@@ -22,4 +22,4 @@ parameters:
   ISTIO_GATEWAY: istio-system/teknoir-gateway
   POD_LABELS: gcp-cred-secret=user-gcp-sa,gcp-cred-secret-filename=user-gcp-sa.json
   project-id: teknoir
-  domain: teknoir.cloud
+  domain: teknoir.online

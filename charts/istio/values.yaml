@@ -1,7 +1,7 @@
 # Values for istio.
 
 global:
-  domain: teknoir.cloud
+  domain: teknoir.online
 
 # Dependency configurations
 # Only keeping values that change defaults or are required by the dependencies

@@ -1,6 +1,6 @@
 # GitOps values
 namespace: teknoir-system
-domain: "teknoir.cloud"
+domain: "teknoir.online"
 
 kube-prometheus-stack:
   namespaceOverride: "teknoir-system"
@@ -457,7 +457,7 @@ kube-prometheus-stack:
       auth:
         disable_login_form: true
       server:
-        domain: "teknoir.cloud"
+        domain: "teknoir.online"
         root_url: "%(protocol)s://%(domain)s/teknoir-system/grafana/"
         serve_from_sub_path: true
 

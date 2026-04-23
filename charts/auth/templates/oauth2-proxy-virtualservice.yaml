@@ -1,4 +1,4 @@
-{{- $domain := .Values.domain | default "teknoir.cloud" -}}
+{{- $domain := .Values.domain | default "teknoir.online" -}}
 {{- $authHosts := .Values.oauth2Proxy.authHosts | default (list $domain (printf "*.%s" $domain)) -}}
 {{- $namespace := .Values.namespace | default .Release.Namespace -}}
 ---

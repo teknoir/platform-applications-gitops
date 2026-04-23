@@ -2,8 +2,8 @@
 
 # Parameters from params.env
 config:
-  domain: "teknoir.cloud"
-  config: app-config.teknoir-cloud.yaml
+  domain: "teknoir.online"
+  config: app-config.teknoir-online.yaml
   logLevel: info
   prometheusUrl: http://prometheus.__NAMESPACE__.svc.cluster.local:80
 

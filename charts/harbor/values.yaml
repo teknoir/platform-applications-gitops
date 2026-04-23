@@ -12,8 +12,8 @@ istio:
     enabled: false
 
 # Domain and naming conventions
-domain: "teknoir.cloud"
-hostname: "harbor.teknoir.cloud"
+domain: "teknoir.online"
+hostname: "harbor.teknoir.online"
 
 # The Harbor subchart configuration
 harbor:

@@ -1,5 +1,5 @@
 # Values for auth.
-domain: "teknoir.cloud"
+domain: "teknoir.online"
 namespace: teknoir-auth
 
 keycloak:
@@ -35,9 +35,9 @@ keycloak:
     - name: KC_BOOTSTRAP_ADMIN_PASSWORD
       value: change-me
     - name: KC_HOSTNAME
-      value: auth.teknoir.cloud
+      value: auth.teknoir.online
     - name: KC_HOSTNAME_URL
-      value: https://auth.teknoir.cloud
+      value: https://auth.teknoir.online
     - name: KC_DB_USERNAME
       valueFrom:
         secretKeyRef:
@@ -66,8 +66,8 @@ oauth2Proxy:
   redirectUrl: ""
 #  whitelistDomains: []
   whitelistDomains:
-    - "teknoir.cloud"
-    - "*.teknoir.cloud"
+    - "teknoir.online"
+    - "*.teknoir.online"
   authHosts: []
   sharedHost: ""
   emailDomains:

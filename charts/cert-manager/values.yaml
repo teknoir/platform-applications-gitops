@@ -1,5 +1,5 @@
 # Values for cert-manager
-domain: "teknoir.cloud"
+domain: "teknoir.online"
 
 cert-manager:
   fullnameOverride: cert-manager

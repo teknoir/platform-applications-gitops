@@ -49,4 +49,4 @@ config:
   userIdHeader: X-Auth-Request-Email
   userIdPrefix:
   mailClientApiKey: ""
-  webDomain: teknoir.cloud
+  webDomain: teknoir.online
