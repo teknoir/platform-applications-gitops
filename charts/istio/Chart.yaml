@@ -17,10 +17,6 @@ dependencies:
     version: 1.29.2
     repository: "https://istio-release.storage.googleapis.com/charts"
   - name: gateway
-    alias: istio-ingressgateway-public
-    version: 1.29.2
-    repository: "https://istio-release.storage.googleapis.com/charts"
-  - name: gateway
     alias: istio-egressgateway
     version: 1.29.2
     repository: "https://istio-release.storage.googleapis.com/charts"

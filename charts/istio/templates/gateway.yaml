@@ -41,7 +41,7 @@ metadata:
   namespace: istio-system
 spec:
   selector:
-    istio: ingressgateway-public
+    istio: ingressgateway
   servers:
     - port:
         name: tls-mqtt

@@ -35,18 +35,6 @@ istio-ingressgateway:
         port: 443
         protocol: TCP
         targetPort: 443
-
-istio-ingressgateway-public:
-  name: istio-ingressgateway-public
-  labels:
-    istio: ingressgateway-public
-  service:
-    type: LoadBalancer
-    ports:
-      - name: status-port
-        port: 16021
-        protocol: TCP
-        targetPort: 15021
       - name: tls-ssh
         port: 2222
         targetPort: 2222
