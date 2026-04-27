@@ -10,7 +10,7 @@ spec:
     storage: {{ .Values.oauth2Proxy.redis.storage.size }}
   accessModes:
     - ReadWriteOnce
-  storageClassName: ""
+  storageClassName: auto-ebs-gp3
   persistentVolumeReclaimPolicy: Retain
 ---
 apiVersion: v1
@@ -24,7 +24,7 @@ spec:
   resources:
     requests:
       storage: {{ .Values.oauth2Proxy.redis.storage.size }}
-  storageClassName: ""
+  storageClassName: auto-ebs-gp3
   volumeName: {{ .Values.oauth2Proxy.redis.host }}-pv
 ---
 apiVersion: v1
