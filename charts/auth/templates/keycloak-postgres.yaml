@@ -1,17 +1,5 @@
 {{- $namespace := .Values.namespace | default .Release.Namespace -}}
 apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: keycloak-db-pv
-spec:
-  capacity:
-    storage: 5Gi
-  accessModes:
-    - ReadWriteOnce
-  storageClassName: auto-ebs-gp3
-  persistentVolumeReclaimPolicy: Retain
----
-apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: keycloak-db-pvc
@@ -23,7 +11,6 @@ spec:
     requests:
       storage: 5Gi
   storageClassName: auto-ebs-gp3
-  volumeName: keycloak-db-pv
 ---
 apiVersion: v1
 kind: Service
