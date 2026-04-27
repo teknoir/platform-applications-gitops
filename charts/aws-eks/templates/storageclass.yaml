@@ -26,4 +26,4 @@ parameters:
   encrypted: "true"
 volumeBindingMode: WaitForFirstConsumer
 allowVolumeExpansion: true
-reclaimPolicy: Delete
+reclaimPolicy: Retain
