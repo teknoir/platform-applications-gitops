@@ -11,7 +11,7 @@ spec:
   resources:
     requests:
       storage: {{ .Values.oauth2Proxy.redis.storage.size }}
-  storageClassName: auto-ebs-gp3
+  storageClassName: auto-ebs-gp3-retain
 ---
 apiVersion: v1
 kind: Service

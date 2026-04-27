@@ -10,7 +10,7 @@ spec:
   resources:
     requests:
       storage: 5Gi
-  storageClassName: auto-ebs-gp3
+  storageClassName: auto-ebs-gp3-retain
 ---
 apiVersion: v1
 kind: Service
