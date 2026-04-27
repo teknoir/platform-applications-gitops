@@ -1,0 +1,7 @@
+---
+apiVersion: v2
+name: argocd-istio
+description: A Helm chart for ArgoCD Istio settings in Teknoir platform.
+type: application
+version: 0.0.1
+appVersion: "0.0.1"

@@ -1,0 +1,20 @@
+---
+{{- $domain := .Values.domain | default (hasKey .Values "global" | ternary (index (.Values.global | default dict) "domain") "") | default "teknoir.online" -}}
+{{- $hostname := .Values.hostname | default (printf "argocd.%s" $domain) -}}
+{{- $namespace := .Values.namespace | default .Release.Namespace -}}
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: argocd
+  namespace: {{ $namespace }}
+spec:
+  hosts:
+    - {{ $hostname | quote }}
+  gateways:
+    - {{ .Values.istio.gateway.namespace }}/{{ .Values.istio.gateway.name }}
+  http:
+    - route:
+        - destination:
+            host: argo-argocd-server.{{ $namespace }}.svc.cluster.local
+            port:
+              number: 80

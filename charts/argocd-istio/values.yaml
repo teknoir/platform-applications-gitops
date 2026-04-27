@@ -1,0 +1,9 @@
+# GitOps values
+namespace: teknoir-system
+domain: "teknoir.online"
+
+# Istio integration configuration
+istio:
+  gateway:
+    name: teknoir-gateway
+    namespace: istio-system
