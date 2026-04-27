@@ -8,7 +8,7 @@ spec:
     storage: 5Gi
   accessModes:
     - ReadWriteOnce
-  storageClassName: ""
+  storageClassName: auto-ebs-gp3
   persistentVolumeReclaimPolicy: Retain
 ---
 apiVersion: v1
@@ -22,7 +22,7 @@ spec:
   resources:
     requests:
       storage: 5Gi
-  storageClassName: ""
+  storageClassName: auto-ebs-gp3
   volumeName: keycloak-db-pv
 ---
 apiVersion: v1
