@@ -546,6 +546,7 @@ kube-prometheus-stack:
         #
         volumeClaimTemplate:
           spec:
+            storageClassName: "gp2"
             accessModes: ["ReadWriteOnce"]
             resources:
               requests:
