@@ -12,9 +12,6 @@ spec:
     - ReadWriteOnce
   storageClassName: ""
   persistentVolumeReclaimPolicy: Retain
-  hostPath:
-    path: {{ .Values.oauth2Proxy.redis.storage.hostPath | quote }}
-    type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

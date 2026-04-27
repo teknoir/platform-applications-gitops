@@ -92,7 +92,6 @@ oauth2Proxy:
     connectionUrlKey: connection-url
     storage:
       size: 1Gi
-      hostPath: /opt/teknoir/oauth2-proxy/redis
   service:
     port: 4180
 

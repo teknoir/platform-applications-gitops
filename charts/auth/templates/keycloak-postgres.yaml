@@ -10,9 +10,6 @@ spec:
     - ReadWriteOnce
   storageClassName: ""
   persistentVolumeReclaimPolicy: Retain
-  hostPath:
-    path: /opt/teknoir/keycloak/pg
-    type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
