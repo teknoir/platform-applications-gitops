@@ -18,8 +18,6 @@ apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
   name: auto-ebs-gp3-retain
-  annotations:
-    storageclass.kubernetes.io/is-default-class: "true"
 provisioner: ebs.csi.eks.amazonaws.com
 parameters:
   type: gp3
