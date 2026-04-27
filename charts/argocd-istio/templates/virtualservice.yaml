@@ -15,6 +15,6 @@ spec:
   http:
     - route:
         - destination:
-            host: argo-argocd-server.{{ $namespace }}.svc.cluster.local
+            host: argocd-server.{{ $namespace }}.svc.cluster.local
             port:
               number: 80

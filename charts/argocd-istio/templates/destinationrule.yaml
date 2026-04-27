@@ -3,10 +3,10 @@
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:
-  name: argo-argocd-server-mtls
+  name: argocd-server-mtls
   namespace: {{ $namespace }}
 spec:
-  host: "argo-argocd-server.{{ $namespace }}.svc.cluster.local"
+  host: "argocd-server.{{ $namespace }}.svc.cluster.local"
   trafficPolicy:
     tls:
       mode: ISTIO_MUTUAL
