@@ -26,6 +26,8 @@ spec:
         - name: postgres
           image: {{ .Values.postgres.image }}
           imagePullPolicy: {{ .Values.postgres.imagePullPolicy }}
+          resources:
+            {{- toYaml .Values.postgres.resources | nindent 12 }}
           ports:
             - name: postgres
               containerPort: 5432
@@ -55,6 +57,8 @@ spec:
           image: {{ .Values.postgres.exporter.image }}
           args: ["--no-collector.stat_bgwriter"]
           imagePullPolicy: {{ .Values.postgres.exporter.imagePullPolicy }}
+          resources:
+            {{- toYaml .Values.postgres.exporter.resources | nindent 12 }}
           ports:
             - name: metrics
               containerPort: 9187

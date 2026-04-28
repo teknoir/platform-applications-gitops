@@ -895,4 +895,11 @@ spec:
           value: ghcr.io/k3s-io/klipper-helm:v0.9.10-build20251111
         image: rancher/helm-controller:v0.17.1
         name: helm-controller
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
       serviceAccountName: helm-controller

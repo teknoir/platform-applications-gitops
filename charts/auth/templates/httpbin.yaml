@@ -35,6 +35,8 @@ spec:
       containers:
         - name: httpbin
           image: {{ .Values.httpbin.image.repository }}:{{ .Values.httpbin.image.tag }}
+          resources:
+            {{- toYaml .Values.httpbin.resources | nindent 12 }}
           ports:
             - name: http
               containerPort: 80

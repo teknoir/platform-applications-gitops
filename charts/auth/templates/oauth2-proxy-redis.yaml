@@ -58,6 +58,8 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.oauth2Proxy.redis.secretName }}
                   key: {{ .Values.oauth2Proxy.redis.passwordKey }}
+          resources:
+            {{- toYaml .Values.oauth2Proxy.redis.resources | nindent 12 }}
           volumeMounts:
             - name: data
               mountPath: /data

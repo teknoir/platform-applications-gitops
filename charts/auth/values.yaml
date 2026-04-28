@@ -38,6 +38,13 @@ keycloak:
     timeoutSeconds: 5
     failureThreshold: 180
     periodSeconds: 5
+  resources:
+    limits:
+      cpu: "2"
+      memory: 3Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
   extraEnv: |
     - name: KC_BOOTSTRAP_ADMIN_USERNAME
       value: admin
@@ -91,6 +98,13 @@ oauth2Proxy:
   passAccessToken: true
   sessionCookieMinimal: false
   reverseProxy: true
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
   redis:
     enabled: true
     host: oauth2-proxy-redis
@@ -99,10 +113,26 @@ oauth2Proxy:
     secretName: oauth2-proxy-redis-secret
     passwordKey: password
     connectionUrlKey: connection-url
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
     storage:
       size: 1Gi
   service:
     port: 4180
+
+keycloakPostgres:
+  resources:
+    limits:
+      cpu: "1"
+      memory: 2Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
 
 istio:
   gateway:
@@ -118,5 +148,12 @@ httpbin:
   image:
     repository: docker.io/kennethreitz/httpbin
     tag: latest
+  resources:
+    limits:
+      cpu: 200m
+      memory: 128Mi
+    requests:
+      cpu: 25m
+      memory: 64Mi
   virtualService:
     hosts: []

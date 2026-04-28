@@ -14,6 +14,13 @@ backstage:
   imagePullPolicy: Always
   imagePullSecrets:
     - name: ghcr-token
+  resources:
+    limits:
+      cpu: "1"
+      memory: 1Gi
+    requests:
+      cpu: 100m
+      memory: 256Mi
 
 # Backstage API deployment
 backstageApi:
@@ -28,6 +35,13 @@ backstageApi:
     keycloakSecretName: backstage-keycloak-secrets
     githubAppSecretName: backstage-github-app-secret
   googleApplicationCredentials: '/app/secrets/admin-credentials.json'
+  resources:
+    limits:
+      cpu: "2"
+      memory: 8Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
 
 # PostgreSQL database configuration
 postgres:
@@ -35,9 +49,23 @@ postgres:
   image: postgres:17-alpine
   imagePullPolicy: Always
   storage: 10Gi
+  resources:
+    limits:
+      cpu: "1"
+      memory: 2Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
   exporter:
     image: prometheuscommunity/postgres-exporter:v0.15.0
     imagePullPolicy: Always
+    resources:
+      limits:
+        cpu: 200m
+        memory: 256Mi
+      requests:
+        cpu: 50m
+        memory: 64Mi
 
 # Istio configuration (optional)
 istio:

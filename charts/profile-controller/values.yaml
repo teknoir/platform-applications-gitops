@@ -38,13 +38,13 @@ config:
   dnsZone: "teknoir-online"
   istioRevision: "1.29.0"
 
-resources: {}
-  # limits:
-  #   cpu: 100m
-  #   memory: 128Mi
-  # requests:
-  #   cpu: 100m
-  #   memory: 128Mi
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 50m
+    memory: 128Mi
 
 nodeSelector: {}
 

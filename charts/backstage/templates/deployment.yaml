@@ -20,6 +20,8 @@ spec:
         - name: backstage
           image: {{ .Values.backstage.image }}
           imagePullPolicy: {{ .Values.backstage.imagePullPolicy }}
+          resources:
+            {{- toYaml .Values.backstage.resources | nindent 12 }}
           ports:
             - name: http-web
               containerPort: 80
@@ -58,6 +60,8 @@ spec:
         - name: backstage-api
           image: {{ .Values.backstageApi.image }}
           imagePullPolicy: {{ .Values.backstageApi.imagePullPolicy }}
+          resources:
+            {{- toYaml .Values.backstageApi.resources | nindent 12 }}
           ports:
             - name: http-api
               containerPort: 7007

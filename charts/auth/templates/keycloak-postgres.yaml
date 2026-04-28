@@ -60,6 +60,8 @@ spec:
                 secretKeyRef:
                   name: keycloak-db-secret
                   key: password
+          resources:
+            {{- toYaml .Values.keycloakPostgres.resources | nindent 12 }}
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql
