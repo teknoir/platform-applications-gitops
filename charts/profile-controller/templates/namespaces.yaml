@@ -5,3 +5,5 @@ metadata:
   name: teknoir-system
   labels:
     istio-injection: enabled
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
