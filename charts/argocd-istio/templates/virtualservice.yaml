@@ -1,4 +1,3 @@
----
 {{- $domain := .Values.domain | default (hasKey .Values "global" | ternary (index (.Values.global | default dict) "domain") "") | default "teknoir.online" -}}
 {{- $hostname := .Values.hostname | default (printf "argocd.%s" $domain) -}}
 {{- $namespace := .Values.namespace | default .Release.Namespace -}}
