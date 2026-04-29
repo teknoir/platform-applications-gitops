@@ -63,7 +63,7 @@ spec:
             defaultMode: 0644
         - name: certs
           secret:
-            secretName: teknoir-cloud-wildcard-tls-copied
+            secretName: domain-wildcard-tls
         - name: stunnel-config
           configMap:
             name: deadend-stunnel-config
