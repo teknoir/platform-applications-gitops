@@ -55,4 +55,4 @@ emqx:
         secretName: emqx-bootstrap-api-keys
     - name: emqx-certs
       secret:
-        secretName: teknoir-cloud-wildcard-tls-copied
+        secretName: domain-wildcard-tls
