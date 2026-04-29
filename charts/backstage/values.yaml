@@ -33,7 +33,7 @@ backstageApi:
   secrets:
     postgresSecretName: backstage-postgres-secrets
     keycloakSecretName: backstage-keycloak-secrets
-    githubAppSecretName: backstage-github-app-secret
+    authSecretsName: backstage-auth-secrets
   googleApplicationCredentials: '/app/secrets/admin-credentials.json'
   resources:
     limits:
