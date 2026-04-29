@@ -51,7 +51,7 @@ spec:
       volumes:
         - name: backstage-auth-secrets
           secret:
-            secretName: {{ .Values.backstageApi.secrets.githubAppSecretName }}
+            secretName: {{ .Values.backstageApi.secrets.authSecretsName }}
         - name: techdocs-persistent-storage
           persistentVolumeClaim:
             claimName: backstage-techdocs
