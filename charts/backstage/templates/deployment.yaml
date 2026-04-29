@@ -47,9 +47,9 @@ spec:
         app: backstage-api
     spec:
       volumes:
-        - name: backstage-github-app-secret
-          secret:
-            secretName: {{ .Values.backstageApi.secrets.githubAppSecretName }}
+{{/*        - name: backstage-github-app-secret*/}}
+{{/*          secret:*/}}
+{{/*            secretName: {{ .Values.backstageApi.secrets.githubAppSecretName }}*/}}
         - name: techdocs-persistent-storage
           persistentVolumeClaim:
             claimName: backstage-techdocs
@@ -93,10 +93,10 @@ spec:
               node packages/backend \
               --config app-config.yaml \
               --config {{ .Values.config.config }}
-          volumeMounts:
-            - name: backstage-github-app-secret
-              readOnly: true
-              mountPath: /app/secrets
+{{/*          volumeMounts:*/}}
+{{/*            - name: backstage-github-app-secret*/}}
+{{/*              readOnly: true*/}}
+{{/*              mountPath: /app/secrets*/}}
             - name: techdocs-persistent-storage
               mountPath: /app/techdocs
           readinessProbe:
