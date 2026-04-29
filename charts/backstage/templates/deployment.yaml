@@ -38,6 +38,8 @@ metadata:
   name: backstage-api
 spec:
   replicas: {{ .Values.backstageApi.replicas }}
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: backstage-api
