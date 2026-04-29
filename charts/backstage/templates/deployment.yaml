@@ -93,7 +93,7 @@ spec:
               node packages/backend \
               --config app-config.yaml \
               --config {{ .Values.config.config }}
-{{/*          volumeMounts:*/}}
+          volumeMounts:
 {{/*            - name: backstage-github-app-secret*/}}
 {{/*              readOnly: true*/}}
 {{/*              mountPath: /app/secrets*/}}
