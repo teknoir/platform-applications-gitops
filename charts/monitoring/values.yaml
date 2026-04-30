@@ -454,6 +454,11 @@ kube-prometheus-stack:
     enabled: true
     namespaceOverride: ""
 
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+
     ## This is an override of the grafana chart.
     grafana.ini:
       security:
