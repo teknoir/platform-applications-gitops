@@ -5,6 +5,26 @@ cert-manager:
   fullnameOverride: cert-manager
   crds:
     enabled: true
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      memory: "1Gi"
+  webhook:
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        memory: "1Gi"
+  cainjector:
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        memory: "1Gi"
 
 godaddy-webhook:
   fullnameOverride: godaddy-webhook
@@ -13,3 +33,6 @@ godaddy-webhook:
 cert-manager-webhook-loopia:
   fullnameOverride: cert-manager-webhook-loopia
   groupName: acme.webhook.loopia.com
+
+webhook:
+  resources:
