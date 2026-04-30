@@ -565,23 +565,23 @@ kube-prometheus-stack:
           cpu: 100m
           memory: 256Mi
 
-prometheusOperator:
-  admissionWebhooks:
-    deployment:
-      resources:
-        requests:
-          cpu: 100m
-          memory: 256Mi
-    patch:
-      resources:
-        requests:
-          cpu: 100m
-          memory: 256Mi
+  prometheusOperator:
+    admissionWebhooks:
+      deployment:
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+      patch:
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
 
-  resources:
-    requests:
-      cpu: 100m
-      memory: 256Mi
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
 
   prometheusConfigReloader:
     resources:
