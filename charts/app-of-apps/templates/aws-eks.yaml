@@ -5,7 +5,7 @@ metadata:
   name: aws-eks
 spec:
   destination:
-    namespace: teknoir-system
+    namespace: kube-system
     server: https://kubernetes.default.svc
   source:
     path: charts/aws-eks

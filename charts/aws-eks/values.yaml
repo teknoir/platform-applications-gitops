@@ -1,2 +1,12 @@
 # Gitops values
 
+aws-load-balancer-controller:
+  fullnameOverride: aws-load-balancer-controller
+  clusterName: teknoir-poc-eks
+  region: us-east-1
+  vpcId: vpc-0a9807c565d3615bf
+  serviceAccount:
+    create: false
+    name: aws-load-balancer-controller
+#    annotations:
+#      eks.amazonaws.com/role-arn: arn:aws:iam::697908643533:role/AmazonEKSLoadBalancerControllerRole-teknoir-poc-eks
