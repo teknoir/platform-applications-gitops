@@ -610,6 +610,12 @@ kube-prometheus-stack:
           cpu: 100m
           memory: 256Mi
 
+  kube-state-metrics:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+
   prometheus-node-exporter:
     resources:
       requests:
