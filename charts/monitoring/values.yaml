@@ -583,8 +583,8 @@ kube-prometheus-stack:
         cpu: 100m
         memory: 256Mi
 
-  prometheusConfigReloader:
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
+    prometheusConfigReloader:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
