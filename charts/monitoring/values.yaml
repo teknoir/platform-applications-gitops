@@ -13,6 +13,10 @@ kube-prometheus-stack:
     upgradeJob:
       enabled: true
       forceConflicts: true
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
 
       ## Labels to add to the upgrade-crd pod
       ##
@@ -439,7 +443,10 @@ kube-prometheus-stack:
   alertmanager:
     alertmanagerSpec:
       routePrefix: /teknoir-system/alertmanager
-
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
 
   ## Using default values from https://github.com/grafana/helm-charts/blob/main/charts/grafana/values.yaml
   ##
@@ -552,3 +559,32 @@ kube-prometheus-stack:
               requests:
                 storage: 20Gi
           #  selector: {}
+
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+
+prometheusOperator:
+  admissionWebhooks:
+    deployment:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+    patch:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+  prometheusConfigReloader:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
