@@ -1,6 +1,31 @@
-fleetMetricsVersion: latest
-redisVersion: 6.2.6-v9
 persistentVolumeClaimSize: 10Gi
 
 imagePullSecrets:
   - name: ghcr-token
+
+metricsProcessor:
+  image:
+    registry: ghcr.io/teknoir/fleet-metrics/metrics-processor
+    version: latest
+  resources:
+    requests:
+      cpu: 25m
+      memory: 50Mi
+
+metricsPublisher:
+  image:
+    registry: ghcr.io/teknoir/fleet-metrics/metrics-publisher
+    version: latest
+  resources:
+    requests:
+      cpu: 25m
+      memory: 50Mi
+
+redis:
+  image:
+    registry: redis/redis-stack-server
+    version: 6.2.6-v9
+  resources:
+    requests:
+      cpu: 25m
+      memory: 50Mi

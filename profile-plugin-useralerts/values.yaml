@@ -1,1 +1,8 @@
-version: main
+useralerts:
+  image:
+    registry: us-docker.pkg.dev/teknoir/gcr.io/useralerts
+    version: main
+resources:
+  requests:
+    cpu: 25m
+    memory: 20Mi

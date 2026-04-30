@@ -38,7 +38,7 @@ spec:
       {{- end }}
       containers:
         - name: observatory
-          image: "ghcr.io/teknoir/observatory:{{ .Values.observatoryVersion }}"
+          image: "{{ .Values.observatory.image.registry }}:{{ .Values.observatory.image.version }}"
           imagePullPolicy: Always
           ports:
             - name: http-sdmc
@@ -47,11 +47,15 @@ spec:
           - name: APP_NAME
             value: "sdmc"
           - name: APP_VERSION
-            value: "{{ .Values.observatoryVersion }}"
+            value: "{{ .Values.observatory.image.version }}"
           - name: NAMESPACE
             value: "{{ .Release.Namespace }}"
           - name: DOMAIN
             value: "{{ .Values.domainPrefix }}{{ if .Values.domainPrefix }}.{{ end }}{{ .Values.domain }}"
+          {{- if .Values.observatory.resources }}
+          resources:
+            {{- toYaml .Values.observatory.resources | nindent 12 }}
+          {{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -93,7 +97,7 @@ spec:
       {{- end }}
       containers:
         - name: keydb
-          image: "eqalpha/keydb:{{ .Values.keydbVersion }}"
+          image: "{{ .Values.keydb.image.registry }}:{{ .Values.keydb.image.version }}"
           command: ["keydb-server"]
           args:
             - "--dir"
@@ -105,18 +109,15 @@ spec:
             timeoutSeconds: 2
           ports:
             - containerPort: 6379
+          {{- if .Values.keydb.resources }}
           resources:
-            limits:
-              cpu: 1000m
-              memory: 2000Mi
-            requests:
-              cpu: 10m
-              memory: 20Mi
+            {{- toYaml .Values.keydb.resources | nindent 12 }}
+          {{- end }}
           volumeMounts:
             - name: keydb-persistent-storage
               mountPath: /data
         - name: observatory-wss-mqtt
-          image: "ghcr.io/teknoir/observatory-wss-mqtt:{{ .Values.wssMqttVersion }}"
+          image: "{{ .Values.wssMqtt.image.registry }}:{{ .Values.wssMqtt.image.version }}"
           imagePullPolicy: Always
           ports:
             - name: http-ws
@@ -125,7 +126,7 @@ spec:
           - name: APP_NAME
             value: "wss-mqtt"
           - name: APP_VERSION
-            value: "{{ .Values.wssMqttVersion }}"
+            value: "{{ .Values.wssMqtt.image.version }}"
           - name: WSS_PORT
             value: "8080"
           - name: CHECK_ACTIVE_INTERVAL
@@ -152,14 +153,18 @@ spec:
             value: "{{ .Values.inferenceTopic }}"
           - name: LOG_LEVEL
             value: "{{ .Values.logLevel }}"
+          {{- if .Values.wssMqtt.resources }}
+          resources:
+            {{- toYaml .Values.wssMqtt.resources | nindent 12 }}
+          {{- end }}
         - name: observatory-snapshot-exporter
-          image: "ghcr.io/teknoir/observatory-snapshot-exporter:{{ .Values.snapshotExporterVersion }}"
+          image: "{{ .Values.snapshotExporter.image.registry }}:{{ .Values.snapshotExporter.image.version }}"
           imagePullPolicy: Always
           env:
           - name: APP_NAME
             value: "snapshot-exporter"
           - name: APP_VERSION
-            value: "{{ .Values.snapshotExporterVersion }}"
+            value: "{{ .Values.snapshotExporter.image.version }}"
           - name: SCHEDULER_INTERVAL
             value: "{{ .Values.flushCacheBufferInterval }}"
           - name: LOG_LEVEL
@@ -168,13 +173,10 @@ spec:
             value: "{{ .Values.projectId }}"
           - name: GCLOUD_STORAGE_BUCKET
             value: "{{ .Release.Namespace }}.{{ .Values.domain }}"
+          {{- if .Values.snapshotExporter.resources }}
           resources:
-            limits:
-              cpu: 1000m
-              memory: 1000Mi
-            requests:
-              cpu: 10m
-              memory: 20Mi
+            {{- toYaml .Values.snapshotExporter.resources | nindent 12 }}
+          {{- end }}
       volumes:
         - name: keydb-persistent-storage
           persistentVolumeClaim:
@@ -218,7 +220,7 @@ spec:
       {{- end }}
       containers:
         - name: observatory-media-service
-          image: "ghcr.io/teknoir/observatory-media-service:{{ .Values.mediaServiceVersion }}"
+          image: "{{ .Values.mediaService.image.registry }}:{{ .Values.mediaService.image.version }}"
           imagePullPolicy: Always
           env:
           - name: BASE_URL
@@ -227,10 +229,7 @@ spec:
             value: "{{ .Values.projectId }}"
           - name: GCLOUD_STORAGE_BUCKET
             value: "{{ .Release.Namespace }}.{{ .Values.domain }}"
+          {{- if .Values.mediaService.resources }}
           resources:
-            limits:
-              cpu: 1000m
-              memory: 1000Mi
-            requests:
-              cpu: 10m
-              memory: 20Mi
+            {{- toYaml .Values.mediaService.resources | nindent 12 }}
+          {{- end }}

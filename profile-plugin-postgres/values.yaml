@@ -1,3 +1,34 @@
 domain: teknoir.cloud
-postgresVersion: pg15
 storageSize: 100Gi
+
+initPostgresConfig:
+  image:
+    registry: debian
+    version: bullseye-slim
+
+postgres:
+  image:
+    registry: pgvector/pgvector
+    version: pg15
+  resources:
+    requests:
+      cpu: 25m
+      memory: 128Mi
+
+exporter:
+  image:
+    registry: prometheuscommunity/postgres-exporter
+    version: latest
+  resources:
+    requests:
+      cpu: 25m
+      memory: 20Mi
+
+pgadmin:
+  image:
+    registry: dpage/pgadmin4
+    version: latest
+  resources:
+    requests:
+      cpu: 25m
+      memory: 50Mi

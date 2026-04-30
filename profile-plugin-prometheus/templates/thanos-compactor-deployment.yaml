@@ -28,7 +28,7 @@ spec:
       serviceAccountName: default-editor
       containers:
         - name: thanos-compactor
-          image: "quay.io/thanos/thanos:{{ .Values.thanosVersion }}"
+          image: "{{ .Values.thanos.compactor.image.registry }}:{{ .Values.thanos.compactor.image.version }}"
           imagePullPolicy: Always
           args:
             - compact
@@ -40,6 +40,10 @@ spec:
           ports:
             - name: http-monitoring
               containerPort: 19191
+          {{- if .Values.thanos.compactor.resources }}
+          resources:
+            {{- toYaml .Values.thanos.compactor.resources | nindent 12 }}
+          {{- end }}
           volumeMounts:
             - name: config-volume
               mountPath: /etc/config

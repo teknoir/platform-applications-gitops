@@ -1,11 +1,46 @@
 domain: teknoir.cloud
 domainPrefix:
 
-observatoryVersion: latest
-wssMqttVersion: latest
-snapshotExporterVersion: latest
-mediaServiceVersion: latest
-keydbVersion: x86_64_v6.3.4
+observatory:
+  image:
+    registry: ghcr.io/teknoir/observatory
+    version: latest
+  resources:
+    requests:
+      cpu: 10m
+      memory: 20Mi
+wssMqtt:
+  image:
+    registry: ghcr.io/teknoir/observatory-wss-mqtt
+    version: latest
+  resources:
+    requests:
+      cpu: 10m
+      memory: 20Mi
+keydb:
+  image:
+    registry: eqalpha/keydb
+    version: x86_64_v6.3.4
+  resources:
+    requests:
+      cpu: 10m
+      memory: 20Mi
+snapshotExporter:
+  image:
+    registry: ghcr.io/teknoir/observatory-snapshot-exporter
+    version: latest
+  resources:
+    requests:
+      cpu: 10m
+      memory: 20Mi
+mediaService:
+  image:
+    registry: ghcr.io/teknoir/observatory-media-service
+    version: latest
+  resources:
+    requests:
+      cpu: 10m
+      memory: 20Mi
 
 imagePullSecrets:
   - name: ghcr-token

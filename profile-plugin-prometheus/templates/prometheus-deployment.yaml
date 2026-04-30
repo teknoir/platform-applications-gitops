@@ -32,12 +32,16 @@ spec:
       serviceAccountName: prometheus
       containers:
         - name: prometheus-configmap-reload
-          image: "jimmidyson/configmap-reload:v0.9.0"
+          image: "{{ .Values.configmapReload.image.registry }}:{{ .Values.configmapReload.image.version }}"
           imagePullPolicy: IfNotPresent
           args:
             - --volume-dir=/etc/config
             - --volume-dir=/etc/user-alerting-rules
             - --webhook-url=http://127.0.0.1:9090/{{ .Release.Namespace }}/prometheus/-/reload
+          {{- if .Values.resources }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- end }}
           volumeMounts:
             - name: config-volume
               mountPath: /etc/config
@@ -47,7 +51,7 @@ spec:
               readOnly: true
         {{- if .Values.thanos.enabled }}
         - name: prometheus-thanos-sidecar
-          image: "quay.io/thanos/thanos:{{ .Values.thanosVersion }}"
+          image: "{{ .Values.thanos.sidecar.image.registry }}:{{ .Values.thanos.sidecar.image.version }}"
           imagePullPolicy: Always
           args:
             - sidecar
@@ -62,6 +66,10 @@ spec:
               containerPort: 19090
             - name: http-sidecar
               containerPort: 19191
+          {{- if .Values.thanos.sidecar.resources }}
+          resources:
+            {{- toYaml .Values.thanos.sidecar.resources | nindent 12 }}
+          {{- end }}
           volumeMounts:
             - name: config-volume
               mountPath: /etc/config
@@ -71,7 +79,7 @@ spec:
               subPath: ""
         {{- end }}
         - name: prometheus
-          image: "quay.io/prometheus/prometheus:{{ .Values.prometheusVersion }}"
+          image: "{{ .Values.prometheus.image.registry }}:{{ .Values.prometheus.image.version }}"
           imagePullPolicy: Always
           args:
             - --storage.tsdb.retention.time=15d
@@ -111,6 +119,10 @@ spec:
             timeoutSeconds: 10
             failureThreshold: 3
             successThreshold: 1
+          {{- if .Values.resources }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- end }}
           volumeMounts:
             - name: config-volume
               mountPath: /etc/config

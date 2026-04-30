@@ -23,7 +23,7 @@ spec:
     spec:
       containers:
       - name: alertmanager-configmap-reload
-        image: "jimmidyson/configmap-reload:v0.4.0"
+        image: "{{ .Values.configmapReload.image.registry }}:{{ .Values.configmapReload.image.version }}"
         imagePullPolicy: IfNotPresent
         args:
           - --volume-dir=/etc/alertmanager
@@ -32,7 +32,7 @@ spec:
           - name: config-volume
             mountPath: /etc/alertmanager
       - name: alertmanager
-        image: "prom/alertmanager:{{ .Values.alertmanagerVersion }}"
+        image: "{{ .Values.alertmanager.image.registry }}:{{ .Values.alertmanager.image.version }}"
         args:
           - --config.file=/etc/alertmanager/alertmanager.yml
           - --log.level=debug
@@ -48,13 +48,10 @@ spec:
           mountPath: /etc/alertmanager/slack_api_url
           subPath: slack_api_url
           readOnly: true
+        {{- if .Values.resources }}
         resources:
-          limits:
-            cpu: 1000m
-            memory: 1Gi
-          requests:
-            cpu: 25m
-            memory: 20Mi
+          {{- toYaml .Values.resources | nindent 10 }}
+        {{- end }}
       volumes:
       - name: config-volume
         configMap:

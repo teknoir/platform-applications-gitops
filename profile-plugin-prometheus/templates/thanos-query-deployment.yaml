@@ -27,7 +27,7 @@ spec:
       serviceAccountName: default-editor
       containers:
         - name: thanos-query
-          image: "quay.io/thanos/thanos:{{ .Values.thanosVersion }}"
+          image: "{{ .Values.thanos.query.image.registry }}:{{ .Values.thanos.query.image.version }}"
           imagePullPolicy: Always
           args:
             - query
@@ -42,4 +42,8 @@ spec:
             - name: http
               containerPort: 9090
               protocol: TCP
+          {{- if .Values.thanos.query.resources }}
+          resources:
+            {{- toYaml .Values.thanos.query.resources | nindent 12 }}
+          {{- end }}
 {{- end }}

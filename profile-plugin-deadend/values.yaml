@@ -1,5 +1,16 @@
 domain: teknoir.cloud
-imageTag: latest
+deadend:
+  image:
+    registry: ghcr.io/teknoir/deadend
+    version: latest
+tlsTerminator:
+  image:
+    registry: alpine
+    version: latest
 authorizedKeys: ""
 imagePullSecrets:
   - name: ghcr-token
+resources:
+  requests:
+    cpu: 25m
+    memory: 20Mi

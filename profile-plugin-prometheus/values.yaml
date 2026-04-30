@@ -1,11 +1,52 @@
 domain: teknoir.cloud
 domainPrefix:
 persistentVolumeClaimSize: 15Gi
-prometheusVersion: v2.52.0
-thanosVersion: v0.39.2
+configmapReload:
+  image:
+    registry: jimmidyson/configmap-reload
+    version: v0.9.0
+prometheus:
+  image:
+    registry: quay.io/prometheus/prometheus
+    version: v2.52.0
+resources:
+  requests:
+    cpu: 25m
+    memory: 20Mi
 
 thanos:
   enabled: false
+  sidecar:
+    image:
+      registry: quay.io/thanos/thanos
+      version: v0.39.2
+    resources:
+      requests:
+        cpu: 25m
+        memory: 20Mi
   compactor:
     enabled: true
     storage: 150Gi
+    image:
+      registry: quay.io/thanos/thanos
+      version: v0.39.2
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+  query:
+    image:
+      registry: quay.io/thanos/thanos
+      version: v0.39.2
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+  store:
+    image:
+      registry: quay.io/thanos/thanos
+      version: v0.39.2
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi

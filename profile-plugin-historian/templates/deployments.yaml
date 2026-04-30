@@ -34,7 +34,7 @@ spec:
       {{- end }}
       containers:
         - name: historian-api
-          image: "ghcr.io/teknoir/historian-api:{{ .Values.historianApiVersion }}"
+          image: "{{ .Values.historianApi.image.registry }}:{{ .Values.historianApi.image.version }}"
           imagePullPolicy: Always
           ports:
             - name: historian-api
@@ -58,13 +58,10 @@ spec:
               value: 'historian'
             - name: DEFAULT_TTL_SECONDS
               value: '2678400'
+          {{- if .Values.historianApi.resources }}
           resources:
-            limits:
-              cpu: 1000m
-              memory: 1Gi
-            requests:
-              cpu: 25m
-              memory: 20Mi
+            {{- toYaml .Values.historianApi.resources | nindent 12 }}
+          {{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -101,7 +98,7 @@ spec:
       {{- end }}
       containers:
         - name: historian-middleend
-          image: "ghcr.io/teknoir/historian-middle-end-api:{{ .Values.historianMiddleendVersion }}"
+          image: "{{ .Values.historianMiddleend.image.registry }}:{{ .Values.historianMiddleend.image.version }}"
           imagePullPolicy: Always
           ports:
             - name: http
@@ -123,14 +120,11 @@ spec:
               value: '27017'
             - name: DATABASE
               value: 'historian'
-              
+
+          {{- if .Values.historianMiddleend.resources }}
           resources:
-            limits:
-              cpu: 1000m
-              memory: 1Gi
-            requests:
-              cpu: 25m
-              memory: 20Mi
+            {{- toYaml .Values.historianMiddleend.resources | nindent 12 }}
+          {{- end }}
 
 
 {{- range .Values.streams }}
@@ -172,7 +166,7 @@ spec:
       {{- end }}
       containers:
         - name: historian-{{ .stream }}
-          image: "ghcr.io/teknoir/observatory-event-processing-app:{{ $.Values.historianStreamsVersion }}"
+          image: "{{ $.Values.historianStreams.image.registry }}:{{ $.Values.historianStreams.image.version }}"
           imagePullPolicy: Always
           env:
             - name: STREAM
@@ -204,11 +198,8 @@ spec:
                 secretKeyRef:
                   name: historian-mongodb-credentials
                   key: service_uri
+          {{- if .resources }}
           resources:
-            limits:
-              cpu: 2000m
-              memory: 4Gi
-            requests:
-              cpu: 25m
-              memory: 20Mi
+            {{- toYaml .resources | nindent 12 }}
+          {{- end }}
 {{- end }}

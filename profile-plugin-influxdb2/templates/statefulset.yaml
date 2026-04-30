@@ -30,7 +30,7 @@ spec:
       serviceAccountName: influxdb2
       containers:
         - name: influxdb2
-          image: "influxdb:{{ .Values.influxVersion }}"
+          image: "{{ .Values.image.registry }}:{{ .Values.image.version }}"
           imagePullPolicy: Always
           ports:
             - name: http
@@ -89,4 +89,7 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/influxdb2
-          resources: {}
+          {{- if .Values.resources }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- end }}

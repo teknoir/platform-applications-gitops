@@ -3,6 +3,11 @@ domainPrefix:
 
 emqx:
   replicaCount: 1
+  image:
+    registry: emqx/emqx
+    version: 5.8.9
+    repository: emqx/emqx
+    tag: 5.8.9
   persistence:
     enabled: true
     size: 1Gi
@@ -56,3 +61,7 @@ emqx:
     - name: emqx-certs
       secret:
         secretName: domain-wildcard-tls
+  resources:
+    requests:
+      cpu: 25m
+      memory: 50Mi

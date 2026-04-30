@@ -1,4 +1,10 @@
 domain: teknoir.cloud
 domainPrefix: ""
-influxVersion: 2.7-alpine
+image:
+  registry: influxdb
+  version: 2.7-alpine
 persistentVolumeClaimSize: 50Gi
+resources:
+  requests:
+    cpu: 25m
+    memory: 20Mi

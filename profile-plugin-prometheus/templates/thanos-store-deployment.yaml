@@ -27,7 +27,7 @@ spec:
       serviceAccountName: default-editor
       containers:
         - name: thanos-store
-          image: "quay.io/thanos/thanos:{{ .Values.thanosVersion }}"
+          image: "{{ .Values.thanos.store.image.registry }}:{{ .Values.thanos.store.image.version }}"
           imagePullPolicy: Always
           args:
             - store
@@ -40,6 +40,10 @@ spec:
               containerPort: 19090
             - name: http-monitoring
               containerPort: 19191
+          {{- if .Values.thanos.store.resources }}
+          resources:
+            {{- toYaml .Values.thanos.store.resources | nindent 12 }}
+          {{- end }}
           volumeMounts:
             - name: config-volume
               mountPath: /etc/config

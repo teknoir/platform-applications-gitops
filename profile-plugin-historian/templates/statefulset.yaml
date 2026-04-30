@@ -25,7 +25,7 @@ spec:
     spec:
       containers:
         - name: mongodb
-          image: "mongo:{{ .Values.mongodbVersion }}"
+          image: "{{ .Values.mongodb.image.registry }}:{{ .Values.mongodb.image.version }}"
           imagePullPolicy: IfNotPresent
           ports:
             - name: mongodb
@@ -56,8 +56,12 @@ spec:
                   key: password
             - name: MONGO_INITDB_DATABASE
               value: "historian"
+          {{- if .Values.mongodb.resources }}
+          resources:
+            {{- toYaml .Values.mongodb.resources | nindent 12 }}
+          {{- end }}
         - name: mongodb-exporter
-          image: "docker.io/percona/mongodb_exporter:{{ .Values.exporterVersion }}"
+          image: "{{ .Values.exporter.image.registry }}:{{ .Values.exporter.image.version }}"
           imagePullPolicy: Always
           ports:
             - containerPort: 9216
@@ -73,13 +77,10 @@ spec:
                 secretKeyRef:
                   name: historian-mongodb-credentials
                   key: password
+          {{- if .Values.exporter.resources }}
           resources:
-            limits:
-              cpu: 1500m
-              memory: 8000Mi
-            requests:
-              cpu: 25m
-              memory: 128Mi
+            {{- toYaml .Values.exporter.resources | nindent 12 }}
+          {{- end }}
   volumeClaimTemplates:
     - metadata:
         name: data

@@ -1,5 +1,16 @@
 domain: teknoir.cloud
 domainPrefix: ""
-alertmanagerVersion: v0.27.0
 channelName: device-monitoring
 slackSecretName: alertmanager-slack-secret
+configmapReload:
+  image:
+    registry: jimmidyson/configmap-reload
+    version: v0.4.0
+alertmanager:
+  image:
+    registry: prom/alertmanager
+    version: v0.27.0
+resources:
+  requests:
+    cpu: 25m
+    memory: 20Mi

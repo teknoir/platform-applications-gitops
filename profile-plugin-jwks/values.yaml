@@ -1,7 +1,22 @@
-jwksVersion: latest
-redisVersion: 6.2.6-v9
-
 imagePullSecrets:
   - name: ghcr-token
 
 persistentVolumeClaimSize: 10Gi
+
+jwks:
+  image:
+    registry: ghcr.io/teknoir/jwks-server
+    version: latest
+  resources:
+    requests:
+      cpu: 25m
+      memory: 20Mi
+
+redis:
+  image:
+    registry: redis/redis-stack-server
+    version: 6.2.6-v9
+  resources:
+    requests:
+      cpu: 25m
+      memory: 20Mi

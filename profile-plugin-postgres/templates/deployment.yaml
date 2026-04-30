@@ -33,7 +33,7 @@ spec:
     spec:
       initContainers:
         - name: init-postgres-config
-          image: "debian:bullseye-slim"
+          image: "{{ .Values.initPostgresConfig.image.registry }}:{{ .Values.initPostgresConfig.image.version }}"
           imagePullPolicy: IfNotPresent
           command:
             - "/bin/bash"
@@ -55,7 +55,7 @@ spec:
               mountPath: /var/lib/postgresql/data
       containers:
         - name: postgres
-          image: "pgvector/pgvector:{{ .Values.postgresVersion }}"
+          image: "{{ .Values.postgres.image.registry }}:{{ .Values.postgres.image.version }}"
           imagePullPolicy: IfNotPresent
           ports:
             - name: postgres
@@ -89,8 +89,12 @@ spec:
               value: /var/lib/postgresql/data/pgdata
             - name: POSTGRES_DB
               value: "labelstudio"
+          {{- if .Values.postgres.resources }}
+          resources:
+            {{- toYaml .Values.postgres.resources | nindent 12 }}
+          {{- end }}
         - name: prometheus-exporter
-          image: "prometheuscommunity/postgres-exporter"
+          image: "{{ .Values.exporter.image.registry }}:{{ .Values.exporter.image.version }}"
           imagePullPolicy: IfNotPresent
           ports:
             - name: metrics
@@ -106,8 +110,12 @@ spec:
             - name: queries-config
               mountPath: /etc/queries.yaml
               subPath: queries.yaml
+          {{- if .Values.exporter.resources }}
+          resources:
+            {{- toYaml .Values.exporter.resources | nindent 12 }}
+          {{- end }}
         - name: pgadmin
-          image: dpage/pgadmin4:latest
+          image: "{{ .Values.pgadmin.image.registry }}:{{ .Values.pgadmin.image.version }}"
           imagePullPolicy: IfNotPresent
           ports:
             - name: pgadmin
@@ -133,6 +141,10 @@ spec:
             - name: pgadmin-config
               mountPath: /pgadmin4/servers.json
               subPath: servers.json
+          {{- if .Values.pgadmin.resources }}
+          resources:
+            {{- toYaml .Values.pgadmin.resources | nindent 12 }}
+          {{- end }}
       volumes:
         - name: data
           persistentVolumeClaim:

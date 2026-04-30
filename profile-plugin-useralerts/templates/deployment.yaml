@@ -22,7 +22,7 @@ spec:
       serviceAccountName: default-editor
       containers:
         - name: useralerts
-          image: "us-docker.pkg.dev/teknoir/gcr.io/useralerts:{{ .Values.version }}"
+          image: "{{ .Values.useralerts.image.registry }}:{{ .Values.useralerts.image.version }}"
           imagePullPolicy: Always
           env:
             - name: NAMESPACE
@@ -43,3 +43,7 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
+          {{- if .Values.resources }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- end }}

@@ -34,7 +34,7 @@ spec:
         runAsUser: 472
       containers:
         - name: {{ .Values.name }}
-          image: "grafana/grafana-oss:12.3.3"
+          image: "{{ .Values.image.registry }}:{{ .Values.image.version }}"
           imagePullPolicy: Always
           env:
 {{/*            - name: GF_INSTALL_PLUGINS*/}}
@@ -103,7 +103,10 @@ spec:
             - name: http
               containerPort: 3000
               protocol: TCP
-          resources: {}
+          {{- if .Values.resources }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- end }}
       volumes:
         - name: config
           configMap:
