@@ -5,6 +5,10 @@ aws-load-balancer-controller:
   clusterName: teknoir-poc-eks
   region: us-east-1
   vpcId: vpc-0a9807c565d3615bf
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
   serviceAccount:
     create: false
     name: aws-load-balancer-controller
