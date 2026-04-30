@@ -29,10 +29,19 @@ cert-manager:
 godaddy-webhook:
   fullnameOverride: godaddy-webhook
   groupName: acme.webhook.godaddy.com
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      memory: "1Gi"
 
 cert-manager-webhook-loopia:
   fullnameOverride: cert-manager-webhook-loopia
   groupName: acme.webhook.loopia.com
-
-webhook:
   resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      memory: "1Gi"
