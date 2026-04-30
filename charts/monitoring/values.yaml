@@ -494,8 +494,24 @@ kube-prometheus-stack:
       #       datasource: Prometheus
 
     ## End of override
+    initChownData:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+
+    downloadDashboards:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
 
     sidecar:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+
       dashboards:
         enabled: true
         label: promop_grafana_dashboard
