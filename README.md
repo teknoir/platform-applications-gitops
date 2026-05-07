@@ -12,8 +12,8 @@ Client setup in master realm:
   * Standard flow: ON
   * Service account roles: ON
 * Login settings
-  * Valid redirect URI: https://teknoir.cloud/oauth2/callback
-  * Web origins: https://teknoir.cloud
+  * Valid redirect URI: https://teknoir.online/oauth2/callback
+  * Web origins: https://teknoir.online
 
 Then update the secret:
 * Take the client secret from Keycloak
