@@ -8,7 +8,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
 rules:
   - apiGroups:
-      - kubeflow.org
+      - teknoir.org
     resources:
       - services
       - services/status
