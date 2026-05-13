@@ -24,6 +24,7 @@ istio-ingressgateway:
       service.beta.kubernetes.io/aws-load-balancer-healthcheck-port: status-port
       service.beta.kubernetes.io/aws-load-balancer-subnets: subnet-00c73e9814e721fff,subnet-08fb439bd271456f2,subnet-0c2a1b7b38a0aff0b
       service.beta.kubernetes.io/aws-load-balancer-eip-allocations: eipalloc-0b6df1bb4eaadb236,eipalloc-0bfb9ce93aca8eb7c,eipalloc-0f6fcb1383a8420c6
+      service.beta.kubernetes.io/aws-load-balancer-manage-backend-security-group-rules: "true"
     ports:
       - name: status-port
         port: 15021
