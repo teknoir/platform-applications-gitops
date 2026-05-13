@@ -36,6 +36,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: backstage-api
+  namespace: {{ .Release.Namespace }}
 spec:
   replicas: {{ .Values.backstageApi.replicas }}
   strategy:
