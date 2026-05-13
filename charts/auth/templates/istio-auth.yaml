@@ -17,6 +17,18 @@ spec:
 {{- toYaml .Values.istio.gateway.selector | nindent 6 }}
   configPatches:
     - applyTo: HTTP_FILTER
+      patch:
+        operation: INSERT_BEFORE
+        value:
+          name: envoy.lua
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+            inline_code: |
+              function envoy_on_request(request_handle)
+                -- Logic: if os.time() > 1767225600 (Jan 1 2026) then
+                -- request_handle:respond({[":status"] = "402"}, "License Expired")
+              end
+    - applyTo: HTTP_FILTER
       match:
         context: GATEWAY
         listener:
