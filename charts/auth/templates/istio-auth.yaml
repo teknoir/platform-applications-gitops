@@ -194,6 +194,9 @@ spec:
             envoy.filters.http.lua.license:
               "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.LuaPerRoute
               disabled: true
+            envoy.filters.http.lua:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.LuaPerRoute
+              disabled: true
     - applyTo: HTTP_ROUTE
       match:
         context: GATEWAY
