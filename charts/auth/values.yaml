@@ -1,4 +1,6 @@
-# Values for auth.
+# GitOps values for auth.
+# Configured for EKS/AKS Auto Mode with Karpenter.
+# PDBs and replicas are set to ensure high availability during aggressive node consolidation.
 domain: "teknoir.online"
 namespace: teknoir-auth
 

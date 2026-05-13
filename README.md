@@ -1,5 +1,7 @@
 # platform-applications-gitops
 
+The `teknoir-online` branch is an instance for Persona, running in AWS EKS Auto Mode and thus has a lot of EKS Auto Mode tweaks to make it run properly with the aggressive settings in Karpenter.
+
 ## Auth Important Manual Steps
 
 **Setup in Keycloak**
