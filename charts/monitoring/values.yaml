@@ -456,8 +456,8 @@ kube-prometheus-stack:
 
     resources:
       requests:
-        cpu: 100m
-        memory: 256Mi
+        cpu: 800m
+        memory: 512Mi
 
     ## This is an override of the grafana chart.
     grafana.ini:
