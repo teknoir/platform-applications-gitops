@@ -41,8 +41,10 @@ spec:
           args:
             - --provider={{ $provider }}
             - --oidc-issuer-url={{ $issuerUrl }}
+            - --skip-oidc-discovery=true
             - --client-id={{ .Values.oauth2Proxy.oidc.clientId }}
 {{- if eq $provider "keycloak-oidc" }}
+            - --oidc-jwks-url={{ .Values.oauth2Proxy.oidc.jwksUrl | default "http://keycloak-http.teknoir-auth.svc.cluster.local/auth/realms/master/protocol/openid-connect/certs" }}
             - --login-url={{ .Values.oauth2Proxy.oidc.loginUrl | default (printf "%s/protocol/openid-connect/auth" $issuer) }}
             - --redeem-url={{ .Values.oauth2Proxy.oidc.redeemUrl | default (printf "%s/protocol/openid-connect/token" $issuer) }}
             - --profile-url={{ .Values.oauth2Proxy.oidc.profileUrl | default (printf "%s/protocol/openid-connect/userinfo" $issuer) }}
