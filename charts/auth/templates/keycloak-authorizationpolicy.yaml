@@ -36,3 +36,4 @@ spec:
         - source:
             namespaces:
               - "teknoir-system"
+              - {{ $namespace | quote }}
