@@ -17,19 +17,6 @@ spec:
 {{- toYaml .Values.istio.gateway.selector | nindent 6 }}
   configPatches:
     - applyTo: HTTP_FILTER
-      patch:
-        operation: INSERT_BEFORE
-        value:
-          name: envoy.filters.http.lua.license
-          typed_config:
-            "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
-            inline_code: |
-              function envoy_on_request(request_handle)
-                if os.time() > 1781913600 then -- June 20, 2026
-                  request_handle:respond({[":status"] = "402"}, "License Expired")
-                end
-              end
-    - applyTo: HTTP_FILTER
       match:
         context: GATEWAY
         listener:
@@ -154,9 +141,6 @@ spec:
             envoy.filters.http.ext_authz:
               "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute
               disabled: true
-            envoy.filters.http.lua.license:
-              "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.LuaPerRoute
-              disabled: true
     - applyTo: VIRTUAL_HOST
       match:
         context: GATEWAY
@@ -174,9 +158,6 @@ spec:
             envoy.filters.http.lua:
               "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.LuaPerRoute
               disabled: true
-            envoy.filters.http.lua.license:
-              "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.LuaPerRoute
-              disabled: true
     - applyTo: VIRTUAL_HOST
       match:
         context: GATEWAY
@@ -190,12 +171,6 @@ spec:
           typed_per_filter_config:
             envoy.filters.http.ext_authz:
               "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute
-              disabled: true
-            envoy.filters.http.lua.license:
-              "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.LuaPerRoute
-              disabled: true
-            envoy.filters.http.lua:
-              "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.LuaPerRoute
               disabled: true
     - applyTo: HTTP_ROUTE
       match:
@@ -211,9 +186,6 @@ spec:
           typed_per_filter_config:
             envoy.filters.http.ext_authz:
               "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute
-              disabled: true
-            envoy.filters.http.lua.license:
-              "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.LuaPerRoute
               disabled: true
     - applyTo: HTTP_ROUTE
       match:
@@ -231,9 +203,6 @@ spec:
               "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute
               disabled: true
             envoy.filters.http.lua:
-              "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.LuaPerRoute
-              disabled: true
-            envoy.filters.http.lua.license:
               "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.LuaPerRoute
               disabled: true
 
