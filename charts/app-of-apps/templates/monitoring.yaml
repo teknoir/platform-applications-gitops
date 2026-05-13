@@ -27,9 +27,20 @@ spec:
       jsonPointers:
         - /data
         - /stringData
-{{/*    - group: ""*/}}
-{{/*      kind: Secret*/}}
-{{/*      name: historian-mongodb-credentials*/}}
-{{/*      jsonPointers:*/}}
-{{/*        - /data*/}}
-{{/*        - /stringData*/}}
+    - group: "apps"
+      kind: Deployment
+      name: monitoring-grafana
+      jsonPointers:
+        - /spec/template/metadata/annotations/checksum~1secret
+        - /spec/template/metadata/annotations/checksum~1sc-dashboard-provider-config
+        - /spec/template/metadata/annotations/checksum~1dashboards-json-config
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+      name: monitoring-kube-prome-admission
+      jqPathExpressions:
+        - '.webhooks[]?.clientConfig.caBundle'
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      name: monitoring-kube-prome-admission
+      jqPathExpressions:
+        - '.webhooks[]?.clientConfig.caBundle'
