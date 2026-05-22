@@ -39,6 +39,10 @@ spec:
         - name: oauth2-proxy
           image: {{ .Values.oauth2Proxy.image.repository }}:{{ .Values.oauth2Proxy.image.tag }}
           args:
+            # CLI TEST START
+            # - --skip-jwt-bearer-tokens=true
+            # - --extra-jwt-issuers=https://auth.teknoir.cloud/auth/realms/master=teknoir
+            # CLI TEST END
             - --provider={{ $provider }}
             - --oidc-issuer-url={{ $issuerUrl }}
             - --client-id={{ .Values.oauth2Proxy.oidc.clientId }}
