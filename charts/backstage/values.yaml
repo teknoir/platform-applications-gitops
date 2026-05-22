@@ -10,7 +10,7 @@ config:
 # Backstage frontend deployment
 backstage:
   replicas: 1
-  image: ghcr.io/teknoir/backstage-app:teknoir-online-20260522-071916
+  image: ghcr.io/teknoir/backstage-app:teknoir-online-20260522-134055
   imagePullPolicy: Always
   imagePullSecrets:
     - name: ghcr-token
@@ -25,7 +25,7 @@ backstage:
 # Backstage API deployment
 backstageApi:
   replicas: 1
-  image: ghcr.io/teknoir/backstage:teknoir-online-20260522-071916
+  image: ghcr.io/teknoir/backstage:teknoir-online-20260522-134055
   imagePullPolicy: Always
   imagePullSecrets:
     - name: ghcr-token
@@ -34,7 +34,6 @@ backstageApi:
     postgresSecretName: backstage-postgres-secrets
     keycloakSecretName: backstage-keycloak-secrets
     authSecretsName: backstage-auth-secrets
-    githubSecretsName: backstage-github-secrets
   googleApplicationCredentials: '/app/secrets/admin-credentials.json'
   resources:
     limits:
