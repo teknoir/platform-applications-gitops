@@ -49,6 +49,10 @@ spec:
       labels:
         app: backstage-api
     spec:
+      {{- with .Values.backstageApi.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       volumes:
         - name: backstage-auth-secrets
           secret:
@@ -61,6 +65,10 @@ spec:
         {{- toYaml .Values.backstageApi.imagePullSecrets | nindent 8 }}
       containers:
         - name: backstage-api
+          {{- with .Values.backstageApi.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           image: {{ .Values.backstageApi.image }}
           imagePullPolicy: {{ .Values.backstageApi.imagePullPolicy }}
           resources:
