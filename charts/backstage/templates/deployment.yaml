@@ -53,6 +53,9 @@ spec:
         - name: backstage-auth-secrets
           secret:
             secretName: {{ .Values.backstageApi.secrets.authSecretsName }}
+        - name: backstage-github-secrets
+          secret:
+            secretName: {{ .Values.backstageApi.secrets.githubSecretsName }}
         - name: techdocs-persistent-storage
           persistentVolumeClaim:
             claimName: backstage-techdocs
@@ -100,6 +103,10 @@ spec:
             - name: backstage-auth-secrets
               readOnly: true
               mountPath: /app/secrets
+            - name: backstage-github-secrets
+              mountPath: /app/backstage-github-credentials.yaml
+              subPath: backstage-github-credentials.yaml
+              readOnly: true
             - name: techdocs-persistent-storage
               mountPath: /app/techdocs
           readinessProbe:
