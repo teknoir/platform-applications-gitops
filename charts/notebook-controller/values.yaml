@@ -6,7 +6,7 @@ commonLabels:
 
 image:
   repository: ghcr.io/teknoir/notebook-controller
-  tag: teknoir-cloud-20260413-055422
+  tag: teknoir-cloud-20260522-055950
   pullPolicy: Always
 
 imagePullSecrets:
