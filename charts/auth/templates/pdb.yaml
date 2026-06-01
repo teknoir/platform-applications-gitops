@@ -1,0 +1,54 @@
+{{- $namespace := .Values.namespace | default .Release.Namespace -}}
+
+{{- if .Values.oauth2Proxy.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: oauth2-proxy
+  namespace: {{ $namespace }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: oauth2-proxy
+---
+{{- if .Values.oauth2Proxy.redis.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Values.oauth2Proxy.redis.host }}
+  namespace: {{ $namespace }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.oauth2Proxy.redis.host }}
+---
+{{- end }}
+{{- end }}
+
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: keycloak-db
+  namespace: {{ $namespace }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: keycloak-db
+
+---
+{{- if .Values.keycloak.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: keycloak
+  namespace: {{ $namespace }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: keycloak
+      app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}

@@ -34,8 +34,11 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: backstage-api
+  namespace: {{ .Release.Namespace }}
 spec:
   replicas: {{ .Values.backstageApi.replicas }}
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: backstage-api
@@ -44,10 +47,14 @@ spec:
       labels:
         app: backstage-api
     spec:
+      {{- with .Values.backstageApi.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       volumes:
-        - name: backstage-github-app-secret
+        - name: backstage-auth-secrets
           secret:
-            secretName: {{ .Values.backstageApi.secrets.githubAppSecretName }}
+            secretName: {{ .Values.backstageApi.secrets.authSecretsName }}
         - name: techdocs-persistent-storage
           persistentVolumeClaim:
             claimName: backstage-techdocs
@@ -56,6 +63,10 @@ spec:
         {{- toYaml .Values.backstageApi.imagePullSecrets | nindent 8 }}
       containers:
         - name: backstage-api
+          {{- with .Values.backstageApi.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           image: {{ .Values.backstageApi.image }}
           imagePullPolicy: {{ .Values.backstageApi.imagePullPolicy }}
           ports:
@@ -90,7 +101,7 @@ spec:
               --config app-config.yaml \
               --config {{ .Values.config.config }}
           volumeMounts:
-            - name: backstage-github-app-secret
+            - name: backstage-auth-secrets
               readOnly: true
               mountPath: /app/secrets
             - name: techdocs-persistent-storage

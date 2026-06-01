@@ -1,6 +1,6 @@
-{{- if .Values.harbor.valuesContent.persistence.enabled }}
+{{- if .Values.harbor.persistence.enabled }}
 {{- $root := . }}
-{{- range $name, $pvc := .Values.harbor.valuesContent.persistence.persistentVolumeClaim }}
+{{- range $name, $pvc := .Values.harbor.persistence.persistentVolumeClaim }}
 ---
 apiVersion: v1
 kind: PersistentVolume
@@ -18,7 +18,7 @@ spec:
   storageClassName: {{ $pvc.storageClass | default "" | quote }}
   persistentVolumeReclaimPolicy: Retain
   hostPath:
-    path: {{ printf "%s/%s" $root.Values.harbor.valuesContent.persistence.hostPathPrefix $name | quote }}
+    path: {{ printf "%s/%s" $root.Values.harbor.persistence.hostPathPrefix $name | quote }}
     type: DirectoryOrCreate
 {{- end }}
 {{- end }}

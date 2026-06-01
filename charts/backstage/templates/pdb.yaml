@@ -1,0 +1,32 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: backstage
+  namespace: {{ .Release.Namespace }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: backstage
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: backstage-api
+  namespace: {{ .Release.Namespace }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: backstage-api
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: backstage-postgres
+  namespace: {{ .Release.Namespace }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: backstage-postgres

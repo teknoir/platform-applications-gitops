@@ -1,7 +1,7 @@
-{{- if .Values.harbor.valuesContent.persistence.enabled }}
+{{- if .Values.harbor.persistence.enabled }}
 {{- $root := . }}
 {{- $namespace := .Values.namespace | default .Release.Namespace -}}
-{{- range $name, $pvc := .Values.harbor.valuesContent.persistence.persistentVolumeClaim }}
+{{- range $name, $pvc := .Values.harbor.persistence.persistentVolumeClaim }}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

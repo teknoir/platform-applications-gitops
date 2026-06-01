@@ -1,15 +1,14 @@
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: backstage-postgres
   namespace: {{ .Release.Namespace }}
   labels:
     app: backstage-postgres
 spec:
+  serviceName: backstage-postgres
   replicas: {{ .Values.postgres.replicas }}
-  strategy:
-    type: Recreate
   selector:
     matchLabels:
       app: backstage-postgres
@@ -65,7 +64,12 @@ spec:
           env:
             - name: DATA_SOURCE_URI
               value: "localhost:5432/postgres?sslmode=disable"
-      volumes:
-        - name: data
-          persistentVolumeClaim:
-            claimName: backstage-postgres-storage-claim
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: {{ .Values.postgres.storage }}

@@ -17,9 +17,9 @@
 {{/*              number: 80*/}}
 
 ---
-{{- $domain := .Values.domain | default (hasKey .Values "global" | ternary (index (.Values.global | default dict) "domain") "") | default "teknoir.cloud" -}}
-{{- $hostname := .Values.hostname | default (printf "harbor.%s" $domain) -}}
-{{- $namespace := .Values.namespace | default .Release.Namespace -}}
+{{- $domain := .Values.domain | default (hasKey .Values "global" | ternary (index (.Values.global | default dict) "domain") "") | default "teknoir.cloud" }}
+{{- $hostname := .Values.hostname | default (printf "harbor.%s" $domain) }}
+{{- $namespace := .Values.namespace | default .Release.Namespace }}
 apiVersion: networking.istio.io/v1beta1
 kind: VirtualService
 metadata:

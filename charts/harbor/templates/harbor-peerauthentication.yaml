@@ -1,5 +1,5 @@
 ---
-{{- $namespace := .Values.namespace | default .Release.Namespace -}}
+{{- $namespace := .Values.namespace | default .Release.Namespace }}
 apiVersion: security.istio.io/v1beta1
 kind: PeerAuthentication
 metadata:
