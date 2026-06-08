@@ -164,6 +164,20 @@ spec:
         routeConfiguration:
           gateway: "{{ .Values.istio.gateway.namespace }}/{{ .Values.istio.gateway.name }}"
           vhost:
+            name: {{ printf "api.%s:443" $domain | quote }}
+      patch:
+        operation: MERGE
+        value:
+          typed_per_filter_config:
+            envoy.filters.http.ext_authz:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute
+              disabled: true
+    - applyTo: VIRTUAL_HOST
+      match:
+        context: GATEWAY
+        routeConfiguration:
+          gateway: "{{ .Values.istio.gateway.namespace }}/{{ .Values.istio.gateway.name }}"
+          vhost:
             name: {{ printf "argocd.%s:443" $domain | quote }}
       patch:
         operation: MERGE

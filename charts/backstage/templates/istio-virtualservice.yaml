@@ -23,3 +23,24 @@ spec:
             host: backstage.{{ .Release.Namespace }}.svc.cluster.local
             port:
               number: 80
+
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: backstage-api
+  namespace: {{ .Release.Namespace }}
+spec:
+  hosts:
+    - {{ (printf "api.%s" .Values.config.domain) | quote }}
+  gateways:
+    - istio-system/teknoir-gateway
+  http:
+    - match:
+        - uri:
+            prefix: /api/
+      route:
+        - destination:
+            host: backstage-api.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: 80
