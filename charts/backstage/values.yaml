@@ -3,7 +3,6 @@
 # Parameters from params.env
 config:
   domain: "teknoir.cloud"
-  config: app-config.teknoir-cloud.yaml
   logLevel: info
   prometheusUrl: http://prometheus.__NAMESPACE__.svc.cluster.local:80
 
@@ -32,6 +31,7 @@ backstageApi:
     keycloakSecretName: backstage-keycloak-secrets
     authSecretsName: backstage-github-app-secret
   googleApplicationCredentials: '/app/secrets/admin-credentials.json'
+  githubAppSecretPath: /app/secrets/github-app-backstage-teknoir-credentials.yaml
 
 # PostgreSQL database configuration
 postgres:
