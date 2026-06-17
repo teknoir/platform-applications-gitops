@@ -1,0 +1,24 @@
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  labels:
+    app: prometheus
+    teknoir.org/plugin: prometheus
+  name: prometheus-api
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    matchLabels:
+      app: prometheus
+      teknoir.org/plugin: prometheus
+  action: ALLOW
+  rules:
+    - to:
+        - operation:
+            methods: ["GET", "POST", "PUT", "DELETE"]
+    - from:
+        - source:
+            namespaces:
+              - "teknoir-system"
+              - {{ .Release.Namespace }}
