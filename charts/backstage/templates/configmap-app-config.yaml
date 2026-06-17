@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backstage-app-config
+  namespace: {{ .Release.Namespace }}
+data:
+  app-config.prod-env.yaml: |
+    app:
+      baseUrl: https://{{ .Values.config.domain }}
+
+    backend:
+      auth:
+        externalAccess:
+          - type: jwks
+            options:
+              url: https://auth.{{ .Values.config.domain }}/auth/realms/master/protocol/openid-connect/certs
+              issuer: https://auth.{{ .Values.config.domain }}/auth/realms/master
+              algorithm: RS256
+              audience: teknoir-cli
+              subjectPrefix: keycloak
+        keys:
+          - $include: /app/secrets/backend-auth-backstage-secrets.yaml
+      baseUrl: https://{{ .Values.config.domain }}
+
+    scaffolder:
+      customActions:
+        domain: {{ .Values.config.domain }}
+        projectId: teknoir
+
+    teknoir:
+      projectId: teknoir
+      domain: {{ .Values.config.domain }}
+
+    integrations:
+      github:
+        - host: github.com
+          apps:
+            - $include: {{ .Values.backstageApi.githubAppSecretPath }}

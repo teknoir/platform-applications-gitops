@@ -60,6 +60,9 @@ spec:
         - name: techdocs-persistent-storage
           persistentVolumeClaim:
             claimName: backstage-techdocs
+        - name: backstage-app-config
+          configMap:
+            name: backstage-app-config
       serviceAccountName: backstage-api
       imagePullSecrets:
         {{- toYaml .Values.backstageApi.imagePullSecrets | nindent 8 }}
@@ -103,13 +106,16 @@ spec:
             - |
               node packages/backend \
               --config app-config.yaml \
-              --config {{ .Values.config.config }}
+              --config app-config.prod-env.yaml
           volumeMounts:
             - name: backstage-auth-secrets
               readOnly: true
               mountPath: /app/secrets
             - name: techdocs-persistent-storage
               mountPath: /app/techdocs
+            - name: backstage-app-config
+              mountPath: /app/app-config.prod-env.yaml
+              subPath: app-config.prod-env.yaml
           readinessProbe:
             initialDelaySeconds: 60
             httpGet:

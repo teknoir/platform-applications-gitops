@@ -3,14 +3,13 @@
 # Parameters from params.env
 config:
   domain: "teknoir.online"
-  config: app-config.teknoir-online.yaml
   logLevel: info
   prometheusUrl: http://prometheus.__NAMESPACE__.svc.cluster.local:80
 
 # Backstage frontend deployment
 backstage:
   replicas: 1
-  image: ghcr.io/teknoir/backstage-app:teknoir-online-20260612-110920
+  image: ghcr.io/teknoir/backstage-app:latest
   imagePullPolicy: Always
   imagePullSecrets:
     - name: ghcr-token
@@ -25,7 +24,7 @@ backstage:
 # Backstage API deployment
 backstageApi:
   replicas: 1
-  image: ghcr.io/teknoir/backstage:teknoir-online-20260612-110920
+  image: ghcr.io/teknoir/backstage:latest
   imagePullPolicy: Always
   imagePullSecrets:
     - name: ghcr-token
@@ -39,6 +38,7 @@ backstageApi:
     keycloakSecretName: backstage-keycloak-secrets
     authSecretsName: backstage-auth-secrets
   googleApplicationCredentials: '/app/secrets/admin-credentials.json'
+  githubAppSecretPath: /app/secrets/backstage-github-credentials.yaml
   resources:
     limits:
       cpu: "2"
