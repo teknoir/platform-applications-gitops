@@ -21,7 +21,7 @@ backstageApi:
   imagePullPolicy: Always
   imagePullSecrets:
     - name: ghcr-token
-  nodeOptions: '--max-old-space-size=8192'
+  nodeOptions: '--max-old-space-size=8192 --no-network-family-autoselection'
   podSecurityContext:
     fsGroup: 1000
   containerSecurityContext:
