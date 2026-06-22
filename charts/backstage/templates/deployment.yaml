@@ -24,6 +24,10 @@ spec:
             - name: http-web
               containerPort: 80
           env:
+            - name: APP_CONFIG_app_baseUrl
+              value: "https://{{ .Values.config.domain }}"
+            - name: APP_CONFIG_backend_baseUrl
+              value: "https://{{ .Values.config.domain }}"
             - name: LOG_LEVEL
               value: {{ .Values.config.logLevel | quote }}
             - name: PROMETHEUS_URL
