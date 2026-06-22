@@ -9,7 +9,7 @@ config:
 # Backstage frontend deployment
 backstage:
   replicas: 1
-  image: ghcr.io/teknoir/backstage-app:robot-20260622-124706
+  image: ghcr.io/teknoir/backstage-app:robot-20260618-133435
   imagePullPolicy: Always
   imagePullSecrets:
     - name: ghcr-token
@@ -17,7 +17,7 @@ backstage:
 # Backstage API deployment
 backstageApi:
   replicas: 1
-  image: ghcr.io/teknoir/backstage:robot-20260622-124706
+  image: ghcr.io/teknoir/backstage:robot-20260618-133435
   imagePullPolicy: Always
   imagePullSecrets:
     - name: ghcr-token
