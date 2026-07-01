@@ -4,7 +4,7 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/teknoir/device-controller
-  tag: latest
+  tag: gitops
   pullPolicy: Always
 
 imagePullSecrets:
@@ -45,6 +45,12 @@ config:
   domain: teknoir.cloud
   domainPrefix: ""
   istioGateway: istio-system/teknoir-gateway
+
+# GitHub App credentials mounted from the backstage-github-app-secret
+githubApp:
+  secretName: backstage-github-app-secret
+  mountPath: /app/secrets
+  credentialsFile: /app/secrets/github-app-backstage-teknoir-credentials.yaml
 
 resources:
   limits:

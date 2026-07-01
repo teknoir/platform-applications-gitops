@@ -40,9 +40,16 @@ spec:
         args:
         - --leader-elect
         - --health-probe-bind-address=:8081
+        env:
+        - name: GITHUB_CREDENTIALS_FILE
+          value: {{ .Values.githubApp.credentialsFile | quote }}
         envFrom:
         - configMapRef:
             name: {{ include "device-controller.fullname" . }}-parameters
+        volumeMounts:
+        - name: github-app-secret
+          readOnly: true
+          mountPath: {{ .Values.githubApp.mountPath }}
         ports:
         - name: metrics
           containerPort: 8080
@@ -61,6 +68,10 @@ spec:
           periodSeconds: 10
         resources:
           {{- toYaml .Values.resources | nindent 10 }}
+      volumes:
+      - name: github-app-secret
+        secret:
+          secretName: {{ .Values.githubApp.secretName }}
       terminationGracePeriodSeconds: 10
       {{- with .Values.nodeSelector }}
       nodeSelector:
