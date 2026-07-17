@@ -53,6 +53,7 @@ rules:
   - teknoir.org
   resources:
   - devices
+  - deviceapplicationsets
   verbs:
   - create
   - delete
@@ -65,6 +66,7 @@ rules:
   - teknoir.org
   resources:
   - devices/status
+  - deviceapplicationsets/status
   verbs:
   - get
 
@@ -134,6 +136,9 @@ rules:
   - devices
   - devices/status
   - devices/finalizers
+  - deviceapplicationsets
+  - deviceapplicationsets/status
+  - deviceapplicationsets/finalizers
   verbs:
   - '*'
 - apiGroups:
@@ -162,6 +167,7 @@ rules:
   - teknoir.org
   resources:
   - devices
+  - deviceapplicationsets
   verbs:
   - get
   - list
@@ -170,6 +176,7 @@ rules:
   - teknoir.org
   resources:
   - devices/status
+  - deviceapplicationsets/status
   verbs:
   - get
 

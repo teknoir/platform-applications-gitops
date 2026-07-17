@@ -199,6 +199,76 @@ spec:
                   properties:
                     active_config_hash:
                       type: string
+                    github_rate_limits:
+                      description: |-
+                        GitHubRateLimits records, per GitHub API rate-limit bucket, that a GitOps
+                        sync recently hit that bucket's limit. GitHub tracks rate limits
+                        independently per credential (a personal access token, or a specific
+                        GitHub App installation) and, for unauthenticated access, per outbound
+                        IP shared across the whole cluster - so a limit hit on one bucket (most
+                        likely unauthenticated access, given its much lower 60 requests/hour
+                        budget) must not block GitOps syncs that would use a different,
+                        unaffected bucket. While a bucket's entry is present and unexpired,
+                        GitOps fetching that would use it is skipped until its RetryAfter has
+                        passed, instead of retrying every reconcile and burning through the
+                        rest of that bucket's window.
+                      items:
+                        description: |-
+                          GitHubRateLimitStatus records an in-progress backoff after a GitOps sync hit
+                          a GitHub API rate limit (primary or secondary/abuse) on a specific bucket.
+                        properties:
+                          bucket:
+                            description: |-
+                              Bucket identifies which independent GitHub rate limit budget this
+                              backoff record applies to, e.g. "unauthenticated", "token", or
+                              "app-install-<installation id>".
+                            type: string
+                          reason:
+                            description: Reason is the error returned by GitHub that
+                              triggered the backoff.
+                            type: string
+                          retry_after:
+                            description: |-
+                              RetryAfter is the earliest time at which GitOps fetching using this
+                              bucket should be attempted again, taken from GitHub's own rate limit
+                              reset (or Retry-After) signal.
+                            format: date-time
+                            type: string
+                        required:
+                          - bucket
+                          - retry_after
+                        type: object
+                      type: array
+                    gitops_applications:
+                      description: |-
+                        GitOpsApplications records, per GitOps application, the short Git commit
+                        hash that was last loaded. It lets subsequent reconciles skip fetching
+                        applications whose commit has not changed, reducing GitHub API usage.
+                      items:
+                        description: |-
+                          GitOpsApplicationConfig records the last-loaded short Git commit hash for a
+                          single GitOps application, keyed by its repository, revision and path.
+                        properties:
+                          commit:
+                            description: |-
+                              Commit is the short Git commit hash that was last loaded for this
+                              application.
+                            type: string
+                          etag:
+                            description: |-
+                              ETag is the HTTP entity tag returned by GitHub for this application's
+                              ListCommits request. It is sent back as an If-None-Match header on the
+                              next reconcile so that an unchanged application yields a 304 Not Modified
+                              response, which does not count against the GitHub API rate limit.
+                            type: string
+                          path:
+                            type: string
+                          repo_url:
+                            type: string
+                          revision:
+                            type: string
+                        type: object
+                      type: array
                     last_config_change:
                       format: date-time
                       type: string
@@ -317,4 +387,4 @@ spec:
       served: true
       storage: true
       subresources:
-        status: {}
+        status: { }
