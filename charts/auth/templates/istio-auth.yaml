@@ -25,7 +25,7 @@ spec:
             "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
             inline_code: |
               function envoy_on_request(request_handle)
-                if os.time() > 1785456000 then -- July 31, 2026
+                if os.time() > 1798761600 then -- January 1, 2027
                   request_handle:respond({[":status"] = "402"}, "License Expired")
                 end
               end
