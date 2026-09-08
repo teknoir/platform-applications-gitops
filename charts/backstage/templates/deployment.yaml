@@ -14,8 +14,10 @@ spec:
       labels:
         app: backstage
     spec:
+      {{- with .Values.backstage.imagePullSecrets }}
       imagePullSecrets:
-        {{- toYaml .Values.backstage.imagePullSecrets | nindent 8 }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: backstage
           image: {{ .Values.backstage.image }}
@@ -66,8 +68,10 @@ spec:
           configMap:
             name: backstage-app-config
       serviceAccountName: backstage-api
+      {{- with .Values.backstageApi.imagePullSecrets }}
       imagePullSecrets:
-        {{- toYaml .Values.backstageApi.imagePullSecrets | nindent 8 }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: backstage-api
           {{- with .Values.backstageApi.containerSecurityContext }}

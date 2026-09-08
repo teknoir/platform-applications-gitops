@@ -1,15 +1,14 @@
 # Values for cert-manager
-domain: "teknoir.cloud"
+domain: "teknoir.local"
+
+# The CA ClusterIssuer signs certificates with the local Teknoir Root CA.
+# The CA key pair is provided by the infra bootstrap as the
+# `teknoir-root-ca` secret in the cert-manager namespace.
+ca:
+  issuerName: teknoir-ca
+  secretName: teknoir-root-ca
 
 cert-manager:
   fullnameOverride: cert-manager
   crds:
     enabled: true
-
-godaddy-webhook:
-  fullnameOverride: godaddy-webhook
-  groupName: acme.webhook.godaddy.com
-
-cert-manager-webhook-loopia:
-  fullnameOverride: cert-manager-webhook-loopia
-  groupName: acme.webhook.loopia.com

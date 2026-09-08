@@ -9,8 +9,7 @@ image:
   tag: teknoir-cloud-20260522-055950
   pullPolicy: Always
 
-imagePullSecrets:
-  - name: ghcr-token
+imagePullSecrets: []
 
 serviceAccount:
   name: notebook-controller-service-account
@@ -22,4 +21,4 @@ parameters:
   ISTIO_GATEWAY: istio-system/teknoir-gateway
   POD_LABELS: gcp-cred-secret=user-gcp-sa,gcp-cred-secret-filename=user-gcp-sa.json
   project-id: teknoir
-  domain: teknoir.cloud
+  domain: teknoir.local

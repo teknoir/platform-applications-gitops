@@ -8,10 +8,9 @@ spec:
     namespace: cert-manager
     server: https://kubernetes.default.svc
   source:
-    path: charts/cert-manager
-    repoURL: https://github.com/teknoir/platform-applications-gitops
-    targetRevision: {{ .Values.project }}
-  sources: [ ]
+    repoURL: harbor.teknoir.local/teknoir
+    chart: cert-manager
+    targetRevision: 0.0.1
   project: {{ .Values.project }}
   syncPolicy:
     automated:

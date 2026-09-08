@@ -8,10 +8,9 @@ spec:
     namespace: teknoir-system
     server: https://kubernetes.default.svc
   source:
-    path: charts/monitoring
-    repoURL: https://github.com/teknoir/platform-applications-gitops
-    targetRevision: {{ .Values.project }}
-  sources: [ ]
+    repoURL: harbor.teknoir.local/teknoir
+    chart: monitoring
+    targetRevision: 0.0.3
   project: {{ .Values.project }}
   syncPolicy:
     syncOptions:

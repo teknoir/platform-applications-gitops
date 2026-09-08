@@ -8,10 +8,9 @@ spec:
     namespace: teknoir-auth
     server: https://kubernetes.default.svc
   source:
-    path: charts/auth
-    repoURL: https://github.com/teknoir/platform-applications-gitops
-    targetRevision: {{ .Values.project }}
-  sources: [ ]
+    repoURL: harbor.teknoir.local/teknoir
+    chart: auth
+    targetRevision: 0.0.3
   project: {{ .Values.project }}
   syncPolicy:
     automated:

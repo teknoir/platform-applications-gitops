@@ -7,8 +7,7 @@ image:
   tag: latest
   pullPolicy: Always
 
-imagePullSecrets:
-  - name: ghcr-token
+imagePullSecrets: []
 
 podSecurityContext: {}
   # fsGroup: 2000
@@ -32,7 +31,7 @@ config:
   userIdHeader: "X-Auth-Request-Email"
   userIdPrefix: ""
   projectId: "teknoir"
-  domain: "teknoir.cloud"
+  domain: "teknoir.local"
   domainPrefix: ""
   region: "us-central1"
   dnsZone: "teknoir-cloud"

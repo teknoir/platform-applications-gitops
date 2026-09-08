@@ -2,7 +2,7 @@
 
 # Parameters from params.env
 config:
-  domain: "teknoir.cloud"
+  domain: "teknoir.local"
   logLevel: info
   prometheusUrl: http://prometheus.__NAMESPACE__.svc.cluster.local:80
 
@@ -11,16 +11,14 @@ backstage:
   replicas: 1
   image: ghcr.io/teknoir/backstage-app:robot
   imagePullPolicy: Always
-  imagePullSecrets:
-    - name: ghcr-token
+  imagePullSecrets: []
 
 # Backstage API deployment
 backstageApi:
   replicas: 1
   image: ghcr.io/teknoir/backstage:robot
   imagePullPolicy: Always
-  imagePullSecrets:
-    - name: ghcr-token
+  imagePullSecrets: []
   nodeOptions: '--max-old-space-size=8192'
   podSecurityContext:
     fsGroup: 1000

@@ -8,10 +8,9 @@ spec:
     namespace: teknoir-system
     server: https://kubernetes.default.svc
   source:
-    path: charts/notebook-controller
-    repoURL: https://github.com/teknoir/platform-applications-gitops
-    targetRevision: {{ .Values.project }}
-  sources: [ ]
+    repoURL: harbor.teknoir.local/teknoir
+    chart: notebook-controller
+    targetRevision: 0.0.82
   project: {{ .Values.project }}
   syncPolicy:
     automated:
@@ -29,10 +28,9 @@ spec:
     namespace: teknoir-system
     server: https://kubernetes.default.svc
   source:
-    path: charts/devstudio-controller
-    repoURL: https://github.com/teknoir/platform-applications-gitops
-    targetRevision: {{ .Values.project }}
-  sources: [ ]
+    repoURL: harbor.teknoir.local/teknoir
+    chart: devstudio-controller
+    targetRevision: 0.0.82
   project: {{ .Values.project }}
   syncPolicy:
     automated:
@@ -50,10 +48,9 @@ spec:
     namespace: teknoir-system
     server: https://kubernetes.default.svc
   source:
-    path: charts/user-controller
-    repoURL: https://github.com/teknoir/platform-applications-gitops
-    targetRevision: {{ .Values.project }}
-  sources: [ ]
+    repoURL: harbor.teknoir.local/teknoir
+    chart: user-controller
+    targetRevision: 0.0.82
   project: {{ .Values.project }}
   syncPolicy:
     automated:
@@ -87,10 +84,9 @@ spec:
     namespace: teknoir-system
     server: https://kubernetes.default.svc
   source:
-    path: charts/profile-controller
-    repoURL: https://github.com/teknoir/platform-applications-gitops
-    targetRevision: {{ .Values.project }}
-  sources: [ ]
+    repoURL: harbor.teknoir.local/teknoir
+    chart: profile-controller
+    targetRevision: 0.0.82
   project: {{ .Values.project }}
   syncPolicy:
     automated:
@@ -108,10 +104,9 @@ spec:
     namespace: teknoir-system
     server: https://kubernetes.default.svc
   source:
-    path: charts/device-controller
-    repoURL: https://github.com/teknoir/platform-applications-gitops
-    targetRevision: {{ .Values.project }}
-  sources: [ ]
+    repoURL: harbor.teknoir.local/teknoir
+    chart: device-controller
+    targetRevision: 0.0.82
   project: {{ .Values.project }}
   syncPolicy:
     automated:

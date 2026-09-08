@@ -7,8 +7,7 @@ image:
   tag: applicationset
   pullPolicy: Always
 
-imagePullSecrets:
-  - name: ghcr-token
+imagePullSecrets: []
 
 nameOverride: ""
 fullnameOverride: ""
@@ -42,7 +41,7 @@ securityContext:
 config:
   projectId: teknoir
   region: us-central1
-  domain: teknoir.cloud
+  domain: teknoir.local
   domainPrefix: ""
   istioGateway: istio-system/teknoir-gateway
 

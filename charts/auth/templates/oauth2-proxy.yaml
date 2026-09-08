@@ -1,5 +1,5 @@
 {{- if .Values.oauth2Proxy.enabled -}}
-{{- $domain := .Values.domain | default "teknoir.cloud" -}}
+{{- $domain := .Values.domain | default "teknoir.local" -}}
 {{- $secretName := .Values.oauth2Proxy.secret.existingName | default "oauth2-proxy-secret" -}}
 {{- $provider := .Values.oauth2Proxy.provider | default "oidc" -}}
 {{- $issuerUrl := .Values.oauth2Proxy.oidc.issuerUrl | default (printf "https://auth.%s/auth/realms/master" $domain) -}}
@@ -41,7 +41,7 @@ spec:
           args:
             # CLI TEST START
             - --skip-jwt-bearer-tokens=true
-            - --extra-jwt-issuers=https://auth.teknoir.cloud/auth/realms/master=teknoir-cli
+            - --extra-jwt-issuers=https://auth.{{ $domain }}/auth/realms/master=teknoir-cli
             # CLI TEST END
             - --provider={{ $provider }}
             - --oidc-issuer-url={{ $issuerUrl }}

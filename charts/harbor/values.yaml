@@ -12,8 +12,8 @@ istio:
     enabled: false
 
 # Domain and naming conventions
-domain: "teknoir.cloud"
-hostname: "harbor.teknoir.cloud"
+domain: "teknoir.local"
+hostname: "harbor.teknoir.local"
 
 # The Harbor subchart configuration
 harbor:
@@ -33,7 +33,12 @@ harbor:
 #      ports:
 #        httpPort: 80
 
-  externalURL: ""
+  # Feeds Harbor core's EXT_ENDPOINT, which builds the registry token realm
+  # advertised in /v2/'s Www-Authenticate header. Must include the https://
+  # scheme, otherwise helm/oras reject the schemeless realm with
+  # "bearer realm ... uses unsupported scheme". The airgap render overrides
+  # this via `--set harbor.externalURL` for the teknoir.airgapped domain.
+  externalURL: "https://harbor.teknoir.local"
 
   # Persistence configuration following the repo's pattern of using hostPath for local/initial setups
   # or allowing override via PVCs.
@@ -74,6 +79,7 @@ harbor:
       extrInitContainers:
         - name: fix-permissions
           image: busybox:latest
+          imagePullPolicy: IfNotPresent
           command: ["sh", "-c", "chown -R 999:999 /var/lib/postgresql/data"]
           securityContext:
             runAsUser: 0
@@ -86,6 +92,7 @@ harbor:
       initContainers:
         - name: fix-permissions
           image: busybox:latest
+          imagePullPolicy: IfNotPresent
           command: ["sh", "-c", "chown -R 999:999 /var/lib/redis"]
           securityContext:
             runAsUser: 0
@@ -98,6 +105,7 @@ harbor:
     initContainers:
       - name: fix-permissions
         image: busybox:latest
+        imagePullPolicy: IfNotPresent
         command: ["sh", "-c", "chown -R 10000:10000 /home/scanner/.cache"]
         securityContext:
           runAsUser: 0
@@ -111,6 +119,7 @@ harbor:
     initContainers:
       - name: fix-permissions
         image: busybox:latest
+        imagePullPolicy: IfNotPresent
         command: ["sh", "-c", "chown -R 10000:10000 /storage"]
         securityContext:
           runAsUser: 0
@@ -124,6 +133,7 @@ harbor:
     initContainers:
       - name: fix-permissions
         image: busybox:latest
+        imagePullPolicy: IfNotPresent
         command: ["sh", "-c", "chown -R 10000:10000 /var/log/jobs"]
         securityContext:
           runAsUser: 0

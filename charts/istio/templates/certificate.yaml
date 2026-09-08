@@ -1,4 +1,4 @@
-{{- $domain := .Values.global.domain | default "teknoir.cloud" -}}
+{{- $domain := .Values.global.domain | default "teknoir.local" -}}
 {{- $dnsNames := (list $domain (printf "*.%s" $domain)) -}}
 {{- $commonName := (printf "*.%s" $domain) -}}
 {{- $secretName := (printf "%s-wildcard-tls" (replace "." "-" $domain)) -}}
@@ -16,5 +16,5 @@ spec:
     - {{ . | quote }}
 {{- end }}
   issuerRef:
-    name: letsencrypt-dns
+    name: teknoir-ca
     kind: ClusterIssuer

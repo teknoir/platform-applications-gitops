@@ -8,12 +8,13 @@ spec:
     namespace: istio-system
     server: https://kubernetes.default.svc
   source:
-    path: charts/istio
-    repoURL: https://github.com/teknoir/platform-applications-gitops
-    targetRevision: {{ .Values.project }}
-  sources: [ ]
+    repoURL: harbor.teknoir.local/teknoir
+    chart: istio
+    targetRevision: 0.0.1
   project: {{ .Values.project }}
   syncPolicy:
+    syncOptions:
+      - ServerSideApply=true
     automated:
       prune: true
       selfHeal: true

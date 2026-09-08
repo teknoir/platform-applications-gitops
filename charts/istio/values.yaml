@@ -1,7 +1,15 @@
 # Values for istio.
 
 global:
-  domain: teknoir.cloud
+  domain: teknoir.local
+  # Istio images are pinned to explicit version tags, so IfNotPresent is safe
+  # and correct everywhere. It is also mandatory for the air gap: the gateway
+  # pods run a placeholder container (image: auto == :latest) that the API
+  # server would otherwise default to imagePullPolicy: Always, forcing a
+  # registry pull of proxyv2 on every start even though the image is already
+  # present locally. Applies to injected sidecars via global; each gateway also
+  # sets its own .imagePullPolicy below (the gateway chart reads the local key).
+  imagePullPolicy: IfNotPresent
 
 # Dependency configurations
 # Only keeping values that change defaults or are required by the dependencies
@@ -18,6 +26,7 @@ istiod:
 
 istio-ingressgateway:
   name: istio-ingressgateway
+  imagePullPolicy: IfNotPresent
   labels:
     istio: ingressgateway
   service:
@@ -38,6 +47,7 @@ istio-ingressgateway:
 
 istio-ingressgateway-public:
   name: istio-ingressgateway-public
+  imagePullPolicy: IfNotPresent
   labels:
     istio: ingressgateway-public
   service:
@@ -62,6 +72,7 @@ istio-ingressgateway-public:
 
 istio-egressgateway:
   name: istio-egressgateway
+  imagePullPolicy: IfNotPresent
   labels:
     istio: egressgateway
   service:
