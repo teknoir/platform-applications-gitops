@@ -1,5 +1,5 @@
 # Values for cert-manager
-domain: "teknoir.local"
+domain: "teknoir.airgapped"
 
 # The CA ClusterIssuer signs certificates with the local Teknoir Root CA.
 # The CA key pair is provided by the infra bootstrap as the

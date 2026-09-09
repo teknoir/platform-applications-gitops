@@ -41,7 +41,7 @@ securityContext:
 config:
   projectId: teknoir
   region: us-central1
-  domain: teknoir.local
+  domain: teknoir.airgapped
   domainPrefix: ""
   istioGateway: istio-system/teknoir-gateway
 

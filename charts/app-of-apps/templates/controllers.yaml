@@ -8,7 +8,7 @@ spec:
     namespace: teknoir-system
     server: https://kubernetes.default.svc
   source:
-    repoURL: harbor.teknoir.local/teknoir
+    repoURL: harbor.teknoir.airgapped/teknoir
     chart: notebook-controller
     targetRevision: 0.0.82
   project: {{ .Values.project }}
@@ -28,7 +28,7 @@ spec:
     namespace: teknoir-system
     server: https://kubernetes.default.svc
   source:
-    repoURL: harbor.teknoir.local/teknoir
+    repoURL: harbor.teknoir.airgapped/teknoir
     chart: devstudio-controller
     targetRevision: 0.0.82
   project: {{ .Values.project }}
@@ -48,7 +48,7 @@ spec:
     namespace: teknoir-system
     server: https://kubernetes.default.svc
   source:
-    repoURL: harbor.teknoir.local/teknoir
+    repoURL: harbor.teknoir.airgapped/teknoir
     chart: user-controller
     targetRevision: 0.0.82
   project: {{ .Values.project }}
@@ -84,7 +84,7 @@ spec:
     namespace: teknoir-system
     server: https://kubernetes.default.svc
   source:
-    repoURL: harbor.teknoir.local/teknoir
+    repoURL: harbor.teknoir.airgapped/teknoir
     chart: profile-controller
     targetRevision: 0.0.82
   project: {{ .Values.project }}
@@ -104,7 +104,7 @@ spec:
     namespace: teknoir-system
     server: https://kubernetes.default.svc
   source:
-    repoURL: harbor.teknoir.local/teknoir
+    repoURL: harbor.teknoir.airgapped/teknoir
     chart: device-controller
     targetRevision: 0.0.82
   project: {{ .Values.project }}

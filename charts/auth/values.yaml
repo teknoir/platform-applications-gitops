@@ -1,5 +1,5 @@
 # Values for auth.
-domain: "teknoir.local"
+domain: "teknoir.airgapped"
 namespace: teknoir-auth
 
 keycloak:
@@ -43,9 +43,9 @@ keycloak:
     - name: KC_BOOTSTRAP_ADMIN_PASSWORD
       value: change-me
     - name: KC_HOSTNAME
-      value: auth.teknoir.local
+      value: auth.teknoir.airgapped
     - name: KC_HOSTNAME_URL
-      value: https://auth.teknoir.local
+      value: https://auth.teknoir.airgapped
     - name: KC_DB_USERNAME
       valueFrom:
         secretKeyRef:
@@ -74,8 +74,8 @@ oauth2Proxy:
   redirectUrl: ""
 #  whitelistDomains: []
   whitelistDomains:
-    - "teknoir.local"
-    - "*.teknoir.local"
+    - "teknoir.airgapped"
+    - "*.teknoir.airgapped"
   authHosts: []
   sharedHost: ""
   emailDomains:

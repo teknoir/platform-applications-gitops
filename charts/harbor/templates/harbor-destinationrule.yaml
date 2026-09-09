@@ -24,3 +24,19 @@ spec:
   trafficPolicy:
     tls:
       mode: ISTIO_MUTUAL
+
+---
+# The core -> registry hop is the only service-to-service hop where Harbor core
+# acts as a reverse proxy (it forwards /v2/ requests to harbor-registry). Enforce
+# ISTIO_MUTUAL explicitly so the hop keeps its mTLS identity under namespace-wide
+# STRICT PeerAuthentication.
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: harbor-registry-mtls
+  namespace: {{ $namespace }}
+spec:
+  host: "harbor-registry.{{ $namespace }}.svc.cluster.local"
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL

@@ -8,7 +8,7 @@ spec:
     namespace: teknoir-system
     server: https://kubernetes.default.svc
   source:
-    repoURL: harbor.teknoir.local/teknoir
+    repoURL: harbor.teknoir.airgapped/teknoir
     chart: monitoring
     targetRevision: 0.0.3
   project: {{ .Values.project }}

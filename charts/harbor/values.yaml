@@ -12,8 +12,8 @@ istio:
     enabled: false
 
 # Domain and naming conventions
-domain: "teknoir.local"
-hostname: "harbor.teknoir.local"
+domain: "teknoir.airgapped"
+hostname: "harbor.teknoir.airgapped"
 
 # The Harbor subchart configuration
 harbor:
@@ -38,7 +38,7 @@ harbor:
   # scheme, otherwise helm/oras reject the schemeless realm with
   # "bearer realm ... uses unsupported scheme". The airgap render overrides
   # this via `--set harbor.externalURL` for the teknoir.airgapped domain.
-  externalURL: "https://harbor.teknoir.local"
+  externalURL: "https://harbor.teknoir.airgapped"
 
   # Persistence configuration following the repo's pattern of using hostPath for local/initial setups
   # or allowing override via PVCs.
@@ -116,6 +116,12 @@ harbor:
   registry:
     existingSecret: "harbor-secret"
     existingSecretKey: "REGISTRY_HTTP_SECRET"
+    # Harbor core relays /v2/ requests to the registry and rewrites the Host
+    # header to the internal harbor-registry service (see the core EnvoyFilter).
+    # With relative URLs the registry returns Location headers relative to the
+    # request path, so docker/helm/oras resolve them against the external
+    # harbor URL instead of the internal service name.
+    relativeurls: true
     initContainers:
       - name: fix-permissions
         image: busybox:latest

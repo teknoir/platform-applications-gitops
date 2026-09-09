@@ -2,15 +2,15 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: istio
+  name: harbor
 spec:
   destination:
-    namespace: istio-system
+    namespace: teknoir-system
     server: https://kubernetes.default.svc
   source:
     repoURL: harbor.teknoir.airgapped/teknoir
-    chart: istio
-    targetRevision: 0.0.1
+    chart: harbor
+    targetRevision: 0.0.5
   project: {{ .Values.project }}
   syncPolicy:
     syncOptions:
@@ -19,9 +19,3 @@ spec:
       prune: true
       selfHeal: true
       enabled: true
-  ignoreDifferences:
-    - group: admissionregistration.k8s.io
-      kind: ValidatingWebhookConfiguration
-      jsonPointers:
-        - /webhooks/0/clientConfig/caBundle
-        - /webhooks/0/failurePolicy

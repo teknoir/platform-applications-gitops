@@ -1,7 +1,7 @@
 # Values for istio.
 
 global:
-  domain: teknoir.local
+  domain: teknoir.airgapped
   # Istio images are pinned to explicit version tags, so IfNotPresent is safe
   # and correct everywhere. It is also mandatory for the air gap: the gateway
   # pods run a placeholder container (image: auto == :latest) that the API
