@@ -10,7 +10,7 @@ spec:
   source:
     repoURL: harbor.teknoir.airgapped/teknoir
     chart: auth
-    targetRevision: 0.0.3
+    targetRevision: 0.0.7
   project: {{ .Values.project }}
   syncPolicy:
     automated:

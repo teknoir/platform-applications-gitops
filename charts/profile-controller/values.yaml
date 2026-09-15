@@ -33,8 +33,6 @@ config:
   projectId: "teknoir"
   domain: "teknoir.airgapped"
   domainPrefix: ""
-  region: "us-central1"
-  dnsZone: "teknoir-cloud"
   istioRevision: "1.29.0"
 
 resources: {}

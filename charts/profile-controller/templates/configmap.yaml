@@ -13,6 +13,4 @@ data:
   PROJECT_ID: {{ .Values.config.projectId | quote }}
   DOMAIN: {{ .Values.config.domain | quote }}
   DOMAIN_PREFIX: {{ .Values.config.domainPrefix | quote }}
-  REGION: {{ .Values.config.region | quote }}
-  DNS_ZONE: {{ .Values.config.dnsZone | quote }}
   ISTIO_REVISION: {{ .Values.config.istioRevision | quote }}

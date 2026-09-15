@@ -14,6 +14,13 @@ global:
 # Dependency configurations
 # Only keeping values that change defaults or are required by the dependencies
 
+# The wildcard Certificate CR is issued and renewed by cert-manager (GitOps owns
+# it). The bootstrap render passes `--set certificate.enabled=false` so it only
+# lays down the one-shot static wildcard secret as a placeholder; cert-manager
+# replaces it on first issuance.
+certificate:
+  enabled: true
+
 istio-base: {}
 
 istiod:

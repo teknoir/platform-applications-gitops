@@ -7,6 +7,8 @@
 {{- $cookieDomain := .Values.oauth2Proxy.cookie.domain | default $domain -}}
 {{- $redirectUrl := .Values.oauth2Proxy.redirectUrl | default (printf "https://%s/oauth2/callback" $domain) -}}
 {{- $namespace := .Values.namespace | default .Release.Namespace -}}
+{{- $caSecretName := .Values.oauth2Proxy.oidc.caSecretName -}}
+{{- $caSecretKey := .Values.oauth2Proxy.oidc.caSecretKey | default "ca.crt" -}}
 apiVersion: v1
 kind: Service
 metadata:
@@ -46,6 +48,9 @@ spec:
             - --provider={{ $provider }}
             - --oidc-issuer-url={{ $issuerUrl }}
             - --skip-oidc-discovery=true
+{{- if $caSecretName }}
+            - --provider-ca-file=/etc/ssl/teknoir/{{ $caSecretKey }}
+{{- end }}
             - --client-id={{ .Values.oauth2Proxy.oidc.clientId }}
 {{- if eq $provider "keycloak-oidc" }}
             - --oidc-jwks-url={{ .Values.oauth2Proxy.oidc.jwksUrl | default "http://keycloak-http.teknoir-auth.svc.cluster.local/auth/realms/master/protocol/openid-connect/certs" }}
@@ -128,6 +133,18 @@ spec:
           ports:
             - name: http
               containerPort: {{ .Values.oauth2Proxy.service.port }}
+{{- if $caSecretName }}
+          volumeMounts:
+            - name: teknoir-ca
+              mountPath: /etc/ssl/teknoir
+              readOnly: true
+{{- end }}
+{{- if $caSecretName }}
+      volumes:
+        - name: teknoir-ca
+          secret:
+            secretName: {{ $caSecretName }}
+{{- end }}
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname

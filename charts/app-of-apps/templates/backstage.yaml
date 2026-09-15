@@ -2,17 +2,16 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: cert-manager
+  name: backstage
 spec:
   destination:
-    namespace: cert-manager
+    namespace: teknoir-system
     server: https://kubernetes.default.svc
   source:
+    path: backstage
     repoURL: harbor.teknoir.airgapped/teknoir
-    chart: cert-manager
-    targetRevision: 0.0.1
-    helm:
-      skipCrds: true
+    targetRevision: {{ .Values.project }}
+  sources: [ ]
   project: {{ .Values.project }}
   syncPolicy:
     automated:

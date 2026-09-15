@@ -10,4 +10,3 @@ data:
   DOMAIN_PREFIX: {{ .Values.config.domainPrefix | quote }}
   ISTIO_GATEWAY: {{ .Values.config.istioGateway | quote }}
   PROJECT_ID: {{ .Values.config.projectId | quote }}
-  REGION: {{ .Values.config.region | quote }}

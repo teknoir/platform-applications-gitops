@@ -96,6 +96,25 @@ spec:
                 return string.find(cookie, "{{ $cookieName }}=") ~= nil
               end
 
+              -- Only a top-level browser navigation can usefully follow a 302 to the
+              -- oauth2-proxy sign-in page on the shared host. Rewriting an XHR/fetch
+              -- response into a cross-origin redirect makes the browser abort the
+              -- request ("Request has been terminated ... Origin is not allowed by
+              -- Access-Control-Allow-Origin") and hides the real upstream 401/403 --
+              -- e.g. an ArgoCD RBAC denial on a resource action. API clients (curl,
+              -- argocd CLI, kubectl) must see the status code, not a redirect.
+              local function is_navigation(h)
+                local mode = h:get("sec-fetch-mode")
+                if mode ~= nil and mode ~= "" then
+                  return mode == "navigate"
+                end
+                if h:get("x-requested-with") ~= nil then
+                  return false
+                end
+                local accept = h:get("accept") or ""
+                return string.find(accept, "text/html", 1, true) ~= nil
+              end
+
               function envoy_on_request(handle)
                 local h = handle:headers()
                 local rd, path = build_rd(h)
@@ -103,6 +122,7 @@ spec:
                 md:set("oauth2_proxy", "rd", rd)
                 md:set("oauth2_proxy", "path", path)
                 md:set("oauth2_proxy", "has_session", has_session_cookie(h) and "true" or "false")
+                md:set("oauth2_proxy", "navigation", is_navigation(h) and "true" or "false")
               end
 
               function envoy_on_response(handle)
@@ -116,6 +136,9 @@ spec:
                   return
                 end
                 if md["has_session"] == "true" then
+                  return
+                end
+                if md["navigation"] ~= "true" then
                   return
                 end
                 local rd = md["rd"] or ""
@@ -140,6 +163,12 @@ spec:
           typed_per_filter_config:
             envoy.filters.http.ext_authz:
               "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute
+              disabled: true
+            # Keycloak is the IdP and owns its own 401/403 responses (admin API,
+            # login endpoints) -- the gateway must not rewrite them into an
+            # oauth2-proxy redirect.
+            envoy.filters.http.lua:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.LuaPerRoute
               disabled: true
     - applyTo: VIRTUAL_HOST
       match:
@@ -171,6 +200,15 @@ spec:
           typed_per_filter_config:
             envoy.filters.http.ext_authz:
               "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute
+              disabled: true
+            # ArgoCD authenticates itself (native Keycloak OIDC + its own RBAC) and
+            # must own its 401/403 API responses. With the lua filter active, an
+            # ArgoCD RBAC denial (e.g. POST /api/v1/applications/<app>/resource/
+            # actions/v2 for a readonly user) was rewritten into a cross-origin
+            # 302 to https://<shared-host>/oauth2/start, which the browser aborts:
+            # "Unable to execute resource action: Request has been terminated".
+            envoy.filters.http.lua:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.LuaPerRoute
               disabled: true
     - applyTo: HTTP_ROUTE
       match:

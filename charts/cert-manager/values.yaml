@@ -11,4 +11,6 @@ ca:
 cert-manager:
   fullnameOverride: cert-manager
   crds:
-    enabled: true
+    # CRDs are installed by the infra bootstrap as K3s-owned manifests
+    # (05-teknoir-certmanager-crds.yaml); ArgoCD must not render them.
+    enabled: false

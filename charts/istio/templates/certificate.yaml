@@ -1,3 +1,4 @@
+{{- if .Values.certificate.enabled }}
 {{- $domain := .Values.global.domain | default "teknoir.airgapped" -}}
 {{- $dnsNames := (list $domain (printf "*.%s" $domain)) -}}
 {{- $commonName := (printf "*.%s" $domain) -}}
@@ -18,3 +19,4 @@ spec:
   issuerRef:
     name: teknoir-ca
     kind: ClusterIssuer
+{{- end }}
