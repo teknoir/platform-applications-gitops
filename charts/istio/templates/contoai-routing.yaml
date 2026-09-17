@@ -1,0 +1,65 @@
+{{- if .Values.contoai.enabled -}}
+{{- $domain := .Values.contoai.domain | default "contoai.site" -}}
+{{- $hosts := .Values.contoai.hosts | default (list $domain (printf "*.%s" $domain)) -}}
+{{- $backendHost := .Values.contoai.backend.host | default "contoai-backend.internal" -}}
+{{- $backendAddress := .Values.contoai.backend.address | default "192.168.2.204" -}}
+{{- $backendPort := .Values.contoai.backend.port | default 443 -}}
+{{- $backendSni := .Values.contoai.backend.sni | default $domain -}}
+{{- $insecure := .Values.contoai.backend.insecureSkipVerify | default false -}}
+---
+# The contoai ingress lives outside this mesh.
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+  name: contoai-backend
+  namespace: istio-system
+spec:
+  hosts:
+    - {{ $backendHost | quote }}
+  location: MESH_EXTERNAL
+  resolution: STATIC
+  endpoints:
+    - address: {{ $backendAddress | quote }}
+  ports:
+    - number: {{ $backendPort }}
+      name: https
+      protocol: HTTPS
+---
+# r415 terminates client TLS, then re-originates TLS to the contoai ingress
+# (which only speaks HTTPS). The wildcard certificate is publicly trusted and
+# covers the apex SNI, so verification is enabled unless explicitly disabled.
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: contoai-backend
+  namespace: istio-system
+spec:
+  host: {{ $backendHost | quote }}
+  trafficPolicy:
+    tls:
+      mode: SIMPLE
+      sni: {{ $backendSni | quote }}
+      insecureSkipVerify: {{ $insecure }}
+---
+# Route every *.contoai.site host to the contoai ingress. That ingress routes by
+# Host header, which Istio preserves on the re-encrypted hop.
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: contoai-site
+  namespace: istio-system
+spec:
+  hosts:
+{{- range $hosts }}
+    - {{ . | quote }}
+{{- end }}
+  gateways:
+    - istio-system/contoai-gateway
+  http:
+    - name: contoai
+      route:
+        - destination:
+            host: {{ $backendHost | quote }}
+            port:
+              number: {{ $backendPort }}
+{{- end }}

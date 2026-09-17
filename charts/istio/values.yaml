@@ -66,3 +66,32 @@ istio-egressgateway:
     istio: egressgateway
   service:
     type: ClusterIP
+
+# Second public domain fronted by the r415 edge. The single public IP is
+# port-forwarded to r415, so the hostname decision happens on this cluster's
+# ingress gateway. TLS is terminated here with a wildcard secret mirrored
+# out-of-band from the contoai cluster (r415 has no DNS-01 credentials for the
+# contoai.site zone - the Loopia webhook lives on contoai):
+#   infra/scripts/copy-contoai-cert-secret.sh
+# Traffic is then re-encrypted to the contoai ingress, which is authoritative
+# for *.contoai.site.
+contoai:
+  enabled: true
+  domain: contoai.site
+  # Explicit host list override (unset = [domain, *.domain]).
+  hosts: []
+  tls:
+    # Secret in istio-system, copied out-of-band (NOT managed by this chart).
+    # Unset = "<domain-with-dashes>-wildcard-tls".
+    credentialName: contoai-site-wildcard-tls
+  backend:
+    # The contoai cluster is outside this mesh (same subnet, directly routable).
+    host: contoai-backend.internal
+    address: 192.168.2.204
+    port: 443
+    # SNI for the TLS origin hop to the backend. The wildcard certificate also
+    # carries the apex (contoai.site), so the apex is a valid SNI.
+    sni: contoai.site
+    # Set true only if the backend certificate cannot be verified against the
+    # gateway CA bundle. Prefer pinning a CA over disabling verification.
+    insecureSkipVerify: false

@@ -1,0 +1,41 @@
+{{- if .Values.contoai.enabled -}}
+{{- $domain := .Values.contoai.domain | default "contoai.site" -}}
+{{- $hosts := .Values.contoai.hosts | default (list $domain (printf "*.%s" $domain)) -}}
+{{- $credentialName := .Values.contoai.tls.credentialName | default (printf "%s-wildcard-tls" (replace "." "-" $domain)) -}}
+---
+# Edge Gateway for *.contoai.site.
+#
+# This is a second SIMPLE server on the same 443 listener as teknoir-gateway;
+# Istio selects the certificate by SNI, so the two Gateway resources coexist.
+# This is additive: the teknoir-gateway resource is not modified.
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: contoai-gateway
+  namespace: istio-system
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+  - port:
+      number: 80
+      name: http
+      protocol: HTTP
+    hosts:
+{{- range $hosts }}
+    - {{ . | quote }}
+{{- end }}
+    tls:
+      httpsRedirect: true
+  - port:
+      number: 443
+      name: https
+      protocol: HTTPS
+    hosts:
+{{- range $hosts }}
+    - {{ . | quote }}
+{{- end }}
+    tls:
+      mode: SIMPLE
+      credentialName: {{ $credentialName | quote }}
+{{- end }}
