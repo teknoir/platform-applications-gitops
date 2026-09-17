@@ -20,6 +20,9 @@ spec:
       match:
         context: GATEWAY
         listener:
+          # TLS listener only. Plain HTTP (:80) must stay a bare redirect and
+          # must not run ext_authz/Lua, otherwise it 302s to the login host.
+          portNumber: 443
           filterChain:
             filter:
               name: envoy.filters.network.http_connection_manager
@@ -60,6 +63,8 @@ spec:
       match:
         context: GATEWAY
         listener:
+          # Keep the Lua login redirect on the same TLS-only scope as ext_authz.
+          portNumber: 443
           filterChain:
             filter:
               name: envoy.filters.network.http_connection_manager
@@ -205,6 +210,27 @@ spec:
             envoy.filters.http.lua:
               "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.LuaPerRoute
               disabled: true
+{{- range .Values.istio.bypassAuth }}
+    # {{ .vhost }} is authenticated by its backend, not by the r415 edge, so
+    # disable both the ext_authz check and the Lua login redirect.
+    - applyTo: VIRTUAL_HOST
+      match:
+        context: GATEWAY
+        routeConfiguration:
+          gateway: {{ .gateway | quote }}
+          vhost:
+            name: {{ .vhost | quote }}
+      patch:
+        operation: MERGE
+        value:
+          typed_per_filter_config:
+            envoy.filters.http.ext_authz:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute
+              disabled: true
+            envoy.filters.http.lua:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.LuaPerRoute
+              disabled: true
+{{- end }}
 
 ---
 apiVersion: security.istio.io/v1beta1

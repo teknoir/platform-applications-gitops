@@ -114,6 +114,14 @@ istio:
   auth:
     jwksIssuer: ""
     jwksUri: ""
+  # Edge vhosts that must bypass this chart's oauth2-proxy ext_authz + Lua
+  # filters because their backend authenticates them. contoai.site is fronted by
+  # istio-system/contoai-gateway (charts/istio) and authenticated by the contoai
+  # cluster's own oauth2-proxy. Without this, r415 intercepts the request and
+  # redirects to https://teknoir.cloud/oauth2/start.
+  bypassAuth:
+    - gateway: istio-system/contoai-gateway
+      vhost: contoai.site:443
 
 httpbin:
   image:
