@@ -20,5 +20,9 @@ spec:
   hostPath:
     path: {{ printf "%s/%s" $root.Values.harbor.persistence.hostPathPrefix $name | quote }}
     type: DirectoryOrCreate
+  {{- with $root.Values.pvNodeAffinity }}
+  nodeAffinity:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 {{- end }}
 {{- end }}
