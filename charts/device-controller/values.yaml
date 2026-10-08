@@ -43,7 +43,9 @@ config:
   domainPrefix: ""
   istioGateway: istio-system/teknoir-gateway
 
-# GitHub App credentials mounted from the backstage-github-app-secret
+# GitHub App credentials mounted from the backstage-github-app-secret. The
+# secret is optional: without it the controller runs, and only devices with
+# GitOps applications fail to reconcile (credentials file not found).
 githubApp:
   secretName: backstage-github-app-secret
   mountPath: /app/secrets

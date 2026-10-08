@@ -69,9 +69,13 @@ spec:
         resources:
           {{- toYaml .Values.resources | nindent 10 }}
       volumes:
+      # Optional: the controller reads the credentials file lazily, only when a
+      # device has GitOps applications, so it must start without the secret
+      # (e.g. air-gapped installs that have no GitHub App).
       - name: github-app-secret
         secret:
           secretName: {{ .Values.githubApp.secretName }}
+          optional: true
       terminationGracePeriodSeconds: 10
       {{- with .Values.nodeSelector }}
       nodeSelector:
