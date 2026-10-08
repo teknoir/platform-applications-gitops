@@ -115,6 +115,19 @@ secrets:
       password:
         random: {length: 32}
 
+  # Initial human admin of realm `teknoir` (group admin: ArgoCD role:admin,
+  # Harbor admin, every oauth2-proxy-protected host). The auth chart's realm
+  # import creates the user with this as a temporary password (forced change
+  # at first login) and never resets it afterwards. Read it with
+  # `teknoir-airgap credentials platform-admin --out FILE`.
+  - namespace: teknoir-auth
+    name: keycloak-platform-admin
+    keys:
+      username:
+        value: platform-admin
+      password:
+        random: {length: 24}
+
   # Adopted as is on teknoir-local (keys username, password).
   - namespace: teknoir-auth
     name: keycloak-db-secret

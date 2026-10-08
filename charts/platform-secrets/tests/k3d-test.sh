@@ -59,7 +59,7 @@ rv() { k -n "$1" get secret "$2" -o jsonpath='{.metadata.resourceVersion}'; }
 data_hash() { k -n "$1" get secret "$2" -o jsonpath='{.data}' | sha256sum | cut -c1-16; }
 restarted_at() { k -n "$1" get deploy "$2" -o jsonpath='{.spec.template.metadata.annotations.kubectl\.kubernetes\.io/restartedAt}'; }
 all_rvs() {
-	for s in teknoir-auth/keycloak-client-secrets teknoir-auth/keycloak-admin teknoir-auth/keycloak-db-secret \
+	for s in teknoir-auth/keycloak-client-secrets teknoir-auth/keycloak-admin teknoir-auth/keycloak-platform-admin teknoir-auth/keycloak-db-secret \
 		teknoir-auth/oauth2-proxy-secret teknoir-auth/oauth2-proxy-redis-secret teknoir-system/harbor-secret \
 		teknoir-system/harbor-oidc-secret teknoir-system/argocd-oidc-secret teknoir-system/backstage-keycloak-secrets \
 		teknoir-system/backstage-postgres-secrets teknoir-system/backstage-backend-auth; do
@@ -156,6 +156,7 @@ while read -r ns name keys; do
 done <<'EOF'
 teknoir-auth keycloak-client-secrets teknoir,argocd,harbor,user-controller
 teknoir-auth keycloak-admin username,password
+teknoir-auth keycloak-platform-admin username,password
 teknoir-auth keycloak-db-secret username,password
 teknoir-auth oauth2-proxy-secret client-secret,cookie-secret
 teknoir-auth oauth2-proxy-redis-secret password
@@ -202,6 +203,9 @@ ba=$(get_key teknoir-system backstage-backend-auth backend-auth-backstage-secret
 [[ "$ba" =~ ^secret:\ [A-Za-z0-9]{48}$ ]] && ok "T3 backend-auth format" || bad "T3 backend-auth format"
 sk=$(get_key teknoir-system harbor-secret secretKey)
 [ "${#sk}" -eq 16 ] && ok "T3 harbor secretKey is 16 chars" || bad "T3 harbor secretKey length"
+pa=$(get_key teknoir-auth keycloak-platform-admin password)
+[ "$(get_key teknoir-auth keycloak-platform-admin username)" = platform-admin ] && [[ "$pa" =~ ^[A-Za-z0-9]{24}$ ]] &&
+	ok "T3 keycloak-platform-admin: username platform-admin, 24-char password" || bad "T3 keycloak-platform-admin"
 [ "$(get_key teknoir-system backstage-keycloak-secrets KEYCLOAK_REALM)" = teknoir ] &&
 	[ "$(get_key teknoir-system backstage-keycloak-secrets KEYCLOAK_CLIENTSECRET)" = "$(get_key teknoir-auth keycloak-client-secrets user-controller)" ] &&
 	ok "T3 backstage-keycloak-secrets realm + copied client secret" || bad "T3 backstage-keycloak-secrets"
@@ -213,7 +217,7 @@ run_job rerun1 && ok "T4 re-run succeeded" || bad "T4 re-run failed"
 run_job rerun2 || bad "T4 second re-run failed"
 all_rvs >"$WORK/rv2"
 diff -u "$WORK/rv1" "$WORK/rv2" && ok "T4 no resourceVersion changed over 2 re-runs" || bad "T4 resourceVersions changed"
-grep -q '0 created, 0 updated, 11 unchanged, 0 failed' "$LOGS/rerun2.log" && ok "T4 summary reports 11 unchanged" || bad "T4 summary"
+grep -q '0 created, 0 updated, 12 unchanged, 0 failed' "$LOGS/rerun2.log" && ok "T4 summary reports 12 unchanged" || bad "T4 summary"
 
 echo "== T5 delete one Secret"
 k -n teknoir-auth delete secret oauth2-proxy-redis-secret >/dev/null

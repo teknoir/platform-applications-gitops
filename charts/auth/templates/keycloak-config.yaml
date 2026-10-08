@@ -129,8 +129,23 @@ spec:
             # is corrected on the next sync.
             - name: IMPORT_CACHE_ENABLED
               value: "false"
+            # Required actions are set only when a user is created: a
+            # re-import must not force platform-admin to change the password
+            # again. (Credentials labelled "initial" are create-only anyway.)
+            - name: IMPORT_BEHAVIORS_USERUPDATEIGNOREDPROPERTIES
+              value: "attributes,requiredActions"
             - name: JAVA_OPTS
               value: {{ $c.javaOpts | quote }}
+            - name: PLATFORM_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $c.platformAdminSecret }}
+                  key: username
+            - name: PLATFORM_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $c.platformAdminSecret }}
+                  key: password
             {{- range $env, $key := $c.clientSecretEnv }}
             - name: {{ $env }}
               valueFrom:

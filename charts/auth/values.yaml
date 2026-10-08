@@ -161,6 +161,16 @@ realm:
   ssoSessionMaxLifespan: 43200
   defaultClientScopes: [web-origins, acr, profile, roles, email, basic, groups]
   optionalClientScopes: [offline_access]
+  # The initial human admin, in group admin (ArgoCD role:admin, Harbor admin,
+  # every oauth2-proxy-protected host). Username and initial password come
+  # from Secret keycloakConfig.platformAdminSecret (platform-secrets); the
+  # email is <username>@<domain>. The password is temporary (forced change at
+  # first login) and only set when the import creates the user. The user
+  # stays managed: enabled: false disables it once named admins exist.
+  platformAdmin:
+    enabled: true
+    firstName: Platform
+    lastName: Admin
 
 # keycloak-config-cli PostSync Job that imports the realm.
 keycloakConfig:
@@ -178,6 +188,8 @@ keycloakConfig:
   # Secrets from the platform-secrets chart.
   adminSecret: keycloak-admin
   clientSecretsSecret: keycloak-client-secrets
+  # {username, password}: realm.platformAdmin's username and initial password.
+  platformAdminSecret: keycloak-platform-admin
   # Env var used in the realm file -> key of clientSecretsSecret.
   clientSecretEnv:
     TEKNOIR_CLIENT_SECRET: teknoir

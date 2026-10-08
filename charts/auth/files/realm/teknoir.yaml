@@ -5,9 +5,10 @@ $(env:...) with the client secrets from Secret keycloak-client-secrets, which
 the platform-secrets chart generates. No secret is in this file.
 
 Only what is listed here is managed. keycloak-config-cli keeps remote state,
-so it only ever deletes objects it created itself; users other than the
-user-controller service account are not managed here (user-controller and
-`teknoir-airgap admin-user` create them).
+so it only ever deletes objects it created itself, and it never deletes users.
+The only users managed here are the user-controller service account and the
+initial human admin platform-admin; user-controller creates every other user
+from its User CRs.
 */ -}}
 {{- $domain := include "auth.domain" . -}}
 {{- $r := .Values.realm -}}
@@ -146,3 +147,27 @@ users:
         - manage-users
         - view-users
         - query-users
+
+  # The initial human admin. Username and password come from Secret
+  # keycloak-platform-admin (platform-secrets). The credential labelled
+  # "initial" is set only when keycloak-config-cli creates the user, and is
+  # temporary; requiredActions are also applied only at creation
+  # (IMPORT_BEHAVIORS_USERUPDATEIGNOREDPROPERTIES). So Keycloak forces one
+  # password change at first login and later imports never reset it. email,
+  # firstName and lastName satisfy the default user profile, so there is no
+  # profile form at first login. Membership is exactly group admin.
+  - username: $(env:PLATFORM_ADMIN_USERNAME)
+    email: $(env:PLATFORM_ADMIN_USERNAME)@{{ $domain }}
+    emailVerified: true
+    firstName: {{ $r.platformAdmin.firstName | quote }}
+    lastName: {{ $r.platformAdmin.lastName | quote }}
+    enabled: {{ $r.platformAdmin.enabled }}
+    groups:
+      - admin
+    requiredActions:
+      - UPDATE_PASSWORD
+    credentials:
+      - type: password
+        userLabel: initial
+        value: $(env:PLATFORM_ADMIN_PASSWORD)
+        temporary: true
