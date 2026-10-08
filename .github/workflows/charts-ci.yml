@@ -1,0 +1,77 @@
+# Render every chart the way ArgoCD does and enforce the GitOps policy
+# (tests/render.sh), lint the repo's scripts and scan for leaked secrets.
+name: charts-ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - teknoir-local
+      - teknoir-cloud
+      - teknoir-online
+      - main
+      - 'airgap-redesign*'
+
+permissions:
+  contents: read
+
+env:
+  # Same Helm as the airgap bundle build (infra airgap/versions.env), so the
+  # renders here equal the bootstrap's one-shot renders.
+  HELM_VERSION: v4.2.4
+  YQ_VERSION: v4.54.1
+  GITLEAKS_VERSION: v8.30.1
+  KUBE_VERSION: 1.33.5
+
+jobs:
+  render:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+      - name: Install yq
+        run: |
+          sudo curl -fsSL -o /usr/local/bin/yq \
+            "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          sudo chmod +x /usr/local/bin/yq
+          yq --version
+          jq --version
+      - name: Cache chart dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/teknoir-render
+          key: chart-deps-${{ hashFiles('charts/*/Chart.yaml') }}
+          restore-keys: chart-deps-
+      - name: Render and check every chart
+        run: tests/render.sh --out rendered
+      - name: Keep the renders
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rendered
+          path: rendered/
+          if-no-files-found: ignore
+
+  shellcheck:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: |
+          shellcheck --version
+          shellcheck -x tests/render.sh charts/*/update-crds.sh
+          shellcheck -s sh charts/harbor/files/oidc-config.sh
+
+  gitleaks:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: gitleaks
+        run: |
+          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION#v}_linux_x64.tar.gz" \
+            | tar -xz gitleaks
+          ./gitleaks git --redact --verbose .

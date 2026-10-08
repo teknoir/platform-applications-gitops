@@ -1,0 +1,128 @@
+{{- if .Values.oidcConfig.enabled }}
+{{- $namespace := .Values.namespace | default .Release.Namespace }}
+{{- $cfg := .Values.oidcConfig }}
+---
+# Configures Harbor's OIDC login (Keycloak realm teknoir) through Harbor's API
+# after every sync: files/oidc-config.sh PUTs only the settings that differ.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: harbor-oidc-config
+  namespace: {{ $namespace }}
+---
+# Only the state ConfigMap that holds the client secret's sha256. The Secrets
+# reach the Job as environment variables (secretKeyRef), which needs no RBAC.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: harbor-oidc-config
+  namespace: {{ $namespace }}
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: [{{ $cfg.stateConfigMap | quote }}]
+    verbs: ["get", "patch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: harbor-oidc-config
+  namespace: {{ $namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: harbor-oidc-config
+subjects:
+  - kind: ServiceAccount
+    name: harbor-oidc-config
+    namespace: {{ $namespace }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: harbor-oidc-config
+  namespace: {{ $namespace }}
+data:
+  oidc-config.sh: |
+{{ .Files.Get "files/oidc-config.sh" | indent 4 }}
+  desired.json: {{ toJson $cfg.settings | quote }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: harbor-oidc-config
+  namespace: {{ $namespace }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: {{ add $cfg.waitSeconds 600 }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: harbor-oidc-config
+        app.kubernetes.io/part-of: harbor
+        # Talks to harbor-core over the mesh (STRICT mTLS in this namespace).
+        # The label injects the sidecar even where the namespace is not
+        # labelled; native sidecars let the Job complete.
+        sidecar.istio.io/inject: "true"
+    spec:
+      serviceAccountName: harbor-oidc-config
+      restartPolicy: Never
+      containers:
+        - name: oidc-config
+          image: {{ $cfg.image }}
+          imagePullPolicy: {{ $cfg.imagePullPolicy }}
+          command: ["/bin/sh", "/scripts/oidc-config.sh"]
+          env:
+            - name: HARBOR_API
+              value: {{ printf "http://harbor-core.%s.svc.cluster.local/api/v2.0" $namespace | quote }}
+            - name: DESIRED
+              value: /scripts/desired.json
+            - name: STATE_CONFIGMAP
+              value: {{ $cfg.stateConfigMap | quote }}
+            - name: WAIT_SECONDS
+              value: {{ $cfg.waitSeconds | quote }}
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: HOME
+              value: /tmp
+            - name: HARBOR_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $cfg.adminPasswordSecret.name }}
+                  key: {{ $cfg.adminPasswordSecret.key }}
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $cfg.clientSecret.name }}
+                  key: {{ $cfg.clientSecret.key }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: scripts
+          configMap:
+            name: harbor-oidc-config
+        - name: tmp
+          emptyDir: {}
+{{- end }}

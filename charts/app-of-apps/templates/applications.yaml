@@ -1,0 +1,49 @@
+{{- /*
+One Application per entry in .Values.applications (see values.yaml): automated
+sync with prune and selfHeal, server-side apply, retry with backoff, a sync
+wave, and no resources finalizer.
+*/}}
+{{- range $name, $app := .Values.applications }}
+{{- if or (not (hasKey $app "enabled")) $app.enabled }}
+{{- range $key := list "version" "namespace" "wave" }}
+{{- if not (hasKey $app $key) }}
+{{- fail (printf "applications.%s.%s is required" $name $key) }}
+{{- end }}
+{{- end }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ $name }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ $app.wave | quote }}
+spec:
+  project: {{ $.Values.project }}
+  destination:
+    namespace: {{ $app.namespace }}
+    server: {{ $.Values.destinationServer }}
+  source:
+    repoURL: {{ $.Values.repoURL }}
+    chart: {{ $app.chart | default $name }}
+    targetRevision: {{ $app.version | quote }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      enabled: true
+    syncOptions:
+      - ServerSideApply=true
+      {{- if $app.ignoreDifferences }}
+      - RespectIgnoreDifferences=true
+      {{- end }}
+      {{- range $app.syncOptions }}
+      - {{ . }}
+      {{- end }}
+    retry:
+      {{- toYaml $.Values.syncPolicy.retry | nindent 6 }}
+  {{- with $app.ignoreDifferences }}
+  ignoreDifferences:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
+{{- end }}

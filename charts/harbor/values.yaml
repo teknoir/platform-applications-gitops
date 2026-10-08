@@ -15,6 +15,93 @@ istio:
 domain: "teknoir.airgapped"
 hostname: "harbor.teknoir.airgapped"
 
+# Optional nodeAffinity for the hostPath PersistentVolumes
+# (templates/harbor-pv.yaml), pinning Harbor's data to the node that holds it
+# once there is more than one node, for example:
+#   pvNodeAffinity:
+#     required:
+#       nodeSelectorTerms:
+#         - matchExpressions:
+#             - key: teknoir.org/storage
+#               operator: In
+#               values: ["true"]
+# Empty (the default) renders none. A PersistentVolume's nodeAffinity cannot
+# be changed after creation, so set it before the first install, or re-create
+# the PVs (reclaim policy Retain keeps the data) when adding it later.
+pvNodeAffinity: {}
+
+# Harbor OIDC login through Keycloak (realm teknoir), configured by a PostSync
+# Job (templates/oidc-config-job.yaml, files/oidc-config.sh) through Harbor's
+# API instead of by hand. The Job reads the admin password and the OIDC client
+# secret from Secrets (never printing them), GETs /api/v2.0/configurations and
+# PUTs only the settings that differ. The client secret cannot be read back, so
+# the Job keeps its sha256 in ConfigMap <oidcConfig.stateConfigMap> and sends it
+# only when it changed. Harbor refuses to switch auth_mode once users other
+# than admin exist; the Job then leaves auth_mode alone and says so. The local
+# admin keeps working in OIDC mode (break-glass, and the airgap node's pushes).
+oidcConfig:
+  enabled: true
+  # Mirrored toolbox image (sh, curl, jq, kubectl), also a bootstrap image.
+  image: docker.io/alpine/k8s:1.34.11
+  imagePullPolicy: IfNotPresent
+  adminPasswordSecret:
+    name: harbor-secret
+    key: HARBOR_ADMIN_PASSWORD
+  # Copy of the harbor client secret of Keycloak realm teknoir, kept in sync by
+  # the platform-secrets chart from teknoir-auth/keycloak-client-secrets.
+  clientSecret:
+    name: harbor-oidc-secret
+    key: client-secret
+  stateConfigMap: harbor-oidc-config-state
+  # How long the Job waits for Harbor to report healthy.
+  waitSeconds: 1200
+  # Harbor configuration keys (PUT /api/v2.0/configurations). oidc_endpoint is
+  # the realm's issuer URL: Keycloak serves under /auth (KC_HTTP_RELATIVE_PATH).
+  # oidc_verify_cert relies on harbor.caBundleSecretName above. offline_access
+  # (an optional client scope of realm teknoir) gives Harbor a refresh token, so
+  # OIDC users' CLI secrets keep working after their ID token expires.
+  settings:
+    auth_mode: oidc_auth
+    oidc_name: Keycloak
+    oidc_endpoint: https://auth.teknoir.airgapped/auth/realms/teknoir
+    oidc_client_id: harbor
+    oidc_scope: openid,profile,email,groups,offline_access
+    oidc_user_claim: preferred_username
+    oidc_groups_claim: groups
+    oidc_admin_group: admin
+    oidc_verify_cert: true
+    oidc_auto_onboard: true
+
+# Harbor's internal registry credential: harbor-core and harbor-jobservice log
+# in to harbor-registry with basic auth as harbor.registry.credentials.username.
+# harbor.registry.credentials.existingSecret below points all three at one
+# Secret (keys REGISTRY_PASSWD and REGISTRY_HTPASSWD), so neither the password
+# nor the htpasswd is rendered: the chart default password stays out of the
+# render, and the render no longer changes with the htpasswd salt. A Sync hook
+# Job (templates/registry-auth-job.yaml, files/registry-auth.sh) creates that
+# Secret once, in-cluster, with a random password and its bcrypt htpasswd line
+# (the registry accepts bcrypt only; the Job uses helm's htpasswd function,
+# since the toolbox image has no other bcrypt tool). An existing Secret is
+# never changed. To rotate, delete the Secret and sync the harbor Application:
+# the Job creates a new one and restarts the Deployments below that were
+# running with the old one.
+registryAuth:
+  enabled: true
+  # Mirrored toolbox image (sh, kubectl, helm, jq), also a bootstrap image.
+  image: docker.io/alpine/k8s:1.34.11
+  imagePullPolicy: IfNotPresent
+  # The Deployments that read the credential (release harbor).
+  restartDeployments:
+    - harbor-core
+    - harbor-jobservice
+    - harbor-registry
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+
 # The Harbor subchart configuration
 harbor:
   expose:
@@ -36,9 +123,15 @@ harbor:
   # Feeds Harbor core's EXT_ENDPOINT, which builds the registry token realm
   # advertised in /v2/'s Www-Authenticate header. Must include the https://
   # scheme, otherwise helm/oras reject the schemeless realm with
-  # "bearer realm ... uses unsupported scheme". The airgap render overrides
-  # this via `--set harbor.externalURL` for the teknoir.airgapped domain.
+  # "bearer realm ... uses unsupported scheme". The airgap bootstrap renders
+  # this chart with no overrides, so it must match `hostname` above.
   externalURL: "https://harbor.teknoir.airgapped"
+
+  # The Teknoir Root CA (public certificate, key ca.crt), which the airgap node
+  # copies into teknoir-system before Harbor is first applied. Harbor adds it to
+  # the trust store of core, jobservice, registry, trivy and the exporter, so
+  # core can verify https://auth.<domain> for OIDC (oidc_verify_cert below).
+  caBundleSecretName: teknoir-root-ca-bundle
 
   # Persistence configuration following the repo's pattern of using hostPath for local/initial setups
   # or allowing override via PVCs.
@@ -116,6 +209,11 @@ harbor:
   registry:
     existingSecret: "harbor-secret"
     existingSecretKey: "REGISTRY_HTTP_SECRET"
+    # core/jobservice -> registry basic auth, from the Secret that the
+    # registryAuth Job above creates (keys REGISTRY_PASSWD, REGISTRY_HTPASSWD).
+    credentials:
+      username: harbor_registry_user
+      existingSecret: harbor-registry-auth
     # Harbor core relays /v2/ requests to the registry and rewrites the Host
     # header to the internal harbor-registry service (see the core EnvoyFilter).
     # With relative URLs the registry returns Location headers relative to the
@@ -148,7 +246,7 @@ harbor:
             mountPath: /var/log/jobs
 
   # Secret management
-  # Reference the secret generated by scripts/gen-harbor-secrets.sh
+  # harbor-secret is created once in-cluster by the platform-secrets chart.
   existingSecretAdminPassword: "harbor-secret"
   existingSecretAdminPasswordKey: "HARBOR_ADMIN_PASSWORD"
   existingSecretSecretKey: "harbor-secret"
@@ -158,3 +256,19 @@ harbor:
     # Note: 'secret' is the default key in core.existingSecret
     existingXsrfSecret: "harbor-secret"
     existingXsrfSecretKey: "CSRF_KEY"
+    # The token-service key pair (tls.key signs registry tokens, tls.crt is the
+    # registry's root.crt). The airgap node creates this kubernetes.io/tls
+    # Secret once. Without it the chart generates a new key pair (genCA) on
+    # every render, so every ArgoCD refresh rolled harbor-core and the registry.
+    secretName: harbor-token-service
+
+  # Not configurable from a Secret in Harbor chart 1.18.3 with the internal
+  # database: database.internal.password, the internal PostgreSQL superuser
+  # password, fixed at initdb. It stays the chart default, as on the running
+  # teknoir-local install, and is rendered into the harbor-core
+  # (POSTGRESQL_PASSWORD) and harbor-database (POSTGRES_PASSWORD) Secrets.
+  # Changing it needs an in-database password change plus a chart that reads
+  # it from a Secret (a follow-up that needs the owner's decision). Until then
+  # any meshed workload in teknoir-system or teknoir-auth (AuthorizationPolicy
+  # harbor-allow-internal, STRICT mTLS) can reach harbor-database:5432 and log
+  # in with it.

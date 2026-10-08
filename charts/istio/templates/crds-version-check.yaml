@@ -1,0 +1,28 @@
+{{- /*
+crds/ holds the istio CRDs vendored from the istio base dependency by
+update-crds.sh (annotated Prune=false,Delete=false), and istio-base.base.excludedCRDs
+keeps the base chart from rendering its own unannotated copy. Fail the render
+when the dependency is bumped without re-running update-crds.sh, or when the
+exclusion list and crds/ disagree (a CRD rendered twice, or one missing).
+Renders nothing.
+*/}}
+{{- $pinned := "" }}
+{{- range .Chart.Dependencies }}
+{{- if or (eq .Name "base") (eq .Name "istio-base") (eq .Alias "istio-base") }}{{ $pinned = .Version }}{{ end }}
+{{- end }}
+{{- $vendored := list }}
+{{- range $path, $_ := .Files.Glob "crds/*.yaml" }}
+{{- $content := $.Files.Get $path }}
+{{- $version := regexFind "istio base [0-9][^ ]*" $content | trimPrefix "istio base " }}
+{{- if ne $version $pinned }}
+{{- fail (printf "%s is vendored from istio base %q, Chart.yaml pins %q: run charts/istio/update-crds.sh" $path $version $pinned) }}
+{{- end }}
+{{- $vendored = append $vendored (fromYaml $content).metadata.name }}
+{{- end }}
+{{- if not $vendored }}
+{{- fail "crds/ is empty: run charts/istio/update-crds.sh" }}
+{{- end }}
+{{- $excluded := (index .Values "istio-base" "base" "excludedCRDs") | default list }}
+{{- if ne (sortAlpha $vendored | join ",") (sortAlpha $excluded | join ",") }}
+{{- fail (printf "istio-base.base.excludedCRDs must list exactly the CRDs in crds/ (%s): run charts/istio/update-crds.sh" (sortAlpha $vendored | join ", ")) }}
+{{- end }}

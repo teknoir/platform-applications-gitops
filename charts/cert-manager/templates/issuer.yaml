@@ -1,8 +1,13 @@
 ---
+# Signs with the Teknoir Root CA in Secret cert-manager/<ca.secretName>, which
+# the airgap node creates once and never puts in a bundle or in Git.
+# Wave 1: after the cert-manager webhook (wave 0) is up.
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
   name: {{ .Values.ca.issuerName | default "teknoir-ca" }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
 spec:
   ca:
     secretName: {{ .Values.ca.secretName | default "teknoir-root-ca" }}
