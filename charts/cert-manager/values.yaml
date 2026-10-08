@@ -2,15 +2,27 @@
 domain: "teknoir.airgapped"
 
 # The CA ClusterIssuer signs certificates with the local Teknoir Root CA.
-# The CA key pair is provided by the infra bootstrap as the
-# `teknoir-root-ca` secret in the cert-manager namespace.
+# The airgap node creates the CA key pair once, in-cluster, as the
+# `teknoir-root-ca` Secret in the cert-manager namespace.
 ca:
   issuerName: teknoir-ca
   secretName: teknoir-root-ca
 
+# The wildcard certificate for <domain> and *.<domain>, served by the istio
+# ingress gateways. Its Secret is <domain with dots as dashes>-wildcard-tls.
+wildcard:
+  enabled: true
+  name: teknoir-wildcard
+  namespace: istio-system
+
 cert-manager:
   fullnameOverride: cert-manager
   crds:
-    # CRDs are installed by the infra bootstrap as K3s-owned manifests
-    # (05-teknoir-certmanager-crds.yaml); ArgoCD must not render them.
+    # The CRDs ship from this chart's crds/, vendored by update-crds.sh and
+    # annotated Prune=false,Delete=false, so ArgoCD never deletes them (and
+    # with them every Certificate and Issuer in the cluster) on a prune or a
+    # cascading delete of this Application. The dependency's own CRD templates
+    # cannot carry that annotation, so they stay off;
+    # templates/crds-version-check.yaml enforces it. ArgoCD applies crds/ on
+    # every sync, server-side (they exceed the client-side annotation limit).
     enabled: false

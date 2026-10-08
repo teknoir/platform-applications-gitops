@@ -1,0 +1,28 @@
+{{- if .Values.wildcard.enabled }}
+{{- $domain := .Values.domain | default "teknoir.airgapped" -}}
+---
+# The wildcard certificate of the istio ingress gateways (credentialName in the
+# istio chart's templates/gateway.yaml). The airgap node creates its Secret
+# once as a placeholder signed by the same CA, so the gateways serve TLS before
+# cert-manager runs; cert-manager then replaces the placeholder and renews it.
+# Moved here from the istio chart (0.0.2 and earlier): same name, namespace and
+# spec, so ArgoCD adopts it and cert-manager keeps the existing Secret (the
+# controller runs without --enable-certificate-owner-ref).
+# Wave 2: after the ClusterIssuer.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ .Values.wildcard.name }}
+  namespace: {{ .Values.wildcard.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  secretName: {{ printf "%s-wildcard-tls" (replace "." "-" $domain) | quote }}
+  commonName: {{ printf "*.%s" $domain | quote }}
+  dnsNames:
+    - {{ $domain | quote }}
+    - {{ printf "*.%s" $domain | quote }}
+  issuerRef:
+    name: {{ .Values.ca.issuerName | default "teknoir-ca" }}
+    kind: ClusterIssuer
+{{- end }}
