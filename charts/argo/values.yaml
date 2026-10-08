@@ -1,0 +1,69 @@
+
+namespace: teknoir-system
+domain: "teknoir.airgapped"
+
+# Istio integration configuration
+istio:
+  gateway:
+    name: teknoir-gateway
+    namespace: istio-system
+
+argo-cd:
+  namespaceOverride: "teknoir-system"
+
+  # NOTE: The Teknoir Root CA is added to ArgoCD's TLS trust store
+  # (configs.tls.certificates -> argocd-tls-certs-cm) at render time, keyed by the
+  # Harbor host, so the repo-server can `helm registry login` to the in-cluster
+  # Harbor OCI registry without "x509: certificate signed by unknown authority".
+  # It is injected via `helm template --set-file` (scripts/deploy-argo.sh and
+  # airgap/lib.sh:helm_template_chart) rather than hardcoded here, because
+  # teknoir-root-ca.crt is generated per-deployment and gitignored.
+
+  global:
+    # -- Default domain used by all components
+    ## Used for ingresses, certificates, SSO, notifications, etc.
+    domain: argocd.teknoir.airgapped
+
+
+  configs:
+    # NOTE: oidc.config (Keycloak SSO) is injected at render time from
+    # charts/argo/files/oidc.config so the Teknoir Root CA can be embedded as
+    # `rootCA`. argocd-server does OIDC discovery against Keycloak
+    # (https://auth.teknoir.airgapped/.../.well-known/openid-configuration)
+    # with its OWN TLS trust — it does NOT consult the node OS trust store nor
+    # argocd-tls-certs-cm (that ConfigMap is repo-server-only, for Harbor OCI
+    # login). Without rootCA the login fails with "x509: certificate signed by
+    # unknown authority". It is injected via `helm template --set-file`
+    # (scripts/deploy-argo.sh and airgap/lib.sh:helm_template_chart) rather
+    # than hardcoded here, because teknoir-root-ca.crt is generated
+    # per-deployment and gitignored.
+
+    # resource.exclusions is deliberately NOT overridden: the argo-cd chart's
+    # default list (Endpoints, Leases, CertificateRequests, ...) applies.
+    # CustomResourceDefinitions are not excluded. The controller and
+    # monitoring CRDs are GitOps-managed from their charts, which mark them
+    # Prune=false,Delete=false. Only the istio and cert-manager CRDs are
+    # bootstrap-owned (K3s manifests 00-teknoir-istio-crds.yaml and
+    # 05-teknoir-certmanager-crds.yaml, annotated Prune=false,Delete=false by
+    # airgap/render-bootstrap.sh); their Applications set helm.skipCrds and
+    # the istio chart excludes its templated CRDs (istio-base.base.excludedCRDs).
+    cm: {}
+
+    rbac:
+      policy.default: role:readonly
+      # Map the 'admin' group from Keycloak to ArgoCD admin role
+      policy.csv: |
+        g, admin, role:admin
+        g, argocd-admins, role:admin
+
+  server:
+    extraArgs:
+      - --insecure
+
+  # Default redis image lives on public.ecr.aws, which is not mirrored by the
+  # air-gapped Harbor (only docker.io/ghcr.io/gcr.io/quay.io/registry.k8s.io).
+  # Pull it from docker.io so the containerd mirror rewrite applies.
+  redis:
+    image:
+      repository: docker.io/library/redis
+
