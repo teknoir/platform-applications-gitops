@@ -85,7 +85,7 @@ No `list`, `watch`, `delete` or `update` on anything.
 | Secret | Keys | Notes |
 |---|---|---|
 | teknoir-auth/keycloak-client-secrets | teknoir, argocd, harbor, user-controller | canonical client secrets; the auth chart imports them into realm `teknoir`; teknoir and argocd are seeded from their existing consumers |
-| teknoir-auth/keycloak-admin | username, password | master-realm admin |
+| teknoir-auth/keycloak-admin | username, password (+ `previous-password`, never touched) | master-realm admin; `addMissingKeys`: on an existing install `teknoir-airgap migrate` pre-creates it with only `previous-password` |
 | teknoir-auth/keycloak-platform-admin | username (`platform-admin`), password | initial, temporary password of the human admin of realm `teknoir` (group admin); `teknoir-airgap credentials platform-admin` |
 | teknoir-auth/keycloak-db-secret | username, password | adopted |
 | teknoir-auth/oauth2-proxy-secret | client-secret (copy of teknoir), cookie-secret | adopted; restarts oauth2-proxy |

@@ -10,7 +10,9 @@
 # render exactly like the bootstrap one-shot (server-side, field manager
 # argocd-controller), then exercises re-runs via the CronJob. Checks:
 #   T1 one-shot Job completes; every Secret exists with its keys
-#   T2 adoption: a pre-existing Secret keeps its data, gains the label
+#   T2 adoption: a pre-existing Secret keeps its data, gains the label;
+#      keycloak-admin pre-created by `migrate` with only previous-password
+#      gets username + password added and keeps previous-password
 #   T3 formats: same-Secret copy, format prefix, 16-char key, 32-byte cookie
 #      (checked after T10, where it is generated)
 #   T4 idempotency: a re-run changes no resourceVersion
@@ -131,6 +133,9 @@ k -n teknoir-system create secret generic argocd-oidc-secret \
 	--from-file=oidc.auth.clientSecret=<(printf '%s' "$seed_argocd") >/dev/null
 k -n teknoir-system label secret argocd-oidc-secret app.kubernetes.io/part-of=argocd >/dev/null
 o2p_hash0=$(data_hash teknoir-auth oauth2-proxy-secret)
+# T2 fixture: what `teknoir-airgap migrate` leaves on an existing install.
+prev_admin=$(rnd32)
+k -n teknoir-auth create secret generic keycloak-admin --from-file=previous-password=<(printf '%s' "$prev_admin") >/dev/null
 argo_hash0=$(data_hash teknoir-system argocd-oidc-secret)
 
 echo "== T1 bootstrap one-shot (server-side apply as argocd-controller)"
@@ -195,6 +200,13 @@ echo "== T2 adoption"
 	[ "$(k -n teknoir-auth get secret keycloak-db-secret -o jsonpath='{.metadata.labels.objectset\.rio\.cattle\.io/hash}')" = dummy ] &&
 	ok "T2 label added, foreign label kept" || bad "T2 labels wrong"
 [ "$(rv teknoir-auth keycloak-db-secret)" != "$db_rv0" ] || bad "T2 expected a label patch"
+[ "$(get_key teknoir-auth keycloak-admin previous-password)" = "$prev_admin" ] &&
+	[ "$(get_key teknoir-auth keycloak-admin username)" = admin ] &&
+	[[ "$(get_key teknoir-auth keycloak-admin password)" =~ ^[A-Za-z0-9]{32}$ ]] &&
+	[ "$(get_key teknoir-auth keycloak-admin password)" != "$prev_admin" ] &&
+	ok "T2 keycloak-admin from migrate: username + random password added, previous-password kept" || bad "T2 keycloak-admin completion"
+grep -q 'teknoir-auth/keycloak-admin: synced keys: password, username' "$LOGS/oneshot.log" &&
+	ok "T2 log names the added keys" || bad "T2 keycloak-admin log"
 
 echo "== T3 formats"
 [ "$(get_key teknoir-system backstage-postgres-secrets DATA_SOURCE_PASS)" = "$(get_key teknoir-system backstage-postgres-secrets POSTGRES_PASSWORD)" ] &&

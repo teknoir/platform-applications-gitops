@@ -69,11 +69,30 @@ it sets the admin's password to `password` through the admin REST API. So:
 - **Rotate**: put the current password into `previous-password`, the new one
   into `password`, then sync `auth` (or wait for the next sync). Remove
   `previous-password` afterwards.
-- **Existing install with a known old admin password** (the teknoir-local
-  migration): once platform-secrets has created `keycloak-admin`, add the old
-  password as `previous-password` (for example
-  `kubectl -n teknoir-auth patch secret keycloak-admin --type merge --patch-file /dev/stdin`
-  fed from a file, never on the command line), then sync `auth`.
+- **Existing install** (the teknoir-local migration, VM e2e E10): the master
+  admin still has its old password. `keycloak-admin` must hold it as
+  `previous-password` **before `up`**, because one `up` applies platform-secrets
+  and pins app-of-apps, and ArgoCD then syncs auth (wave 0) right after
+  platform-secrets (wave -10). There is no window to add the key in between.
+  - `teknoir-airgap migrate` (infra, I-13) does this: when
+    `teknoir-auth/keycloak-admin` is absent, it creates it with only
+    `previous-password`, read in memory from the live StatefulSet's
+    `KC_BOOTSTRAP_ADMIN_PASSWORD` (never printed, never in Git).
+  - platform-secrets has `addMissingKeys: true` on `keycloak-admin`, so it adds
+    `username` and a random `password` and keeps `previous-password`. The first
+    PostSync then rotates the admin to `password`. If migrate already wrote
+    `username` and `password`, they are kept.
+  - Manual equivalent, before `up`:
+    `kubectl --context teknoir-local -n teknoir-auth create secret generic keycloak-admin --from-file=previous-password=FILE`
+    (FILE holds the current admin password with no trailing newline, mode
+    0600; the value never goes on the command line).
+  - If `up` ran without it, the keycloak-config Job fails, realm `teknoir` is
+    not imported, and every login through oauth2-proxy fails, because
+    oauth2-proxy already uses realm `teknoir`. Recover by adding
+    `previous-password` to the existing Secret
+    (`kubectl -n teknoir-auth patch secret keycloak-admin --type merge --patch-file FILE`,
+    with a `{"data":{"previous-password":"<base64>"}}` file) and syncing `auth`
+    by hand. ArgoCD stops auto-syncing a revision after its retry limit.
 - Without a working password the Job fails with that instruction; no credential
   is ever printed.
 
@@ -106,6 +125,9 @@ it sets the admin's password to `password` through the admin REST API. So:
 
 ## Upgrade notes (0.0.3 -> 0.0.8)
 
+- Before `up`: `teknoir-auth/keycloak-admin` must exist with the admin's
+  current password in `previous-password` (`teknoir-airgap migrate`, see
+  "Keycloak admin").
 - keycloak-0 restarts once (the admin env now comes from a Secret).
 - oauth2-proxy moves to realm `teknoir`. Logins fail between the moment
   platform-secrets re-syncs `oauth2-proxy-secret[client-secret]` and the end of

@@ -107,8 +107,14 @@ secrets:
         random: {length: 32}
 
   # Master-realm admin (KC_BOOTSTRAP_ADMIN_* and keycloak-config-cli login).
+  # addMissingKeys: on an existing install, `teknoir-airgap migrate` creates
+  # this Secret before `up` with only `previous-password` (the admin's live
+  # password); this chart then adds username and a random password, and the
+  # auth chart's keycloak-config Job rotates the admin to it (auth README).
+  # Keys outside this spec, like previous-password, are never touched.
   - namespace: teknoir-auth
     name: keycloak-admin
+    addMissingKeys: true
     keys:
       username:
         value: admin
