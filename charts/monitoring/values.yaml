@@ -8,18 +8,17 @@ kube-prometheus-stack:
 
   ## Install Prometheus Operator CRDs
   ##
+  ## ArgoCD applies the CRDs from the crds subchart's crds/ directory itself, on
+  ## install and on upgrade (server-side apply: they are too large for the
+  ## client-side last-applied annotation). The Helm pre-upgrade hook Job that
+  ## re-applies them is therefore redundant, and it does not work air-gapped:
+  ## its kubectl image tag follows the render-time Kubernetes version and is
+  ## not mirrored. The crds/ files are static, so the chart has no knob to add
+  ## the argocd.argoproj.io/sync-options Prune=false,Delete=false annotation.
   crds:
     enabled: true
     upgradeJob:
-      enabled: true
-      forceConflicts: true
-
-      ## Labels to add to the upgrade-crd pod
-      ##
-      podLabels:
-        app: crds-operator
-        app.kubernetes.io/name: crds-prometheus-operator
-        app.kubernetes.io/component: crds-upgrade
+      enabled: false
 
   ## Provide custom recording or alerting rules to be deployed into the cluster.
   ##
