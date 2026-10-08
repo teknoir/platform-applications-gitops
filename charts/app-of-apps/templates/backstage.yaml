@@ -1,3 +1,9 @@
+{{- /*
+Gated: the backstage chart needs the backstage-postgres-secrets,
+backstage-keycloak-secrets and backstage-github-app-secret Secrets, which
+nothing creates air-gapped yet. Enable once they exist.
+*/}}
+{{- if .Values.backstage.enabled }}
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -8,13 +14,13 @@ spec:
     namespace: teknoir-system
     server: https://kubernetes.default.svc
   source:
-    path: backstage
     repoURL: harbor.teknoir.airgapped/teknoir
-    targetRevision: {{ .Values.project }}
-  sources: [ ]
+    chart: backstage
+    targetRevision: 0.0.82
   project: {{ .Values.project }}
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
       enabled: true
+{{- end }}

@@ -1,2 +1,7 @@
 # GitOps values
 project: teknoir-local
+
+# The backstage Application is off until its Secrets exist on this cluster
+# (see templates/backstage.yaml).
+backstage:
+  enabled: false

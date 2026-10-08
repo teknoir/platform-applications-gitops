@@ -10,7 +10,7 @@ spec:
   source:
     repoURL: harbor.teknoir.airgapped/teknoir
     chart: notebook-controller
-    targetRevision: 0.0.82
+    targetRevision: 0.0.83
   project: {{ .Values.project }}
   syncPolicy:
     automated:
@@ -30,7 +30,7 @@ spec:
   source:
     repoURL: harbor.teknoir.airgapped/teknoir
     chart: devstudio-controller
-    targetRevision: 0.0.82
+    targetRevision: 0.0.83
   project: {{ .Values.project }}
   syncPolicy:
     automated:
@@ -50,7 +50,7 @@ spec:
   source:
     repoURL: harbor.teknoir.airgapped/teknoir
     chart: user-controller
-    targetRevision: 0.0.82
+    targetRevision: 0.0.83
   project: {{ .Values.project }}
   syncPolicy:
     automated:
@@ -86,7 +86,7 @@ spec:
   source:
     repoURL: harbor.teknoir.airgapped/teknoir
     chart: profile-controller
-    targetRevision: 0.0.82
+    targetRevision: 0.0.83
   project: {{ .Values.project }}
   syncPolicy:
     automated:
@@ -106,7 +106,7 @@ spec:
   source:
     repoURL: harbor.teknoir.airgapped/teknoir
     chart: device-controller
-    targetRevision: 0.0.82
+    targetRevision: 0.0.83
   project: {{ .Values.project }}
   syncPolicy:
     automated:

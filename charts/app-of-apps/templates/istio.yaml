@@ -10,7 +10,7 @@ spec:
   source:
     repoURL: harbor.teknoir.airgapped/teknoir
     chart: istio
-    targetRevision: 0.0.1
+    targetRevision: 0.0.2
     helm:
       skipCrds: true
   project: {{ .Values.project }}

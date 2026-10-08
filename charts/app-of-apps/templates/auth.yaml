@@ -10,7 +10,9 @@ spec:
   source:
     repoURL: harbor.teknoir.airgapped/teknoir
     chart: auth
-    targetRevision: 0.0.7
+    # Pinned to the running release. auth 0.0.6/0.0.7 need oauth2-proxy
+    # v7.15.4, which is not mirrored yet; that upgrade is planned separately.
+    targetRevision: 0.0.3
   project: {{ .Values.project }}
   syncPolicy:
     automated:

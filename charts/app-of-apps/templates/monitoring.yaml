@@ -10,7 +10,7 @@ spec:
   source:
     repoURL: harbor.teknoir.airgapped/teknoir
     chart: monitoring
-    targetRevision: 0.0.3
+    targetRevision: 0.0.4
   project: {{ .Values.project }}
   syncPolicy:
     syncOptions:
