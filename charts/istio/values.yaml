@@ -29,8 +29,14 @@ certificate:
 # renders its CRDs from templates, so neither helm.skipCrds nor
 # base.enableCRDTemplates=false keeps them out; excludedCRDs, listing all 14
 # CRDs of istio 1.29, is the only knob. Add any CRD a newer istio introduces.
-# The bootstrap render must clear the list to get the CRDs back:
-#   --set istio-base.base.excludedCRDs=null
+# The bootstrap render (infra airgap/lib.sh) clears the list to get them back:
+#   --set-json istio-base.base.excludedCRDs=[]
+# The bootstrap also annotates them Prune=false,Delete=false. That annotation
+# on the live CRDs is what keeps ArgoCD from deleting them if this Application
+# ever tracked them: had istio 0.0.1 (which renders them) synced while ArgoCD
+# manages CRDs, switching to a release that excludes them would prune all 14.
+# So the live CRDs must carry it, and this Application must be on a release
+# that excludes them, before the CRD exclusion leaves argocd-cm.
 istio-base:
   base:
     excludedCRDs:
