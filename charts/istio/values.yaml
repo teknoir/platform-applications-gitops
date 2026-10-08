@@ -21,7 +21,33 @@ global:
 certificate:
   enabled: true
 
-istio-base: {}
+# The istio CRDs are bootstrap-owned: infra renders them into the K3s
+# auto-deploy file 00-teknoir-istio-crds.yaml. ArgoCD manages CRDs, so this
+# release must render none of them; otherwise ArgoCD and K3s would both own
+# them, and a cascading delete of this Application would take every
+# VirtualService, Gateway and AuthorizationPolicy with them. The base chart
+# renders its CRDs from templates, so neither helm.skipCrds nor
+# base.enableCRDTemplates=false keeps them out; excludedCRDs, listing all 14
+# CRDs of istio 1.29, is the only knob. Add any CRD a newer istio introduces.
+# The bootstrap render must clear the list to get the CRDs back:
+#   --set istio-base.base.excludedCRDs=null
+istio-base:
+  base:
+    excludedCRDs:
+      - wasmplugins.extensions.istio.io
+      - destinationrules.networking.istio.io
+      - envoyfilters.networking.istio.io
+      - gateways.networking.istio.io
+      - proxyconfigs.networking.istio.io
+      - serviceentries.networking.istio.io
+      - sidecars.networking.istio.io
+      - virtualservices.networking.istio.io
+      - workloadentries.networking.istio.io
+      - workloadgroups.networking.istio.io
+      - authorizationpolicies.security.istio.io
+      - peerauthentications.security.istio.io
+      - requestauthentications.security.istio.io
+      - telemetries.telemetry.istio.io
 
 istiod:
   global:
