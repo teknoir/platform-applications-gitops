@@ -4,8 +4,10 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/teknoir/user-controller
+  # A dated build tag, never moved: no need to re-pull on every start (which
+  # also makes a restart depend on Harbor being up).
   tag: teknoir-cloud-20260413-054338
-  pullPolicy: Always
+  pullPolicy: IfNotPresent
 
 imagePullSecrets: []
 
@@ -42,6 +44,16 @@ nodeSelector: {}
 tolerations: []
 
 affinity: {}
+
+# Keycloak client credentials, loaded with envFrom (non-optional: the pod
+# must not start without them). The platform-secrets chart creates this
+# Secret: KEYCLOAK_REALM=teknoir, KEYCLOAK_CLIENTID=user-controller and
+# KEYCLOAK_CLIENTSECRET, a re-synced copy of
+# teknoir-auth/keycloak-client-secrets[user-controller], which the auth chart
+# also imports into realm teknoir. It restarts this Deployment when the copy
+# changes. KEYCLOAK_URL stays in the ConfigMap.
+keycloak:
+  secretName: backstage-keycloak-secrets
 
 config:
   projectId: teknoir
