@@ -1,0 +1,209 @@
+# Values for platform-secrets.
+#
+# This chart is the single source of truth for every random platform Secret.
+# A Job (files/ensure-secrets.sh) reconciles the Secrets listed under
+# `secrets` below:
+#
+#   - A Secret that does not exist is created with every key.
+#   - A Secret that exists is never regenerated. Its `random` keys and its
+#     plain `value` keys are left alone; missing ones are only added when the
+#     Secret sets `addMissingKeys: true`.
+#   - `copyFrom` keys (and `value` keys with `sync: true`) are re-synced on
+#     every run, so a consumer can never drift from the canonical value.
+#   - When a Secret is created or any of its keys changes, the Deployments in
+#     `restartDeployments` get a rollout (kubectl.kubernetes.io/restartedAt).
+#   - Nothing ever prints a value. Values only exist in shell variables and
+#     pipes inside the Job pod.
+#
+# The Job runs three ways, all with the same render:
+#   1. Bootstrap one-shot: the node applies `helm template` of this chart once,
+#      before ArgoCD exists; the Job is a plain Job and simply runs.
+#   2. ArgoCD Sync hook (wave -10, BeforeHookCreation) on every sync.
+#   3. CronJob every 10 minutes, which re-syncs the copies (a rotated source
+#      never needs an ArgoCD sync to reach its consumers).
+#
+# The generated Secrets carry no ArgoCD tracking and no ownerReference, so no
+# Application can ever prune them, and they are not K3s files.
+#
+# Key specs (exactly one of random / value / copyFrom per key):
+#   KEY:
+#     random:              # create-only
+#       length: 32         # characters from `charset` (alnum | hex), or
+#       charset: alnum     #   alnum values always hold upper, lower and digit
+#       bytes: 32          # ...N random bytes in `encoding`
+#       encoding: base64url  # base64 | base64url (unpadded) | hex
+#     format: "secret: %s" # optional; %s is replaced by the random value
+#   KEY:
+#     value: teknoir       # literal, non-secret; create-only unless sync: true
+#     sync: true
+#   KEY:
+#     copyFrom: <namespace>/<secret>/<key>   # always re-synced
+#
+# Labels must be valid Kubernetes label keys/values.
+
+# Namespace of the ServiceAccount, ConfigMap, Job and CronJob. Explicit (not
+# .Release.Namespace) so that the bootstrap render equals ArgoCD's render.
+namespace: teknoir-system
+
+# Toolbox image (sh, kubectl): mirrored and in the bootstrap image tarballs.
+image:
+  repository: docker.io/alpine/k8s
+  tag: "1.34.11"
+  pullPolicy: IfNotPresent
+
+# Label added to every Secret this chart creates.
+managedByLabel:
+  key: teknoir.org/managed-by
+  value: platform-secrets
+
+job:
+  name: platform-secrets-ensure
+  backoffLimit: 6
+  activeDeadlineSeconds: 900
+  # ArgoCD hook settings. kubectl apply ignores these annotations, so the same
+  # Job also runs as the bootstrap one-shot.
+  syncWave: "-10"
+
+cronJob:
+  enabled: true
+  name: platform-secrets-resync
+  schedule: "*/10 * * * *"
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    memory: 128Mi
+
+secrets:
+  # --- Keycloak (teknoir-auth) ---------------------------------------------
+  # Canonical OIDC client secrets of realm `teknoir`. The auth chart
+  # substitutes them into the realm import; consumers get copies below.
+  - namespace: teknoir-auth
+    name: keycloak-client-secrets
+    keys:
+      teknoir:
+        random: {length: 32}
+      argocd:
+        random: {length: 32}
+      harbor:
+        random: {length: 32}
+      user-controller:
+        random: {length: 32}
+
+  # Master-realm admin (KC_BOOTSTRAP_ADMIN_* and keycloak-config-cli login).
+  - namespace: teknoir-auth
+    name: keycloak-admin
+    keys:
+      username:
+        value: admin
+      password:
+        random: {length: 32}
+
+  # Adopted as is on teknoir-local (keys username, password).
+  - namespace: teknoir-auth
+    name: keycloak-db-secret
+    keys:
+      username:
+        value: keycloak
+      password:
+        random: {length: 32}
+
+  # Adopted (keys client-secret, cookie-secret). The client secret follows
+  # keycloak-client-secrets/teknoir; oauth2-proxy restarts when it changes.
+  - namespace: teknoir-auth
+    name: oauth2-proxy-secret
+    keys:
+      client-secret:
+        copyFrom: teknoir-auth/keycloak-client-secrets/teknoir
+      cookie-secret:
+        random: {bytes: 32, encoding: base64url}
+    restartDeployments:
+      - teknoir-auth/oauth2-proxy
+
+  # Adopted (key password).
+  - namespace: teknoir-auth
+    name: oauth2-proxy-redis-secret
+    keys:
+      password:
+        random: {length: 32}
+
+  # --- Harbor (teknoir-system) ---------------------------------------------
+  # Adopted (existing key set). secretKey must be exactly 16 characters.
+  - namespace: teknoir-system
+    name: harbor-secret
+    keys:
+      HARBOR_ADMIN_PASSWORD:
+        random: {length: 24}
+      secretKey:
+        random: {length: 16}
+      secret:
+        random: {length: 16}
+      CSRF_KEY:
+        random: {length: 32}
+      JOBSERVICE_SECRET:
+        random: {length: 16}
+      REGISTRY_HTTP_SECRET:
+        random: {length: 16}
+      database-password:
+        random: {length: 24}
+      redis-password:
+        random: {length: 24}
+
+  # Harbor OIDC client secret, read by the harbor chart's OIDC config Job.
+  - namespace: teknoir-system
+    name: harbor-oidc-secret
+    keys:
+      client-secret:
+        copyFrom: teknoir-auth/keycloak-client-secrets/harbor
+
+  # --- ArgoCD (teknoir-system) ---------------------------------------------
+  # Adopted (key oidc.auth.clientSecret). The part-of label lets ArgoCD
+  # resolve `$argocd-oidc-secret:oidc.auth.clientSecret` in oidc.config.
+  - namespace: teknoir-system
+    name: argocd-oidc-secret
+    labels:
+      app.kubernetes.io/part-of: argocd
+    keys:
+      oidc.auth.clientSecret:
+        copyFrom: teknoir-auth/keycloak-client-secrets/argocd
+
+  # --- user-controller / Backstage (teknoir-system) -------------------------
+  # user-controller logs in with client credentials of the `user-controller`
+  # client (service account with realm-management manage/view/query-users).
+  - namespace: teknoir-system
+    name: backstage-keycloak-secrets
+    keys:
+      KEYCLOAK_REALM:
+        value: teknoir
+        sync: true
+      KEYCLOAK_CLIENTID:
+        value: user-controller
+        sync: true
+      KEYCLOAK_CLIENTSECRET:
+        copyFrom: teknoir-auth/keycloak-client-secrets/user-controller
+    restartDeployments:
+      - teknoir-system/user-controller
+
+  # Never delete this Secret while PVC data-backstage-postgres-0 exists:
+  # initdb fixed the password on first start.
+  - namespace: teknoir-system
+    name: backstage-postgres-secrets
+    keys:
+      POSTGRES_USER:
+        value: backstage
+      POSTGRES_PASSWORD:
+        random: {length: 32}
+      DATA_SOURCE_USER:
+        value: backstage
+      DATA_SOURCE_PASS:
+        copyFrom: teknoir-system/backstage-postgres-secrets/POSTGRES_PASSWORD
+
+  # Backstage backend-to-backend auth key, mounted at /app/secrets.
+  - namespace: teknoir-system
+    name: backstage-backend-auth
+    keys:
+      backend-auth-backstage-secrets.yaml:
+        random: {length: 48}
+        format: "secret: %s"
