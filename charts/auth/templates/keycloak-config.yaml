@@ -1,0 +1,186 @@
+{{- if .Values.keycloakConfig.enabled }}
+{{- $ns := include "auth.namespace" . -}}
+{{- $c := .Values.keycloakConfig -}}
+{{- if not .Values.realm.name }}{{ fail "auth: realm.name is required" }}{{ end }}
+# Realm-as-code: keycloak-config-cli imports realm `{{ .Values.realm.name }}` after every sync.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keycloak-config
+  namespace: {{ $ns }}
+  labels:
+    app: keycloak-config
+data:
+  {{ .Values.realm.name }}.yaml: |
+{{ tpl (.Files.Get "files/realm/teknoir.yaml") . | indent 4 }}
+  keycloak-admin-check.sh: |
+{{ .Files.Get "files/keycloak-admin-check.sh" | indent 4 }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: keycloak-config
+  namespace: {{ $ns }}
+  labels:
+    app: keycloak-config
+automountServiceAccountToken: false
+---
+# PostSync hook: runs once Keycloak is Healthy. It talks to Keycloak through
+# the mesh (in-cluster http, STRICT mTLS), so it keeps the Istio sidecar as a
+# native sidecar, which ends with the Job. It never needs the Kubernetes API.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: keycloak-config
+  namespace: {{ $ns }}
+  labels:
+    app: keycloak-config
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: {{ $c.backoffLimit }}
+  activeDeadlineSeconds: {{ $c.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        app: keycloak-config
+      annotations:
+        sidecar.istio.io/nativeSidecar: "true"
+    spec:
+      serviceAccountName: keycloak-config
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: admin-check
+          image: "{{ $c.toolboxImage.repository }}:{{ $c.toolboxImage.tag }}"
+          imagePullPolicy: {{ $c.toolboxImage.pullPolicy }}
+          command: ["/bin/sh", "/opt/keycloak-config/keycloak-admin-check.sh"]
+          env:
+            - name: HOME
+              value: /tmp
+            - name: KEYCLOAK_URL
+              value: {{ include "auth.keycloakInternalUrl" . | quote }}
+            - name: KC_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $c.adminSecret }}
+                  key: username
+            - name: KC_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $c.adminSecret }}
+                  key: password
+            - name: KC_ADMIN_PREVIOUS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $c.adminSecret }}
+                  key: previous-password
+                  optional: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+          volumeMounts:
+            - name: script
+              mountPath: /opt/keycloak-config
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: keycloak-config-cli
+          image: "{{ $c.image.repository }}:{{ $c.image.tag }}"
+          imagePullPolicy: {{ $c.image.pullPolicy }}
+          env:
+            - name: KEYCLOAK_URL
+              value: {{ include "auth.keycloakInternalUrl" . | quote }}
+            - name: KEYCLOAK_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $c.adminSecret }}
+                  key: username
+            - name: KEYCLOAK_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $c.adminSecret }}
+                  key: password
+            - name: KEYCLOAK_AVAILABILITYCHECK_ENABLED
+              value: "true"
+            - name: KEYCLOAK_AVAILABILITYCHECK_TIMEOUT
+              value: "300s"
+            - name: IMPORT_FILES_LOCATIONS
+              value: /config/*.yaml
+            - name: IMPORT_VARSUBSTITUTION_ENABLED
+              value: "true"
+            # Always run the full (idempotent) import, so drift made in the UI
+            # is corrected on the next sync.
+            - name: IMPORT_CACHE_ENABLED
+              value: "false"
+            # Required actions are set only when a user is created: a
+            # re-import must not force platform-admin to change the password
+            # again. (Credentials labelled "initial" are create-only anyway.)
+            - name: IMPORT_BEHAVIORS_USERUPDATEIGNOREDPROPERTIES
+              value: "attributes,requiredActions"
+            - name: JAVA_OPTS
+              value: {{ $c.javaOpts | quote }}
+            - name: PLATFORM_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $c.platformAdminSecret }}
+                  key: username
+            - name: PLATFORM_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $c.platformAdminSecret }}
+                  key: password
+            {{- range $env, $key := $c.clientSecretEnv }}
+            - name: {{ $env }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $c.clientSecretsSecret }}
+                  key: {{ $key }}
+            {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml $c.resources | nindent 12 }}
+          volumeMounts:
+            - name: realm
+              mountPath: /config
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: realm
+          configMap:
+            name: keycloak-config
+            items:
+              - key: {{ .Values.realm.name }}.yaml
+                path: {{ .Values.realm.name }}.yaml
+        - name: script
+          configMap:
+            name: keycloak-config
+            items:
+              - key: keycloak-admin-check.sh
+                path: keycloak-admin-check.sh
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 32Mi
+{{- end }}

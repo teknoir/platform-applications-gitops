@@ -13,8 +13,8 @@ data:
         externalAccess:
           - type: jwks
             options:
-              url: https://auth.{{ .Values.config.domain }}/auth/realms/master/protocol/openid-connect/certs
-              issuer: https://auth.{{ .Values.config.domain }}/auth/realms/master
+              url: {{ include "backstage.oidcIssuer" . }}/protocol/openid-connect/certs
+              issuer: {{ include "backstage.oidcIssuer" . }}
               algorithm: RS256
               audience: teknoir-cli
               subjectPrefix: keycloak
@@ -31,8 +31,11 @@ data:
       projectId: teknoir
       domain: {{ .Values.config.domain }}
 
+{{- if .Values.backstageApi.github.enabled }}
+
     integrations:
       github:
         - host: github.com
           apps:
             - $include: {{ .Values.backstageApi.githubAppSecretPath }}
+{{- end }}

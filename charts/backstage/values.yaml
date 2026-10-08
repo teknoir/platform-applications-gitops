@@ -5,6 +5,13 @@ config:
   domain: "teknoir.airgapped"
   logLevel: info
   prometheusUrl: http://prometheus.__NAMESPACE__.svc.cluster.local:80
+  # Keycloak realm whose tokens oauth2-proxy forwards (istio
+  # RequestAuthentication) and whose JWKS backs externalAccess. Issuer:
+  # https://auth.<domain><basePath>/realms/<realm>; basePath is Keycloak's
+  # http-relative-path.
+  oidc:
+    realm: teknoir
+    basePath: /auth
 
 # Backstage frontend deployment
 backstage:
@@ -24,12 +31,33 @@ backstageApi:
     fsGroup: 1000
   containerSecurityContext:
     runAsUser: 1000
+  # All three Secrets come from the platform-secrets chart; this chart
+  # creates none of them.
   secrets:
+    # POSTGRES_USER/POSTGRES_PASSWORD (+ DATA_SOURCE_* for the exporter).
     postgresSecretName: backstage-postgres-secrets
+    # KEYCLOAK_* (user-controller's client). Backstage does not read it (the
+    # keycloakOrg provider is off), so it is mounted optional.
     keycloakSecretName: backstage-keycloak-secrets
-    authSecretsName: backstage-github-app-secret
+    # Mounted at /app/secrets; holds backend-auth-backstage-secrets.yaml
+    # ("secret: <random>"), $included as backend.auth.keys.
+    authSecretsName: backstage-backend-auth
   googleApplicationCredentials: '/app/secrets/admin-credentials.json'
+  # GitHub App integration. Off air-gapped: its $include makes the
+  # credentials file mandatory; without it Backstage falls back to the
+  # unauthenticated github.com integration (and the GitHub discovery provider
+  # only logs errors).
+  github:
+    enabled: false
   githubAppSecretPath: /app/secrets/github-app-backstage-teknoir-credentials.yaml
+  # Public CA certificate of the platform (teknoir-root-ca-bundle {ca.crt},
+  # reconciled by the node's secrets phase), trusted by Node.js through
+  # NODE_EXTRA_CA_CERTS so backend calls to https://auth.<domain> verify.
+  # Optional: Backstage still starts without it.
+  caBundle:
+    secretName: teknoir-root-ca-bundle
+    key: ca.crt
+    mountPath: /etc/teknoir-ca
 
 # PostgreSQL database configuration
 postgres:

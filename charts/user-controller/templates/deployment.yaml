@@ -43,7 +43,7 @@ spec:
         - --leader-elect
         envFrom:
           - secretRef:
-              name: backstage-keycloak-secrets
+              name: {{ .Values.keycloak.secretName }}
           - configMapRef:
               name: {{ include "user-controller.fullname" . }}-config
         ports:

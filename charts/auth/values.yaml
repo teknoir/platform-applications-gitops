@@ -7,11 +7,18 @@ keycloak:
   fullnameOverride: keycloak
   image:
     repository: ghcr.io/teknoir/keycloak-theme
+    # Mutable tag (an immutable one needs the keycloak-theme CI, G-09). With
+    # IfNotPresent a restart never pulls a newer Keycloak, whose one-way DB
+    # migration would run unannounced.
     tag: latest
-    pullPolicy: Always
+    pullPolicy: IfNotPresent
   imagePullSecrets: []
   service:
     httpPort: 80
+  # Keycloak serves under /auth (the keycloakx default, stated here because
+  # the issuer URLs in this chart derive from it).
+  http:
+    relativePath: "/auth"
   database:
     vendor: postgres
     hostname: keycloak-db
@@ -37,11 +44,20 @@ keycloak:
     timeoutSeconds: 5
     failureThreshold: 180
     periodSeconds: 5
+  # The master-realm admin comes from Secret keycloak-admin (platform-secrets).
+  # Keycloak applies it only when it creates the admin; the keycloak-config
+  # Job converges an existing admin (see keycloakConfig below).
   extraEnv: |
     - name: KC_BOOTSTRAP_ADMIN_USERNAME
-      value: admin
+      valueFrom:
+        secretKeyRef:
+          name: keycloak-admin
+          key: username
     - name: KC_BOOTSTRAP_ADMIN_PASSWORD
-      value: change-me
+      valueFrom:
+        secretKeyRef:
+          name: keycloak-admin
+          key: password
     - name: KC_HOSTNAME
       value: auth.teknoir.airgapped
     - name: KC_HOSTNAME_URL
@@ -60,8 +76,22 @@ oauth2Proxy:
     repository: quay.io/oauth2-proxy/oauth2-proxy
     tag: v7.6.0
   oidc:
+    # Default: the issuer of realm `realm.name` (https://auth.<domain>/auth/realms/teknoir).
     issuerUrl: ""
     clientId: teknoir
+    # Keycloak is reached over the gateway, whose certificate is signed by the
+    # Teknoir root CA. teknoir-root-ca-bundle {ca.crt} holds only the public
+    # CA certificate; the node's secrets phase reconciles it from the CA
+    # Secret. Mounted non-optional: a missing CA is a visible failure, not a
+    # silent TLS error at login. --provider-ca-file loads it for every OIDC
+    # call (redeem, discovery of the extra JWT issuer).
+    caSecretName: teknoir-root-ca-bundle
+    caSecretKey: ca.crt
+    # When set, bearer tokens of this client (tnctl) are accepted too, via
+    # --extra-jwt-issuers. Off: the client is not in the realm yet, and an
+    # extra issuer makes oauth2-proxy run OIDC discovery at startup, so it
+    # could not start before the PostSync realm import has created the realm.
+    cliClientId: ""
   cookie:
     domain: ""
     name: _teknoir_oauth2_proxy
@@ -83,7 +113,6 @@ oauth2Proxy:
   provider: keycloak-oidc
   pkceMethod: S256
   extraAudiences:
-    - master-realm
     - account
   allowedRoles: []
   allowedGroups: []
@@ -120,3 +149,59 @@ httpbin:
     tag: latest
   virtualService:
     hosts: []
+
+# Realm `teknoir` (realm-as-code, files/realm/teknoir.yaml). All platform
+# clients live here; the master realm only holds the Keycloak admin.
+realm:
+  name: teknoir
+  displayName: Teknoir
+  loginTheme: teknoir-theme
+  accessTokenLifespan: 300
+  ssoSessionIdleTimeout: 1800
+  ssoSessionMaxLifespan: 43200
+  defaultClientScopes: [web-origins, acr, profile, roles, email, basic, groups]
+  optionalClientScopes: [offline_access]
+  # The initial human admin, in group admin (ArgoCD role:admin, Harbor admin,
+  # every oauth2-proxy-protected host). Username and initial password come
+  # from Secret keycloakConfig.platformAdminSecret (platform-secrets); the
+  # email is <username>@<domain>. The password is temporary (forced change at
+  # first login) and only set when the import creates the user. The user
+  # stays managed: enabled: false disables it once named admins exist.
+  platformAdmin:
+    enabled: true
+    firstName: Platform
+    lastName: Admin
+
+# keycloak-config-cli PostSync Job that imports the realm.
+keycloakConfig:
+  enabled: true
+  image:
+    repository: docker.io/adorsys/keycloak-config-cli
+    tag: 6.5.1-26.5.5
+    pullPolicy: IfNotPresent
+  # Init step (sh, curl, jq): waits for Keycloak and converges the master
+  # admin password to Secret keycloak-admin (files/keycloak-admin-check.sh).
+  toolboxImage:
+    repository: docker.io/alpine/k8s
+    tag: "1.34.11"
+    pullPolicy: IfNotPresent
+  # Secrets from the platform-secrets chart.
+  adminSecret: keycloak-admin
+  clientSecretsSecret: keycloak-client-secrets
+  # {username, password}: realm.platformAdmin's username and initial password.
+  platformAdminSecret: keycloak-platform-admin
+  # Env var used in the realm file -> key of clientSecretsSecret.
+  clientSecretEnv:
+    TEKNOIR_CLIENT_SECRET: teknoir
+    ARGOCD_CLIENT_SECRET: argocd
+    HARBOR_CLIENT_SECRET: harbor
+    USER_CONTROLLER_CLIENT_SECRET: user-controller
+  backoffLimit: 4
+  activeDeadlineSeconds: 1800
+  javaOpts: "-XX:MaxRAMPercentage=75"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      memory: 512Mi

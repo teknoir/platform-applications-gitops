@@ -1,12 +1,15 @@
 {{- if .Values.oauth2Proxy.enabled -}}
-{{- $domain := .Values.domain | default "teknoir.airgapped" -}}
+{{- $domain := include "auth.domain" . -}}
 {{- $secretName := .Values.oauth2Proxy.secret.existingName | default "oauth2-proxy-secret" -}}
 {{- $provider := .Values.oauth2Proxy.provider | default "oidc" -}}
-{{- $issuerUrl := .Values.oauth2Proxy.oidc.issuerUrl | default (printf "https://auth.%s/auth/realms/master" $domain) -}}
+{{- $issuerUrl := .Values.oauth2Proxy.oidc.issuerUrl | default (include "auth.issuer" .) -}}
 {{- $issuer := trimSuffix "/" $issuerUrl -}}
+{{- $internalIssuer := printf "%s/realms/%s" (include "auth.keycloakInternalUrl" .) .Values.realm.name -}}
 {{- $cookieDomain := .Values.oauth2Proxy.cookie.domain | default $domain -}}
 {{- $redirectUrl := .Values.oauth2Proxy.redirectUrl | default (printf "https://%s/oauth2/callback" $domain) -}}
-{{- $namespace := .Values.namespace | default .Release.Namespace -}}
+{{- $namespace := include "auth.namespace" . -}}
+{{- $caSecretName := .Values.oauth2Proxy.oidc.caSecretName -}}
+{{- $caSecretKey := .Values.oauth2Proxy.oidc.caSecretKey | default "ca.crt" -}}
 apiVersion: v1
 kind: Service
 metadata:
@@ -39,16 +42,21 @@ spec:
         - name: oauth2-proxy
           image: {{ .Values.oauth2Proxy.image.repository }}:{{ .Values.oauth2Proxy.image.tag }}
           args:
-            # CLI TEST START
             - --skip-jwt-bearer-tokens=true
-            - --extra-jwt-issuers=https://auth.{{ $domain }}/auth/realms/master=teknoir-cli
-            # CLI TEST END
+{{- with .Values.oauth2Proxy.oidc.cliClientId }}
+            - --extra-jwt-issuers={{ $issuer }}={{ . }}
+{{- end }}
             - --provider={{ $provider }}
             - --oidc-issuer-url={{ $issuerUrl }}
             - --skip-oidc-discovery=true
+{{- if $caSecretName }}
+            - --provider-ca-file=/etc/ssl/teknoir/{{ $caSecretKey }}
+{{- end }}
             - --client-id={{ .Values.oauth2Proxy.oidc.clientId }}
 {{- if eq $provider "keycloak-oidc" }}
-            - --oidc-jwks-url={{ .Values.oauth2Proxy.oidc.jwksUrl | default "http://keycloak-http.teknoir-auth.svc.cluster.local/auth/realms/master/protocol/openid-connect/certs" }}
+            # JWKS in-cluster (keys do not depend on the URL); the browser-facing
+            # and token endpoints use the public issuer, as the iss claim must.
+            - --oidc-jwks-url={{ .Values.oauth2Proxy.oidc.jwksUrl | default (printf "%s/protocol/openid-connect/certs" $internalIssuer) }}
             - --login-url={{ .Values.oauth2Proxy.oidc.loginUrl | default (printf "%s/protocol/openid-connect/auth" $issuer) }}
             - --redeem-url={{ .Values.oauth2Proxy.oidc.redeemUrl | default (printf "%s/protocol/openid-connect/token" $issuer) }}
             - --profile-url={{ .Values.oauth2Proxy.oidc.profileUrl | default (printf "%s/protocol/openid-connect/userinfo" $issuer) }}
@@ -78,11 +86,13 @@ spec:
 {{- end }}
             - --email-domain={{ join "," .Values.oauth2Proxy.emailDomains }}
             - --redirect-url={{ $redirectUrl }}
+{{- /* No quoting: a YAML list item keeps quote characters literally, and
+       oauth2-proxy would then never match "teknoir.airgapped" (with quotes). */}}
 {{- range .Values.oauth2Proxy.whitelistDomains }}
-            - --whitelist-domain={{ . | quote }}
+            - --whitelist-domain={{ . }}
 {{- end }}
 {{- range .Values.oauth2Proxy.extraAudiences }}
-            - --oidc-extra-audience={{ . | quote }}
+            - --oidc-extra-audience={{ . }}
 {{- end }}
             - --code-challenge-method={{ .Values.oauth2Proxy.pkceMethod }}
 {{- if .Values.oauth2Proxy.passAccessToken }}
@@ -102,10 +112,10 @@ spec:
             - --upstream=static://200
             - --http-address=0.0.0.0:{{ .Values.oauth2Proxy.service.port }}
 {{- range .Values.oauth2Proxy.allowedRoles }}
-            - --allowed-role={{ . | quote }}
+            - --allowed-role={{ . }}
 {{- end }}
 {{- range .Values.oauth2Proxy.allowedGroups }}
-            - --allowed-group={{ . | quote }}
+            - --allowed-group={{ . }}
 {{- end }}
           env:
             - name: OAUTH2_PROXY_CLIENT_SECRET
@@ -128,6 +138,19 @@ spec:
           ports:
             - name: http
               containerPort: {{ .Values.oauth2Proxy.service.port }}
+{{- if $caSecretName }}
+          volumeMounts:
+            - name: teknoir-ca
+              mountPath: /etc/ssl/teknoir
+              readOnly: true
+      volumes:
+        - name: teknoir-ca
+          secret:
+            secretName: {{ $caSecretName }}
+            items:
+              - key: {{ $caSecretKey }}
+                path: {{ $caSecretKey }}
+{{- end }}
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname

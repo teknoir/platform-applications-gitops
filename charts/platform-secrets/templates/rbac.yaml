@@ -1,0 +1,77 @@
+{{- $plan := include "platform-secrets.rbacPlan" . | fromJson }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "platform-secrets.name" . }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "platform-secrets.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-20"
+{{- range $ns := keys $plan | sortAlpha }}
+{{- $e := get $plan $ns }}
+---
+# Least privilege in {{ $ns }}: get/patch only the listed Secrets, get only
+# the copy sources, get/patch only the listed Deployments (kubectl patch reads
+# the object first). Secret create cannot
+# be restricted by name in Kubernetes RBAC, so it is namespace-wide.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "platform-secrets.name" $ }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "platform-secrets.labels" $ | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-20"
+rules:
+{{- $readable := concat $e.targets $e.sources | uniq | sortAlpha }}
+{{- if $readable }}
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames:
+    {{- range $readable }}
+      - {{ . | quote }}
+    {{- end }}
+    verbs: ["get"]
+{{- end }}
+{{- if $e.targets }}
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames:
+    {{- range $e.targets | sortAlpha }}
+      - {{ . | quote }}
+    {{- end }}
+    verbs: ["patch"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+{{- end }}
+{{- if $e.deployments }}
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames:
+    {{- range $e.deployments | sortAlpha }}
+      - {{ . | quote }}
+    {{- end }}
+    verbs: ["get", "patch"]
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "platform-secrets.name" $ }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "platform-secrets.labels" $ | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-20"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "platform-secrets.name" $ }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "platform-secrets.name" $ }}
+    namespace: {{ $.Values.namespace }}
+{{- end }}
