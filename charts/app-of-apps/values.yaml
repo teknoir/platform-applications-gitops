@@ -102,24 +102,13 @@ applications:
     namespace: teknoir-system
     wave: -5
 
+  # The harbor render is deterministic (core.secretName for the token key
+  # pair, registry.credentials.existingSecret for the htpasswd), so it needs
+  # no ignoreDifferences.
   harbor:
     version: 0.0.9
     namespace: teknoir-system
     wave: 0
-    ignoreDifferences:
-      # Harbor chart 1.18.3 salts the registry htpasswd randomly on every
-      # render (and the registry Deployment checksums that Secret). Everything
-      # else in the harbor render is deterministic (core.secretName).
-      - group: ""
-        kind: Secret
-        name: harbor-registry-htpasswd
-        jsonPointers:
-          - /data
-      - group: apps
-        kind: Deployment
-        name: harbor-registry
-        jsonPointers:
-          - /spec/template/metadata/annotations/checksum~1secret
 
   auth:
     version: 0.0.8

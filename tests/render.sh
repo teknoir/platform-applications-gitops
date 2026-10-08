@@ -20,7 +20,7 @@
 #   project      every rendered resource is allowed by the AppProject
 #                (source repo, destination namespace, cluster-scoped kinds)
 #   credentials  no known default/literal credential in chart sources or
-#                renders (harbor's chart-internal defaults are WARN, see below)
+#                renders (harbor's internal database password is WARN, see below)
 #   node-ip      no 192.168.x.x address in a render (site config, not GitOps)
 #   determinism  two renders differ only in fields the Application ignores
 #                (ignoreDifferences), so selfHeal never churns
@@ -49,15 +49,13 @@ ONESHOT_TIERS=(platform-secrets istio harbor argo)
 
 # Known literal credentials: chart defaults and the published Keycloak admin.
 CREDENTIAL_RE='change-me|changeit|harbor12345|harbor_registry_password'
-# Rendered Secret keys that legitimately hold a chart default credential:
-# Harbor chart 1.18.3 cannot take its internal database password or the
-# core/jobservice -> registry credential from a Secret. Both are reachable only
-# inside teknoir-system (STRICT mTLS). "<secret>/<key>" lines.
+# Rendered Secret keys that hold a chart default credential and are only
+# warned about: Harbor chart 1.18.3 cannot take its internal database password
+# from a Secret (charts/harbor/values.yaml; changing it awaits the owner's
+# decision). "<secret>/<key>" lines; anything else is a failure.
 CREDENTIAL_ALLOW=(
   harbor-core/POSTGRESQL_PASSWORD
   harbor-database/POSTGRES_PASSWORD
-  harbor-core/REGISTRY_CREDENTIAL_PASSWORD
-  harbor-jobservice/REGISTRY_CREDENTIAL_PASSWORD
 )
 # Cluster-scoped built-in kinds ("group/Kind"); cluster-scoped kinds from
 # rendered CRDs are added at run time.

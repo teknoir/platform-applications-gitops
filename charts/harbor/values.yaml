@@ -72,6 +72,36 @@ oidcConfig:
     oidc_verify_cert: true
     oidc_auto_onboard: true
 
+# Harbor's internal registry credential: harbor-core and harbor-jobservice log
+# in to harbor-registry with basic auth as harbor.registry.credentials.username.
+# harbor.registry.credentials.existingSecret below points all three at one
+# Secret (keys REGISTRY_PASSWD and REGISTRY_HTPASSWD), so neither the password
+# nor the htpasswd is rendered: the chart default password stays out of the
+# render, and the render no longer changes with the htpasswd salt. A Sync hook
+# Job (templates/registry-auth-job.yaml, files/registry-auth.sh) creates that
+# Secret once, in-cluster, with a random password and its bcrypt htpasswd line
+# (the registry accepts bcrypt only; the Job uses helm's htpasswd function,
+# since the toolbox image has no other bcrypt tool). An existing Secret is
+# never changed. To rotate, delete the Secret and sync the harbor Application:
+# the Job creates a new one and restarts the Deployments below that were
+# running with the old one.
+registryAuth:
+  enabled: true
+  # Mirrored toolbox image (sh, kubectl, helm, jq), also a bootstrap image.
+  image: docker.io/alpine/k8s:1.34.11
+  imagePullPolicy: IfNotPresent
+  # The Deployments that read the credential (release harbor).
+  restartDeployments:
+    - harbor-core
+    - harbor-jobservice
+    - harbor-registry
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+
 # The Harbor subchart configuration
 harbor:
   expose:
@@ -179,6 +209,11 @@ harbor:
   registry:
     existingSecret: "harbor-secret"
     existingSecretKey: "REGISTRY_HTTP_SECRET"
+    # core/jobservice -> registry basic auth, from the Secret that the
+    # registryAuth Job above creates (keys REGISTRY_PASSWD, REGISTRY_HTPASSWD).
+    credentials:
+      username: harbor_registry_user
+      existingSecret: harbor-registry-auth
     # Harbor core relays /v2/ requests to the registry and rewrites the Host
     # header to the internal harbor-registry service (see the core EnvoyFilter).
     # With relative URLs the registry returns Location headers relative to the
@@ -227,14 +262,13 @@ harbor:
     # every render, so every ArgoCD refresh rolled harbor-core and the registry.
     secretName: harbor-token-service
 
-  # Not configurable from a Secret in Harbor chart 1.18.3, so these stay the
-  # chart defaults, as on the running teknoir-local install (changing them
-  # needs an in-database password change, a follow-up). Both are only reachable
-  # inside teknoir-system under STRICT mTLS:
-  # - database.internal.password: the internal PostgreSQL superuser, fixed at
-  #   initdb;
-  # - registry.credentials: core and jobservice -> registry basic auth. The
-  #   htpasswd Secret is salted randomly on every render; the harbor
-  #   Application ignores its /data (and the registry Deployment's
-  #   checksum/secret annotation) with RespectIgnoreDifferences, so the render
-  #   never drifts.
+  # Not configurable from a Secret in Harbor chart 1.18.3 with the internal
+  # database: database.internal.password, the internal PostgreSQL superuser
+  # password, fixed at initdb. It stays the chart default, as on the running
+  # teknoir-local install, and is rendered into the harbor-core
+  # (POSTGRESQL_PASSWORD) and harbor-database (POSTGRES_PASSWORD) Secrets.
+  # Changing it needs an in-database password change plus a chart that reads
+  # it from a Secret (a follow-up that needs the owner's decision). Until then
+  # any meshed workload in teknoir-system or teknoir-auth (AuthorizationPolicy
+  # harbor-allow-internal, STRICT mTLS) can reach harbor-database:5432 and log
+  # in with it.

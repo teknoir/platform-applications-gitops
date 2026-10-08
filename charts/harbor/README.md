@@ -21,12 +21,42 @@ them; none of them is in Git or in a bundle):
   Teknoir Root CA, referenced by `harbor.caBundleSecretName`): the airgap node.
 - DNS for `harbor.<teknoir domain>` pointing to the cluster ingress IP.
 
+The chart creates one Secret itself: `harbor-registry-auth`, the internal
+registry credential (see [Registry credential](#registry-credential)).
+
 ## Deterministic render
 `harbor.core.secretName` keeps the token-service key pair out of the render,
-so ArgoCD no longer rolls harbor-core on every refresh. The registry htpasswd
-Secret is still salted randomly per render: the `harbor` Application in
-app-of-apps ignores its `/data` and the registry Deployment's `checksum/secret`
-annotation, with `RespectIgnoreDifferences=true`.
+so ArgoCD no longer rolls harbor-core on every refresh, and
+`harbor.registry.credentials.existingSecret` keeps the registry htpasswd (whose
+bcrypt salt changed on every render) out of it. Two renders are identical, so
+the `harbor` Application needs no `ignoreDifferences`.
+
+## Registry credential
+harbor-core and harbor-jobservice log in to harbor-registry with basic auth as
+`harbor_registry_user`. The password and its htpasswd line live only in Secret
+`harbor-registry-auth` (keys `REGISTRY_PASSWD`, `REGISTRY_HTPASSWD`), which a
+Sync hook Job (`templates/registry-auth-job.yaml`, `files/registry-auth.sh`,
+wave -1, before the workloads) creates once in-cluster: a random 32-character
+password and its bcrypt htpasswd line (the registry accepts bcrypt only; the
+Job uses helm's `htpasswd` function from the toolbox image). The Job never
+prints a value and never changes an existing complete Secret; the Secret has
+no ArgoCD tracking, so no sync prunes it. The airgap bootstrap's one-shot runs
+the same Job as a plain Job.
+
+Rotate: `kubectl -n teknoir-system delete secret harbor-registry-auth`, then
+sync the `harbor` Application (`argocd app sync harbor`). The Job creates a new
+Secret and restarts harbor-core, harbor-jobservice and harbor-registry where
+they were running with the old one (pending restarts are recorded on the
+Secret, so a Job that dies half-way finishes them on the next sync).
+
+`tests/harbor-registry-auth.sh --context k3d-<name>` runs the Job on a
+throwaway k3d cluster (create, re-run, rotation, incomplete Secret, pending
+restart, RBAC, no value in the logs) and checks the generated htpasswd against
+Harbor's registry image.
+
+The internal database password (`database.internal.password`) cannot come
+from a Secret in chart 1.18.3 and stays the chart default; see the comment at
+the end of `values.yaml`.
 
 ## OIDC (Keycloak)
 A PostSync Job (`templates/oidc-config-job.yaml`, `files/oidc-config.sh`)
