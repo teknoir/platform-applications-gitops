@@ -8,46 +8,44 @@ istio:
     name: teknoir-gateway
     namespace: istio-system
 
+# ArgoCD manages itself through the `argo` Application in app-of-apps. The
+# airgap bootstrap applies this chart's render once, with no value overrides,
+# before ArgoCD exists; the Application then adopts it. So every environment
+# value lives here, and nothing is injected at render time.
 argo-cd:
   namespaceOverride: "teknoir-system"
 
-  # NOTE: The Teknoir Root CA is added to ArgoCD's TLS trust store
-  # (configs.tls.certificates -> argocd-tls-certs-cm) at render time, keyed by the
-  # Harbor host, so the repo-server can `helm registry login` to the in-cluster
-  # Harbor OCI registry without "x509: certificate signed by unknown authority".
-  # It is injected via `helm template --set-file` (scripts/deploy-argo.sh and
-  # airgap/lib.sh:helm_template_chart) rather than hardcoded here, because
-  # teknoir-root-ca.crt is generated per-deployment and gitignored.
+  # The argoproj.io CRDs: server-side applied (the Application CRD exceeds the
+  # client-side annotation limit) and never pruned or deleted by ArgoCD, even
+  # by a cascading delete of the argo Application, which would otherwise take
+  # every Application and AppProject with them.
+  crds:
+    annotations:
+      argocd.argoproj.io/sync-options: ServerSideApply=true,Prune=false,Delete=false
 
   global:
     # -- Default domain used by all components
     ## Used for ingresses, certificates, SSO, notifications, etc.
     domain: argocd.teknoir.airgapped
 
-
   configs:
-    # NOTE: oidc.config (Keycloak SSO) is injected at render time from
-    # charts/argo/files/oidc.config so the Teknoir Root CA can be embedded as
-    # `rootCA`. argocd-server does OIDC discovery against Keycloak
-    # (https://auth.teknoir.airgapped/.../.well-known/openid-configuration)
-    # with its OWN TLS trust — it does NOT consult the node OS trust store nor
-    # argocd-tls-certs-cm (that ConfigMap is repo-server-only, for Harbor OCI
-    # login). Without rootCA the login fails with "x509: certificate signed by
-    # unknown authority". It is injected via `helm template --set-file`
-    # (scripts/deploy-argo.sh and airgap/lib.sh:helm_template_chart) rather
-    # than hardcoded here, because teknoir-root-ca.crt is generated
-    # per-deployment and gitignored.
-
     # resource.exclusions is deliberately NOT overridden: the argo-cd chart's
     # default list (Endpoints, Leases, CertificateRequests, ...) applies.
-    # CustomResourceDefinitions are not excluded. The controller and
-    # monitoring CRDs are GitOps-managed from their charts, which mark them
-    # Prune=false,Delete=false. Only the istio and cert-manager CRDs are
-    # bootstrap-owned (K3s manifests 00-teknoir-istio-crds.yaml and
-    # 05-teknoir-certmanager-crds.yaml, annotated Prune=false,Delete=false by
-    # airgap/render-bootstrap.sh); their Applications set helm.skipCrds and
-    # the istio chart excludes its templated CRDs (istio-base.base.excludedCRDs).
-    cm: {}
+    # CustomResourceDefinitions are not excluded: every chart ships its CRDs
+    # annotated Prune=false,Delete=false.
+    cm:
+      # Keycloak SSO, realm teknoir (Keycloak serves under /auth). The client
+      # secret is resolved from Secret argocd-oidc-secret (label
+      # app.kubernetes.io/part-of: argocd), which the platform-secrets chart
+      # keeps equal to the realm's argocd client secret. argocd-server verifies
+      # https://auth.<domain> with the Teknoir Root CA mounted below, so no
+      # rootCA is embedded here.
+      oidc.config: |
+        name: Keycloak
+        issuer: https://auth.teknoir.airgapped/auth/realms/teknoir
+        clientID: argocd
+        clientSecret: $argocd-oidc-secret:oidc.auth.clientSecret
+        requestedScopes: ["openid", "profile", "email", "groups"]
 
     rbac:
       policy.default: role:readonly
@@ -56,9 +54,58 @@ argo-cd:
         g, admin, role:admin
         g, argocd-admins, role:admin
 
+    # argocd-tls-certs-cm (repo-server TLS trust per repository host) holds the
+    # Teknoir Root CA for harbor.<domain>. The airgap node reconciles it from the
+    # CA Secret on every run, so the chart must not render it.
+    tls:
+      create: false
+
+    # The Harbor OCI chart repository. Project `teknoir` is public (LAN only),
+    # so the repository needs no credentials.
+    repositories:
+      harbor-teknoir:
+        name: teknoir
+        type: helm
+        url: harbor.teknoir.airgapped/teknoir
+        enableOCI: "true"
+
   server:
     extraArgs:
       - --insecure
+    # Trust the Teknoir Root CA for OIDC discovery and token exchange with
+    # https://auth.<domain>. Go reads every file in SSL_CERT_DIR (colon
+    # separated) on top of the system bundle. The CA bundle Secret holds only
+    # the public certificate; the airgap node copies it into teknoir-system on
+    # every run. Optional: a missing CA breaks SSO, never ArgoCD itself, whose
+    # local admin stays as break-glass.
+    env:
+      - name: SSL_CERT_DIR
+        value: /etc/ssl/certs:/etc/teknoir/ca
+    volumes:
+      - name: teknoir-root-ca
+        secret:
+          secretName: teknoir-root-ca-bundle
+          optional: true
+    volumeMounts:
+      - name: teknoir-root-ca
+        mountPath: /etc/teknoir/ca
+        readOnly: true
+
+  repoServer:
+    # The same CA for pulling charts from https://harbor.<domain>, in addition
+    # to argocd-tls-certs-cm.
+    env:
+      - name: SSL_CERT_DIR
+        value: /etc/ssl/certs:/etc/teknoir/ca
+    volumes:
+      - name: teknoir-root-ca
+        secret:
+          secretName: teknoir-root-ca-bundle
+          optional: true
+    volumeMounts:
+      - name: teknoir-root-ca
+        mountPath: /etc/teknoir/ca
+        readOnly: true
 
   # Default redis image lives on public.ecr.aws, which is not mirrored by the
   # air-gapped Harbor (only docker.io/ghcr.io/gcr.io/quay.io/registry.k8s.io).
@@ -66,4 +113,3 @@ argo-cd:
   redis:
     image:
       repository: docker.io/library/redis
-

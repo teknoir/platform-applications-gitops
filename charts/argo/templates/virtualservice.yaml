@@ -1,5 +1,5 @@
 ---
-{{- $domain := .Values.domain | default (hasKey .Values "global" | ternary (index (.Values.global | default dict) "domain") "") | default "teknoir.online" -}}
+{{- $domain := .Values.domain | default (hasKey .Values "global" | ternary (index (.Values.global | default dict) "domain") "") | default "teknoir.airgapped" -}}
 {{- $hostname := .Values.hostname | default (printf "argocd.%s" $domain) -}}
 {{- $namespace := .Values.namespace | default .Release.Namespace -}}
 apiVersion: networking.istio.io/v1beta1
