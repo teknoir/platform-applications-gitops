@@ -18,6 +18,11 @@ harbor, auth, monitoring 0; the controllers and backstage 5. ArgoCD reports a
 child Application healthy as soon as it exists, so the waves order creation and
 pruning; each Application then converges through its own retries.
 
+An entry with `enabled: false` renders no Application but stays declared, so
+`tests/render.sh` still checks its pin, policy and project. In 0.0.4 that is
+`argo`: ArgoCD's self-management starts with 0.0.5, after the live K3s file
+`teknoir-argo.yaml` is detached (DESIGN M7a; see `charts/argo/README.md`).
+
 The AppProject only allows charts from `harbor.<domain>/teknoir`, the
 namespaces the charts deploy into, and the cluster-scoped kinds they render.
 `tests/render.sh` renders every chart and fails when a resource falls outside

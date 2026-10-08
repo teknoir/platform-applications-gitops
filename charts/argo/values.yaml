@@ -8,10 +8,11 @@ istio:
     name: teknoir-gateway
     namespace: istio-system
 
-# ArgoCD manages itself through the `argo` Application in app-of-apps. The
-# airgap bootstrap applies this chart's render once, with no value overrides,
-# before ArgoCD exists; the Application then adopts it. So every environment
-# value lives here, and nothing is injected at render time.
+# ArgoCD manages itself through the `argo` Application in app-of-apps (declared
+# there, enabled from app-of-apps 0.0.5, DESIGN M7a; see README). The airgap
+# bootstrap applies this chart's render, with no value overrides, while that
+# Application does not exist; the Application then adopts it. So every
+# environment value lives here, and nothing is injected at render time.
 argo-cd:
   namespaceOverride: "teknoir-system"
 

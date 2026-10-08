@@ -1,9 +1,21 @@
 # Teknoir Argo CD Chart
 
 Argo CD (argo-cd chart 10.4.0, Argo CD v3.5.1) behind the Istio ingress
-gateway. Argo CD manages itself: the `argo` Application in app-of-apps renders
-this chart, and the airgap bootstrap applies the same render (no value
-overrides) once, before Argo CD exists.
+gateway. Argo CD is meant to manage itself through the `argo` Application in
+app-of-apps, which renders this chart; the airgap bootstrap applies the same
+render (no value overrides) before Argo CD exists.
+
+The `argo` Application is declared in app-of-apps 0.0.4 but disabled
+(`enabled: false`). On teknoir-local the K3s file `teknoir-argo.yaml` still
+owns Argo CD until DESIGN M7a detaches it, and a second owner would fight it on
+every k3s restart. M7a enables the Application in app-of-apps 0.0.5. Until
+then:
+
+* fresh installs run Argo CD from the bootstrap's one-shot render of this
+  chart, which every `up` re-applies (server-side, as `argocd-controller`)
+  while no `argo` Application exists;
+* teknoir-local keeps the Argo CD of its K3s file, and the bootstrap skips the
+  `argo` tier while that file is in place.
 
 ## Architecture
 

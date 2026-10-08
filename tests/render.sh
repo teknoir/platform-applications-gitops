@@ -5,7 +5,8 @@
 # Each chart is rendered with `helm template <release> <chart> --namespace <ns>
 # --include-crds --kube-version $KUBE_VERSION`, where release and namespace are
 # the name and destination namespace of the app-of-apps Application that
-# deploys it (ArgoCD uses the Application name as the release name). The airgap
+# deploys it (ArgoCD uses the Application name as the release name), or that
+# declares it with enabled: false (checked as if it were enabled). The airgap
 # bootstrap must render its one-shot tiers the same way, with no value
 # overrides; --out keeps the renders for that comparison.
 #
@@ -131,22 +132,37 @@ fetch_deps() {
 }
 
 # --- app-of-apps: who deploys what -------------------------------------------
-# apps.json: [{name, chart, version, namespace, app}] from the rendered
-# Applications; release name = Application name.
+# apps.json: [{name, chart, version, namespace, enabled, app}]; release name =
+# Application name. Rendered a second time with every entry enabled, so an
+# Application declared with enabled: false (e.g. argo before DESIGN M7a) is
+# still checked as it will be deployed: pin, policy, project, determinism.
 aoa_src="${tmp}/src/app-of-apps"
 cp -R "${ROOT}/charts/app-of-apps" "${aoa_src}"
-if ! "${HELM}" template app-of-apps "${aoa_src}" --namespace teknoir-system \
-    --kube-version "${KUBE_VERSION}" > "${tmp}/out/app-of-apps.yaml" 2> "${tmp}/err"; then
-  fail render "app-of-apps: $(tr '\n' ' ' < "${tmp}/err")"
-  echo "app-of-apps does not render; nothing else can be checked" >&2
-  exit 1
-fi
-yq -o=json -I=0 'select(. != null)' "${tmp}/out/app-of-apps.yaml" | jq -s . > "${tmp}/aoa.json"
-jq '[.[] | select(.kind == "Application") | {name: .metadata.name, chart: .spec.source.chart,
-     version: .spec.source.targetRevision, namespace: .spec.destination.namespace, app: .}]' \
-  "${tmp}/aoa.json" > "${tmp}/apps.json"
-jq '[.[] | select(.kind == "AppProject")][0] // {}' "${tmp}/aoa.json" > "${tmp}/project.json"
+yq '{"applications": (.applications // {} | map_values({"enabled": true}))}' \
+  "${aoa_src}/values.yaml" > "${tmp}/aoa-all-enabled.yaml"
+for variant in deployed all; do
+  aoa_values=()
+  [[ "${variant}" == deployed ]] || aoa_values=(-f "${tmp}/aoa-all-enabled.yaml")
+  if ! "${HELM}" template app-of-apps "${aoa_src}" --namespace teknoir-system "${aoa_values[@]}" \
+      --kube-version "${KUBE_VERSION}" > "${tmp}/out/app-of-apps.${variant}.yaml" 2> "${tmp}/err"; then
+    fail render "app-of-apps (${variant}): $(tr '\n' ' ' < "${tmp}/err")"
+    echo "app-of-apps does not render; nothing else can be checked" >&2
+    exit 1
+  fi
+  yq -o=json -I=0 'select(. != null)' "${tmp}/out/app-of-apps.${variant}.yaml" | jq -s . > "${tmp}/aoa.${variant}.json"
+done
+mv "${tmp}/out/app-of-apps.deployed.yaml" "${tmp}/out/app-of-apps.yaml"
+jq --slurpfile deployed "${tmp}/aoa.deployed.json" '
+  ([$deployed[0][] | select(.kind == "Application") | .metadata.name]) as $on
+  | [.[] | select(.kind == "Application") | {name: .metadata.name, chart: .spec.source.chart,
+     version: .spec.source.targetRevision, namespace: .spec.destination.namespace,
+     enabled: (.metadata.name as $n | $on | index($n) != null), app: .}]' \
+  "${tmp}/aoa.all.json" > "${tmp}/apps.json"
+jq '[.[] | select(.kind == "AppProject")][0] // {}' "${tmp}/aoa.deployed.json" > "${tmp}/project.json"
 project_name="$(jq -r '.metadata.name // ""' "${tmp}/project.json")"
+while IFS= read -r name; do
+  info apps "${name}: declared with enabled: false, so app-of-apps does not deploy it; checked as if enabled"
+done < <(jq -r '.[] | select(.enabled | not) | .name' "${tmp}/apps.json")
 
 # --- apps: Application policy --------------------------------------------------
 while IFS= read -r line; do
