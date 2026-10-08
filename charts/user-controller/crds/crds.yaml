@@ -1,7 +1,12 @@
+# argocd.argoproj.io/sync-options is added by hand, not by controller-gen: keep
+# it when replacing this file with a regenerated CRD. Prune=false,Delete=false
+# stops ArgoCD from deleting the CRD (and with it every custom resource) on a
+# prune or when the Application is deleted.
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
     controller-gen.kubebuilder.io/version: v0.14.0
   labels:
     teknoir.org/part-of: user-controller
@@ -66,6 +71,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
     controller-gen.kubebuilder.io/version: v0.14.0
   labels:
     teknoir.org/part-of: user-controller
@@ -122,6 +128,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
     controller-gen.kubebuilder.io/version: v0.14.0
   labels:
     teknoir.org/part-of: user-controller
