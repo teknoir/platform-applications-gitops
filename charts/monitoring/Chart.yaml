@@ -5,6 +5,8 @@ type: application
 version: 0.0.4
 appVersion: "82.18.0"
 dependencies:
+  # Bump together with crds/: run update-crds.sh (templates/crds-version-check.yaml
+  # fails the render otherwise).
   - name: kube-prometheus-stack
     version: 82.18.0
     repository: https://prometheus-community.github.io/helm-charts

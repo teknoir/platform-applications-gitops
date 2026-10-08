@@ -1,0 +1,14 @@
+{{- /*
+crds/ holds the prometheus-operator CRDs vendored from the kube-prometheus-stack
+dependency by update-crds.sh (annotated Prune=false,Delete=false). Fail the
+render when the dependency is bumped without re-running it, so the operator
+never runs against CRDs of another version. Renders nothing.
+*/}}
+{{- $pinned := "" }}
+{{- range .Chart.Dependencies }}
+{{- if eq .Name "kube-prometheus-stack" }}{{ $pinned = .Version }}{{ end }}
+{{- end }}
+{{- $vendored := .Files.Get "crds/crd-prometheuses.yaml" | regexFind "kube-prometheus-stack [0-9][^ ]*" | trimPrefix "kube-prometheus-stack " }}
+{{- if ne $pinned $vendored }}
+{{- fail (printf "crds/ is vendored from kube-prometheus-stack %q, Chart.yaml pins %q: run charts/monitoring/update-crds.sh" $vendored $pinned) }}
+{{- end }}

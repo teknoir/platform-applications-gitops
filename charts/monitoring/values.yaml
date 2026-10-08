@@ -6,17 +6,21 @@ kube-prometheus-stack:
   namespaceOverride: "teknoir-system"
   fullnameOverride: "monitoring"
 
-  ## Install Prometheus Operator CRDs
+  ## Prometheus Operator CRDs
   ##
-  ## ArgoCD applies the CRDs from the crds subchart's crds/ directory itself, on
-  ## install and on upgrade (server-side apply: they are too large for the
-  ## client-side last-applied annotation). The Helm pre-upgrade hook Job that
-  ## re-applies them is therefore redundant, and it does not work air-gapped:
-  ## its kubectl image tag follows the render-time Kubernetes version and is
-  ## not mirrored. The crds/ files are static, so the chart has no knob to add
-  ## the argocd.argoproj.io/sync-options Prune=false,Delete=false annotation.
+  ## Shipped from this chart's crds/, not from the dependency's crds subchart,
+  ## whose static files cannot carry argocd.argoproj.io/sync-options.
+  ## update-crds.sh vendors them for the pinned version and annotates each one
+  ## Prune=false,Delete=false, so ArgoCD never deletes them (and with them
+  ## every ServiceMonitor, PrometheusRule, ... in the cluster) on a prune or a
+  ## cascading delete of this Application. ArgoCD applies crds/ on every sync
+  ## (server-side apply: they are too large for the client-side last-applied
+  ## annotation), so the subchart's pre-upgrade hook Job is not needed either.
+  ## It stays off should the subchart be enabled again: it does not work
+  ## air-gapped (its kubectl image tag follows the render-time Kubernetes
+  ## version and is not mirrored).
   crds:
-    enabled: true
+    enabled: false
     upgradeJob:
       enabled: false
 
