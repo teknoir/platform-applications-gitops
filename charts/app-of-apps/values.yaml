@@ -1,7 +1,197 @@
-# GitOps values
-project: teknoir-local
+# GitOps values for the teknoir-local (airgapped) platform.
+#
+# The airgap bootstrap points the root Application at this chart's version
+# (APP_OF_APPS_VERSION) and reads the chart pins below from its render, so a
+# GitOps release is: bump the charts, pin them here, bump this chart's version.
+# A chart version is released once: Harbor keeps the first push of a version.
 
-# The backstage Application is off until its Secrets exist on this cluster
-# (see templates/backstage.yaml).
-backstage:
-  enabled: false
+project: teknoir-local
+# Harbor OCI chart repository (project teknoir is public: no credentials).
+repoURL: harbor.teknoir.airgapped/teknoir
+destinationServer: https://kubernetes.default.svc
+
+# Every Application syncs automatically (prune, selfHeal) with server-side
+# apply, retries failed syncs with backoff instead of stopping after the
+# default 5 attempts, and has no resources finalizer: deleting an Application
+# never cascades to its resources (CRDs are protected separately by
+# Prune=false,Delete=false). Sync waves order the Applications: platform
+# secrets first, then CRD/mesh/ArgoCD, then the platform, then the apps that
+# depend on it. ArgoCD reports child Applications healthy as soon as they
+# exist, so the waves order creation and pruning; each Application then
+# converges on its own through its retries.
+syncPolicy:
+  retry:
+    limit: 10
+    backoff:
+      duration: 30s
+      factor: 2
+      maxDuration: 5m
+
+# The AppProject every Application runs in, narrowed to what the charts render
+# (tests/render.sh checks every rendered resource against it).
+appProject:
+  destinationNamespaces:
+    - teknoir-system
+    - teknoir-auth
+    - istio-system
+    - cert-manager
+    # cert-manager's leader-election Role, kube-prometheus-stack's
+    # control-plane Services.
+    - kube-system
+  clusterResourceWhitelist:
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+    - group: ""
+      kind: Namespace
+    - group: ""
+      kind: PersistentVolume
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+    - group: cert-manager.io
+      kind: ClusterIssuer
+
+# Application name -> chart pin. The name is also the Helm release name, so it
+# must not change for a running chart. Keys per Application:
+#   version (required), namespace (required), wave (required),
+#   chart (default: the name), enabled (default: true),
+#   syncOptions (added to ServerSideApply=true), ignoreDifferences.
+# Every Application with ignoreDifferences also sets RespectIgnoreDifferences,
+# so a sync never writes the ignored fields either.
+applications:
+  # Random Secrets, created once in-cluster (and copies re-synced), before
+  # anything that reads them.
+  platform-secrets:
+    version: 0.0.1
+    namespace: teknoir-system
+    wave: -10
+
+  cert-manager:
+    version: 0.0.2
+    namespace: cert-manager
+    wave: -5
+
+  istio:
+    version: 0.0.3
+    namespace: istio-system
+    wave: -5
+    ignoreDifferences:
+      # istiod patches its validating webhook's CA bundle and failure policy.
+      - group: admissionregistration.k8s.io
+        kind: ValidatingWebhookConfiguration
+        jsonPointers:
+          - /webhooks/0/clientConfig/caBundle
+          - /webhooks/0/failurePolicy
+
+  # ArgoCD manages itself.
+  argo:
+    version: 0.0.3
+    namespace: teknoir-system
+    wave: -5
+
+  harbor:
+    version: 0.0.9
+    namespace: teknoir-system
+    wave: 0
+    ignoreDifferences:
+      # Harbor chart 1.18.3 salts the registry htpasswd randomly on every
+      # render (and the registry Deployment checksums that Secret). Everything
+      # else in the harbor render is deterministic (core.secretName).
+      - group: ""
+        kind: Secret
+        name: harbor-registry-htpasswd
+        jsonPointers:
+          - /data
+      - group: apps
+        kind: Deployment
+        name: harbor-registry
+        jsonPointers:
+          - /spec/template/metadata/annotations/checksum~1secret
+
+  auth:
+    version: 0.0.8
+    namespace: teknoir-auth
+    wave: 0
+
+  monitoring:
+    version: 0.0.4
+    namespace: teknoir-system
+    wave: 0
+    ignoreDifferences:
+      # Grafana's admin password is generated per render.
+      - group: ""
+        kind: Secret
+        name: monitoring-grafana
+        jsonPointers:
+          - /data
+          - /stringData
+      - group: apps
+        kind: Deployment
+        name: monitoring-grafana
+        jsonPointers:
+          - /spec/template/metadata/annotations/checksum~1secret
+          - /spec/template/metadata/annotations/checksum~1sc-dashboard-provider-config
+          - /spec/template/metadata/annotations/checksum~1dashboards-json-config
+      # The admission webhook's CA bundle is patched in-cluster.
+      - group: admissionregistration.k8s.io
+        kind: MutatingWebhookConfiguration
+        name: monitoring-kube-prome-admission
+        jqPathExpressions:
+          - '.webhooks[]?.clientConfig.caBundle'
+      - group: admissionregistration.k8s.io
+        kind: ValidatingWebhookConfiguration
+        name: monitoring-kube-prome-admission
+        jqPathExpressions:
+          - '.webhooks[]?.clientConfig.caBundle'
+
+  notebook-controller:
+    version: 0.0.83
+    namespace: teknoir-system
+    wave: 5
+
+  devstudio-controller:
+    version: 0.0.83
+    namespace: teknoir-system
+    wave: 5
+
+  user-controller:
+    version: 0.0.84
+    namespace: teknoir-system
+    wave: 5
+    ignoreDifferences:
+      # Aggregated ClusterRoles: Kubernetes fills in .rules.
+      - group: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: teknoir-admin
+        jqPathExpressions:
+          - .rules
+      - group: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: teknoir-edit
+        jqPathExpressions:
+          - .rules
+      - group: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: teknoir-view
+        jqPathExpressions:
+          - .rules
+
+  profile-controller:
+    version: 0.0.83
+    namespace: teknoir-system
+    wave: 5
+
+  device-controller:
+    version: 0.0.83
+    namespace: teknoir-system
+    wave: 5
+
+  backstage:
+    version: 0.0.83
+    namespace: teknoir-system
+    wave: 5

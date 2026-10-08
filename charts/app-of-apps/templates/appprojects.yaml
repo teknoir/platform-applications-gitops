@@ -1,63 +1,23 @@
 ---
+# The project of every platform Application: charts only from the Harbor
+# `teknoir` project, only into the namespaces the charts use, and only the
+# cluster-scoped kinds they render. Wave -20: before the Applications that
+# reference it.
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
   name: {{ .Values.project }}
   namespace: teknoir-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-20"
 spec:
-  clusterResourceWhitelist:
-    - group: '*'
-      kind: '*'
-  destinations:
-    - namespace: '*'
-      server: '*'
+  description: Teknoir platform (app-of-apps)
   sourceRepos:
-    - '*'
-
-{{/*---*/}}
-{{/*apiVersion: argoproj.io/v1alpha1*/}}
-{{/*kind: AppProject*/}}
-{{/*metadata:*/}}
-{{/*  name: teknoir-auth*/}}
-{{/*  namespace: teknoir-auth*/}}
-{{/*spec:*/}}
-{{/*  clusterResourceWhitelist:*/}}
-{{/*    - group: '*'*/}}
-{{/*      kind: '*'*/}}
-{{/*  destinations:*/}}
-{{/*    - namespace: '*'*/}}
-{{/*      server: '*'*/}}
-{{/*  sourceRepos:*/}}
-{{/*    - '*'*/}}
-
-{{/*---*/}}
-{{/*apiVersion: argoproj.io/v1alpha1*/}}
-{{/*kind: AppProject*/}}
-{{/*metadata:*/}}
-{{/*  name: cert-manager*/}}
-{{/*  namespace: cert-manager*/}}
-{{/*spec:*/}}
-{{/*  clusterResourceWhitelist:*/}}
-{{/*    - group: '*'*/}}
-{{/*      kind: '*'*/}}
-{{/*  destinations:*/}}
-{{/*    - namespace: '*'*/}}
-{{/*      server: '*'*/}}
-{{/*  sourceRepos:*/}}
-{{/*    - '*'*/}}
-
-{{/*---*/}}
-{{/*apiVersion: argoproj.io/v1alpha1*/}}
-{{/*kind: AppProject*/}}
-{{/*metadata:*/}}
-{{/*  name: istio-system*/}}
-{{/*  namespace: istio-system*/}}
-{{/*spec:*/}}
-{{/*  clusterResourceWhitelist:*/}}
-{{/*    - group: '*'*/}}
-{{/*      kind: '*'*/}}
-{{/*  destinations:*/}}
-{{/*    - namespace: '*'*/}}
-{{/*      server: '*'*/}}
-{{/*  sourceRepos:*/}}
-{{/*    - '*'*/}}
+    - {{ .Values.repoURL }}
+  destinations:
+    {{- range .Values.appProject.destinationNamespaces }}
+    - namespace: {{ . }}
+      server: {{ $.Values.destinationServer }}
+    {{- end }}
+  clusterResourceWhitelist:
+    {{- toYaml .Values.appProject.clusterResourceWhitelist | nindent 4 }}
