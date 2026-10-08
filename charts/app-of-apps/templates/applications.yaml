@@ -1,7 +1,7 @@
 {{- /*
 One Application per entry in .Values.applications (see values.yaml): automated
-sync with prune and selfHeal, server-side apply, retry with backoff, a sync
-wave, and no resources finalizer.
+sync with prune and selfHeal, server-side apply and diff, retry with backoff, a
+sync wave, and no resources finalizer.
 */}}
 {{- range $name, $app := .Values.applications }}
 {{- if or (not (hasKey $app "enabled")) $app.enabled }}
@@ -17,6 +17,10 @@ metadata:
   name: {{ $name }}
   annotations:
     argocd.argoproj.io/sync-wave: {{ $app.wave | quote }}
+    # Diff on the server (dry-run apply), matching ServerSideApply: fields the
+    # API server defaults (e.g. a StatefulSet's volumeClaimTemplates status,
+    # apiVersion, kind) no longer show as a permanent OutOfSync.
+    argocd.argoproj.io/compare-options: ServerSideDiff=true
 spec:
   project: {{ $.Values.project }}
   destination:

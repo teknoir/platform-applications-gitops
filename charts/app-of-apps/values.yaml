@@ -88,16 +88,13 @@ applications:
           - /webhooks/0/clientConfig/caBundle
           - /webhooks/0/failurePolicy
 
-  # ArgoCD managing itself (G-07). Declared but NOT enabled in 0.0.4: on
-  # teknoir-local the K3s file teknoir-argo.yaml still owns ArgoCD until
-  # DESIGN M7a, and two owners would fight (K3s re-applies its file on every
-  # k3s restart, selfHeal puts this render back, ArgoCD restarts each time).
-  # M7a enables it in app-of-apps 0.0.5 once that file is detached. Until
-  # then fresh installs run ArgoCD from the bootstrap's one-shot render of
-  # this same chart version (re-applied by every `up` while no Application
-  # exists), and infra pins it through EXTRA_CHART_PINS="argo@0.0.3".
+  # ArgoCD managing itself (G-07). Fresh installs: the bootstrap applies the
+  # same chart version once, then this Application adopts it. teknoir-local
+  # (live): `teknoir-node migrate` detaches the other K3s files, `up` creates
+  # this Application, and `migrate --argo` detaches teknoir-argo.yaml right
+  # after, with no k3s restart in between (DESIGN M3/M4/M7a).
   argo:
-    enabled: false
+    enabled: true
     version: 0.0.3
     namespace: teknoir-system
     wave: -5
