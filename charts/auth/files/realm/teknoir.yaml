@@ -1,0 +1,148 @@
+{{- /*
+Realm `teknoir`, imported by keycloak-config-cli (templates/keycloak-config.yaml).
+Rendered by Helm first (domain, names); keycloak-config-cli then substitutes
+$(env:...) with the client secrets from Secret keycloak-client-secrets, which
+the platform-secrets chart generates. No secret is in this file.
+
+Only what is listed here is managed. keycloak-config-cli keeps remote state,
+so it only ever deletes objects it created itself; users other than the
+user-controller service account are not managed here (user-controller and
+`teknoir-airgap admin-user` create them).
+*/ -}}
+{{- $domain := include "auth.domain" . -}}
+{{- $r := .Values.realm -}}
+realm: {{ $r.name }}
+displayName: {{ $r.displayName | quote }}
+enabled: true
+loginTheme: {{ $r.loginTheme | quote }}
+sslRequired: external
+registrationAllowed: false
+# No SMTP in the air-gapped environments.
+resetPasswordAllowed: false
+verifyEmail: false
+rememberMe: true
+loginWithEmailAllowed: true
+duplicateEmailsAllowed: false
+editUsernameAllowed: false
+bruteForceProtected: true
+permanentLockout: false
+failureFactor: 10
+accessTokenLifespan: {{ $r.accessTokenLifespan }}
+ssoSessionIdleTimeout: {{ $r.ssoSessionIdleTimeout }}
+ssoSessionMaxLifespan: {{ $r.ssoSessionMaxLifespan }}
+
+clientScopes:
+  # Flat group names in the ID/access tokens and userinfo: ArgoCD maps group
+  # `admin` to role:admin, Harbor uses it as its OIDC admin group.
+  - name: groups
+    description: Group membership (flat names) as claim "groups"
+    protocol: openid-connect
+    attributes:
+      include.in.token.scope: "true"
+      display.on.consent.screen: "false"
+    protocolMappers:
+      - name: groups
+        protocol: openid-connect
+        protocolMapper: oidc-group-membership-mapper
+        consentRequired: false
+        config:
+          claim.name: groups
+          full.path: "false"
+          id.token.claim: "true"
+          access.token.claim: "true"
+          userinfo.token.claim: "true"
+          introspection.token.claim: "true"
+
+groups:
+  - name: admin
+
+clients:
+  # oauth2-proxy: the ext_authz login for every protected vhost.
+  - clientId: teknoir
+    name: Teknoir platform (oauth2-proxy)
+    enabled: true
+    protocol: openid-connect
+    publicClient: false
+    clientAuthenticatorType: client-secret
+    secret: $(env:TEKNOIR_CLIENT_SECRET)
+    standardFlowEnabled: true
+    implicitFlowEnabled: false
+    directAccessGrantsEnabled: false
+    serviceAccountsEnabled: false
+    redirectUris:
+      - https://{{ $domain }}/oauth2/callback
+      - https://*.{{ $domain }}/oauth2/callback
+    webOrigins:
+      - "+"
+    attributes:
+      pkce.code.challenge.method: S256
+    # "basic" carries `sub`, which Backstage requires.
+    defaultClientScopes: {{ toJson $r.defaultClientScopes }}
+    optionalClientScopes: {{ toJson $r.optionalClientScopes }}
+
+  # ArgoCD SSO (oidc.config clientID argocd).
+  - clientId: argocd
+    name: Argo CD
+    enabled: true
+    protocol: openid-connect
+    publicClient: false
+    clientAuthenticatorType: client-secret
+    secret: $(env:ARGOCD_CLIENT_SECRET)
+    standardFlowEnabled: true
+    implicitFlowEnabled: false
+    directAccessGrantsEnabled: false
+    serviceAccountsEnabled: false
+    rootUrl: https://argocd.{{ $domain }}
+    redirectUris:
+      - https://argocd.{{ $domain }}/auth/callback
+    webOrigins:
+      - https://argocd.{{ $domain }}
+    defaultClientScopes: {{ toJson $r.defaultClientScopes }}
+    optionalClientScopes: {{ toJson $r.optionalClientScopes }}
+
+  # Harbor OIDC auth mode.
+  - clientId: harbor
+    name: Harbor
+    enabled: true
+    protocol: openid-connect
+    publicClient: false
+    clientAuthenticatorType: client-secret
+    secret: $(env:HARBOR_CLIENT_SECRET)
+    standardFlowEnabled: true
+    implicitFlowEnabled: false
+    directAccessGrantsEnabled: false
+    serviceAccountsEnabled: false
+    rootUrl: https://harbor.{{ $domain }}
+    redirectUris:
+      - https://harbor.{{ $domain }}/c/oidc/callback
+    webOrigins:
+      - https://harbor.{{ $domain }}
+    defaultClientScopes: {{ toJson $r.defaultClientScopes }}
+    optionalClientScopes: {{ toJson $r.optionalClientScopes }}
+
+  # user-controller: client credentials only; manages the realm's users.
+  - clientId: user-controller
+    name: Teknoir user-controller
+    enabled: true
+    protocol: openid-connect
+    publicClient: false
+    clientAuthenticatorType: client-secret
+    secret: $(env:USER_CONTROLLER_CLIENT_SECRET)
+    standardFlowEnabled: false
+    implicitFlowEnabled: false
+    directAccessGrantsEnabled: false
+    serviceAccountsEnabled: true
+    defaultClientScopes: {{ toJson (without $r.defaultClientScopes "groups") }}
+    optionalClientScopes: []
+
+users:
+  # The service account of client user-controller (Keycloak creates the user;
+  # this only grants it the realm-management roles user-controller needs).
+  - username: service-account-user-controller
+    enabled: true
+    serviceAccountClientId: user-controller
+    clientRoles:
+      realm-management:
+        - manage-users
+        - view-users
+        - query-users
