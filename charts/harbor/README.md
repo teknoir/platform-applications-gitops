@@ -56,10 +56,8 @@ Docker and Helm CLI clients do not support OIDC redirects directly. To use the r
    # Username: (your email/username)
    # Password: (paste CLI secret)
    ```
-   Harbor checks the CLI secret against the user's OIDC token. Without the
-   `offline_access` scope (not requested today; see `oidcConfig.settings`) it
-   cannot refresh that token, so the CLI secret stops working when the token
-   expires until the user logs in to the UI again.
+   Harbor checks the CLI secret against the user's OIDC token and refreshes it
+   with the refresh token it gets through the `offline_access` scope.
 
 Alternatively, use **Robot Accounts** for automated workflows (highly recommended for edge devices).
 

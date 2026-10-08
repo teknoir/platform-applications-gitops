@@ -57,15 +57,15 @@ oidcConfig:
   waitSeconds: 1200
   # Harbor configuration keys (PUT /api/v2.0/configurations). oidc_endpoint is
   # the realm's issuer URL: Keycloak serves under /auth (KC_HTTP_RELATIVE_PATH).
-  # oidc_verify_cert relies on harbor.caBundleSecretName above. The scopes match
-  # ArgoCD's; add offline_access once the realm grants it to the harbor client,
-  # or OIDC users' CLI secrets stop working when their ID token expires.
+  # oidc_verify_cert relies on harbor.caBundleSecretName above. offline_access
+  # (an optional client scope of realm teknoir) gives Harbor a refresh token, so
+  # OIDC users' CLI secrets keep working after their ID token expires.
   settings:
     auth_mode: oidc_auth
     oidc_name: Keycloak
     oidc_endpoint: https://auth.teknoir.airgapped/auth/realms/teknoir
     oidc_client_id: harbor
-    oidc_scope: openid,profile,email,groups
+    oidc_scope: openid,profile,email,groups,offline_access
     oidc_user_claim: preferred_username
     oidc_groups_claim: groups
     oidc_admin_group: admin
