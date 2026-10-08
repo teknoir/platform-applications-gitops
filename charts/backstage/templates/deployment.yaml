@@ -61,6 +61,15 @@ spec:
         - name: backstage-auth-secrets
           secret:
             secretName: {{ .Values.backstageApi.secrets.authSecretsName }}
+        {{- with .Values.backstageApi.caBundle }}
+        - name: teknoir-ca
+          secret:
+            secretName: {{ .secretName }}
+            optional: true
+            items:
+              - key: {{ .key }}
+                path: ca.crt
+        {{- end }}
         - name: techdocs-persistent-storage
           persistentVolumeClaim:
             claimName: backstage-techdocs
@@ -90,6 +99,7 @@ spec:
                 name: {{ .Values.backstageApi.secrets.postgresSecretName }}
             - secretRef:
                 name: {{ .Values.backstageApi.secrets.keycloakSecretName }}
+                optional: true
           env:
             - name: GOOGLE_APPLICATION_CREDENTIALS
               value: {{ .Values.backstageApi.googleApplicationCredentials | quote }}
@@ -99,6 +109,10 @@ spec:
               value: {{ .Values.config.prometheusUrl | quote }}
             - name: NODE_OPTIONS
               value: {{ .Values.backstageApi.nodeOptions | quote }}
+            {{- with .Values.backstageApi.caBundle }}
+            - name: NODE_EXTRA_CA_CERTS
+              value: {{ printf "%s/ca.crt" .mountPath | quote }}
+            {{- end }}
             - name: SERVICE_ACCOUNT_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -120,6 +134,11 @@ spec:
             - name: backstage-app-config
               mountPath: /app/app-config.prod-env.yaml
               subPath: app-config.prod-env.yaml
+            {{- with .Values.backstageApi.caBundle }}
+            - name: teknoir-ca
+              mountPath: {{ .mountPath }}
+              readOnly: true
+            {{- end }}
           readinessProbe:
             initialDelaySeconds: 60
             httpGet:
