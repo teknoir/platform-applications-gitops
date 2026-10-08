@@ -17,13 +17,16 @@ files/ensure-secrets.sh reads (no jq/yq needed in the pod):
   S|<namespace>|<name>|<type>|<addMissingKeys 0|1>
   L|<label key>|<label value>
   K|<key>|random|<length>|<charset>|<bytes>|<encoding>|<format, base64>
+  Z|<key>|<seed namespace>|<seed name>|<seed key>
   K|<key>|value|<value, base64>|<sync 0|1>
   K|<key>|copy|<source namespace>|<source name>|<source key>
   R|<namespace>|<deployment>
   E
 
-Copy keys come after random/value keys, so a copy may refer to a key of the
-Secret being created (DATA_SOURCE_PASS <- POSTGRES_PASSWORD).
+A Z line (random.seedFrom) follows its random K line: when that random value
+is generated, an existing non-empty seed is used instead (adoption of a live
+value). Copy keys come after random/value keys, so a copy may refer to a key
+of the Secret being created (DATA_SOURCE_PASS <- POSTGRES_PASSWORD).
 */}}
 {{- define "platform-secrets.spec" -}}
 {{- $seen := dict -}}
@@ -67,6 +70,12 @@ L|{{ $lk }}|{{ $lv }}
 {{- $fmt := $spec.format | default "%s" }}
 {{- if not (contains "%s" $fmt) }}{{ fail (printf "platform-secrets: %s key %q: format must contain %%s" $id $k) }}{{ end }}
 K|{{ $k }}|random|{{ $len }}|{{ $charset }}|{{ $bytes }}|{{ $enc }}|{{ $fmt | b64enc }}
+{{- with $r.seedFrom }}
+{{- $sp := splitList "/" . }}
+{{- if or (ne (len $sp) 3) (not (regexMatch $nameRe (index $sp 0))) (not (regexMatch $nameRe (index $sp 1))) (not (regexMatch $keyRe (index $sp 2))) }}{{ fail (printf "platform-secrets: %s key %q: random.seedFrom must be <namespace>/<secret>/<key>" $id $k) }}{{ end }}
+{{- if and (eq (index $sp 0) $s.namespace) (eq (index $sp 1) $s.name) }}{{ fail (printf "platform-secrets: %s key %q: random.seedFrom cannot name the Secret itself" $id $k) }}{{ end }}
+Z|{{ $k }}|{{ index $sp 0 }}|{{ index $sp 1 }}|{{ index $sp 2 }}
+{{- end }}
 {{- else if hasKey $spec "value" }}
 K|{{ $k }}|value|{{ toString $spec.value | b64enc }}|{{ ternary "1" "0" (default false $spec.sync) }}
 {{- end }}
@@ -93,7 +102,7 @@ E
 Least-privilege RBAC plan as JSON: namespace -> {targets, sources, deployments}.
   targets:     Secrets this chart manages (get, patch; create is namespace-wide
                because Kubernetes cannot restrict create by name)
-  sources:     Secrets read by copyFrom (get only)
+  sources:     Secrets read by copyFrom or random.seedFrom (get only)
   deployments: Deployments it may restart (get, patch)
 */}}
 {{- define "platform-secrets.rbacPlan" -}}
@@ -104,8 +113,12 @@ Least-privilege RBAC plan as JSON: namespace -> {targets, sources, deployments}.
 {{- $e := get $plan $ns }}
 {{- $_ := set $e "targets" (append (get $e "targets") $s.name | uniq) }}
 {{- range $k, $spec := $s.keys }}
-{{- if hasKey $spec "copyFrom" }}
-{{- $parts := splitList "/" $spec.copyFrom }}
+{{- $src := "" }}
+{{- if hasKey $spec "copyFrom" }}{{ $src = $spec.copyFrom }}{{ end }}
+{{- if and (hasKey $spec "random") $spec.random }}{{ with $spec.random.seedFrom }}{{ $src = . }}{{ end }}{{ end }}
+{{- $parts := splitList "/" $src }}
+{{- /* malformed refs are skipped here; the spec validation names them */}}
+{{- if eq (len $parts) 3 }}
 {{- $sns := index $parts 0 }}
 {{- if not (hasKey $plan $sns) }}{{ $_ := set $plan $sns (dict "targets" list "sources" list "deployments" list) }}{{ end }}
 {{- $se := get $plan $sns }}
@@ -114,10 +127,12 @@ Least-privilege RBAC plan as JSON: namespace -> {targets, sources, deployments}.
 {{- end }}
 {{- range $d := $s.restartDeployments | default list }}
 {{- $dp := splitList "/" $d }}
+{{- if eq (len $dp) 2 }}
 {{- $dns := index $dp 0 }}
 {{- if not (hasKey $plan $dns) }}{{ $_ := set $plan $dns (dict "targets" list "sources" list "deployments" list) }}{{ end }}
 {{- $de := get $plan $dns }}
 {{- $_ := set $de "deployments" (append (get $de "deployments") (index $dp 1) | uniq) }}
+{{- end }}
 {{- end }}
 {{- end }}
 {{- toJson $plan -}}

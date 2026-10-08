@@ -34,6 +34,15 @@
 #       encoding: base64url  # base64 | base64url (unpadded) | hex
 #     format: "secret: %s" # optional; %s is replaced by the random value
 #   KEY:
+#     random:
+#       length: 32
+#       seedFrom: <namespace>/<secret>/<key>
+#     # Whenever this random value is generated (the Secret is created, or
+#     # addMissingKeys adds the key), an existing, non-empty seed key is used
+#     # verbatim instead (format is not applied). This adopts a live value
+#     # that so far only exists in a consumer. An unreadable seed fails the
+#     # run; an absent one means "generate".
+#   KEY:
 #     value: teknoir       # literal, non-secret; create-only unless sync: true
 #     sync: true
 #   KEY:
@@ -80,13 +89,18 @@ secrets:
   # --- Keycloak (teknoir-auth) ---------------------------------------------
   # Canonical OIDC client secrets of realm `teknoir`. The auth chart
   # substitutes them into the realm import; consumers get copies below.
+  # teknoir and argocd are seeded from the consumer copies an existing install
+  # already has (teknoir-local), so adopting it changes neither consumer: the
+  # copies below stay byte-identical and nothing restarts. Fresh installs have
+  # no seed and get random values. Deleting this Secret re-creates it from the
+  # same seeds; rotate a client secret by changing its key here.
   - namespace: teknoir-auth
     name: keycloak-client-secrets
     keys:
       teknoir:
-        random: {length: 32}
+        random: {length: 32, seedFrom: teknoir-auth/oauth2-proxy-secret/client-secret}
       argocd:
-        random: {length: 32}
+        random: {length: 32, seedFrom: teknoir-system/argocd-oidc-secret/oidc.auth.clientSecret}
       harbor:
         random: {length: 32}
       user-controller:

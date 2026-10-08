@@ -11,6 +11,7 @@ not in Git, not in the bundle and not in K3s manifest files.
 | Key spec | Absent Secret | Present Secret |
 |---|---|---|
 | `random: {length, charset}` or `random: {bytes, encoding}` (+ optional `format: "x %s"`) | generated | never changed; added only when the Secret sets `addMissingKeys: true` |
+| `random: {..., seedFrom: <ns>/<secret>/<key>}` | the seed's value if it exists and is not empty, else generated | never changed (as `random`) |
 | `value: <literal>` | set | never changed; added only with `addMissingKeys` |
 | `value: <literal>`, `sync: true` | set | re-synced every run |
 | `copyFrom: <ns>/<secret>/<key>` | copied | re-synced every run |
@@ -23,7 +24,18 @@ not in Git, not in the bundle and not in K3s manifest files.
   not exist yet is skipped (it reads the current Secret when it starts).
 - An existing Secret is adopted by name and key: its values are kept. Adopted
   Secrets get the label `teknoir.org/managed-by: platform-secrets`; other labels
-  are left alone.
+  are left alone. Adoption therefore changes an adopted Secret's
+  `resourceVersion` once (the label), never its `.data`: verify adoption with a
+  hash of `.data`, not with `resourceVersion`.
+- `seedFrom` adopts a value that so far only exists in a consumer. On an
+  existing install the canonical `keycloak-client-secrets[teknoir]` and
+  `[argocd]` do not exist yet, but their consumers do
+  (`oauth2-proxy-secret[client-secret]`, `argocd-oidc-secret[oidc.auth.clientSecret]`).
+  Seeding the canonical keys from them makes the copies no-ops: the consumers'
+  data stays byte-identical, oauth2-proxy is not restarted, and the realm import
+  sets the same client secrets in realm `teknoir`. A fresh install has no seed
+  and gets random values. A seed is used verbatim (no `format`); a seed that
+  cannot be read (Forbidden, ...) fails the run instead of generating a value.
 - A Secret is never created with a missing copy source (the run fails instead).
 - Errors are never read as "absent": only an empty
   `kubectl get --ignore-not-found` means absent; Forbidden, timeouts and so on
@@ -62,7 +74,7 @@ AppProject must allow Roles/RoleBindings in `teknoir-auth` and `teknoir-system`.
 
 Per namespace, derived from `values.secrets`:
 
-- `get`, `patch` on the listed Secrets (by name), `get` on copy sources (by name);
+- `get`, `patch` on the listed Secrets (by name), `get` on copy and seed sources (by name);
 - `create` on Secrets (Kubernetes cannot restrict `create` by name);
 - `get`, `patch` on the listed Deployments (by name), for restarts.
 
@@ -72,7 +84,7 @@ No `list`, `watch`, `delete` or `update` on anything.
 
 | Secret | Keys | Notes |
 |---|---|---|
-| teknoir-auth/keycloak-client-secrets | teknoir, argocd, harbor, user-controller | canonical client secrets; the auth chart imports them into realm `teknoir` |
+| teknoir-auth/keycloak-client-secrets | teknoir, argocd, harbor, user-controller | canonical client secrets; the auth chart imports them into realm `teknoir`; teknoir and argocd are seeded from their existing consumers |
 | teknoir-auth/keycloak-admin | username, password | master-realm admin |
 | teknoir-auth/keycloak-db-secret | username, password | adopted |
 | teknoir-auth/oauth2-proxy-secret | client-secret (copy of teknoir), cookie-secret | adopted; restarts oauth2-proxy |
@@ -89,7 +101,9 @@ placeholder, the Harbor token-service TLS and the public CA-bundle copies.
 
 ## Rotation
 
-- A **copy source** (e.g. `keycloak-client-secrets[argocd]`): change the source;
+- A **copy source** (e.g. `keycloak-client-secrets[argocd]`): change the source
+  (deleting `keycloak-client-secrets` does not rotate teknoir/argocd: the
+  re-created keys are seeded from the copies again);
   within 10 minutes the copies follow and the listed Deployments restart. For the
   Keycloak client secrets, also sync `auth` so the realm import applies the new
   value to Keycloak.
@@ -103,4 +117,5 @@ placeholder, the Harbor token-service TLS and the public CA-bundle copies.
 throw-away k3d cluster: creation, adoption, formats, idempotency (no
 resourceVersion changes), single re-creation, copy re-sync with restart, restart
 retry, Forbidden-is-not-absent, RBAC denials, concurrent runs and a scan of every
-Job log for every Secret value.
+Job log for every Secret value, live adoption by seeds (consumer data
+unchanged, no restart) and unreadable seeds (an error, nothing created).

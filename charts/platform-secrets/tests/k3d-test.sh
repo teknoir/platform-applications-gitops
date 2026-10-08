@@ -11,7 +11,8 @@
 # argocd-controller), then exercises re-runs via the CronJob. Checks:
 #   T1 one-shot Job completes; every Secret exists with its keys
 #   T2 adoption: a pre-existing Secret keeps its data, gains the label
-#   T3 formats: same-Secret copy, format prefix, 32-byte cookie, 16-char key
+#   T3 formats: same-Secret copy, format prefix, 16-char key, 32-byte cookie
+#      (checked after T10, where it is generated)
 #   T4 idempotency: a re-run changes no resourceVersion
 #   T5 delete one Secret: only that one is re-created
 #   T6 rotation of a copy source: consumer re-synced, Deployment restarted,
@@ -21,6 +22,11 @@
 #   T9 RBAC: unlisted Secrets cannot be read; list is denied
 #   T10 two concurrent runs on an empty cluster both succeed
 #   T11 never print: no Secret value (plain or base64) in any Job log
+#   T12 live adoption (teknoir-local layout): keycloak-client-secrets is
+#       seeded from the existing oauth2-proxy / ArgoCD client secrets, both
+#       consumers keep byte-identical data and oauth2-proxy is not restarted
+#   T13 an unreadable seed is an error, not "absent"; a re-created
+#       keycloak-client-secrets gets the same values back from its seeds
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -49,6 +55,9 @@ trap cleanup EXIT
 # get_key <ns> <secret> <key>: decoded value (harness only; never echoed)
 get_key() { k -n "$1" get secret "$2" -o go-template="{{index .data \"$3\" | base64decode}}"; }
 rv() { k -n "$1" get secret "$2" -o jsonpath='{.metadata.resourceVersion}'; }
+# data_hash <ns> <secret>: sha256 of .data, like the VM e2e E10 check
+data_hash() { k -n "$1" get secret "$2" -o jsonpath='{.data}' | sha256sum | cut -c1-16; }
+restarted_at() { k -n "$1" get deploy "$2" -o jsonpath='{.spec.template.metadata.annotations.kubectl\.kubernetes\.io/restartedAt}'; }
 all_rvs() {
 	for s in teknoir-auth/keycloak-client-secrets teknoir-auth/keycloak-admin teknoir-auth/keycloak-db-secret \
 		teknoir-auth/oauth2-proxy-secret teknoir-auth/oauth2-proxy-redis-secret teknoir-system/harbor-secret \
@@ -111,6 +120,18 @@ k -n teknoir-auth create secret generic keycloak-db-secret \
 	--from-literal=username=keycloak --from-literal=password=pre-existing-dummy >/dev/null
 k -n teknoir-auth label secret keycloak-db-secret objectset.rio.cattle.io/hash=dummy >/dev/null
 db_rv0=$(rv teknoir-auth keycloak-db-secret)
+# T12 fixture: the client secrets an existing install (teknoir-local) already
+# has in its consumers, with no keycloak-client-secrets yet.
+rnd32() { head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32; }
+seed_teknoir=$(rnd32)
+seed_argocd=$(rnd32)
+k -n teknoir-auth create secret generic oauth2-proxy-secret \
+	--from-file=client-secret=<(printf '%s' "$seed_teknoir") --from-file=cookie-secret=<(rnd32) >/dev/null
+k -n teknoir-system create secret generic argocd-oidc-secret \
+	--from-file=oidc.auth.clientSecret=<(printf '%s' "$seed_argocd") >/dev/null
+k -n teknoir-system label secret argocd-oidc-secret app.kubernetes.io/part-of=argocd >/dev/null
+o2p_hash0=$(data_hash teknoir-auth oauth2-proxy-secret)
+argo_hash0=$(data_hash teknoir-system argocd-oidc-secret)
 
 echo "== T1 bootstrap one-shot (server-side apply as argocd-controller)"
 helm template platform-secrets "$CHART" >"$WORK/render.yaml"
@@ -148,8 +169,23 @@ EOF
 [ "$missing" -eq 0 ] && ok "T1 all Secrets and keys exist" || bad "T1 Secrets/keys missing"
 [ "$(k -n teknoir-system get secret argocd-oidc-secret -o jsonpath='{.metadata.labels.app\.kubernetes\.io/part-of}')" = argocd ] &&
 	ok "T1 argocd-oidc-secret carries part-of=argocd" || bad "T1 argocd label missing"
-[ -z "$(k -n teknoir-auth get secret oauth2-proxy-secret -o jsonpath='{.metadata.annotations.teknoir\.org/restart-pending}')" ] &&
-	ok "T1 restart marker cleared after create" || bad "T1 restart marker left behind"
+[ -z "$(k -n teknoir-system get secret backstage-keycloak-secrets -o jsonpath='{.metadata.annotations.teknoir\.org/restart-pending}')" ] &&
+	[ -n "$(restarted_at teknoir-system user-controller)" ] &&
+	ok "T1 created backstage-keycloak-secrets: user-controller restarted, marker cleared" || bad "T1 restart after create"
+
+echo "== T12 live adoption: client secrets seeded from the consumers"
+[ "$(get_key teknoir-auth keycloak-client-secrets teknoir)" = "$seed_teknoir" ] &&
+	ok "T12 keycloak-client-secrets[teknoir] = existing oauth2-proxy client secret" || bad "T12 teknoir not seeded"
+[ "$(get_key teknoir-auth keycloak-client-secrets argocd)" = "$seed_argocd" ] &&
+	ok "T12 keycloak-client-secrets[argocd] = existing ArgoCD client secret" || bad "T12 argocd not seeded"
+[ "$(get_key teknoir-auth keycloak-client-secrets harbor)" != "$seed_teknoir" ] &&
+	[ "$(get_key teknoir-auth keycloak-client-secrets harbor | wc -c)" -eq 32 ] &&
+	ok "T12 unseeded keys are random" || bad "T12 harbor"
+[ "$(data_hash teknoir-auth oauth2-proxy-secret)" = "$o2p_hash0" ] && [ "$(data_hash teknoir-system argocd-oidc-secret)" = "$argo_hash0" ] &&
+	ok "T12 oauth2-proxy-secret and argocd-oidc-secret data unchanged (E10 check)" || bad "T12 consumer data changed"
+[ -z "$(restarted_at teknoir-auth oauth2-proxy)" ] && ok "T12 oauth2-proxy not restarted" || bad "T12 oauth2-proxy restarted"
+grep -q 'keycloak-client-secrets: created (keys: argocd, harbor, teknoir, user-controller); seeded from existing Secrets: argocd, teknoir' "$LOGS/oneshot.log" &&
+	ok "T12 log names the seeded keys" || bad "T12 log"
 
 echo "== T2 adoption"
 [ "$(get_key teknoir-auth keycloak-db-secret password)" = pre-existing-dummy ] &&
@@ -164,10 +200,6 @@ echo "== T3 formats"
 	ok "T3 DATA_SOURCE_PASS equals POSTGRES_PASSWORD" || bad "T3 same-Secret copy"
 ba=$(get_key teknoir-system backstage-backend-auth backend-auth-backstage-secrets.yaml)
 [[ "$ba" =~ ^secret:\ [A-Za-z0-9]{48}$ ]] && ok "T3 backend-auth format" || bad "T3 backend-auth format"
-ck=$(get_key teknoir-auth oauth2-proxy-secret cookie-secret)
-[ "$(printf '%s=' "$ck" | tr -- '-_' '+/' | base64 -d 2>/dev/null | wc -c)" -eq 32 ] &&
-	ok "T3 cookie-secret is 32 bytes (base64url)" || bad "T3 cookie-secret length"
-[ "${#ck}" -eq 43 ] || bad "T3 cookie-secret should be 43 chars"
 sk=$(get_key teknoir-system harbor-secret secretKey)
 [ "${#sk}" -eq 16 ] && ok "T3 harbor secretKey is 16 chars" || bad "T3 harbor secretKey length"
 [ "$(get_key teknoir-system backstage-keycloak-secrets KEYCLOAK_REALM)" = teknoir ] &&
@@ -237,6 +269,25 @@ sa=system:serviceaccount:teknoir-system:platform-secrets
 [ "$(k auth can-i patch deployment/keycloak -n teknoir-auth --as=$sa)" = no ] && ok "T9 unlisted Deployment patch denied" || bad "T9 deployment patch"
 [ "$(k auth can-i delete secret/keycloak-admin -n teknoir-auth --as=$sa)" = no ] && ok "T9 delete denied" || bad "T9 delete allowed"
 
+echo "== T13 seed errors are not absent; re-creation keeps the seeded values"
+kcs_teknoir=$(get_key teknoir-auth keycloak-client-secrets teknoir)
+kcs_argocd=$(get_key teknoir-auth keycloak-client-secrets argocd)
+k -n teknoir-auth delete secret keycloak-client-secrets >/dev/null
+k -n teknoir-system delete rolebinding platform-secrets >/dev/null
+if run_job rerun8; then bad "T13 run should fail when a seed is unreadable"; else ok "T13 run failed on an unreadable seed"; fi
+grep -q 'teknoir-auth/keycloak-client-secrets: not created: cannot read the seed Secret of key argocd' "$LOGS/rerun8.log" &&
+	ok "T13 unreadable seed reported" || bad "T13 message"
+k -n teknoir-auth get secret keycloak-client-secrets >/dev/null 2>&1 && bad "T13 created with an unreadable seed" ||
+	ok "T13 keycloak-client-secrets not created from a guess"
+k apply --server-side --field-manager=argocd-controller --force-conflicts -f "$WORK/render.yaml" >/dev/null
+sleep 1
+run_job rerun9 && ok "T13 run succeeded once the seed is readable" || bad "T13 run failed"
+[ "$(get_key teknoir-auth keycloak-client-secrets teknoir)" = "$kcs_teknoir" ] &&
+	[ "$(get_key teknoir-auth keycloak-client-secrets argocd)" = "$kcs_argocd" ] &&
+	ok "T13 re-created keycloak-client-secrets has the same teknoir/argocd values" || bad "T13 values changed"
+[ "$(get_key teknoir-auth oauth2-proxy-secret client-secret)" = "$kcs_teknoir" ] &&
+	ok "T13 oauth2-proxy client secret unchanged" || bad "T13 oauth2-proxy client secret changed"
+
 echo "== T10 concurrent runs on empty namespaces"
 snap_values
 for s in $(k -n teknoir-auth get secret -l teknoir.org/managed-by=platform-secrets -o name); do k -n teknoir-auth delete "$s" >/dev/null; done
@@ -252,6 +303,11 @@ done
 [ "$okc" -eq 2 ] && ok "T10 both concurrent runs succeeded" || { bad "T10 concurrent runs: $okc/2"; cat "$LOGS"/conc-*.log; }
 [ "$(get_key teknoir-auth oauth2-proxy-secret client-secret)" = "$(get_key teknoir-auth keycloak-client-secrets teknoir)" ] &&
 	ok "T10 copies consistent after the race" || bad "T10 copies inconsistent"
+# Format of a generated cookie (the T12 fixture adopts the first one).
+ck=$(get_key teknoir-auth oauth2-proxy-secret cookie-secret)
+[ "$(printf '%s=' "$ck" | tr -- '-_' '+/' | base64 -d 2>/dev/null | wc -c)" -eq 32 ] &&
+	ok "T3 generated cookie-secret is 32 bytes (base64url)" || bad "T3 cookie-secret length"
+[ "${#ck}" -eq 43 ] || bad "T3 cookie-secret should be 43 chars"
 
 echo "== T11 never print"
 snap_values

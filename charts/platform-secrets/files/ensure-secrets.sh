@@ -5,6 +5,9 @@
 # platform-secrets chart renders from values.secrets (line format documented
 # in templates/_helpers.tpl):
 #   - an absent Secret is created with every key;
+#   - a random key with a seed (random.seedFrom) takes the seed's current
+#     value instead of a new random one whenever it is generated, if the seed
+#     key exists and is not empty (adopting a live value on first creation);
 #   - in a present Secret, random keys and plain values are never changed;
 #     missing ones are only added when the Secret sets addMissingKeys;
 #   - copyFrom keys and `sync: true` values are re-synced on every run;
@@ -124,6 +127,38 @@ source_data() {
 	field "$_src" "D $3="
 }
 
+# seed_data <key>: prints the data of the seed of random key <key> of the
+# Secret being reconciled. Returns 1 when the key has no seed, or the seed
+# Secret, its key or its value is absent/empty (generate instead); 2 when the
+# seed Secret cannot be read (never read as absent).
+seed_data() {
+	_sd=$(printf '%s' "$s_seeds" | awk -F'|' -v k="$1" '$1 == k { print $2 "|" $3 "|" $4; f = 1; exit } END { exit !f }') || return 1
+	_sns=${_sd%%|*}
+	_sd=${_sd#*|}
+	_src=$(read_secret "$_sns" "${_sd%%|*}") || return 2
+	[ -n "$_src" ] || return 1
+	_sv=$(field "$_src" "D ${_sd#*|}=") || return 1
+	[ -n "$_sv" ] || return 1
+	printf '%s' "$_sv"
+}
+
+# random_data <key> <length> <charset> <bytes> <encoding> <format-b64>: the
+# data of a random key that is being generated: the seed if there is one,
+# otherwise a new random value. Returns 0 generated, 5 seeded, 2 when the seed
+# cannot be read.
+random_data() {
+	_rd_rc=0
+	_rd=$(seed_data "$1") || _rd_rc=$?
+	case $_rd_rc in
+	0)
+		printf '%s' "$_rd"
+		return 5
+		;;
+	1) gen_random "$2" "$3" "$4" "$5" "$6" ;;
+	*) return 2 ;;
+	esac
+}
+
 # ------------------------------------------------------------------ writing
 
 json_labels() {
@@ -174,10 +209,22 @@ create_secret() {
 	_id="$s_ns/$s_name"
 	_data=''
 	_mem=''
+	_seeded=''
 	while IFS='|' read -r _k _kind _x1 _x2 _x3 _x4 _x5; do
 		[ -n "$_k" ] || continue
 		case $_kind in
-		random) _v=$(gen_random "$_x1" "$_x2" "$_x3" "$_x4" "$_x5") ;;
+		random)
+			_rc=0
+			_v=$(random_data "$_k" "$_x1" "$_x2" "$_x3" "$_x4" "$_x5") || _rc=$?
+			case $_rc in
+			0) ;;
+			5) _seeded="${_seeded:+$_seeded, }$_k" ;;
+			*)
+				err "$_id: not created: cannot read the seed Secret of key $_k"
+				return 1
+				;;
+			esac
+			;;
 		value) _v=$_x1 ;;
 		copy)
 			_rc=0
@@ -206,7 +253,7 @@ EOF
 	if _out=$(printf '{"apiVersion":"v1","kind":"Secret","metadata":{"name":"%s","namespace":"%s","labels":{%s}%s},"type":"%s","data":{%s}}' \
 		"$s_name" "$s_ns" "$(json_labels)" "$_ann" "$s_type" "$_data" |
 		kc create --field-manager="$FIELD_MANAGER" -f - 2>&1 >/dev/null); then
-		log "$_id: created (keys: $(key_names))"
+		log "$_id: created (keys: $(key_names))${_seeded:+; seeded from existing Secrets: $_seeded}"
 		return 0
 	fi
 	case $_out in
@@ -250,7 +297,17 @@ update_secret() {
 				warn "$_id: key $_k is missing; not added (addMissingKeys is off)"
 				continue
 			fi
-			_want=$(gen_random "$_x1" "$_x2" "$_x3" "$_x4" "$_x5")
+			_rc=0
+			_want=$(random_data "$_k" "$_x1" "$_x2" "$_x3" "$_x4" "$_x5") || _rc=$?
+			case $_rc in
+			0) ;;
+			5) log "$_id: key $_k seeded from an existing Secret" ;;
+			*)
+				err "$_id: key $_k: cannot read its seed Secret; not added"
+				_rc_all=1
+				continue
+				;;
+			esac
 			;;
 		value)
 			if [ "$_has" -eq 1 ]; then
@@ -391,6 +448,7 @@ s_name=''
 s_type=''
 s_add=0
 s_keys=''
+s_seeds=''
 s_labels=''
 s_restarts=''
 in_secret=0
@@ -398,11 +456,12 @@ while IFS='|' read -r t a b c d e f g h <&3; do
 	case $t in
 	S)
 		s_ns=$a s_name=$b s_type=$c s_add=$d
-		s_keys='' s_labels='' s_restarts=''
+		s_keys='' s_seeds='' s_labels='' s_restarts=''
 		in_secret=1
 		;;
 	L) s_labels="$s_labels$a|$b$NL" ;;
 	K) s_keys="$s_keys$a|$b|$c|$d|$e|$f|$g$NL" ;;
+	Z) s_seeds="$s_seeds$a|$b|$c|$d$NL" ;;
 	R) s_restarts="$s_restarts$a|$b$NL" ;;
 	E)
 		[ "$in_secret" -eq 1 ] || {
