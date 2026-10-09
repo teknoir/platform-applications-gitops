@@ -22,8 +22,9 @@
 #   M5  prometheus-allow-internal still admits the namespace
 #   M6  grafana.ini: no anonymous access; auth.jwt signs users in from the
 #       forwarded token with the same issuer and JWKS (https), maps group
-#       admin to Admin, strict; no self sign-up; basic auth on (sidecars);
-#       no update checks or reporting
+#       admin to Admin, strict; no self sign-up; basic auth on (sidecars,
+#       break-glass) and the login form off (the break-glass is basic auth on
+#       the API, as the runbook says); no update checks or reporting
 #   M7  Grafana trusts the Teknoir Root CA (Secret teknoir-root-ca-bundle,
 #       optional) through SSL_CERT_DIR, and its pods carry the label the
 #       grafana policies select
@@ -182,6 +183,7 @@ else
   fail M6 "grafana.ini [auth.anonymous] still sets org_role $(ini auth.anonymous org_role)"
 fi
 expect_ini auth.basic enabled true
+expect_ini auth disable_login_form true
 expect_ini auth.jwt enabled true
 expect_ini auth.jwt header_name X-Auth-Request-Access-Token
 expect_ini auth.jwt username_claim preferred_username
