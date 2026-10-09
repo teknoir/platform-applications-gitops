@@ -14,3 +14,20 @@ data:
   DOMAIN: {{ .Values.config.domain | quote }}
   DOMAIN_PREFIX: {{ .Values.config.domainPrefix | quote }}
   ISTIO_REVISION: {{ .Values.config.istioRevision | quote }}
+  {{- /* Read from the environment, not passed as args: an image that does
+  not know them ignores them. Unset: the controller's compiled default. */}}
+  {{- with .Values.config.pluginChartRepo }}
+  {{- if hasPrefix "oci://" . }}
+  {{- fail "config.pluginChartRepo: no oci:// prefix (same form as the app-of-apps repoURL)" }}
+  {{- end }}
+  PLUGIN_CHART_REPO: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.config.pluginChartVersion }}
+  PLUGIN_CHART_VERSION: {{ . | toString | quote }}
+  {{- end }}
+  {{- with .Values.config.oidcIssuer }}
+  OIDC_ISSUER: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.config.oidcJwksUri }}
+  OIDC_JWKS_URI: {{ . | quote }}
+  {{- end }}

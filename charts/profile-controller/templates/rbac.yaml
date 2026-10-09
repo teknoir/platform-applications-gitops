@@ -1,65 +1,118 @@
+{{- /*
+Least privilege for the profile-controller (replaces the cluster-admin
+binding; the old <fullname>-cluster-role-binding and the unused
+leader-election Role/RoleBinding are pruned by ArgoCD). From the code
+(master 0b16111 plus the r5 changes):
+- Profiles: reconcile, status patches, finalizer.
+- Owns() informers (cluster-wide list/watch): Namespace, Secret, Service,
+  ConfigMap, Deployment, StatefulSet, EnvoyFilter, VirtualService,
+  AuthorizationPolicy, ServiceAccount, Role, RoleBinding, HelmChart.
+- Writes per teamspace: the namespace, AuthorizationPolicies,
+  RequestAuthentication jwt-policy, ServiceAccounts default-editor/-viewer,
+  RoleBindings namespaceAdmin/default-editor/default-viewer to
+  teknoir-admin/-edit/-view, ResourceQuota, ConfigMaps org-config and
+  user-alerting-rules, copies of the pull and wildcard TLS Secrets.
+- Writes in teknoir-system: one AppProject and the plugin Applications
+  (Role below); the plugin charts themselves are applied by ArgoCD.
+- No leader election, no Deployments/StatefulSets/PVCs of its own.
+Secrets stay cluster-wide get/list/watch until the controller reads them
+through the API reader (next release).
+*/}}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "profile-controller.fullname" . }}
+  labels:
+    {{- include "profile-controller.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["teknoir.org"]
+    resources: ["profiles"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["teknoir.org"]
+    resources: ["profiles/status"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: ["teknoir.org"]
+    resources: ["profiles/finalizers"]
+    verbs: ["update"]
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["secrets", "configmaps", "services", "serviceaccounts", "resourcequotas"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["rolebindings"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # RoleBindings to these ClusterRoles only; never cluster-admin or admin.
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles"]
+    resourceNames: ["teknoir-admin", "teknoir-edit", "teknoir-view"]
+    verbs: ["bind"]
+  - apiGroups: ["security.istio.io"]
+    resources: ["authorizationpolicies", "requestauthentications"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.istio.io"]
+    resources: ["virtualservices", "envoyfilters"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["helm.cattle.io"]
+    resources: ["helmcharts"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications", "appprojects"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "profile-controller.fullname" . }}-cluster-role-binding
+  name: {{ include "profile-controller.fullname" . }}
   labels:
     {{- include "profile-controller.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: cluster-admin
-subjects:
-- kind: ServiceAccount
   name: {{ include "profile-controller.fullname" . }}
-  namespace: {{ .Release.Namespace }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "profile-controller.fullname" . }}
+    namespace: {{ .Release.Namespace }}
 ---
+# Plugin Applications and the teamspace AppProject. teknoir-system is where
+# ArgoCD runs; the controller writes them there regardless of the release
+# namespace.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: {{ include "profile-controller.fullname" . }}-leader-election-role
-  namespace: {{ .Release.Namespace }}
+  name: {{ include "profile-controller.fullname" . }}-argocd
+  namespace: teknoir-system
   labels:
     {{- include "profile-controller.labels" . | nindent 4 }}
 rules:
-- apiGroups:
-  - ""
-  resources:
-  - configmaps
-  verbs:
-  - get
-  - list
-  - watch
-  - create
-  - update
-  - patch
-  - delete
-- apiGroups:
-  - ""
-  resources:
-  - configmaps/status
-  verbs:
-  - get
-  - update
-  - patch
-- apiGroups:
-  - ""
-  resources:
-  - events
-  verbs:
-  - create
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications", "appprojects"]
+    verbs: ["create", "update", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: {{ include "profile-controller.fullname" . }}-leader-election-rolebinding
-  namespace: {{ .Release.Namespace }}
+  name: {{ include "profile-controller.fullname" . }}-argocd
+  namespace: teknoir-system
   labels:
     {{- include "profile-controller.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: {{ include "profile-controller.fullname" . }}-leader-election-role
+  name: {{ include "profile-controller.fullname" . }}-argocd
 subjects:
-- kind: ServiceAccount
-  name: {{ include "profile-controller.fullname" . }}
-  namespace: {{ .Release.Namespace }}
+  - kind: ServiceAccount
+    name: {{ include "profile-controller.fullname" . }}
+    namespace: {{ .Release.Namespace }}
