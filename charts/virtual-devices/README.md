@@ -40,7 +40,10 @@ selfHeal put it back every few minutes. The Application therefore ignores that o
 value). The KubeVirt CR also leaves out `developerConfiguration` while there are no
 feature gates: `featureGates` is `omitempty` in the KubeVirt API types, so any typed write
 by the operator drops an empty list, which Argo CD would see as drift. `tests/assertions.py`
-rejects empty structs and an empty `featureGates`.
+rejects empty structs and an empty `featureGates`. A single partial selfHeal of the KubeVirt
+and CDI CRs in the same second as the first sync is not a fight: Argo CD acts on the
+comparison from before its last wave created them, and re-applies them unchanged (the e2e's
+timelines show it before either operator has written them).
 
 ## Replicas
 

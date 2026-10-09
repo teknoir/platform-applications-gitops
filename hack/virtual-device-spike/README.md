@@ -74,7 +74,7 @@ the tunnel.
 | Question | k3d result |
 |---|---|
 | Chart deploys in Argo CD wave order | Synced by Argo CD v3.5.1 (the version on r415) from the Application as app-of-apps renders it: the first sync took 20-30 s with no retry, and KubeVirt and CDI were `Deployed` about 2 minutes later. Every running image was pinned by digest, including the operands the operators create. |
-| Argo CD and the operators fight? | Not with this chart. The first Argo CD run found one fight: cdi-operator and selfHeal kept rewriting the `spec.versions` of the CRD `cdis.cdi.kubevirt.io`. The Application now ignores that field, and the KubeVirt CR carries no empty `featureGates` list (it is `omitempty` in the API, so an operator write would drop it). In the final run, counted from the Application's events, Argo CD ran exactly two operations in 11 minutes: the first automated sync and the forced re-sync. Nothing went OutOfSync and no generation moved, over 210 s after the operators were `Deployed` and 330 s after the re-sync. One earlier run saw a single partial selfHeal of the KubeVirt and CDI CRs right after the first sync, while the operators were filling them in. It ended with the same generations as the other runs. |
+| Argo CD and the operators fight? | Not with this chart. The first Argo CD run found one fight: cdi-operator and selfHeal kept rewriting the `spec.versions` of the CRD `cdis.cdi.kubevirt.io`. The Application now ignores that field, and the KubeVirt CR carries no empty `featureGates` list (it is `omitempty` in the API, so an operator write would drop it). Over 210 s after the operators were `Deployed` and 330 s after a forced full re-sync, no sync operation ran, nothing went OutOfSync and no generation moved. In about half of the runs Argo CD ran one partial selfHeal of the KubeVirt and CDI CRs in the same second as the first sync. This is Argo CD's own race, not a fight: the sync ends as soon as its last wave has applied the two CRs, while the Application's status still holds the comparison from before they existed, and auto-sync acts on that status. In the run the e2e's timelines recorded, it asked for the selfHeal 52-59 ms after the CRs were created, before either operator had written them (cdi-operator 0.3 s later, virt-operator 5 s later), so no operator-owned field is involved and there is nothing to add to `ignoreDifferences`. The operators' own spec writes (virt-operator adds `certificateRotateStrategy`, `customizeComponents` and `workloadUpdateStrategy` as `{}`, cdi-operator adds `customizeComponents: {}`) touch fields Argo CD does not manage, so server-side diff leaves them alone. |
 | Rollback and removal | Deleting the Application (the flag off) leaves the runtime and the DNS rewrite in place. Removal in the order of step 10 leaves no CRD, aggregated APIService, webhook, RBAC, PriorityClass or `coredns-custom`, and API discovery stays complete. CDI's upload APIService and webhooks were still there right after `delete cdi` returned, so step 2 waits for them. |
 | Non-root virt-launcher and `/dev/kvm` | Works. The launcher runs as uid 107 with only `NET_BIND_SERVICE`, and the guest reports `systemd-detect-virt=kvm`. libvirt logs one harmless `Unable to open /dev/kvm` from an early CPUID probe; V10 ignores it and G6b is the real check. |
 | PSA `baseline` | virt-launcher and the CDI importer are admitted under `enforce=baseline`. |
@@ -145,9 +145,10 @@ Expect the following:
 - P15: two ready replicas each of virt-api, virt-controller and cdi-apiserver.
 
 This is the first Argo CD sync on r415; the k3d e2e ran the same Application against the
-same Argo CD version. P2 must stay Synced. Repeated syncs after the first one mean Argo CD
-and an operator fight over a field. The Application's events list every sync operation,
-including partial selfHeal syncs:
+same Argo CD version. P2 must stay Synced. One partial selfHeal of `KubeVirt/kubevirt` and
+`CDI/cdi` in the same second as the first sync is expected (see "What the k3d e2e already
+answered"). Any later sync means Argo CD and an operator fight over a field. The
+Application's events list every sync operation, including partial selfHeal syncs:
 `kubectl --context r415 -n teknoir-system get events --field-selector involvedObject.name=virtual-devices`.
 
 The rewrite itself is proven later from inside the guest (G14). CoreDNS's `reload`
@@ -428,7 +429,7 @@ Notes:
 ## Tests
 
 ```sh
-hack/virtual-device-spike/test/run.sh        # offline: shellcheck, dry render against a fixture, kubeconform, check.sh (all phases and removed) against a fake kubectl
+hack/virtual-device-spike/test/run.sh        # offline: shellcheck, dry render against a fixture, kubeconform, check.sh (all phases and removed) against a fake kubectl, the e2e's Argo CD timelines and re-sync patch
 charts/virtual-devices/tests/run.sh          # offline: vendored pins, helm lint/template, kubeconform with CRD schemas, assertions, app-of-apps guard and Application spec
 VD_ONLINE=1 charts/virtual-devices/tests/run.sh   # + byte-identical rebuild of the vendored manifests from upstream
 flock <heavy.lock> hack/virtual-device-spike/test/k3d-e2e.sh   # HEAVY: throwaway k3d + KVM + Argo CD, chart + kit + check.sh + removal end to end
@@ -448,7 +449,18 @@ After the sync, the e2e:
   (210 s): OutOfSync resources, any sync operation (counted from the Application's events,
   so a partial selfHeal counts too), or spec writes to the CRs, CRDs, operator Deployments,
   `coredns-custom` and PriorityClasses;
-- forces a full re-sync and watches again for 330 s;
+- forces a full re-sync and watches again for 330 s. It starts the re-sync the way Argo CD's
+  own `SetAppOperation` (`argocd app sync`, auto-sync) does: one write that sets `.operation`
+  and clears `.status.operationState`, conditional on the `resourceVersion` it read while no
+  operation was in flight. An earlier version patched only `.operation`. After a startup
+  selfHeal the controller then resumed it as that selfHeal's partial sync: it writes
+  `status.operationState` as a JSON merge patch, and an empty resource list is omitted, so
+  the old list stayed (`test/argo_jq_test.py` replays this);
+- prints timelines of the Application and of the KubeVirt and CDI CRs, recorded by watches
+  from before the first sync, the application-controller's log about the Application, and
+  for each startup selfHeal when Argo CD asked for it relative to the CRs' creation and
+  their first operator write. `ARTIFACTS=<dir>` keeps the full files, and `ARGO_ONLY=1`
+  stops after the Argo CD part (about 12 minutes);
 - at the end, deletes the Application (the flag-off rollback), checks the runtime stays, and
   runs the step 10 removal, including its wait for the aggregated APIServices and
   webhooks, followed by `check.sh --phase removed`.

@@ -260,6 +260,9 @@ else
   ok "--phase removed cannot be combined with other phases"
 fi
 
+step "k3d e2e: Argo CD timelines and the forced re-sync patch (jq/argo.jq)"
+python3 -I "${HERE}/argo_jq_test.py" || bad "argo_jq_test.py"
+
 printf '\n'
 if ((fail)); then
   echo "kit tests FAILED"

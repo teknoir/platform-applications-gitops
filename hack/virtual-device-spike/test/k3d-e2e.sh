@@ -14,7 +14,10 @@
 #      window the Application stays Synced, no sync operation runs (counted from the
 #      Application's events, so partial selfHeal syncs count too), and the generations
 #      of the CRs, CRDs and operator Deployments do not move; then forces a full re-sync
-#      (as the next commit would) and checks the same again over a longer window;
+#      (as the next commit would) and checks the same again over a longer window. It
+#      prints timelines of the Application and of the KubeVirt and CDI CRs, recorded by
+#      watches from before the first sync, and the application-controller's log about
+#      the Application, so every sync operation shows with the state that caused it;
 #   3. adds stand-ins for the platform (gateway, teamspace services) and the Device CRD
 #      with a fixture Device holding a throwaway key;
 #   4. checks that the CoreDNS override takes effect and how (reload or restart);
@@ -25,7 +28,8 @@
 #   7. rollback: deletes the Application (what virtualDevices.enabled=false does) and
 #      checks that the runtime stays; then removes the runtime in the order the README
 #      documents and runs check.sh --phase removed.
-# The cluster is deleted on exit unless KEEP=1.
+# The cluster is deleted on exit unless KEEP=1. ARGO_ONLY=1 stops after step 2 (about
+# 12 minutes). ARTIFACTS=<dir> keeps the full timelines and the controller log there.
 #
 # Needs: docker, k3d, kubectl, helm, jq, python3 (PyYAML), go, openssl, curl, /dev/kvm.
 # shellcheck disable=SC2015  # "test && pass || flunk": pass always returns 0
@@ -57,7 +61,9 @@ STABILITY_SECONDS=${STABILITY_SECONDS:-210}
 STABILITY2_SECONDS=${STABILITY2_SECONDS:-330}
 DEVICE=vd-s1-fixture
 KEEP=${KEEP:-0}
+ARGO_ONLY=${ARGO_ONLY:-0}
 DISK=${DISK:-containerdisk}
+JQ_LIB="${HERE}/jq"
 
 log() { printf '[e2e %s] %s\n' "$(date -u +%H:%M:%S)" "$*" >&2; }
 die() { log "ERROR: $*"; exit 1; }
@@ -67,8 +73,20 @@ for t in docker k3d kubectl helm jq python3 go openssl curl; do command -v "$t" 
 TMP=$(mktemp -d)
 chmod 700 "$TMP"
 export KUBECONFIG="${TMP}/kubeconfig"
+# Argo CD diagnostics (timelines, controller log). They hold no secrets: the
+# Application, the KubeVirt and CDI CRs and the controller's log about them.
+ART=${ARTIFACTS:-${TMP}/artifacts}
+mkdir -p "$ART"
+WATCHERS=()
+kill_tree() { local c; for c in $(pgrep -P "$1" || true); do kill_tree "$c"; done; kill "$1" 2>/dev/null || true; }
+stop_watchers() { local p; for p in "${WATCHERS[@]}"; do kill_tree "$p"; done; WATCHERS=(); }
+ARGO_DIAG_DONE=0
 cleanup() {
   local rc=$?
+  stop_watchers
+  if ((rc != 0 && ARGO_DIAG_DONE == 0)) && [[ -s ${ART}/application.jsonl ]]; then
+    argo_diagnostics || true
+  fi
   if [[ $KEEP == 1 ]]; then
     log "KEEP=1: cluster ${CLUSTER} kept; kubeconfig ${KUBECONFIG}"
   else
@@ -219,6 +237,44 @@ yaml.safe_dump_all([proj, app], open(dst, "w"))
 print("syncPolicy:", app["spec"]["syncPolicy"], "annotations:", app["metadata"].get("annotations"), file=sys.stderr)
 PY
 N_RENDERED=$(helm template virtual-devices "${REPO}/charts/virtual-devices" --namespace kubevirt | grep -c '^kind:')
+
+# Watches from before the first sync: the Application and the KubeVirt and CDI CRs, as
+# compact timelines (jq/argo.jq). The CR watches retry until Argo CD has created the CRDs.
+watch_into() { # watch_into FILE JQ_FUNCTION KUBECTL_GET_ARGS...
+  local out=$1 fn=$2
+  shift 2
+  (
+    while :; do
+      kubectl --context "$CTX" get "$@" --watch --output-watch-events -o json 2>>"${out}.err" || true
+      sleep 2
+    done | jq -L "$JQ_LIB" -n -c --unbuffered "include \"argo\"; ${fn}" >>"$out" 2>>"${out}.err"
+  ) &
+  WATCHERS+=("$!")
+}
+watch_into "${ART}/application.jsonl" app_timeline -n "$ARGO_NS" applications.argoproj.io --field-selector metadata.name=virtual-devices
+watch_into "${ART}/kubevirt.jsonl" cr_timeline -n kubevirt kubevirts.kubevirt.io
+watch_into "${ART}/cdi.jsonl" cr_timeline cdis.cdi.kubevirt.io
+# The application-controller's log lines about the Application's operations: how each
+# one started (automated or requested), resumed and ended, auto-sync decisions other than
+# "Synced" and "operation in progress", and every warning or error. Repeats are counted.
+controller_log() {
+  k -n "$ARGO_NS" logs statefulset/argocd-application-controller --timestamps >"${ART}/application-controller.log" 2>&1 || true
+  jq -R -r 'capture("^(?<ts>[^ ]+) (?<j>[{].*)$")? | (.j | fromjson? // empty) as $j | select($j.application == "virtual-devices")
+    | select(($j.level != "info" and $j.level != "debug")
+             or ($j.msg | test("Initiated automated sync|Initialized new operation|Resuming in-progress|Skipping auto-sync|operation \\(phase: (Succeeded|Failed|Error)|[Ss]ync operation to|Retrying|[Tt]erminating")
+                 and (test("application status is Synced|another operation is in progress") | not)))
+    | "\(.ts[11:23]) \($j.level) \($j.msg | gsub("\\s+"; " ") | .[:300])"' "${ART}/application-controller.log" | uniq -c -f2 || true
+}
+argo_diagnostics() {
+  ARGO_DIAG_DONE=1
+  log "timeline (A: Application, one line per change of its operation, operationState, sync/health or not-Synced resources;"
+  log "          C: KubeVirt/CDI CR, one line per change of generation, spec, finalizers or spec owners):"
+  { sed 's/^/A /' "${ART}/application.jsonl"; sed 's/^/C /' "${ART}/kubevirt.jsonl" "${ART}/cdi.jsonl" 2>/dev/null; } |
+    sort -s -k2,2 | cut -c1-1500 | sed 's/^/[e2e]   /' >&2
+  log "application-controller log about the Application's operations (full log: ${ART}/application-controller.log):"
+  controller_log | cut -c1-400 | sed 's/^/[e2e]   /' >&2
+}
+
 T_SYNC=$(date +%s)
 k apply -f "${TMP}/argo-app.yaml" >/dev/null
 
@@ -228,12 +284,12 @@ if ! wait_for 1800 '^Synced Healthy Succeeded$' "Argo CD application virtual-dev
   app_json | jq '{conditions: .status.conditions, operation: .status.operationState | {phase, message, retryCount}, notSynced: [.status.resources[]? | select(.status != "Synced")]}'
   die "Argo CD did not sync the chart"
 fi
-OP=$(app_json | jq -c '.status.operationState | {phase, retryCount: (.retryCount // 0), message, started: .startedAt, finished: .finishedAt,
-  resources: ([.operation.sync.resources[]? | "\(.kind)/\(.name)"] | if length == 0 then "all" else join(",") end)}')
-log "first sync: ${OP}"
-log "first sync took $(($(date +%s) - T_SYNC))s; retries: $(jq -r .retryCount <<<"$OP")"
+log "first sync took $(($(date +%s) - T_SYNC))s: $(app_json | jq -c '.status.history[0] | {started: .deployStartedAt, finished: .deployedAt, revision}')"
+OP=$(app_json | jq -L "$JQ_LIB" -c 'include "argo"; .status.operationState | {phase, by: (.operation | initiator), resources: (.operation | op_resources),
+  retryCount: (.retryCount // 0), message, started: .startedAt, finished: .finishedAt}')
+log "latest operation: ${OP}"
 not_synced=$(app_json | jq -r '[.status.operationState.syncResult.resources[] | select(.status != "Synced") | "\(.kind)/\(.name): \(.message)"] | join("; ")')
-[[ -z $not_synced ]] && pass "every resource of the first sync applied" || flunk "resources not applied by the first sync: $not_synced"
+[[ -z $not_synced ]] && pass "every resource of the latest sync applied" || flunk "resources not applied by the latest sync: $not_synced"
 
 wait_for 1500 '^Deployed$' "KubeVirt phase" k -n kubevirt get kubevirt kubevirt -o jsonpath='{.status.phase}' || {
   k -n kubevirt get pods -o wide
@@ -300,6 +356,14 @@ O0=$(n_ops)
 ((O0 >= 1)) && pass "Argo CD records its operations as events (${O0} so far)" || flunk "no Argo CD operation events: operations cannot be counted"
 log "operations until KubeVirt and CDI were Deployed:"
 argo_ops | sed 's/^/[e2e]   /' >&2
+# A partial selfHeal of the CRs right after the first sync is Argo CD's own race, not a
+# fight: the sync ends as soon as its last wave has applied the KubeVirt and CDI CRs,
+# while the status still holds the comparison from before they existed; auto-sync reads
+# that status within milliseconds and re-applies the two unchanged CRs. The timelines
+# show it for each such selfHeal: requested after the CRs were created and before any
+# operator had written them, so no operator-owned field can be the cause.
+jq -L "$JQ_LIB" -n -c --slurpfile app "${ART}/application.jsonl" --slurpfile crs <(cat "${ART}/kubevirt.jsonl" "${ART}/cdi.jsonl") \
+  'include "argo"; selfheal_report($app; $crs)[]' | while read -r line; do log "INFO startup selfHeal: ${line}"; done
 S0=$(argo_snapshot)
 G0=$(generations)
 log "stability window: ${STABILITY_SECONDS}s"
@@ -308,19 +372,39 @@ assert_steady "after ${STABILITY_SECONDS}s" "$S0" "$G0" "$O0"
 log "cdis.cdi.kubevirt.io versions: $(k get crd cdis.cdi.kubevirt.io -o jsonpath='{.spec.versions[*].name}')"
 
 log "forcing a full re-sync with the same manifests (what the next commit does)"
-# Only when no operation is in flight: a merge patch into a running operation would
-# inherit its resource list and turn into a partial sync.
+# Started the way Argo CD's SetAppOperation starts one (argocd app sync, automated sync;
+# see sync_patch in jq/argo.jq): one write that sets .operation and clears
+# .status.operationState, conditional on the resourceVersion read while no operation
+# was in flight. Without the clear, a full sync requested after a partial selfHeal kept
+# that selfHeal's resource list and ran as a partial sync of KubeVirt and CDI. A conflict
+# means the controller wrote the Application in between: read it again and retry.
 op_idle() { app_json | jq -r 'if .operation == null then "idle" else "busy" end'; }
-wait_for 300 '^idle$' "no Argo CD operation in flight" op_idle ||
-  flunk "an Argo CD operation stayed in flight"
+force_sync() {
+  local attempt app out
+  for attempt in 1 2 3 4 5; do
+    wait_for 300 '^idle$' "no Argo CD operation in flight" op_idle || return 1
+    app=$(app_json)
+    [[ $(jq -r '.operation == null' <<<"$app") == true ]] || continue
+    log "before the patch (attempt ${attempt}): $(jq -L "$JQ_LIB" -c 'include "argo"; app_detail' <<<"$app")"
+    if out=$(k -n "$ARGO_NS" patch application virtual-devices --type merge \
+      -p "$(jq -L "$JQ_LIB" -c --arg rev "$CHART_VERSION" 'include "argo"; sync_patch("vd-e2e"; $rev)' <<<"$app")" 2>&1); then
+      log "right after the patch: $(app_json | jq -L "$JQ_LIB" -c 'include "argo"; app_detail')"
+      return 0
+    fi
+    [[ $out == *"has been modified"* || $out == *Conflict* ]] || { log "patch failed: ${out}"; return 1; }
+    log "conflict, the controller wrote the Application after it was read: ${out}"
+  done
+  return 1
+}
 SYNCS0=$(jq -r .syncs <<<"$(argo_snapshot)")
-STARTED0=$(jq -r .started <<<"$(argo_snapshot)")
-k -n "$ARGO_NS" patch application virtual-devices --type merge \
-  -p "$(app_json | jq -c --arg rev "$CHART_VERSION" '{operation: {initiatedBy: {username: "vd-e2e"}, sync: {revision: $rev, prune: true, syncOptions: .spec.syncPolicy.syncOptions}}}')" >/dev/null
-resync_state() { app_json | jq -r --arg s "$STARTED0" 'if .status.operationState.startedAt != $s then "\(.status.operationState.phase) \(.status.sync.status)" else "pending" end'; }
-if wait_for 600 '^Succeeded Synced$' "re-sync" resync_state; then
-  RESYNC=$(app_json | jq -c '{by: .status.operationState.operation.initiatedBy.username, resources: (.status.operationState.operation.sync.resources // []), syncs: (.status.history | length)}')
-  [[ $(jq -c '{by, resources}' <<<"$RESYNC") == '{"by":"vd-e2e","resources":[]}' && $(jq -r .syncs <<<"$RESYNC") == $((SYNCS0 + 1)) ]] &&
+resync_state() { app_json | jq -r 'if .status.operationState.operation.initiatedBy.username == "vd-e2e" then "\(.status.operationState.phase) \(.status.sync.status)" else "pending" end'; }
+if ! force_sync; then
+  flunk "could not start the forced re-sync"
+elif wait_for 600 '^Succeeded Synced$' "re-sync" resync_state; then
+  log "re-sync finished: $(app_json | jq -L "$JQ_LIB" -c 'include "argo"; app_detail')"
+  RESYNC=$(app_json | jq -c '(.status.operationState.operation | {by: .initiatedBy.username, automated: (.initiatedBy.automated // false),
+    resources: (.sync.resources // [])}) + {syncs: (.status.history | length)}')
+  [[ $(jq -c '{by, automated, resources}' <<<"$RESYNC") == '{"by":"vd-e2e","automated":false,"resources":[]}' && $(jq -r .syncs <<<"$RESYNC") == $((SYNCS0 + 1)) ]] &&
     pass "forced full re-sync succeeded (one more history entry)" || flunk "the re-sync was not the forced full sync: ${RESYNC}"
   S1=$(argo_snapshot)
   O1=$(n_ops)
@@ -335,6 +419,13 @@ else
 fi
 log "all Argo CD operations:"
 argo_ops | sed 's/^/[e2e]   /' >&2
+argo_diagnostics
+stop_watchers
+if [[ $ARGO_ONLY == 1 ]]; then
+  ((fail)) && { log "k3d e2e (ARGO_ONLY) FAILED"; exit 1; }
+  log "k3d e2e (ARGO_ONLY) passed"
+  exit 0
+fi
 
 # ------------------------------------------------------------------ platform stand-ins
 log "platform stand-ins, Device CRD and fixture Device"
