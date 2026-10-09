@@ -404,7 +404,7 @@ if [[ $SOURCE != fixture && $DEVICE_TYPE == virtual ]]; then
   # The 2024 VirtualDevice plugin (still in deployed controllers until Phase 0 ships)
   # creates a privileged virtual-device-<name> Deployment for device_type virtual.
   if kc -n "$NAMESPACE" get deployment "virtual-device-${DEVICE}" >/dev/null 2>&1; then
-    die "Deployment ${NAMESPACE}/virtual-device-${DEVICE} exists: the deployed device-controller still runs the 2024 VirtualDevice plugin. Use a test Device with a non-virtual board, or deploy the Phase 0 controller first (README, step 2)."
+    die "Deployment ${NAMESPACE}/virtual-device-${DEVICE} exists: the deployed device-controller still runs the 2024 VirtualDevice plugin. Use a test Device with a non-virtual board, or deploy the Phase 0 controller first (README, step 3)."
   fi
   log "note: device_type is 'virtual' and no virtual-device-${DEVICE} Deployment exists"
 fi

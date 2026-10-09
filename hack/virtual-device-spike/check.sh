@@ -586,9 +586,12 @@ check_guest() {
   for m in overlay br_netfilter vxlan nf_tables ip_tables iptable_nat xt_conntrack nf_conntrack; do mods+="$m=$(kvget "mod_$m") "; done
   [[ $mods != *missing* ]] && result PASS G8 "kernel modules: $mods(genericcloud question, critique #9)" || result FAIL G8 "kernel modules: $mods"
 
-  [[ $(kvget k3s_active) == active && $(kvget k3s_version) == "${VDS_K3S_VERSION}" ]] &&
+  local want_k3s
+  want_k3s=$(jget '.metadata.annotations["teknoir.org/k3s-version"] // empty' <<<"$vm")
+  want_k3s=${want_k3s:-$VDS_K3S_VERSION}
+  [[ $(kvget k3s_active) == active && $(kvget k3s_version) == "$want_k3s" ]] &&
     result PASS G9 "k3s $(kvget k3s_version) active since $(kvget k3s_since); node $(kvget inner_node)" ||
-    result FAIL G9 "k3s '$(kvget k3s_active)' version '$(kvget k3s_version)' (pinned ${VDS_K3S_VERSION})"
+    result FAIL G9 "k3s '$(kvget k3s_active)' version '$(kvget k3s_version)' (rendered with ${want_k3s})"
   local svc dns pc
   svc=$(kvget inner_svc_kubernetes)
   dns=$(kvget inner_kubedns)
