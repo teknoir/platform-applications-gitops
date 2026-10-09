@@ -30,6 +30,12 @@ In-namespace traffic needs no token:
 - `alertmanager-allow-prometheus` admits Prometheus' ServiceAccount, so alerts
   are delivered.
 
+  Prometheus addresses Alertmanager by its Service
+  (`prometheusSpec.alertingEndpoints` rewrites `__address__`). The chart's
+  default discovers pod IPs instead, and the Prometheus sidecar sends a request
+  for a pod IP to its PassthroughCluster in plaintext. Alertmanager's sidecar
+  (STRICT mTLS) resets it, so every notification failed with 503.
+
 Grafana's `jwk_set_url` must be https: Grafana 12 refuses to start with an
 http one ("must have https scheme"). So it is the issuer's own URL, not the
 in-mesh `keycloak-http` service. Grafana trusts the Teknoir Root CA from Secret

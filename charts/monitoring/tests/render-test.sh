@@ -15,8 +15,10 @@
 #       request.auth.claims[groups] in monitoring.access.groups
 #   M3  every ALLOW rule of every AuthorizationPolicy has a source, and every
 #       rule that admits the gateway also requires the groups claim
-#   M4  alertmanager-allow-prometheus admits the ServiceAccount the Prometheus
-#       resource runs as, and that ServiceAccount is rendered
+#   M4  alert delivery: every Alertmanager endpoint of the Prometheus resource
+#       is rewritten to the Service's name and http-web port (a pod IP would
+#       leave the mesh in plaintext: 503), and alertmanager-allow-prometheus
+#       admits the ServiceAccount Prometheus runs as (rendered)
 #   M5  prometheus-allow-internal still admits the namespace
 #   M6  grafana.ini: no anonymous access; auth.jwt signs users in from the
 #       forwarded token with the same issuer and JWKS (https), maps group
@@ -156,8 +158,16 @@ check M4 "alertmanager-allow-prometheus admits ServiceAccount '${sa}' (rendered)
     and $p[0].spec.selector.matchLabels == {"app.kubernetes.io/name": "alertmanager"}
     and $p[0].spec.rules == [{"from": [{"source": {"principals": ["cluster.local/ns/\($ns)/sa/\($sa)"]}}]}]' \
   --arg sa "${sa}" --arg ns "${NS}"
-check M4 "Prometheus sends alerts to the Alertmanager the policy selects" '
-  [.[] | select(.kind == "Prometheus")][0].spec.alerting.alertmanagers[0].name == "monitoring-alertmanager"'
+check M4 "Prometheus addresses every Alertmanager endpoint to its Service (<name>.<ns>.svc.cluster.local:<http-web>)" '
+  . as $all
+  | [.[] | select(.kind == "Prometheus")][0].spec.alerting.alertmanagers as $am
+  | ($am | length) > 0
+    and ($am | all(. as $e
+      | ([$all[] | select(.kind == "Service" and .metadata.name == $e.name)][0].spec.ports // []
+         | map(select(.name == $e.port))[0].port) as $port
+      | $port != null
+        and ([$e.relabelings[]? | select(.targetLabel == "__address__" and (.action // "replace") == "replace")
+              | .replacement] == ["\($e.name).\($e.namespace).svc.cluster.local:\($port)"])))'
 
 # --- M5 internal Prometheus access -----------------------------------------------
 check M5 "prometheus-allow-internal admits namespace ${NS}" '

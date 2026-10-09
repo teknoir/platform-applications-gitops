@@ -52,9 +52,10 @@ spec:
               - {{ $namespace | quote }}
 
 ---
-# Alert delivery: Prometheus posts to /<namespace>/alertmanager/api/v2/alerts.
-# Without this, Alertmanager's only ALLOW admitted the gateway, and Prometheus
-# logged "Error sending alerts" for every notification.
+# Alert delivery: Prometheus posts to /<namespace>/alertmanager/api/v2/alerts,
+# addressed to the Service (values: prometheusSpec.alertingEndpoints), so over
+# mTLS with its own identity. Alertmanager's other ALLOW admits the gateway
+# only.
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:

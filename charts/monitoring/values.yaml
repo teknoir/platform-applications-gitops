@@ -610,6 +610,27 @@ kube-prometheus-stack:
       ##
       routePrefix: /teknoir-system/prometheus
 
+      ## Alert delivery through the mesh. The chart's default endpoint
+      ## discovers Alertmanager's pod IPs, and the Prometheus sidecar sends a
+      ## request addressed to a pod IP to its PassthroughCluster: plaintext,
+      ## which Alertmanager's sidecar (STRICT mTLS) resets, so every
+      ## notification failed with 503 (response flag UC). Same endpoint, but
+      ## addressed to the Service, so the request is routed as
+      ## monitoring-alertmanager over mTLS with Prometheus' identity, which
+      ## AuthorizationPolicy alertmanager-allow-prometheus admits. With more
+      ## than one Alertmanager replica each alert reaches one of them, and
+      ## the replicas share it (Alertmanager HA).
+      alertingEndpoints:
+        - namespace: teknoir-system
+          name: monitoring-alertmanager
+          port: http-web
+          pathPrefix: /teknoir-system/alertmanager
+          apiVersion: v2
+          relabelings:
+            - action: replace
+              targetLabel: __address__
+              replacement: monitoring-alertmanager.teknoir-system.svc.cluster.local:9093
+
       ## Prometheus StorageSpec for persistent data
       ## ref: https://github.com/prometheus-operator/prometheus-operator/blob/main/Documentation/user-guides/storage.md
       ##
