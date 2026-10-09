@@ -34,6 +34,16 @@ spec:
               value: {{ .Values.config.logLevel | quote }}
             - name: PROMETHEUS_URL
               value: {{ .Values.config.prometheusUrl | quote }}
+            {{- /* Frontend runtime config teknoir.auth.* (docker/inject-config.sh
+            splits the key on "_"): the logout ends the Keycloak session too.
+            Without config.oidc.realm the frontend keeps the legacy logout. */}}
+            {{- $oidc := .Values.config.oidc | default dict }}
+            {{- if $oidc.realm }}
+            - name: APP_CONFIG_teknoir_auth_issuer
+              value: {{ include "backstage.oidcIssuer" . | quote }}
+            - name: APP_CONFIG_teknoir_auth_clientId
+              value: {{ $oidc.clientId | default "teknoir" | quote }}
+            {{- end }}
 
 ---
 apiVersion: apps/v1
@@ -139,13 +149,6 @@ spec:
               mountPath: {{ .mountPath }}
               readOnly: true
             {{- end }}
-          readinessProbe:
-            initialDelaySeconds: 60
-            httpGet:
-              port: 7007
-              path: /api/healthcheck
-          livenessProbe:
-            initialDelaySeconds: 60
-            httpGet:
-              port: 7007
-              path: /api/healthcheck
+          {{- with .Values.backstageApi.probes }}
+          {{- toYaml . | nindent 10 }}
+          {{- end }}

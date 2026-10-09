@@ -12,6 +12,43 @@ config:
   oidc:
     realm: teknoir
     basePath: /auth
+    # Keycloak client of the browser session (oauth2-proxy's client). When
+    # realm is set, the frontend gets teknoir.auth.issuer and
+    # teknoir.auth.clientId (env APP_CONFIG_teknoir_auth_*), and its logout
+    # ends the Keycloak session as well (oauth2-proxy /oauth2/sign_out, then
+    # the realm's end_session endpoint). Without realm the frontend keeps the
+    # legacy logout URL. Default: teknoir.
+    clientId: teknoir
+
+# Catalog: override the schedules of the image's catalog.providers.k8s.<name>
+# entity providers. A map <provider> -> Backstage schedule ({frequency,
+# timeout}, optionally initialDelay/scope); each entry replaces the image's
+# array for that provider (Backstage replaces arrays wholesale). Only the
+# providers whose entries hold nothing but a schedule can be overridden
+# (users, profiles, roles, orgtree, services, devices,
+# deviceapplicationsets); never peripherals, which also carries wsUrl,
+# mqttUrl and syncOrgConfig. Default {}: the image's schedules (30 min for
+# users and profiles).
+#
+# teknoir-local: a new User or Profile (e.g. the GitOps teamspace
+# teknoir-default, or an owner claim from `teknoir-airgap admin-user`) shows
+# up in Backstage within about a minute. A restart never pulls a scheduled
+# run forward (next run = min(stored, now + cadence)), so only a short
+# cadence makes it fast.
+catalog:
+  k8sProviderSchedules:
+    users:
+      frequency: { minutes: 1 }
+      timeout: { minutes: 2 }
+    profiles:
+      frequency: { minutes: 1 }
+      timeout: { minutes: 2 }
+    roles:
+      frequency: { minutes: 5 }
+      timeout: { minutes: 3 }
+    orgtree:
+      frequency: { minutes: 5 }
+      timeout: { minutes: 3 }
 
 # Backstage frontend deployment
 backstage:
@@ -26,6 +63,33 @@ backstageApi:
   image: ghcr.io/teknoir/backstage:robot
   imagePullPolicy: Always
   imagePullSecrets: []
+  # Root health endpoints of @backstage/backend-defaults: readiness answers
+  # 503 until every plugin has started (and again on shutdown), liveness is
+  # always 200 once the HTTP server listens. The startup probe allows 10 min
+  # for a first start on an empty database (migrations of ~15 plugin
+  # databases); liveness only takes over afterwards. No initialDelaySeconds.
+  probes:
+    startupProbe:
+      httpGet:
+        path: /.backstage/health/v1/readiness
+        port: 7007
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 60
+    readinessProbe:
+      httpGet:
+        path: /.backstage/health/v1/readiness
+        port: 7007
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+    livenessProbe:
+      httpGet:
+        path: /.backstage/health/v1/liveness
+        port: 7007
+      periodSeconds: 20
+      timeoutSeconds: 5
+      failureThreshold: 6
   nodeOptions: '--max-old-space-size=8192'
   podSecurityContext:
     fsGroup: 1000
