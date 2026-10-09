@@ -103,15 +103,17 @@ builtin_client() {
 	return 1
 }
 
-# find_client <realm> <clientId>: writes the client's internal id (empty when
-# there is none) to $T/cid; prints the HTTP status code.
+# find_client <realm> <clientId>: writes the client's internal id to $T/cid
+# (an empty file when there is none; no newline); prints the HTTP status code.
+# An answer that is not a client list, or that has the clientId more than once,
+# is not "200": the callers then stop without deleting anything.
 find_client() {
 	rm -f "$T/clients" "$T/cid"
 	_code=$(curl -sS -m 20 -o "$T/clients" -w '%{http_code}' -H @"$T/auth" -G \
 		--data-urlencode "clientId=$2" "$KC/admin/realms/$1/clients") || _code=000
 	if [ "$_code" = 200 ]; then
-		jq -r --arg c "$2" '[.[] | select(.clientId == $c)] | if length > 1 then error("duplicate") else (.[0].id // "") end' \
-			<"$T/clients" >"$T/cid" || _code=000
+		jq -j --arg c "$2" '[.[] | select(.clientId == $c)] | if length > 1 then error("clientId \($c) more than once") else (.[0].id // "") end' \
+			<"$T/clients" >"$T/cid" || _code="200 with an unusable answer (not a client list, or clientId '$2' more than once)"
 	fi
 	rm -f "$T/clients"
 	printf '%s' "$_code"
@@ -154,7 +156,10 @@ remove_master_legacy_clients() {
 			;;
 		*) die "looking up client '$c' in realm $realm returned HTTP $code" ;;
 		esac
-		if [ ! -s "$T/cid" ]; then
+		# The guard: delete only what realm $realm already has. (Read into a
+		# variable: an id file is never tested by size, a newline is not an id.)
+		rid=$(cat "$T/cid")
+		if [ -z "$rid" ]; then
 			log "keeping master client '$c': realm $realm has no client '$c' (not migrated)"
 			continue
 		fi
