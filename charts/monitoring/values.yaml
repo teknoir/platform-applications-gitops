@@ -617,7 +617,8 @@ kube-prometheus-stack:
       ## notification failed with 503 (response flag UC). Same endpoint, but
       ## addressed to the Service, so the request is routed as
       ## monitoring-alertmanager over mTLS with Prometheus' identity, which
-      ## AuthorizationPolicy alertmanager-allow-prometheus admits. With more
+      ## AuthorizationPolicy alertmanager-allow-prometheus admits (and, today,
+      ## the harbor chart's namespace-wide harbor-allow-internal). With more
       ## than one Alertmanager replica each alert reaches one of them, and
       ## the replicas share it (Alertmanager HA).
       alertingEndpoints:

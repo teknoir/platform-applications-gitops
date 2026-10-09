@@ -24,17 +24,47 @@ Only members of the Keycloak groups in `monitoring.access.groups` (default
    the Admin role (`role_attribute_path`, strict). Anonymous access and
    self sign-up are off.
 
-In-namespace traffic needs no token:
-- `prometheus-allow-internal` admits teknoir-system, which covers Grafana's
-  Prometheus datasource and the operator.
-- `alertmanager-allow-prometheus` admits Prometheus' ServiceAccount, so alerts
-  are delivered.
+"Group admin only" holds for the gateway path. Inside the mesh, traffic from
+teknoir-system and teknoir-auth needs no token:
 
-  Prometheus addresses Alertmanager by its Service
-  (`prometheusSpec.alertingEndpoints` rewrites `__address__`). The chart's
-  default discovers pod IPs instead, and the Prometheus sidecar sends a request
-  for a pod IP to its PassthroughCluster in plaintext. Alertmanager's sidecar
-  (STRICT mTLS) resets it, so every notification failed with 503.
+- The harbor chart's `harbor-allow-internal` has no selector. It therefore
+  applies to every workload in teknoir-system, Grafana, Prometheus and
+  Alertmanager included, and admits any mTLS source in teknoir-system and
+  teknoir-auth. Every platform pod in those namespaces (Backstage, Argo CD,
+  Keycloak, oauth2-proxy, the controllers) can use the Prometheus and
+  Alertmanager APIs, silences included, without a token. Teamspaces and
+  other namespaces cannot.
+- Grafana's Alertmanager datasource
+  (`http://monitoring-alertmanager.teknoir-system:9093`, a Service, so mTLS
+  as `monitoring-grafana`) is admitted only by `harbor-allow-internal`.
+- This chart's own in-namespace ALLOWs cover the paths it needs, so those keep
+  working without `harbor-allow-internal`:
+  - `prometheus-allow-internal` admits teknoir-system, which covers Grafana's
+    Prometheus datasource and the operator.
+  - `alertmanager-allow-prometheus` admits Prometheus' ServiceAccount, so
+    alerts are delivered.
+- STRICT mTLS also comes from the harbor chart: `harbor-strict-mtls` is a
+  namespace-wide PeerAuthentication.
+
+`tests/namespace-authz-test.sh` renders every chart that app-of-apps installs
+into teknoir-system and the root namespace. It checks every policy that
+applies to the three workloads, whichever chart renders it: none may admit
+the gateway without the groups claim, and only teknoir-system and teknoir-auth
+get in without a token. It also lists which policies admit each in-mesh path.
+
+Planned for the next release, with VM tests: give `harbor-allow-internal` a
+selector (`app.kubernetes.io/name: harbor`), and add explicit in-namespace
+ALLOWs for the workloads that depend on it today: the Argo CD components,
+Grafana to Alertmanager, and Prometheus as a client of the other workloads.
+
+Alert delivery goes to the Service. Prometheus addresses Alertmanager by its
+Service (`prometheusSpec.alertingEndpoints` rewrites `__address__`). The
+upstream chart's default discovers pod IPs instead, and the Prometheus sidecar
+sends a request for a pod IP to its PassthroughCluster in plaintext.
+Alertmanager's sidecar (STRICT mTLS) resets that request, so every
+notification failed with 503. The cause was the transport, not authorization:
+`harbor-allow-internal` would have admitted the request had it arrived over
+mTLS.
 
 Grafana's `jwk_set_url` must be https: Grafana 12 refuses to start with an
 http one ("must have https scheme"). So it is the issuer's own URL, not the
@@ -71,6 +101,7 @@ Keycloak is down:
 | Test | What it checks | Needs |
 |---|---|---|
 | `tests/render-test.sh` | Renders the chart and checks the RequestAuthentications, the groups conditions, alert delivery, the `grafana.ini` keys, the CA mount and the render guards | helm, yq and jq; no cluster |
+| `tests/namespace-authz-test.sh` | Renders every chart app-of-apps installs into teknoir-system and istio-system, and checks every AuthorizationPolicy that applies to Grafana, Prometheus and Alertmanager from any chart: the gateway only with the groups claim, token-less access only from teknoir-system and teknoir-auth, the in-mesh paths the stack needs, plus self-tests | helm, yq and jq; no cluster |
 | `tests/grafana-jwt-docker-test.sh` | Runs the chart's Grafana image with the rendered `grafana.ini`, plus a test CA and JWKS. Token sign-in, Admin/Viewer mapping, rejected tokens, basic auth, TLS verification, the https requirement and that no secret reaches the logs | docker |
 
 ## CRDs
