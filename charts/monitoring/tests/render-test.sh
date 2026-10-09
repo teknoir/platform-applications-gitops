@@ -16,9 +16,12 @@
 #   M3  every ALLOW rule of every AuthorizationPolicy has a source, and every
 #       rule that admits the gateway also requires the groups claim
 #   M4  alert delivery: every Alertmanager endpoint of the Prometheus resource
-#       is rewritten to the Service's name and http-web port (a pod IP would
-#       leave the mesh in plaintext: 503), and alertmanager-allow-prometheus
-#       admits the ServiceAccount Prometheus runs as (rendered)
+#       is this release's Alertmanager (<fullnameOverride>-alertmanager in the
+#       chart's namespace, under its routePrefix) and is rewritten to the
+#       Service's name and http-web port (a pod IP would leave the mesh in
+#       plaintext: 503); one Alertmanager replica (the Service address
+#       reaches one replica only); alertmanager-allow-prometheus admits the
+#       ServiceAccount Prometheus runs as (rendered)
 #   M5  prometheus-allow-internal still admits the namespace
 #   M6  grafana.ini: no anonymous access; auth.jwt signs users in from the
 #       forwarded token with the same issuer and JWKS (https), maps group
@@ -30,8 +33,13 @@
 #       grafana policies select
 #   M8  monitoring.access.groups renders into all three ingress policies
 #   M9  the render fails on: no groups, an issuer that grafana.ini does not
-#       repeat, an http issuer, anonymous access, auth.jwt off, an
-#       expect_claims of another issuer
+#       repeat, an http issuer, anonymous access (also the string "on"),
+#       auth.jwt off (also the string "false", which Grafana reads as off),
+#       an expect_claims of another issuer, an alerting endpoint in another
+#       namespace, with another address or without the rewrite, no alerting
+#       endpoint, two Alertmanager replicas, a namespaceOverride other than
+#       the policies' namespace. It renders with anonymous access the string
+#       "false"
 #   M10 `istioctl validate` accepts every rendered Istio resource (skipped,
 #       not failed, when istioctl is not installed)
 #
@@ -159,16 +167,25 @@ check M4 "alertmanager-allow-prometheus admits ServiceAccount '${sa}' (rendered)
     and $p[0].spec.selector.matchLabels == {"app.kubernetes.io/name": "alertmanager"}
     and $p[0].spec.rules == [{"from": [{"source": {"principals": ["cluster.local/ns/\($ns)/sa/\($sa)"]}}]}]' \
   --arg sa "${sa}" --arg ns "${NS}"
-check M4 "Prometheus addresses every Alertmanager endpoint to its Service (<name>.<ns>.svc.cluster.local:<http-web>)" '
+AM_NAME="$(yq -r '."kube-prometheus-stack".fullnameOverride' "${CHART}/values.yaml")-alertmanager"
+check M4 "Prometheus addresses every Alertmanager endpoint to ${AM_NAME}'s Service in ${NS} (<name>.<ns>.svc.cluster.local:<http-web>), under its routePrefix" '
   . as $all
   | [.[] | select(.kind == "Prometheus")][0].spec.alerting.alertmanagers as $am
+  | [.[] | select(.kind == "Alertmanager")] as $amr
   | ($am | length) > 0
+    and ($amr | length) == 1
     and ($am | all(. as $e
-      | ([$all[] | select(.kind == "Service" and .metadata.name == $e.name)][0].spec.ports // []
+      | ([$all[] | select(.kind == "Service" and .metadata.name == $e.name
+                          and (.metadata.namespace // $ns) == $ns)][0].spec.ports // []
          | map(select(.name == $e.port))[0].port) as $port
-      | $port != null
+      | $e.namespace == $ns and $e.name == $name
+        and $e.pathPrefix == $amr[0].spec.routePrefix
+        and $port != null
         and ([$e.relabelings[]? | select(.targetLabel == "__address__" and (.action // "replace") == "replace")
-              | .replacement] == ["\($e.name).\($e.namespace).svc.cluster.local:\($port)"])))'
+              | .replacement] == ["\($name).\($ns).svc.cluster.local:\($port)"])))' \
+  --arg ns "${NS}" --arg name "${AM_NAME}"
+check M4 "one Alertmanager replica (the Service address reaches one replica only)" '
+  [.[] | select(.kind == "Alertmanager")] | length == 1 and ((.[0].spec.replicas // 1) == 1)'
 
 # --- M5 internal Prometheus access -----------------------------------------------
 check M5 "prometheus-allow-internal admits namespace ${NS}" '
@@ -263,6 +280,44 @@ kube-prometheus-stack:
         expect_claims: '{"iss": "https://auth.example.org/auth/realms/teknoir"}'
 EOF
 expect_render_failure "expect_claims of another issuer" "expect_claims" -f "${tmp}/other-iss.yaml"
+expect_render_failure "auth.jwt enabled the string \"false\"" "auth.jwt.enabled must be true" \
+  --set-string 'kube-prometheus-stack.grafana.grafana\.ini.auth\.jwt.enabled=false'
+expect_render_failure "anonymous access the string \"on\"" "auth.anonymous.enabled must be false" \
+  --set-string 'kube-prometheus-stack.grafana.grafana\.ini.auth\.anonymous.enabled=on'
+if render --set-string 'kube-prometheus-stack.grafana.grafana\.ini.auth\.anonymous.enabled=false' \
+     > /dev/null 2> "${tmp}/err"; then
+  pass M9 "anonymous access the string \"false\": renders"
+else
+  fail M9 "anonymous access the string \"false\" must render: $(tr '\n' ' ' < "${tmp}/err")"
+fi
+# alertingEndpoints is a list, so a values file replaces it whole.
+alerting_values() { # alerting_values FILE NAMESPACE NAME [REPLACEMENT]: no relabeling without REPLACEMENT
+  {
+    printf 'kube-prometheus-stack:\n  prometheus:\n    prometheusSpec:\n      alertingEndpoints:\n'
+    printf '        - namespace: %s\n          name: %s\n          port: http-web\n' "$2" "$3"
+    printf '          pathPrefix: /teknoir-system/alertmanager\n          apiVersion: v2\n'
+    if [[ -n "${4:-}" ]]; then
+      printf '          relabelings:\n            - action: replace\n'
+      printf '              targetLabel: __address__\n              replacement: %s\n' "$4"
+    fi
+  } > "$1"
+}
+alerting_values "${tmp}/am-ns.yaml" monitoring monitoring-alertmanager \
+  monitoring-alertmanager.monitoring.svc.cluster.local:9093
+expect_render_failure "alerting endpoint in another namespace" "must be teknoir-system/monitoring-alertmanager" \
+  -f "${tmp}/am-ns.yaml"
+alerting_values "${tmp}/am-addr.yaml" teknoir-system monitoring-alertmanager 10.42.0.113:9093
+expect_render_failure "alerting endpoint rewritten to another address" "relabeling that replaces __address__" \
+  -f "${tmp}/am-addr.yaml"
+alerting_values "${tmp}/am-norelabel.yaml" teknoir-system monitoring-alertmanager
+expect_render_failure "alerting endpoint without the Service rewrite" "relabeling that replaces __address__" \
+  -f "${tmp}/am-norelabel.yaml"
+expect_render_failure "no alerting endpoint" "alertingEndpoints must address" \
+  --set 'kube-prometheus-stack.prometheus.prometheusSpec.alertingEndpoints=null'
+expect_render_failure "two Alertmanager replicas" "alertmanagerSpec.replicas is 2" \
+  --set 'kube-prometheus-stack.alertmanager.alertmanagerSpec.replicas=2'
+expect_render_failure "namespaceOverride other than namespace" "must equal namespace \"teknoir-system\"" \
+  --set 'kube-prometheus-stack.namespaceOverride=monitoring'
 
 # --- M10 istioctl validate ----------------------------------------------------------
 if command -v istioctl >/dev/null; then

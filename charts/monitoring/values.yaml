@@ -622,9 +622,14 @@ kube-prometheus-stack:
       ## addressed to the Service, so the request is routed as
       ## monitoring-alertmanager over mTLS with Prometheus' identity, which
       ## AuthorizationPolicy alertmanager-allow-prometheus admits (and, today,
-      ## the harbor chart's namespace-wide harbor-allow-internal). With more
-      ## than one Alertmanager replica each alert reaches one of them, and
-      ## the replicas share it (Alertmanager HA).
+      ## the harbor chart's namespace-wide harbor-allow-internal). Every
+      ## replica gets the same Service address, which Prometheus
+      ## deduplicates, so each batch reaches one replica only. Replicas do
+      ## not share alerts (they gossip silences and the notification log),
+      ## so more than one Alertmanager replica needs per-pod addresses over
+      ## mTLS first: templates/access-check.yaml fails the render on
+      ## alertmanagerSpec.replicas > 1, and on an endpoint that is not this
+      ## release's Alertmanager Service.
       alertingEndpoints:
         - namespace: teknoir-system
           name: monitoring-alertmanager

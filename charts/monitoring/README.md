@@ -69,7 +69,10 @@ sends a request for a pod IP to its PassthroughCluster in plaintext.
 Alertmanager's sidecar (STRICT mTLS) resets that request, so every
 notification failed with 503. The cause was the transport, not authorization:
 `harbor-allow-internal` would have admitted the request had it arrived over
-mTLS.
+mTLS. Because every replica gets the same Service address, each batch reaches
+one Alertmanager replica only, and replicas do not share alerts. So
+Alertmanager runs one replica, and HA needs per-pod addresses over mTLS
+first.
 
 Grafana's `jwk_set_url` must be https: Grafana 12 refuses to start with an
 http one ("must have https scheme"). So it is the issuer's own URL, not the
@@ -87,7 +90,16 @@ kubectl --context teknoir-local -n teknoir-system rollout restart deployment/mon
 
 `grafana.ini` sits in the grafana subchart's values and cannot read
 `monitoring.access`, so it repeats the issuer. `templates/access-check.yaml`
-fails the render if the two differ, or if anonymous access is turned on.
+fails the render in these cases:
+
+- The two issuers differ.
+- `auth.jwt` is off or anonymous access is on. These are read as Grafana reads
+  booleans, so the string `"false"` counts as off and `"on"` as on.
+- `kube-prometheus-stack.namespaceOverride` is not the namespace the policies
+  are rendered into.
+- An alerting endpoint is not this release's Alertmanager Service (namespace,
+  name, routePrefix and the `__address__` rewrite).
+- `alertmanagerSpec.replicas` is more than 1.
 
 ### Changing who has access
 
