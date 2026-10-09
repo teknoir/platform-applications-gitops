@@ -13,6 +13,9 @@
 #       admin
 #   H2  every fix-permissions init container runs busybox:1.36.1, by tag only
 #       (harbor is a one-shot tier: no @sha256), and no image is on :latest
+#   H3  harbor-allow-internal, which has no selector and so applies to every
+#       workload in teknoir-system, admits only namespaces teknoir-system and
+#       teknoir-auth: never istio-system (the gateway), a wildcard or any source
 #   O1  a Harbor with the OIDC settings but project creation for everyone (as
 #       teknoir-local before 0.0.10): exactly one PUT, of
 #       project_creation_restriction only
@@ -92,6 +95,27 @@ if grep -qE '@sha256:|:latest$' "${tmp}/images" || grep -vqE ':[^/]+$' "${tmp}/i
   fail H2 "an image is digest-pinned, on :latest or untagged: $(grep -E '@sha256:|:latest$' "${tmp}/images" | sort -u | paste -sd' ' -)"
 else
   pass H2 "no image on :latest, untagged or digest-pinned (one-shot tier)"
+fi
+
+# --- H3 namespace-wide ALLOWs ----------------------------------------------------
+# An ALLOW without a selector applies to every workload in teknoir-system
+# (Grafana, Prometheus, Alertmanager, Argo CD, Backstage), not only to Harbor.
+# It must never admit the ingress gateway (no istio-system, no wildcard, no
+# rule without a source). charts/monitoring/tests/namespace-authz-test.sh
+# checks the namespace as a whole.
+nswide="$(jq -c '[.[] | select(.kind == "AuthorizationPolicy" and (.spec.action // "ALLOW") == "ALLOW"
+                    and .spec.selector == null and .spec.targetRef == null and .spec.targetRefs == null)]' \
+  "${tmp}/render.json")"
+if [[ "$(jq length <<<"${nswide}")" == 0 ]]; then
+  pass H3 "no namespace-wide ALLOW"
+elif jq -e 'all(.spec.rules // [{}] | length > 0 and all(
+      ((.from // []) | length) > 0
+      and all(.from[].source; ((.namespaces // []) | length) > 0
+              and ((.principals // []) | length) == 0
+              and (.namespaces - ["teknoir-system", "teknoir-auth"] | length) == 0)))' <<<"${nswide}" >/dev/null; then
+  pass H3 "namespace-wide ALLOW $(jq -r 'map(.metadata.name) | join(", ")' <<<"${nswide}") admits only namespaces teknoir-system and teknoir-auth (never the gateway)"
+else
+  fail H3 "namespace-wide ALLOWs admit more than teknoir-system and teknoir-auth: $(jq -c 'map({(.metadata.name): .spec.rules})' <<<"${nswide}")"
 fi
 
 # --- O1-O3 oidc-config.sh against a stub Harbor ----------------------------------

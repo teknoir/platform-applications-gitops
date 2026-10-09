@@ -9,6 +9,17 @@ The Harbor integration is designed to work with the platform's existing Istio an
 - **TLS**: Terminated at the Istio `ingressgateway` using the wildcard certificate.
 - **Authentication**: Native OIDC integration with Keycloak, configured by a PostSync Job. `oauth2-proxy` is NOT used for Harbor to avoid breaking Docker and Helm CLI workflows.
 - **Persistence**: `hostPath` PersistentVolumes under `/opt/teknoir/harbor`, with optional `pvNodeAffinity`.
+- **Mesh policy, namespace-wide**: neither `harbor-strict-mtls` (STRICT
+  PeerAuthentication) nor `harbor-allow-internal` (ALLOW from teknoir-system
+  and teknoir-auth) has a selector. Both apply to every workload in
+  teknoir-system, including Argo CD, Backstage, the controllers and the
+  monitoring stack, not only to Harbor. Some in-namespace paths work only
+  through `harbor-allow-internal` today, for example Grafana's Alertmanager
+  datasource. `charts/monitoring/tests/namespace-authz-test.sh` lists them,
+  and test H3 makes sure the policy never admits the ingress gateway. The
+  next release, with VM tests, gives it a selector and adds explicit ALLOWs
+  for every workload. Once it has a selector, a workload with no ALLOW of its
+  own admits any mesh source.
 
 ## Prerequisites
 These Secrets exist before Harbor is first applied (the airgap bootstrap creates
