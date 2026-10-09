@@ -234,6 +234,20 @@ keycloakConfig:
   clientSecretsSecret: keycloak-client-secrets
   # {username, password}: realm.platformAdmin's username and initial password.
   platformAdminSecret: keycloak-platform-admin
+  # Clients of realm master left over from before realm `realm.name` (the
+  # pre-redesign layout). The init step deletes each one (and so its
+  # service-account user) from realm master, but only when realm `realm.name`
+  # has a client with the same clientId, i.e. the move happened. The legacy
+  # `teknoir` client's service account holds master-realm manage-users and
+  # shares its secret with oauth2-proxy. Keycloak's built-in clients
+  # (admin-cli, security-admin-console, broker, master-realm,
+  # realm-management, account*, *-realm) are refused at render time and by the
+  # script. [] turns the step off. A deletion can only be undone from a
+  # backup.
+  masterLegacyClients:
+    - teknoir
+    - argocd
+    - harbor
   # Env var used in the realm file -> key of clientSecretsSecret.
   clientSecretEnv:
     TEKNOIR_CLIENT_SECRET: teknoir

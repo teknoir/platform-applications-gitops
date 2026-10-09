@@ -2,6 +2,12 @@
 {{- $ns := include "auth.namespace" . -}}
 {{- $c := .Values.keycloakConfig -}}
 {{- if not .Values.realm.name }}{{ fail "auth: realm.name is required" }}{{ end }}
+{{- /* The init step deletes these clients from realm master: never a built-in
+       one (the script refuses them too), and only plain clientIds. */ -}}
+{{- range $c.masterLegacyClients }}
+{{- if not (regexMatch "^[A-Za-z0-9][A-Za-z0-9._-]*$" (toString .)) }}{{ fail (printf "auth: keycloakConfig.masterLegacyClients: %q is not a plain clientId" (toString .)) }}{{ end }}
+{{- if or (has . (list "admin-cli" "security-admin-console" "broker" "master-realm" "realm-management")) (hasPrefix "account" .) (hasSuffix "-realm" .) }}{{ fail (printf "auth: keycloakConfig.masterLegacyClients must not name Keycloak's built-in client %q" .) }}{{ end }}
+{{- end }}
 # Realm-as-code: keycloak-config-cli imports realm `{{ .Values.realm.name }}` after every sync.
 apiVersion: v1
 kind: ConfigMap
@@ -83,6 +89,12 @@ spec:
                   name: {{ $c.adminSecret }}
                   key: previous-password
                   optional: true
+            # Legacy clients of realm master to delete once realm KC_REALM has
+            # its own client of the same clientId (comma-separated).
+            - name: KC_MASTER_LEGACY_CLIENTS
+              value: {{ join "," ($c.masterLegacyClients | default list) | quote }}
+            - name: KC_REALM
+              value: {{ .Values.realm.name | quote }}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
