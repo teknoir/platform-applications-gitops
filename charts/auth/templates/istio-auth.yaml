@@ -4,6 +4,9 @@
 {{- $keycloakRouteName := .Values.istio.auth.keycloakRouteName | default "keycloak" -}}
 {{- $oauth2SharedHost := .Values.oauth2Proxy.sharedHost | default $domain -}}
 {{- $cookieName := .Values.oauth2Proxy.cookie.name | default "_oauth2_proxy" -}}
+{{- $cookieDomain := .Values.oauth2Proxy.cookie.domain | default $domain -}}
+{{- $cookiePath := .Values.oauth2Proxy.cookie.path | default "/" -}}
+{{- $cookieSameSite := .Values.oauth2Proxy.cookie.sameSite | default "lax" | title -}}
 {{- $namespace := .Values.namespace | default .Release.Namespace -}}
 apiVersion: networking.istio.io/v1alpha3
 kind: EnvoyFilter
@@ -14,11 +17,25 @@ spec:
   workloadSelector:
     labels:
 {{- toYaml .Values.istio.gateway.selector | nindent 6 }}
+  # Filter order on the TLS listener (all three HTTP_FILTER patches match
+  # portNumber 443, so plain HTTP on :80 stays a bare redirect to https):
+  #   envoy.filters.http.lua           records rd/path/nav; on the way back
+  #                                    turns an ext_authz denial into a login
+  #                                    redirect (or a bare 401 for XHR)
+  #   envoy.filters.http.ext_authz     oauth2-proxy decides
+  #   envoy.filters.http.lua.authz_ok  marks the request as let through
+  # authz_ok runs only when ext_authz allowed the request (or is disabled for
+  # the route), so a 401/403 that carries the mark is the upstream's own
+  # answer and passes through unchanged (no login loop for a signed-in user).
+  # Dynamic metadata cannot be set by the client.
   configPatches:
     - applyTo: HTTP_FILTER
       match:
         context: GATEWAY
         listener:
+          # TLS listener only. Plain HTTP (:80) must stay a bare redirect and
+          # must not run ext_authz/Lua, otherwise it 302s to the login host.
+          portNumber: 443
           filterChain:
             filter:
               name: envoy.filters.network.http_connection_manager
@@ -59,6 +76,8 @@ spec:
       match:
         context: GATEWAY
         listener:
+          # Keep the Lua login redirect on the same TLS-only scope as ext_authz.
+          portNumber: 443
           filterChain:
             filter:
               name: envoy.filters.network.http_connection_manager
@@ -70,29 +89,55 @@ spec:
           name: envoy.filters.http.lua
           typed_config:
             "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+            # oauth2-proxy answers every ext_authz denial with 403 (Envoy
+            # appends the request path to path_prefix, so oauth2-proxy serves
+            # its sign-in page, not /oauth2/auth), whether the cookie is
+            # missing, undecryptable, expired or its session is gone. Each
+            # denial becomes a login redirect for a navigation, with the
+            # session cookie expired so an unusable cookie cannot loop, or a
+            # bare 401 for fetch/XHR/websocket requests, which cannot follow a
+            # cross-origin redirect. Tested by tests/lua-test.sh.
             inlineCode: |
               local function urlencode(str)
                 if str == nil then
                   return ""
                 end
-                return string.gsub(str, "([^%w%-_%.~])", function(c)
+                return (string.gsub(str, "([^%w%-_%.~])", function(c)
                   return string.format("%%%02X", string.byte(c))
-                end)
+                end))
               end
 
+              local function first(h, ...)
+                for _, name in ipairs({...}) do
+                  local v = h:get(name)
+                  if v ~= nil and v ~= "" then
+                    return v
+                  end
+                end
+                return nil
+              end
+
+              -- The gateway is the edge: :authority and :path are what the
+              -- client asked for; x-forwarded-* would be client-supplied.
               local function build_rd(h)
-                local scheme = h:get("x-forwarded-proto") or "https"
-                local host = h:get("x-forwarded-host") or h:get(":authority") or h:get("host") or ""
-                local path = h:get("x-forwarded-uri") or h:get(":path") or "/"
-                return scheme .. "://" .. host .. path, path
+                local host = first(h, ":authority", "host", "x-forwarded-host") or "{{ $oauth2SharedHost }}"
+                local path = first(h, ":path", "x-forwarded-uri") or "/"
+                return "https://" .. host .. path, path
               end
 
-              local function has_session_cookie(h)
-                local cookie = h:get("cookie") or ""
-                if cookie == "" then
+              -- A top-level navigation follows a redirect to the login page;
+              -- fetch, XHR and websockets (Sec-Fetch-Mode cors, no-cors,
+              -- same-origin, websocket; or X-Requested-With) get a 401.
+              local function is_navigation(h)
+                local mode = h:get("sec-fetch-mode")
+                if mode ~= nil and mode ~= "" and mode ~= "navigate" and mode ~= "nested-navigate" then
                   return false
                 end
-                return string.find(cookie, "{{ $cookieName }}=") ~= nil
+                local xrw = h:get("x-requested-with")
+                if xrw ~= nil and string.lower(xrw) == "xmlhttprequest" then
+                  return false
+                end
+                return true
               end
 
               function envoy_on_request(handle)
@@ -101,30 +146,67 @@ spec:
                 local md = handle:streamInfo():dynamicMetadata()
                 md:set("oauth2_proxy", "rd", rd)
                 md:set("oauth2_proxy", "path", path)
-                md:set("oauth2_proxy", "has_session", has_session_cookie(h) and "true" or "false")
+                md:set("oauth2_proxy", "nav", is_navigation(h) and "true" or "false")
               end
 
               function envoy_on_response(handle)
-                local status = handle:headers():get(":status")
+                local h = handle:headers()
+                local status = h:get(":status")
                 if status ~= "401" and status ~= "403" then
                   return
                 end
                 local md = handle:streamInfo():dynamicMetadata():get("oauth2_proxy") or {}
+                -- Set by envoy.filters.http.lua.authz_ok: ext_authz let the
+                -- request through, so this is the upstream's own 401/403.
+                if md["authz"] == "ok" then
+                  return
+                end
                 local path = md["path"] or ""
                 if string.sub(path, 1, 7) == "/oauth2" then
                   return
                 end
-                if md["has_session"] == "true" then
-                  return
+                h:remove("location")
+                if md["nav"] == "false" then
+                  h:replace(":status", "401")
+                else
+                  local rd = md["rd"] or ""
+                  if rd == "" then
+                    rd = "https://{{ $oauth2SharedHost }}/"
+                  end
+                  h:replace(":status", "302")
+                  h:replace("location", "https://{{ $oauth2SharedHost }}/oauth2/start?rd=" .. urlencode(rd))
+                  h:add("set-cookie", "{{ $cookieName }}=; Domain={{ $cookieDomain }}; Path={{ $cookiePath }}; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0; Secure; HttpOnly; SameSite={{ $cookieSameSite }}")
+                  h:add("set-cookie", "{{ $cookieName }}=; Path={{ $cookiePath }}; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0; Secure; HttpOnly; SameSite={{ $cookieSameSite }}")
                 end
-                local rd = md["rd"] or ""
-                if rd == "" then
-                  rd, _ = build_rd(handle:headers())
+                -- Drop oauth2-proxy's sign-in page; the reply has no body.
+                local body = handle:body()
+                if body ~= nil and body:length() > 0 then
+                  body:setBytes("")
                 end
-                local location = "https://{{ $oauth2SharedHost }}/oauth2/start?rd=" .. urlencode(rd)
-                handle:headers():replace(":status", "302")
-                handle:headers():replace("location", location)
-                handle:headers():replace("content-length", "0")
+                h:replace("content-length", "0")
+              end
+    - applyTo: HTTP_FILTER
+      match:
+        context: GATEWAY
+        listener:
+          portNumber: 443
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+              subFilter:
+                name: envoy.filters.http.ext_authz
+      patch:
+        operation: INSERT_AFTER
+        value:
+          name: envoy.filters.http.lua.authz_ok
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+            # Reached only when ext_authz let the request through (or is
+            # disabled for the route). Must stay AFTER ext_authz: before it,
+            # every denial would pass through as a bare 403.
+            inlineCode: |
+              function envoy_on_request(handle)
+                handle:streamInfo():dynamicMetadata():set("oauth2_proxy", "authz", "ok")
               end
     - applyTo: VIRTUAL_HOST
       match:
@@ -204,6 +286,27 @@ spec:
             envoy.filters.http.lua:
               "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.LuaPerRoute
               disabled: true
+{{- range .Values.istio.bypassAuth }}
+    # {{ .vhost }} is authenticated by its backend, not by this gateway, so
+    # disable both the ext_authz check and the Lua login redirect.
+    - applyTo: VIRTUAL_HOST
+      match:
+        context: GATEWAY
+        routeConfiguration:
+          gateway: {{ required "auth: istio.bypassAuth[].gateway is required" .gateway | quote }}
+          vhost:
+            name: {{ required "auth: istio.bypassAuth[].vhost is required" .vhost | quote }}
+      patch:
+        operation: MERGE
+        value:
+          typed_per_filter_config:
+            envoy.filters.http.ext_authz:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute
+              disabled: true
+            envoy.filters.http.lua:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.LuaPerRoute
+              disabled: true
+{{- end }}
 
 ---
 apiVersion: security.istio.io/v1beta1
