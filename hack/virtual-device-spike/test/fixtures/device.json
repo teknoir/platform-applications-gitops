@@ -15,7 +15,6 @@
       "type": "Opaque",
       "data": {
         "board": "Z2VuZXJpYw==",
-        "publicsshkey": "",
         "rsa_private": "__TEST_RSA_PRIVATE_B64__",
         "rsa_public": "__TEST_RSA_PUBLIC_B64__",
         "tunnel": "NA==",

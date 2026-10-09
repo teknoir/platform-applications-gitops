@@ -32,7 +32,7 @@ is read at run time.
 | KubeVirt | v1.8.4 (supports k8s 1.34-1.35), every image by digest | `charts/virtual-devices/vendor/upstream.lock.yaml` |
 | CDI | v1.65.0 (the HCO release-1.18 pairing for KubeVirt 1.8.4), every image by digest | same |
 | Bootstrap | tnctl `pkg/templates/server.sh.tmpl` + partials at cli `7bb1bea` | `lib/pins.sh` (`VDS_CLI_REF`) |
-| Inner k3s | `v1.34.12+k3s1` via `INSTALL_K3S_VERSION` | `lib/pins.sh` |
+| Inner k3s | `v1.34.11+k3s1` via `INSTALL_K3S_VERSION`: the last 1.34 patch that starts with the tnctl custom CA (see Finding) | `lib/pins.sh` |
 | Inner CIDRs | `--cluster-cidr=10.52.0.0/16 --service-cidr=10.53.0.0/16 --cluster-dns=10.53.0.10` via `INSTALL_K3S_EXEC` | `lib/pins.sh` |
 | Root disk | `quay.io/containerdisks/debian:13-2610020212` by digest (Debian 13 **genericcloud** 20261001-2618), CDI `pullMethod: node` | `lib/pins.sh` |
 | Root disk, alternative | `--disk generic`: Debian 13 **generic** 20261001-2618 qcow2 over HTTPS, SHA512-verified by CDI | `lib/pins.sh` |
@@ -48,6 +48,18 @@ environment variables the script already honours. `--source tnctl` runs the lite
 **genericcloud vs generic** (critique #9). The containerdisks image is built from Debian's
 `genericcloud` image (cloud kernel), not `generic`. Check G7/G8 settles whether that kernel is
 enough for k3s. If it is not, re-render with `--disk generic`.
+
+## Finding: k3s >= 1.34.12 and the tnctl custom CA (affects real devices too)
+
+Found by the k3d e2e on 2026-10-09:
+- **Symptom.** With `INSTALL_K3S_VERSION=v1.34.12+k3s1`, the inner k3s server never became ready. The bootstrap hung in `systemctl restart k3s` (the unit has no start timeout). Every 2 s k3s logged `Failed to validate connection to cluster at https://127.0.0.1:6443: CA cert validation failed: ... x509: certificate signed by unknown authority`. `openssl verify` and `curl --cacert` accept the same chain.
+- **Cause.** k3s commit 6c7a974 ("Improve CA hash validation", 2026-09-24) shipped in **v1.34.12, v1.35.9 and v1.36.5** (2026-09-30). Its `appendCertsFromPEM` drops every CA certificate without the `keyCertSign` key usage before choosing roots. The tnctl `server.sh.tmpl` (and bootstrap-device `05_tn_install_k3s.sh`) installs the device certificate `rsa_public` as `server/tls/root-ca.pem`. Backstage creates that certificate with `openssl req -x509` and no `-addext keyUsage`, so it carries no key usage at all. The r415 devices `rpi4-white-se`, `rtx2000-ada-128gb-se` and `orin-agx-32gb-se` all have only `basicConstraints CA:TRUE` (checked read-only on their public certificates). The root is dropped, the pool is empty, and validation fails.
+- **Impact beyond the spike.** `get.k3s.io` serves stable = v1.36.5. A **real** device bootstrapped today with `tnctl bootstrap` without `INSTALL_K3S_VERSION` should hang the same way. This was not tested on hardware.
+- **Spike handling.** Pin `v1.34.11+k3s1`. `render.sh` refuses an affected k3s version when the device certificate lacks `keyCertSign`. Check G9b names the condition if it happens anyway.
+- **Fix options (outside this kit):**
+  1. In the template, before installing the CA, re-issue the root certificate from the device key with `keyUsage=critical,keyCertSign,cRLSign,digitalSignature` (`openssl req -x509 -new -key rsa_private.pem ...`). The key does not change, so it also works for existing devices.
+  2. In Backstage and the controller fallback, add `-addext keyUsage=...` when generating device certificates. This covers new devices only.
+  3. Pin `INSTALL_K3S_VERSION` in tnctl. This is a stopgap.
 
 ## Who does what
 
@@ -140,6 +152,8 @@ Useful options:
 - `--disk generic`
 - `--cpu-model Opteron_G5`: only if the VM does not schedule with KubeVirt's default `host-model`.
 - `--source tnctl`
+- `--debug-user`: adds a break-glass guest user `vdspike` with the device's SSH key and passwordless sudo. Without it, nothing can log in until the bootstrap creates the device user at its very end, so a hung bootstrap cannot be inspected; the serial console shows only a login prompt.
+- `--allow-virtctl-ssh`: allows ingress to port 22 from the `virt-api` pods. In KubeVirt 1.8, `virtctl port-forward`/`ssh` is dialed by virt-api to the VM's pod IP, and the default-deny policy blocks it (the e2e found this).
 
 ### 5. [Anders] Apply
 
@@ -160,7 +174,7 @@ What happens next:
 - CDI waits for the VM's pod to be scheduled (WaitForFirstConsumer).
 - r415's containerd then pulls the containerdisk and imports it into a 20 Gi local-path PVC under `/opt`.
 - The VM boots and cloud-init installs `qemu-guest-agent`.
-- The tnctl bootstrap runs: keys, a k3s CA rooted at the device key, k3s `v1.34.12` with inner CIDRs 10.52/10.53, the TOE manifests, and the device user.
+- The tnctl bootstrap runs: keys, a k3s CA rooted at the device key, k3s `v1.34.11` with inner CIDRs 10.52/10.53, the TOE manifests, and the device user.
 
 Watch progress with:
 
@@ -180,8 +194,9 @@ AuthorizedKeys plugin adds the device key to deadend. DeviceConfig adds the
 `reverse-tunnel` Deployment to the device's config, and TOE applies it inside the VM.
 `check.sh` uses this path, the one `tnctl ssh` uses, for every guest check. It
 therefore proves the tunnel works without `pods/exec` or port-forward rights on r415.
-`--transport virtctl` is the fallback. It needs `virtctl` and port-forward rights, so it
-is not read-only.
+`--transport virtctl` is the fallback. It needs `virtctl`, port-forward rights and a render
+with `--allow-virtctl-ssh`, so it is not read-only. Before the device user exists (or if
+the bootstrap hangs), add `--guest-user vdspike`, which needs a render with `--debug-user`.
 
 ### 7. Run the checks
 
@@ -224,6 +239,7 @@ no errors, and take a screenshot.
 | VMI Running, guest agent connected | V4, V5 |
 | The guest sees exactly the VM size | G3 |
 | tnctl bootstrap succeeds; `k3s check-config` passes; genericcloud kernel modules | G5, G7, G8 |
+| Inner k3s starts with the device-rooted custom CA (the k3s >= 1.34.12 finding) | G9, G9b |
 | Inner k3s on 10.52/10.53, version pinned | G9, G10 |
 | TOE connects (TOE log) and Last Seen updates (platform) | G12; D2; D5 with `--prom-url` |
 | Reverse tunnel works; web terminal works | G1 (SSH through deadend and the device's tunnel), D3, D4; web terminal in the browser |
@@ -291,6 +307,6 @@ flock <heavy.lock> hack/virtual-device-spike/test/k3d-e2e.sh   # HEAVY: throwawa
 ```
 
 The k3d e2e runs everything except what needs r415 itself: Argo CD, the real device-controller,
-EMQX and deadend, and the Opteron CPU. It replaces those with stand-ins and
-uses `--transport virtctl`. On a Debian/Ubuntu host it reproduces the `/dev/kvm`
-`0660 root:kvm` and k3s-containerd conditions the critique asks about.
+EMQX and deadend, and the Opteron CPU. It replaces those with stand-ins, renders with
+`--allow-virtctl-ssh --debug-user` and uses `--transport virtctl`. On a Debian/Ubuntu host it
+reproduces the `/dev/kvm` `0660 root:kvm` and k3s-containerd conditions the critique asks about.

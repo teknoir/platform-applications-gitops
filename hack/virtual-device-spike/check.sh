@@ -32,6 +32,9 @@ Usage: $(basename "$0") [options]
                        needs remote access enabled for the device) | virtctl (SSH over
                        'virtctl port-forward'; needs virtctl and portforward rights)
   --inner-pod          also run the isolation probes from a pod in the inner k3s
+  --guest-user USER    log in as USER instead of the device user (e.g. vdspike from
+                       render.sh --debug-user, while the bootstrap has not created the
+                       device user yet); the device key is used either way
   --prom-url URL       optional teamspace Prometheus base URL (e.g. after
                        'kubectl port-forward -n NS svc/prometheus 9090:80':
                        http://127.0.0.1:9090/NS/prometheus) for Last Seen and the
@@ -51,6 +54,7 @@ KUBE_CONTEXT="r415"
 PHASES="all"
 TRANSPORT="tunnel"
 INNER_POD=false
+GUEST_USER_OVERRIDE=""
 PROM_URL=""
 WAIT_ONLINE=0
 
@@ -63,6 +67,7 @@ while [[ $# -gt 0 ]]; do
     --phase) PHASES=$2; shift 2 ;;
     --transport) TRANSPORT=$2; shift 2 ;;
     --inner-pod) INNER_POD=true; shift ;;
+    --guest-user) GUEST_USER_OVERRIDE=$2; shift 2 ;;
     --prom-url) PROM_URL=${2%/}; shift 2 ;;
     --wait-online) WAIT_ONLINE=$2; shift 2 ;;
     -h | --help) usage; exit 0 ;;
@@ -447,6 +452,7 @@ guest_prepare() {
   fi
   chmod 600 "$KEY_FILE"
   GUEST_USER=$(jq -r '.spec.keys.data.username // ""' "$DEVICE_JSON" | base64 -d 2>/dev/null || true)
+  [[ -z $GUEST_USER_OVERRIDE ]] || GUEST_USER=$GUEST_USER_OVERRIDE
   if [[ -z $GUEST_USER ]]; then
     result FAIL G0 "the Device has no spec.keys.data.username"
     KEY_FILE=""
@@ -477,7 +483,8 @@ guest_prepare() {
       ;;
     virtctl)
       command -v virtctl >/dev/null 2>&1 || { result FAIL G0 "virtctl not found"; KEY_FILE=""; return 1; }
-      PROXY="virtctl --context ${KUBE_CONTEXT} port-forward --stdio=true vmi/${DEVICE}.${VDEV_NS} 22"
+      # Needs render.sh --allow-virtctl-ssh: virt-api dials the VM's pod IP on port 22.
+      PROXY="virtctl --context ${KUBE_CONTEXT} port-forward --stdio=true vmi/${DEVICE}/${VDEV_NS} 22"
       GUEST_HOST="vmi-${DEVICE}"
       GUEST_PORT=22
       ;;
@@ -494,7 +501,10 @@ guest_run() {
     remote="bash -c \"\$(echo ${b64} | base64 -d)\""
   fi
   local pw=""
-  [[ $mode == sudo ]] && pw=$(jq -r '.spec.keys.data.userpassword // ""' "$DEVICE_JSON" | base64 -d 2>/dev/null || true)
+  # The device user's sudo needs its password; a --guest-user override has NOPASSWD.
+  if [[ $mode == sudo && -z $GUEST_USER_OVERRIDE ]]; then
+    pw=$(jq -r '.spec.keys.data.userpassword // ""' "$DEVICE_JSON" | base64 -d 2>/dev/null || true)
+  fi
   printf '%s\n' "$pw" | ssh -F /dev/null -i "$KEY_FILE" -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=30 \
     -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o LogLevel=ERROR \
     -o ProxyCommand="$PROXY" -p "$GUEST_PORT" "${GUEST_USER}@${GUEST_HOST}" "$remote"
@@ -521,6 +531,8 @@ kv qga "$(systemctl is-active qemu-guest-agent 2>/dev/null)"
 kv k3s_active "$(systemctl is-active k3s 2>/dev/null)"
 kv k3s_since "$(systemctl show k3s -p ActiveEnterTimestamp --value 2>/dev/null)"
 kv k3s_version "$(k3s --version 2>/dev/null | head -n1 | awk '{print $3}')"
+kv k3s_ca_errors "$(journalctl -u k3s --no-pager 2>/dev/null | grep -c 'CA cert validation failed')"
+kv root_ca_certsign "$(openssl x509 -in /var/lib/rancher/k3s/server/tls/root-ca.pem -noout -ext keyUsage 2>/dev/null | grep -c 'Certificate Sign')"
 cc=$(k3s check-config 2>&1 | sed 's/\x1b\[[0-9;]*m//g')
 kv checkconfig_status "$(printf '%s\n' "$cc" | grep -E 'STATUS:' | tail -n1 | sed 's/^[^S]*//')"
 kv checkconfig_problems "$(printf '%s\n' "$cc" | grep -E ': (missing|fail)' | sed 's/^[- ]*//' | tr '\n' ';' | cut -c1-600)"
@@ -592,6 +604,9 @@ check_guest() {
   [[ $(kvget k3s_active) == active && $(kvget k3s_version) == "$want_k3s" ]] &&
     result PASS G9 "k3s $(kvget k3s_version) active since $(kvget k3s_since); node $(kvget inner_node)" ||
     result FAIL G9 "k3s '$(kvget k3s_active)' version '$(kvget k3s_version)' (rendered with ${want_k3s})"
+  if [[ $(kvget k3s_ca_errors) =~ ^[1-9] ]]; then
+    result FAIL G9b "k3s logged 'CA cert validation failed' $(kvget k3s_ca_errors)x; root CA has keyCertSign: $([[ $(kvget root_ca_certsign) == 0 ]] && echo no || echo yes). k3s >= v1.34.12/v1.35.9/v1.36.5 ignores a root without keyCertSign (README 'Finding')"
+  fi
   local svc dns pc
   svc=$(kvget inner_svc_kubernetes)
   dns=$(kvget inner_kubedns)

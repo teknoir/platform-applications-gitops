@@ -50,6 +50,12 @@ Options:
   --egress internet|platform-only
                          NetworkPolicy egress profile (default: internet, as staging)
   --allow-harbor         also allow egress to istio=ingressgateway pods on 443 (airgap Harbor)
+  --allow-virtctl-ssh    allow ingress to port 22 from KubeVirt's virt-api pods, so
+                         'virtctl ssh/port-forward' works (virt-api dials the VM's pod IP;
+                         the default-deny policy blocks it otherwise)
+  --debug-user           add a break-glass guest user 'vdspike' (the device's SSH public
+                         key, passwordless sudo) to inspect the guest while the bootstrap
+                         is still running or hung; the device's own user is unchanged
   --allowance-devices N  devices the ResourceQuota budgets for (default: 2)
   --cli-src DIR          local clone of github.com/teknoir/cli containing ${VDS_CLI_REF:0:12}
                          (default: \$TEKNOIR_CLI_SRC or ~/git/ai/cli if it has the commit,
@@ -75,6 +81,8 @@ CPU_MODEL=""
 K3S_VERSION="${VDS_K3S_VERSION}"
 EGRESS="internet"
 ALLOW_HARBOR=false
+ALLOW_VIRTCTL_SSH=false
+DEBUG_USER=false
 ALLOWANCE_DEVICES=2
 CLI_SRC="${TEKNOIR_CLI_SRC:-}"
 NAMESPACE_ONLY=false
@@ -97,6 +105,8 @@ while [[ $# -gt 0 ]]; do
     --k3s-version) K3S_VERSION=$2; shift 2 ;;
     --egress) EGRESS=$2; shift 2 ;;
     --allow-harbor) ALLOW_HARBOR=true; shift ;;
+    --allow-virtctl-ssh) ALLOW_VIRTCTL_SSH=true; shift ;;
+    --debug-user) DEBUG_USER=true; shift ;;
     --allowance-devices) ALLOWANCE_DEVICES=$2; shift 2 ;;
     --cli-src) CLI_SRC=$2; shift 2 ;;
     --namespace-only) NAMESPACE_ONLY=true; shift ;;
@@ -254,6 +264,39 @@ spec:
         - protocol: TCP
           port: 2222
 EOF
+  if [[ $ALLOW_VIRTCTL_SSH == true ]]; then
+    cat <<EOF
+---
+# Optional (--allow-virtctl-ssh): KubeVirt's port-forward (virtctl ssh/port-forward)
+# is dialed by the virt-api pods to the VM's pod IP, so default-deny blocks it. This
+# opens only port 22 and only to virt-api; using it still needs the
+# virtualmachineinstances/portforward subresource, which teamspace users lack here.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vdev-ingress-virtctl-ssh
+  namespace: ${VDEV_NS}
+  labels:
+$(labels 4)
+spec:
+  podSelector:
+    matchLabels:
+      kubevirt.io: virt-launcher
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kubevirt
+          podSelector:
+            matchLabels:
+              kubevirt.io: virt-api
+      ports:
+        - protocol: TCP
+          port: 22
+EOF
+  fi
   if [[ $ALLOW_HARBOR == true ]]; then
     cat <<EOF
 ---
@@ -475,6 +518,26 @@ case "$SOURCE" in
     ;;
 esac
 chmod 600 "$SCRIPT"
+
+# The tnctl template installs the device certificate (rsa_public) as the k3s root CA.
+# k3s >= v1.34.12/v1.35.9/v1.36.5 ignores a root without keyCertSign when it validates
+# its own /cacerts and never becomes ready (README "Finding"). Refuse that combination.
+if k3s_prunes_noncertsign_roots "$K3S_VERSION"; then
+  need openssl
+  if ! jq -r '.spec.keys.data.rsa_public // ""' "$DEVICE_JSON" | base64 -d 2>/dev/null |
+    openssl x509 -noout -ext keyUsage 2>/dev/null | grep -q 'Certificate Sign'; then
+    rm -f "$DEVICE_JSON"
+    die "k3s ${K3S_VERSION} cannot start with this device's certificate as root CA: it has no keyCertSign key usage (Backstage-generated device certificates never do). Use a k3s release before v1.34.12/v1.35.9/v1.36.5 (default ${VDS_K3S_VERSION}); see README 'Finding'."
+  fi
+fi
+DEBUG_PUBKEY=""
+if [[ $DEBUG_USER == true ]]; then
+  need ssh-keygen
+  jq -r '.spec.keys.data.rsa_private' "$DEVICE_JSON" | base64 -d >"${WORK}/device_key"
+  chmod 600 "${WORK}/device_key"
+  DEBUG_PUBKEY=$(ssh-keygen -y -f "${WORK}/device_key") || die "cannot derive the SSH public key from the device key"
+  rm -f "${WORK}/device_key"
+fi
 rm -f "$DEVICE_JSON"
 
 # Structural checks on the rendered script; failures name the check, never content.
@@ -501,6 +564,15 @@ preserve_hostname: false
 manage_etc_hosts: true
 ssh_pwauth: false
 disable_root: true
+$(if [[ $DEBUG_USER == true ]]; then printf '%s\n' \
+  "# --debug-user: break-glass access while the bootstrap runs (device SSH key, sudo)." \
+  "users:" \
+  "  - name: vdspike" \
+  "    shell: /bin/bash" \
+  "    lock_passwd: true" \
+  "    sudo: ALL=(ALL) NOPASSWD:ALL" \
+  "    ssh_authorized_keys:" \
+  "      - ${DEBUG_PUBKEY}"; fi)
 package_update: true
 packages:
   - qemu-guest-agent
@@ -696,7 +768,8 @@ bootstrap:     ${BOOTSTRAP_SOURCE}
 k3s:           ${K3S_VERSION}  INSTALL_K3S_EXEC='${K3S_EXEC}'
 size:          ${CPU} vCPU (request ${CPU_REQUEST_M}m), ${MEMORY_GI}Gi memory, ${DISK_GI}Gi disk
 root disk:     ${OS_IMAGE}
-egress:        ${EGRESS}$([[ $ALLOW_HARBOR == true ]] && printf ' + harbor 443')
+egress:        ${EGRESS}$([[ $ALLOW_HARBOR == true ]] && printf ' + harbor 443')$([[ $ALLOW_VIRTCTL_SSH == true ]] && printf '; ingress 22 from virt-api (virtctl ssh)')
+debug user:    $([[ $DEBUG_USER == true ]] && printf 'vdspike (device SSH key, passwordless sudo)' || printf 'none')
 
 files:
   00-namespace.yaml         sha256 $(sha256_of "${OUT}/00-namespace.yaml")

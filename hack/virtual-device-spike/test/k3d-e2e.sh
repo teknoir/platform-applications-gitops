@@ -148,7 +148,10 @@ log "CoreDNS ${COREDNS_NOTE}"
 
 # ------------------------------------------------------------------ kit
 log "rendering the kit for ${DEVICE} (disk: ${DISK})"
-OUT=$("${KIT}/render.sh" --device "$DEVICE" --fixture "${TMP}/device.json" --context "$CTX" --disk "$DISK" --out "${TMP}/render" 2>"${TMP}/render.log") ||
+# --allow-virtctl-ssh: the e2e has no deadend, so guest access is virtctl port-forward.
+# --debug-user: lets the test read the guest before the bootstrap has created the device user.
+OUT=$("${KIT}/render.sh" --device "$DEVICE" --fixture "${TMP}/device.json" --context "$CTX" --disk "$DISK" \
+  --allow-virtctl-ssh --debug-user --out "${TMP}/render" 2>"${TMP}/render.log") ||
   { cat "${TMP}/render.log"; die "render failed"; }
 T_APPLY=$(date +%s)
 k apply -f "${OUT}/00-namespace.yaml"
@@ -171,11 +174,17 @@ wait_for 900 '^True$' "guest agent" k -n teknoir-demo-vdev get vmi "$DEVICE" -o 
 guest() {
   ssh -F /dev/null -i "${TMP}/key.pem" -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=20 \
     -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o LogLevel=ERROR \
-    -o ProxyCommand="virtctl --context ${CTX} port-forward --stdio=true vmi/${DEVICE}.teknoir-demo-vdev 22" \
-    teknoir@vmi "$@"
+    -o ProxyCommand="virtctl --context ${CTX} port-forward --stdio=true vmi/${DEVICE}/teknoir-demo-vdev 22" \
+    vdspike@vmi "$@" </dev/null
 }
-bootstrap_exit() { printf '%s\n' "$PASSWORD" | guest "sudo -S -p '' cat /var/lib/teknoir-spike/bootstrap-exit"; }
-wait_for 1800 '^[0-9]+$' "bootstrap exit status" bootstrap_exit || log "bootstrap did not finish (continuing; check.sh reports it)"
+bootstrap_exit() { guest "sudo cat /var/lib/teknoir-spike/bootstrap-exit"; }
+diagnose() {
+  guest 'sudo sh -c "cloud-init status --long; echo; ls -la /var/lib/teknoir-spike; echo --- bootstrap.log; tail -n 40 /var/lib/teknoir-spike/bootstrap.log; echo --- k3s; systemctl status k3s --no-pager -l | tail -n 20; journalctl -u k3s --no-pager -n 30"' 2>&1 | cut -c1-240 || true
+}
+if ! wait_for 1800 '^[0-9]+$' "bootstrap exit status" bootstrap_exit; then
+  log "bootstrap did not finish; guest diagnostics:"
+  diagnose
+fi
 log "applied -> bootstrap finished: $(($(date +%s) - T_APPLY))s"
 # Let TOE try to connect for a minute so its log has something to report.
 sleep 60

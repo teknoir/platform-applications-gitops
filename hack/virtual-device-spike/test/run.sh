@@ -111,6 +111,22 @@ assert h["spec"]["egress"][0]["ports"] == [{"protocol": "TCP", "port": 443}]
 vm = next(yaml.safe_load_all(open(os.path.join(d, "20-vm.yaml"))))
 assert vm["spec"]["template"]["spec"]["domain"]["cpu"]["model"] == "Opteron_G5"
 PY
+"${KIT}/render.sh" --device vd-s1-fixture --fixture "$TMP/device.json" --out "$TMP/debug" --debug-user --allow-virtctl-ssh >"$TMP/debug.out" 2>&1
+no_secrets_in "$TMP/debug.out" "--debug-user render output"
+python3 -I - "$TMP/debug" "$(ssh-keygen -y -f "$TMP/key.pem")" <<'PY' && ok "--debug-user adds vdspike with the device's SSH public key; --allow-virtctl-ssh opens only 22 from virt-api" || bad "debug variant"
+import base64, os, sys, yaml
+d, pub = sys.argv[1], sys.argv[2]
+sec = next(yaml.safe_load_all(open(os.path.join(d, "10-cloudinit-secret.yaml"))))
+ud = yaml.safe_load(base64.b64decode(sec["data"]["userdata"]))
+assert [u["name"] for u in ud["users"]] == ["vdspike"], ud["users"]
+assert ud["users"][0]["ssh_authorized_keys"] == [pub]
+assert ud["users"][0]["lock_passwd"] is True
+np = next(x for x in yaml.safe_load_all(open(os.path.join(d, "00-namespace.yaml"))) if x and x["metadata"]["name"] == "vdev-ingress-virtctl-ssh")
+rule = np["spec"]["ingress"][0]
+assert rule["ports"] == [{"protocol": "TCP", "port": 22}]
+assert rule["from"][0]["podSelector"]["matchLabels"] == {"kubevirt.io": "virt-api"}
+assert rule["from"][0]["namespaceSelector"]["matchLabels"] == {"kubernetes.io/metadata.name": "kubevirt"}
+PY
 "${KIT}/render.sh" --device vd-s1-fixture --fixture "$TMP/device.json" --out "$TMP/medium" --cpu 4 --memory-gi 8 --disk-gi 40 >/dev/null 2>&1
 python3 -I - "$TMP/medium" <<'PY' && ok "--cpu 4 --memory-gi 8 --disk-gi 40 sizes the VM and the quota" || bad "sizing variant"
 import sys, yaml, os
@@ -138,7 +154,15 @@ fixture "$TMP/nokey.json" 'del(.spec.keys.data.rsa_private)'
 expect_fail "Device without rsa_private" --device vd-s1-fixture --fixture "$TMP/nokey.json" --out "$TMP/r4"
 fixture "$TMP/badkey.json" ".spec.keys.data.rsa_private=\"$(printf 'not a key' | base64)\""
 expect_fail "rsa_private that is not a PEM key" --device vd-s1-fixture --fixture "$TMP/badkey.json" --out "$TMP/r5"
-for r in r1 r2 r3 r4 r5; do
+expect_fail "k3s >= v1.34.12 with a device certificate without keyCertSign" --device vd-s1-fixture --fixture "$TMP/device.json" --out "$TMP/r6" --k3s-version v1.34.12+k3s1
+expect_fail "k3s v1.36.5 with a device certificate without keyCertSign" --device vd-s1-fixture --fixture "$TMP/device.json" --out "$TMP/r7" --k3s-version v1.36.5+k3s1
+openssl req -x509 -key "$TMP/key.pem" -days 1 -subj "/CN=teknoir.ai" -addext "keyUsage=critical,digitalSignature,keyCertSign,cRLSign" -out "$TMP/cert-certsign.pem" 2>/dev/null
+jq --arg c "$(base64 -w0 <"$TMP/cert-certsign.pem")" '.spec.keys.data.rsa_public=$c' "$TMP/device.json" >"$TMP/device-certsign.json"
+"${KIT}/render.sh" --device vd-s1-fixture --fixture "$TMP/device-certsign.json" --out "$TMP/certsign" --k3s-version v1.36.5+k3s1 >/dev/null 2>&1 &&
+  ok "k3s v1.36.5 is accepted when the device certificate has keyCertSign" || bad "k3s v1.36.5 refused despite keyCertSign"
+"${KIT}/render.sh" --device vd-s1-fixture --fixture "$TMP/device.json" --out "$TMP/old135" --k3s-version v1.35.8+k3s1 >/dev/null 2>&1 &&
+  ok "k3s v1.35.8 (before the CA change) is accepted" || bad "k3s v1.35.8 refused"
+for r in r1 r2 r3 r4 r5 r6 r7; do
   if [[ -d $TMP/$r ]] && find "$TMP/$r" -name '10-cloudinit-secret.yaml' | grep -q .; then bad "refused render $r left a Secret behind"; fi
 done
 find "$TMP" -maxdepth 2 -name '.work.*' | grep -q . && bad "a .work directory was left behind" || ok "no .work directories left behind"

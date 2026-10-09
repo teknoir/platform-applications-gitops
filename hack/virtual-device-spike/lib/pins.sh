@@ -9,9 +9,14 @@ VDS_CLI_REPO_URL="https://github.com/teknoir/cli.git"
 VDS_CLI_REF="7bb1beaa53069ef20cf9edfa300c1d9560429f0a"
 
 # Inner k3s of the device. The tnctl template installs whatever get.k3s.io serves
-# (the stable channel, v1.36.5 on 2026-10-09) unless INSTALL_K3S_VERSION is set;
-# the spike pins the newest 1.34 patch, the minor r415 itself runs.
-VDS_K3S_VERSION="v1.34.12+k3s1"
+# (the stable channel, v1.36.5 on 2026-10-09) unless INSTALL_K3S_VERSION is set.
+# The spike pins v1.34.11, the last 1.34 patch before k3s "Improve CA hash
+# validation" (k3s 6c7a974, in v1.34.12, v1.35.9 and v1.36.5, released 2026-09-30).
+# Those releases drop CA certificates without the keyCertSign key usage when they
+# validate their own /cacerts, and the tnctl template makes the device certificate
+# (Backstage's `openssl req -x509`, no keyUsage) the k3s root CA, so the server never
+# becomes ready. See README "Finding: k3s >= 1.34.12 and the tnctl custom CA".
+VDS_K3S_VERSION="v1.34.11+k3s1"
 
 # Inner k3s CIDRs. They must not overlap the outer cluster's 10.42/16 (pods) and
 # 10.43/16 (services): the guest's resolver is the outer kube-dns 10.43.0.10, which

@@ -79,6 +79,8 @@ ud_text = base64.b64decode(sec["data"]["userdata"]).decode()
 check(ud_text.startswith("#cloud-config\n"), "userdata is a #cloud-config")
 ud = yaml.safe_load(ud_text)
 check(ud["ssh_pwauth"] is False and ud["disable_root"] is True, "cloud-config: no SSH passwords, no root login")
+check("users" not in ud, "no extra guest users by default (--debug-user off)")
+check("vdev-ingress-virtctl-ssh" not in {d["metadata"]["name"] for d in docs["00-namespace.yaml"]}, "no ingress allowance by default (--allow-virtctl-ssh off)")
 check("qemu-guest-agent" in ud["packages"], "cloud-config installs qemu-guest-agent")
 wf = {w["path"]: w for w in ud["write_files"]}
 boot = wf["/usr/local/lib/teknoir/bootstrap.sh"]
@@ -93,7 +95,8 @@ check('export INSTALL_K3S_EXEC="server --token ${_K3S_TOKEN}' in script, "bootst
 check("{{" not in script, "no unrendered template markers")
 run = wf["/usr/local/lib/teknoir/spike-run.sh"]["content"]
 check("CREATE_USER=true" in run, "spike-run sets CREATE_USER=true")
-check("INSTALL_K3S_VERSION='v1.34.12+k3s1'" in run, "spike-run pins INSTALL_K3S_VERSION")
+pin = re.search(r'^VDS_K3S_VERSION="([^"]+)"', open(os.path.join(os.path.dirname(__file__), "..", "lib", "pins.sh")).read(), re.M).group(1)
+check(f"INSTALL_K3S_VERSION='{pin}'" in run, f"spike-run pins INSTALL_K3S_VERSION={pin}")
 check("INSTALL_K3S_EXEC='--cluster-cidr=10.52.0.0/16 --service-cidr=10.53.0.0/16 --cluster-dns=10.53.0.10'" in run, "spike-run sets inner CIDRs 10.52/10.53 and cluster DNS 10.53.0.10")
 check(ud["runcmd"][-1] == ["/usr/local/lib/teknoir/spike-run.sh"], "runcmd ends with spike-run.sh")
 env = wf["/etc/teknoir-spike/spike.env"]["content"]

@@ -77,6 +77,21 @@ b64_oneline() { base64 | tr -d '\n'; }
 # Device JSON accessors (input on stdin).
 device_key_b64() { jq -r --arg k "$1" '.spec.keys.data[$k] // ""'; }
 
+# k3s_prunes_noncertsign_roots VERSION: true for k3s releases that ignore CA certs
+# without keyCertSign when validating /cacerts (k3s 6c7a974 "Improve CA hash
+# validation": v1.34.12+, v1.35.9+, v1.36.5+ and any later minor).
+k3s_prunes_noncertsign_roots() {
+  local minor patch
+  [[ $1 =~ ^v1\.([0-9]+)\.([0-9]+)\+k3s[0-9]+$ ]] || return 0
+  minor=${BASH_REMATCH[1]}
+  patch=${BASH_REMATCH[2]}
+  ((minor >= 37)) && return 0
+  ((minor == 36 && patch >= 5)) && return 0
+  ((minor == 35 && patch >= 9)) && return 0
+  ((minor == 34 && patch >= 12)) && return 0
+  return 1
+}
+
 # Probe result printing for check.sh.
 PASS_COUNT=0
 FAIL_COUNT=0
