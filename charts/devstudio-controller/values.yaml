@@ -4,8 +4,10 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/teknoir/devstudio-controller
-  tag: teknoir-cloud
-  pullPolicy: Always
+  # Pinned (G-09): '<immutable tag>@sha256:<linux/amd64 manifest digest>',
+  # the image that ran as :teknoir-cloud (same as teknoir-cloud-20260430-135659).
+  tag: "sha-4ec934c4@sha256:8cd41bc5e630238ab2b611a411261b2ee029c9a3c7cb5ad970f73648c509a28d"
+  pullPolicy: IfNotPresent
 
 imagePullSecrets: []
 
