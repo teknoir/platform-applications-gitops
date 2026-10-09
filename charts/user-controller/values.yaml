@@ -4,9 +4,14 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/teknoir/user-controller
-  # A dated build tag, never moved: no need to re-pull on every start (which
-  # also makes a restart depend on Harbor being up).
-  tag: teknoir-cloud-20260413-054338
+  # Pinned (G-09): '<immutable tag>@sha256:<linux/amd64 manifest digest>'
+  # (`crane digest --platform linux/amd64 <repository>:<tag>`), so a restart
+  # never re-pulls and the bundle carries exactly this image.
+  # PLACEHOLDER: the r5 build (branch r5-user-controller: temporary password
+  # Secret, lastName, client-credentials error) is not pushed yet. Replace
+  # this one line with its sha-<8> tag and amd64 digest. tests/render.sh and
+  # the bundle gate fail on the placeholder on purpose.
+  tag: "sha-PLACEHOLDER-WP-UC@sha256:0000000000000000000000000000000000000000000000000000000000000000"
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
@@ -61,3 +66,25 @@ config:
   userIdPrefix:
   mailClientApiKey: ""
   webDomain: teknoir.airgapped
+
+# Temporary passwords. The controller writes a new user's temporary password
+# to Secret user-initial-password-<User name> (key password) in this
+# namespace before it sets the password in Keycloak, and deletes the Secret
+# once the user has chosen their own password or the TTL has passed. It never
+# writes the password to the User status. `teknoir-airgap admin-user` reads
+# the Secret once and deletes it. The chart creates the namespace
+# (Prune=false,Delete=false) and the only Secret access the controller has
+# (get/create/update/delete in this namespace, no list).
+# Env: USER_CREDENTIALS_NAMESPACE, INITIAL_PASSWORD_TTL (Go duration).
+credentials:
+  namespace: teknoir-user-credentials
+  initialPasswordTTL: 72h
+
+# A ValidatingAdmissionPolicy that keeps the controller's ServiceAccount to its
+# own objects in teamspaces (Kubernetes 1.30+; see
+# templates/admission-policies.yaml): user-<User>-teknoir-role-binding and
+# -authorization-policy, owned by a User, created only in namespaces a Profile
+# owns, RoleBindings only to teknoir-admin/-edit/-view for users. It never
+# touches requests by anyone else. false is the break-glass.
+admissionPolicies:
+  enabled: true

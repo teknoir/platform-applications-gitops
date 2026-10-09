@@ -6,8 +6,10 @@ commonLabels:
 
 image:
   repository: ghcr.io/teknoir/notebook-controller
-  tag: teknoir-cloud-20260522-055950
-  pullPolicy: Always
+  # Pinned (G-09): '<immutable tag>@sha256:<linux/amd64 manifest digest>',
+  # the image that ran as :teknoir-cloud-20260522-055950.
+  tag: "sha-c751073b@sha256:91ff952fd23a2bae74f99015f418ee089d4e9cf50454eaba7bbde0adb8e857f7"
+  pullPolicy: IfNotPresent
 
 imagePullSecrets: []
 

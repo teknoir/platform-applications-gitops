@@ -1,0 +1,208 @@
+{{- /*
+Admission policies that bound what the controller's ServiceAccount may write,
+beyond its RBAC (ValidatingAdmissionPolicy, admissionregistration.k8s.io/v1,
+Kubernetes 1.30+). The RBAC grants rolebindings, Secrets and the other
+teamspace kinds in every namespace (the controller creates its teamspaces at
+run time) and Applications/AppProjects in teknoir-system. Without these
+policies a compromised controller could:
+- bind teknoir-admin (Secrets, pods/exec) to itself in teknoir-auth,
+  kube-system or teknoir-system;
+- widen the platform AppProject teknoir-local, or create an Application in
+  it, and let ArgoCD's application-controller apply anything (a
+  ClusterRoleBinding to cluster-admin).
+
+A teamspace namespace is one the controller created for the Profile of the
+same name: the Profile owns it (ownerReference), and it carries label
+app.kubernetes.io/part-of=teknoir-profile and annotation owner. The policies
+check the ownerReference on Namespace requests themselves; for writes inside
+a namespace they can only see its labels and annotations (namespaceObject
+has no ownerReferences), and the namespaces rule keeps the controller from
+putting those on any namespace that its Profile does not own. The policies
+apply only to requests by the controller's own ServiceAccount:
+- <fullname>-teamspaces: namespaces only as teamspaces (created with, and
+  kept with, their Profile owner; no reserved name); every other kind it
+  writes only inside a teamspace namespace; RoleBindings only to
+  teknoir-admin, -edit or -view, for users, groups (not system:) or
+  ServiceAccounts of the same namespace.
+- <fullname>-argocd: Applications and AppProjects only when one teamspace
+  Profile owns them, before and after the change (the platform's own have no
+  Profile owner). The AppProject is named after the teamspace, allows only
+  the plugin chart repository, destinations in the teamspace, no
+  cluster-scoped kinds and no source namespaces. Each Application is
+  <teamspace>-<plugin> in that AppProject, one source from that repository,
+  destination the teamspace on this cluster.
+Not covered (admission cannot see it): reads. The controller still reads
+Secrets cluster-wide (SEC-C7, until it uses an API reader). An ownerReference
+can name a Profile that does not exist, so a compromised controller can still
+make an AppProject for any non-reserved name and deploy plugin charts into
+that namespace; every existing platform namespace is reserved.
+Break-glass: admissionPolicies.enabled=false removes both (ArgoCD prunes them).
+*/}}
+{{- if .Values.admissionPolicies.enabled }}
+{{- $name := include "profile-controller.fullname" . }}
+{{- $user := include "profile-controller.serviceAccountUser" . }}
+{{- $reserved := include "profile-controller.reservedNames" . | trim | splitList " " | toJson }}
+{{- $repo := include "profile-controller.pluginChartRepo" . | toJson }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $name }}-teamspaces
+  labels:
+    {{- include "profile-controller.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    matchPolicy: Equivalent
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["namespaces", "secrets", "configmaps", "services", "serviceaccounts", "resourcequotas"]
+      - apiGroups: ["rbac.authorization.k8s.io"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["rolebindings"]
+      - apiGroups: ["security.istio.io"]
+        apiVersions: ["v1", "v1beta1"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["authorizationpolicies", "requestauthentications"]
+  matchConditions:
+    - name: profile-controller
+      expression: 'request.userInfo.username == {{ $user | toJson }}'
+  variables:
+    - name: obj
+      expression: 'request.operation == "DELETE" ? oldObject : object'
+    - name: reserved
+      expression: '{{ $reserved }}'
+    # The namespace of the request is a teamspace: the labels and annotation
+    # the controller gives the namespaces it creates (namespaceObject shows
+    # no ownerReferences; the namespaces rule above keeps the controller
+    # from marking any namespace that its Profile does not own), and not a
+    # reserved name.
+    - name: inTeamspace
+      expression: |-
+        has(namespaceObject.metadata.labels) && "app.kubernetes.io/part-of" in namespaceObject.metadata.labels &&
+        namespaceObject.metadata.labels["app.kubernetes.io/part-of"] == "teknoir-profile" &&
+        has(namespaceObject.metadata.annotations) && "owner" in namespaceObject.metadata.annotations &&
+        namespaceObject.metadata.annotations["owner"] != "" &&
+        !(namespaceObject.metadata.name in variables.reserved) && !namespaceObject.metadata.name.startsWith("kube-")
+  validations:
+    - expression: |-
+        request.resource.resource != "namespaces" || (
+          (request.operation == "CREATE" ||
+            (has(oldObject.metadata.ownerReferences) && oldObject.metadata.ownerReferences.exists(r,
+              r.kind == "Profile" && r.apiVersion.startsWith("teknoir.org/") && r.name == oldObject.metadata.name))) &&
+          (request.operation == "DELETE" ||
+            (has(object.metadata.ownerReferences) && object.metadata.ownerReferences.exists(r,
+              r.kind == "Profile" && r.apiVersion.startsWith("teknoir.org/") && r.name == object.metadata.name))) &&
+          !(variables.obj.metadata.name in variables.reserved) && !variables.obj.metadata.name.startsWith("kube-"))
+      message: "profile-controller writes only teamspace namespaces: owned by the Profile of the same name, before and after the change, and not a reserved name"
+      reason: Forbidden
+    - expression: 'request.resource.resource == "namespaces" || variables.inTeamspace'
+      message: "profile-controller writes only inside a teamspace namespace (app.kubernetes.io/part-of=teknoir-profile, an owner annotation, not a reserved name)"
+      reason: Forbidden
+    - expression: |-
+        request.resource.resource != "rolebindings" || request.operation == "DELETE" || (
+          object.roleRef.kind == "ClusterRole" && object.roleRef.name in ["teknoir-admin", "teknoir-edit", "teknoir-view"] &&
+          has(object.subjects) && size(object.subjects) > 0 && object.subjects.all(s,
+            ((s.kind == "User" || s.kind == "Group") && s.name != "" && !s.name.startsWith("system:")) ||
+            (s.kind == "ServiceAccount" && has(s.namespace) && s.namespace == object.metadata.namespace)))
+      message: "profile-controller binds only teknoir-admin, teknoir-edit or teknoir-view, to users, groups (not system:) or ServiceAccounts of the same namespace"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $name }}-teamspaces
+  labels:
+    {{- include "profile-controller.labels" . | nindent 4 }}
+spec:
+  policyName: {{ $name }}-teamspaces
+  validationActions: [Deny]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $name }}-argocd
+  labels:
+    {{- include "profile-controller.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    matchPolicy: Equivalent
+    resourceRules:
+      - apiGroups: ["argoproj.io"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["applications", "appprojects"]
+  matchConditions:
+    - name: profile-controller
+      expression: 'request.userInfo.username == {{ $user | toJson }}'
+  variables:
+    - name: obj
+      expression: 'request.operation == "DELETE" ? oldObject : object'
+    - name: reserved
+      expression: '{{ $reserved }}'
+    - name: repo
+      expression: '{{ $repo }}'
+    - name: isProject
+      expression: 'request.resource.resource == "appprojects"'
+    # Names of the teamspace Profiles that own the object (the controller
+    # sets exactly one, as controller reference).
+    - name: owners
+      expression: |-
+        has(variables.obj.metadata.ownerReferences) ? variables.obj.metadata.ownerReferences.filter(r,
+          r.kind == "Profile" && r.apiVersion.startsWith("teknoir.org/")).map(r, r.name) : []
+    - name: oldOwners
+      expression: |-
+        request.operation != "UPDATE" ? variables.owners :
+          has(oldObject.metadata.ownerReferences) ? oldObject.metadata.ownerReferences.filter(r,
+            r.kind == "Profile" && r.apiVersion.startsWith("teknoir.org/")).map(r, r.name) : []
+    - name: teamspace
+      expression: 'size(variables.owners) == 1 ? variables.owners[0] : ""'
+  validations:
+    - expression: |-
+        variables.teamspace != "" && !(variables.teamspace in variables.reserved) && !variables.teamspace.startsWith("kube-")
+      message: "profile-controller writes only Applications and AppProjects owned by one teamspace Profile (not a reserved name)"
+      reason: Forbidden
+    - expression: 'variables.oldOwners == variables.owners'
+      message: "profile-controller changes only Applications and AppProjects that their teamspace Profile already owns, and never their owner"
+      reason: Forbidden
+    - expression: '!variables.isProject || variables.obj.metadata.name == variables.teamspace'
+      message: "a teamspace AppProject is named after its Profile"
+      reason: Forbidden
+    - expression: |-
+        !variables.isProject || request.operation == "DELETE" || (
+          has(object.spec.sourceRepos) && object.spec.sourceRepos == [variables.repo] &&
+          (!has(object.spec.clusterResourceWhitelist) || size(object.spec.clusterResourceWhitelist) == 0) &&
+          (!has(object.spec.sourceNamespaces) || size(object.spec.sourceNamespaces) == 0) &&
+          has(object.spec.destinations) && size(object.spec.destinations) > 0 &&
+          object.spec.destinations.all(d, has(d.namespace) && d.namespace == variables.teamspace &&
+            (!has(d.server) || d.server == "https://kubernetes.default.svc") && (!has(d.name) || d.name == "in-cluster")))
+      message: "a teamspace AppProject allows only the plugin chart repository, destinations in its own namespace, no cluster-scoped kinds and no source namespaces"
+      reason: Forbidden
+    - expression: 'variables.isProject || variables.obj.metadata.name.startsWith(variables.teamspace + "-")'
+      message: "a teamspace Application is named <teamspace>-<plugin>"
+      reason: Forbidden
+    - expression: |-
+        variables.isProject || request.operation == "DELETE" || (
+          object.spec.project == variables.teamspace &&
+          has(object.spec.destination) && has(object.spec.destination.namespace) && object.spec.destination.namespace == variables.teamspace &&
+          (!has(object.spec.destination.server) || object.spec.destination.server == "https://kubernetes.default.svc") &&
+          (!has(object.spec.destination.name) || object.spec.destination.name == "in-cluster") &&
+          has(object.spec.source) && object.spec.source.repoURL == variables.repo &&
+          (!has(object.spec.sources) || size(object.spec.sources) == 0) && !has(object.spec.sourceHydrator))
+      message: "a teamspace Application deploys one chart from the plugin chart repository into its own namespace, in its own AppProject"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $name }}-argocd
+  labels:
+    {{- include "profile-controller.labels" . | nindent 4 }}
+spec:
+  policyName: {{ $name }}-argocd
+  validationActions: [Deny]
+{{- end }}

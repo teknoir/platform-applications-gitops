@@ -4,8 +4,16 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/teknoir/profile-controller
-  tag: latest
-  pullPolicy: Always
+  # Pinned (G-09): '<immutable tag>@sha256:<linux/amd64 manifest digest>'
+  # (`crane digest --platform linux/amd64 <repository>:<tag>`), so a restart
+  # never re-pulls and the bundle carries exactly this image.
+  # PLACEHOLDER: the r5 build (branch r5-profile-controller: plugin chart
+  # repo/version and OIDC issuer from the environment, narrowed AppProject)
+  # is not pushed yet. Replace this one line with its sha-<8> tag and amd64
+  # digest. tests/render.sh and the bundle gate fail on the placeholder on
+  # purpose.
+  tag: "sha-PLACEHOLDER-WP-PC@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  pullPolicy: IfNotPresent
 
 imagePullSecrets: []
 
@@ -26,6 +34,7 @@ serviceAccount:
 
 
 config:
+  # Default owner of the Profiles below (profiles[].owner overrides it).
   admin: "anders.aslund@teknoir.ai"
   workloadIdentity: ""
   userIdHeader: "X-Auth-Request-Email"
@@ -34,6 +43,48 @@ config:
   domain: "teknoir.airgapped"
   domainPrefix: ""
   istioRevision: "1.29.0"
+  # Where the controller points each teamspace plugin Application
+  # (env PLUGIN_CHART_REPO / PLUGIN_CHART_VERSION). The same form as the
+  # app-of-apps repoURL: Helm OCI in Harbor without oci://, served by the
+  # existing ArgoCD repository Secret. The bundle build reads both from this
+  # render and carries the 9 profile-plugin charts and their images.
+  # Empty: the controller's compiled defaults (teknoir.github.io, 0.0.99).
+  pluginChartRepo: "harbor.teknoir.airgapped/teknoir"
+  pluginChartVersion: "0.0.99"
+  # Issuer of the RequestAuthentication jwt-policy the controller writes into
+  # every teamspace (env OIDC_ISSUER). Empty: the compiled default
+  # (auth.teknoir.online, realm master).
+  oidcIssuer: "https://auth.teknoir.airgapped/auth/realms/teknoir"
+  # Its jwksUri (env OIDC_JWKS_URI). Keep it empty: the controller then uses
+  # <oidcIssuer>/protocol/openid-connect/certs, the public URL that istiod
+  # already fetches for the platform RequestAuthentications (backstage).
+  # istiod resolves jwksUri itself, from istio-system and without a sidecar,
+  # so an in-mesh http://keycloak-http.teknoir-auth.svc... URL fails there:
+  # teknoir-auth enforces STRICT mTLS and keycloak-allow-ingress admits only
+  # the gateway, teknoir-system and teknoir-auth. The chart refuses anything
+  # but an https:// URL outside the cluster domain.
+  oidcJwksUri: ""
+
+# Teamspaces declared in GitOps: one Profile per entry,
+#   {name, owner (default config.admin, lowercased), resourceQuotaSpec}.
+# The controller creates the namespace, its RBAC and the default plugins
+# (spec.plugins is the controller's and never declared here). ArgoCD never
+# prunes or deletes them (Prune=false,Delete=false), but `kubectl delete
+# profile` still deletes the namespace and its volumes. The owner must be
+# right at the first sync: the controller refuses an owner change on an
+# existing namespace. Airgap teamspaces get only the default plugins (no
+# postgres or claims).
+profiles:
+  - name: teknoir-default
+
+# ValidatingAdmissionPolicies that keep the controller's ServiceAccount inside
+# the teamspaces (Kubernetes 1.30+; see templates/admission-policies.yaml):
+# namespaced writes only in namespaces its Profile owns, RoleBindings only to
+# teknoir-admin/-edit/-view, and Applications/AppProjects only when a
+# teamspace Profile owns them and only in the narrowed teamspace shape. They
+# never touch requests by anyone else. false is the break-glass.
+admissionPolicies:
+  enabled: true
 
 resources: {}
   # limits:

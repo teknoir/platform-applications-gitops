@@ -38,6 +38,8 @@ appProject:
     # cert-manager's leader-election Role, kube-prometheus-stack's
     # control-plane Services.
     - kube-system
+    # user-controller's Secret Role for the temporary passwords (K1).
+    - teknoir-user-credentials
   clusterResourceWhitelist:
     - group: apiextensions.k8s.io
       kind: CustomResourceDefinition
@@ -53,6 +55,12 @@ appProject:
       kind: MutatingWebhookConfiguration
     - group: admissionregistration.k8s.io
       kind: ValidatingWebhookConfiguration
+    # user-controller and profile-controller: the policies that keep their
+    # ServiceAccounts inside the teamspaces.
+    - group: admissionregistration.k8s.io
+      kind: ValidatingAdmissionPolicy
+    - group: admissionregistration.k8s.io
+      kind: ValidatingAdmissionPolicyBinding
     - group: cert-manager.io
       kind: ClusterIssuer
 

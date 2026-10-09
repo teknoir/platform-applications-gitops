@@ -42,7 +42,6 @@ app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/component: manager
 app.kubernetes.io/created-by: user-controller
-teknoir.org/part-of: user-controller
 {{- end }}
 
 {{/*
@@ -54,3 +53,28 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 control-plane: controller-manager
 teknoir.org/part-of: user-controller
 {{- end }}
+
+{{/*
+Namespace of the temporary-password Secrets. A dedicated namespace: the
+controller's only Secret access is there, so it must not be a namespace that
+holds other Secrets.
+*/}}
+{{- define "user-controller.credentialsNamespace" -}}
+{{- $ns := .Values.credentials.namespace | default "" | toString -}}
+{{- if not (regexMatch "^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$" $ns) -}}
+{{- fail (printf "credentials.namespace %q is not a DNS-1123 label" $ns) -}}
+{{- end -}}
+{{- if or (has $ns (list "default" "teknoir" "teknoir-system" "teknoir-auth" "istio-system" "cert-manager" .Release.Namespace)) (hasPrefix "kube-" $ns) -}}
+{{- fail (printf "credentials.namespace %q must be a dedicated namespace" $ns) -}}
+{{- end -}}
+{{- $ns -}}
+{{- end }}
+
+{{- /*
+Namespaces that are never a teamspace, as in the profile-controller chart's
+profile-controller.reservedNames (keep the two lists equal; the render test
+compares them). Prefix kube- is refused as well.
+*/}}
+{{- define "user-controller.reservedNamespaces" -}}
+default teknoir teknoir-local teknoir-cloud teknoir-online teknoir-system teknoir-auth teknoir-user-credentials istio-system cert-manager
+{{- end -}}

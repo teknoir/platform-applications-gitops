@@ -1,0 +1,58 @@
+{{- /*
+GitOps teamspaces (values.yaml profiles). Each entry becomes a Profile that
+the controller turns into a namespace, its RBAC and the default plugins.
+- Prune=false,Delete=false: ArgoCD never deletes a teamspace (that would
+  cascade to its namespace and volumes).
+- Sync wave 1: after the CRD and the controller in the same sync.
+- No spec.plugins: the controller fills in and owns that list; declaring it
+  here would make ArgoCD and the controller fight over it.
+- Refused: an empty owner, a name that is not a DNS-1123 label, a reserved
+  name (profile-controller.reservedNames: it would collide with a platform
+  namespace or AppProject; the admission policies refuse those names too), a
+  duplicate, and any key other than name, owner and resourceQuotaSpec.
+*/}}
+{{- $reserved := include "profile-controller.reservedNames" . | trim | splitList " " }}
+{{- $allowedKeys := list "name" "owner" "resourceQuotaSpec" }}
+{{- $seen := dict }}
+{{- range $i, $p := .Values.profiles | default list }}
+{{- if not (kindIs "map" $p) }}
+{{- fail (printf "profiles[%d] must be a map {name, owner, resourceQuotaSpec}" $i) }}
+{{- end }}
+{{- range $k, $_ := $p }}
+{{- if not (has $k $allowedKeys) }}
+{{- fail (printf "profiles[%d]: unsupported key %q (allowed: name, owner, resourceQuotaSpec; spec.plugins belongs to the controller)" $i $k) }}
+{{- end }}
+{{- end }}
+{{- $name := $p.name | default "" | toString }}
+{{- if not (regexMatch "^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$" $name) }}
+{{- fail (printf "profiles[%d].name %q is not a DNS-1123 label (lower-case alphanumerics and '-', at most 63)" $i $name) }}
+{{- end }}
+{{- if or (has $name $reserved) (hasPrefix "kube-" $name) }}
+{{- fail (printf "profiles[%d].name %q is reserved" $i $name) }}
+{{- end }}
+{{- if hasKey $seen $name }}
+{{- fail (printf "profiles[%d].name %q is declared twice" $i $name) }}
+{{- end }}
+{{- $_ := set $seen $name true }}
+{{- $owner := $p.owner | default $.Values.config.admin | default "" | toString | trim | lower }}
+{{- if not $owner }}
+{{- fail (printf "profiles[%d] (%s): no owner (set profiles[].owner or config.admin)" $i $name) }}
+{{- end }}
+---
+apiVersion: teknoir.org/v1
+kind: Profile
+metadata:
+  name: {{ $name }}
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  owner:
+    apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: {{ $owner | quote }}
+  {{- with $p.resourceQuotaSpec }}
+  resourceQuotaSpec:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

@@ -4,8 +4,10 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/teknoir/device-controller
-  tag: applicationset
-  pullPolicy: Always
+  # Pinned (G-09): '<immutable tag>@sha256:<linux/amd64 manifest digest>',
+  # the image that ran as :applicationset (same as applicationset-20260724-123007).
+  tag: "sha-9780e409@sha256:764377e6053f3a4c1d92c94d14ff73f493edda5df2f415c6dc68489795622d84"
+  pullPolicy: IfNotPresent
 
 imagePullSecrets: []
 
