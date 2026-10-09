@@ -39,3 +39,11 @@ data:
           apps:
             - $include: {{ .Values.backstageApi.githubAppSecretPath }}
 {{- end }}
+{{- $k8sTypes := ((.Values.rbac | default dict).kubernetesPlugin | default dict).objectTypes }}
+{{- if $k8sTypes }}
+
+    # Only the object types templates/rbac.yaml lets backstage-api read.
+    kubernetes:
+      objectTypes:
+        {{- toYaml $k8sTypes | nindent 8 }}
+{{- end }}

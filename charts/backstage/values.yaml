@@ -79,3 +79,44 @@ istio:
     fromHeaders:
       - name: X-Forwarded-Access-Token
       - name: X-Auth-Request-Access-Token
+
+# backstage-api's own Kubernetes access (templates/rbac.yaml). It replaces the
+# cluster-wide teknoir-admin binding (every Secret, pods/exec everywhere).
+# Every rule maps to a call in the backend: README "RBAC".
+rbac:
+  # Secrets backstage-api reads by name, in every teamspace namespace. Get by
+  # name only; no list, no other Secret.
+  teamspaceSecrets:
+    # OrgTreeEntityProvider and the org-tree API connect to the teamspace
+    # MongoDB with it.
+    - mongodb-credentials
+    # PeripheralEntityProvider subscribes to the teamspace EMQX with it.
+    - emqx-bootstrap-user
+  # ConfigMaps the peripheral API reads and updates by name in a teamspace
+  # namespace. It also creates them, and create cannot be limited by name.
+  teamspaceConfigMaps:
+    - peripheral-config
+  # The namespace whose Claims backstage-api lists (fixed in the image).
+  claimsNamespace: teknoir-system
+  # @backstage/plugin-kubernetes-backend (the Kubernetes tab, for platform
+  # admins only: the backend's permission policy denies everyone else).
+  # Read-only, cluster-wide, for exactly these object types; the chart also
+  # renders them as app-config kubernetes.objectTypes. configmaps is left out
+  # on purpose (the plugin's default list has it): ConfigMaps can carry
+  # credentials, and the tab does not need them.
+  kubernetesPlugin:
+    enabled: true
+    objectTypes:
+      - pods
+      - services
+      - limitranges
+      - resourcequotas
+      - deployments
+      - replicasets
+      - statefulsets
+      - daemonsets
+      - horizontalpodautoscalers
+      - jobs
+      - cronjobs
+      - ingresses
+
