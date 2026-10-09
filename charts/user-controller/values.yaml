@@ -79,3 +79,12 @@ config:
 credentials:
   namespace: teknoir-user-credentials
   initialPasswordTTL: 72h
+
+# A ValidatingAdmissionPolicy that keeps the controller's ServiceAccount to its
+# own objects in teamspaces (Kubernetes 1.30+; see
+# templates/admission-policies.yaml): user-<User>-teknoir-role-binding and
+# -authorization-policy, owned by a User, created only in namespaces a Profile
+# owns, RoleBindings only to teknoir-admin/-edit/-view for users. It never
+# touches requests by anyone else. false is the break-glass.
+admissionPolicies:
+  enabled: true

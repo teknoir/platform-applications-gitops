@@ -69,3 +69,12 @@ holds other Secrets.
 {{- end -}}
 {{- $ns -}}
 {{- end }}
+
+{{- /*
+Namespaces that are never a teamspace, as in the profile-controller chart's
+profile-controller.reservedNames (keep the two lists equal; the render test
+compares them). Prefix kube- is refused as well.
+*/}}
+{{- define "user-controller.reservedNamespaces" -}}
+default teknoir teknoir-local teknoir-cloud teknoir-online teknoir-system teknoir-auth teknoir-user-credentials istio-system cert-manager
+{{- end -}}

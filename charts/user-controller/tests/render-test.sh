@@ -25,6 +25,12 @@
 #   U9 kubeconform -strict: built-in kinds (schema cache under
 #      RENDER_CACHE) and the chart's CRDs (User, Claim, ClaimSet); SKIP
 #      without kubeconform
+#   U10 admission policy user-controller-teamspace-access: bound with Deny,
+#      failurePolicy Fail, matched only on the controller's ServiceAccount;
+#      it matches every kind the ClusterRole lets the controller write
+#      (except events and its Users); its reserved namespaces equal the
+#      profile-controller chart's (plus an overridden credentials namespace,
+#      U6); admissionPolicies.enabled=false renders none
 # Requires helm, yq (mikefarah v4), jq; kubeconform optional.
 set -euo pipefail
 
@@ -123,8 +129,9 @@ render --set credentials.namespace=uc-creds --set credentials.initialPasswordTTL
 json "$WORK/o.yaml" >"$WORK/o.json"
 b=$(jq -r '[.[] | select(.metadata.namespace == "uc-creds" or (.kind == "Namespace" and .metadata.name == "uc-creds")) | .kind] | sort | join(",")' "$WORK/o.json")
 if [ "$b" = "Namespace,Role,RoleBinding" ] && [ "$(cm "$WORK/o.json" USER_CREDENTIALS_NAMESPACE)" = uc-creds ] && [ "$(cm "$WORK/o.json" INITIAL_PASSWORD_TTL)" = 24h ] \
-	&& ! grep -q teknoir-user-credentials "$WORK/o.yaml"; then
-	ok "U6 credentials.namespace/initialPasswordTTL overrides reach Namespace, Role, RoleBinding, ConfigMap"
+	&& ! yq 'select(.kind != "ValidatingAdmissionPolicy")' "$WORK/o.yaml" | grep -q teknoir-user-credentials \
+	&& yq 'select(.kind == "ValidatingAdmissionPolicy") | .spec.variables[] | select(.name == "reserved") | .expression' "$WORK/o.yaml" | grep -q '"uc-creds"'; then
+	ok "U6 credentials.namespace/initialPasswordTTL overrides reach Namespace, Role, RoleBinding, ConfigMap and the reserved namespaces"
 else
 	bad "U6 override: objects in uc-creds: $b"
 fi
@@ -174,6 +181,35 @@ if command -v kubeconform >/dev/null; then
 else
 	echo "SKIP U9 kubeconform not installed"
 fi
+
+# --- U10 ----------------------------------------------------------------------
+SA_USER=system:serviceaccount:teknoir-system:user-controller
+v=$(jq -c '.[] | select(.kind == "ValidatingAdmissionPolicy" and .metadata.name == "user-controller-teamspace-access")' "$WORK/r.json")
+if [ -n "$v" ]; then
+	b=$(jq -r '"\(.spec.failurePolicy) \(.spec.matchConditions | map(.expression) | join(";"))"' <<<"$v")
+	[ "$b" = "Fail request.userInfo.username == \"$SA_USER\"" ] && ok "U10 failurePolicy Fail, only requests by $SA_USER" || bad "U10 policy: $b"
+	b=$(jq -r '[.[] | select(.kind == "ValidatingAdmissionPolicyBinding" and .spec.policyName == "user-controller-teamspace-access") | .spec.validationActions | join(",")] | join(" ")' "$WORK/r.json")
+	[ "$b" = Deny ] && ok "U10 bound with validationActions [Deny]" || bad "U10 bindings: '$b'"
+	b=$(jq -r '[.spec.validations[] | select(.reason != "Forbidden" or (.message // "") == "")] | length' <<<"$v")
+	[ "$b" = 0 ] && ok "U10 every validation has a message and reason Forbidden" || bad "U10 $b validations without message/Forbidden"
+	writes=$(jq -r '[.[] | select(.kind == "ClusterRole" and .metadata.name == "user-controller")
+		| .rules[] | select(.verbs | any(. == "create" or . == "update" or . == "patch" or . == "delete"))
+		| .apiGroups[] as $g | .resources[] | "\($g)/\(.)"]
+		| map(select(. != "/events" and (startswith("teknoir.org/users") | not))) | unique | join(" ")' "$WORK/r.json")
+	matched=$(jq -r '.spec.matchConstraints.resourceRules | [.[] | select(.operations | (index("CREATE") and index("UPDATE") and index("DELETE")))
+		| .apiGroups[] as $g | .resources[] | "\($g)/\(.)"] | unique | join(" ")' <<<"$v")
+	[ -n "$writes" ] && [ "$writes" = "$matched" ] && ok "U10 every kind the ClusterRole lets it write is matched: $writes" || bad "U10 ClusterRole writes '$writes' != policy matches '$matched'"
+	b=$(jq -r '.spec.variables[] | select(.name == "reserved") | .expression' <<<"$v" | jq -r 'sort | join(" ")')
+	# (the credentials namespace is in both: teknoir-user-credentials by default)
+	pc=$(helm template profile-controller "$CHART/../profile-controller" --namespace teknoir-system --kube-version "$KUBE_VERSION" |
+		yq -r 'select(.kind == "ValidatingAdmissionPolicy" and .metadata.name == "profile-controller-teamspaces") | .spec.variables[] | select(.name == "reserved") | .expression' | jq -r 'sort | join(" ")')
+	[ -n "$b" ] && [ "$b" = "$pc" ] && ok "U10 reserved namespaces = the profile-controller chart's ($b)" || bad "U10 reserved namespaces '$b', profile-controller '$pc'"
+else
+	bad "U10 no ValidatingAdmissionPolicy user-controller-teamspace-access"
+fi
+render --set admissionPolicies.enabled=false >"$WORK/np.yaml"
+b=$(yq 'select(.kind == "ValidatingAdmissionPolicy*") | .metadata.name' "$WORK/np.yaml" | grep -vc '^---$' || true)
+[ "$b" = 0 ] && ok "U10 admissionPolicies.enabled=false renders no policy" || bad "U10 admissionPolicies.enabled=false renders $b policy objects"
 
 echo
 echo "user-controller render-test: $pass passed, $fail failed, $warn warnings"

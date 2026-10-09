@@ -1,0 +1,106 @@
+{{- /*
+An admission policy that bounds what the controller's ServiceAccount may
+write, beyond its RBAC (ValidatingAdmissionPolicy,
+admissionregistration.k8s.io/v1, Kubernetes 1.30+). The RBAC grants
+RoleBindings (bind teknoir-admin/-edit/-view) and AuthorizationPolicies in
+every namespace, because teamspaces appear at run time. Without this policy a
+compromised controller could bind teknoir-admin (Secrets, pods/exec, RBAC)
+to itself in teknoir-auth, teknoir-system or kube-system, or write an ALLOW
+policy in istio-system (mesh-wide) or delete one in teknoir-auth.
+
+For requests by the controller's own ServiceAccount only:
+- only its own objects: user-<User>-teknoir-role-binding and
+  user-<User>-teknoir-authorization-policy, owned by a User (the controller
+  sets that controller reference), before and after the change;
+- created or changed only in a teamspace namespace: one the
+  profile-controller created for a Profile, with label
+  app.kubernetes.io/part-of=teknoir-profile and an owner annotation (its
+  own policy keeps it from marking any other namespace), and no reserved
+  name (the profile-controller's list plus the credentials namespace). Deleting its own objects works
+  anywhere, so access is still revoked in a reserved namespace;
+- RoleBindings only to teknoir-admin, -edit or -view, for users (not
+  system:); AuthorizationPolicies only ALLOW.
+Not covered: the Secret access in the credentials namespace (a Role there,
+by name) and reads. Break-glass: admissionPolicies.enabled=false.
+*/}}
+{{- if .Values.admissionPolicies.enabled }}
+{{- $name := include "user-controller.fullname" . }}
+{{- $user := printf "system:serviceaccount:%s:%s" .Release.Namespace $name }}
+{{- $reserved := append (include "user-controller.reservedNamespaces" . | trim | splitList " ") (include "user-controller.credentialsNamespace" .) | uniq }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $name }}-teamspace-access
+  labels:
+    {{- include "user-controller.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    matchPolicy: Equivalent
+    resourceRules:
+      - apiGroups: ["rbac.authorization.k8s.io"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["rolebindings"]
+      - apiGroups: ["security.istio.io"]
+        apiVersions: ["v1", "v1beta1"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["authorizationpolicies"]
+  matchConditions:
+    - name: user-controller
+      expression: 'request.userInfo.username == {{ $user | toJson }}'
+  variables:
+    - name: obj
+      expression: 'request.operation == "DELETE" ? oldObject : object'
+    - name: isRoleBinding
+      expression: 'request.resource.resource == "rolebindings"'
+    - name: reserved
+      expression: '{{ $reserved | toJson }}'
+    # The namespace of the request is a teamspace: the labels and annotation
+    # the profile-controller gives the namespaces it creates for a Profile
+    # (namespaceObject shows no ownerReferences; the profile-controller's
+    # own policy keeps it from marking any other namespace), and not a
+    # reserved name.
+    - name: inTeamspace
+      expression: |-
+        has(namespaceObject.metadata.labels) && "app.kubernetes.io/part-of" in namespaceObject.metadata.labels &&
+        namespaceObject.metadata.labels["app.kubernetes.io/part-of"] == "teknoir-profile" &&
+        has(namespaceObject.metadata.annotations) && "owner" in namespaceObject.metadata.annotations &&
+        namespaceObject.metadata.annotations["owner"] != "" &&
+        !(namespaceObject.metadata.name in variables.reserved) && !namespaceObject.metadata.name.startsWith("kube-")
+  validations:
+    - expression: |-
+        variables.obj.metadata.name.matches(variables.isRoleBinding
+          ? "^user-[a-z0-9.-]+-teknoir-role-binding$" : "^user-[a-z0-9.-]+-teknoir-authorization-policy$") &&
+        (request.operation == "CREATE" || (has(oldObject.metadata.ownerReferences) &&
+          oldObject.metadata.ownerReferences.exists(r, r.kind == "User" && r.apiVersion.startsWith("teknoir.org/")))) &&
+        (request.operation == "DELETE" || (has(object.metadata.ownerReferences) &&
+          object.metadata.ownerReferences.exists(r, r.kind == "User" && r.apiVersion.startsWith("teknoir.org/"))))
+      message: "user-controller writes only its own user-<User>-teknoir-role-binding and user-<User>-teknoir-authorization-policy objects, owned by their User"
+      reason: Forbidden
+    - expression: 'request.operation == "DELETE" || variables.inTeamspace'
+      message: "user-controller grants access only in a teamspace namespace (app.kubernetes.io/part-of=teknoir-profile, an owner annotation, not a reserved name)"
+      reason: Forbidden
+    - expression: |-
+        !variables.isRoleBinding || request.operation == "DELETE" || (
+          object.roleRef.kind == "ClusterRole" && object.roleRef.name in ["teknoir-admin", "teknoir-edit", "teknoir-view"] &&
+          has(object.subjects) && size(object.subjects) > 0 &&
+          object.subjects.all(s, s.kind == "User" && s.name != "" && !s.name.startsWith("system:")))
+      message: "user-controller binds only teknoir-admin, teknoir-edit or teknoir-view, to users (not system:)"
+      reason: Forbidden
+    - expression: |-
+        variables.isRoleBinding || request.operation == "DELETE" || !has(object.spec.action) || object.spec.action == "ALLOW"
+      message: "user-controller writes only ALLOW AuthorizationPolicies"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $name }}-teamspace-access
+  labels:
+    {{- include "user-controller.labels" . | nindent 4 }}
+spec:
+  policyName: {{ $name }}-teamspace-access
+  validationActions: [Deny]
+{{- end }}
