@@ -4,12 +4,15 @@ domain: "teknoir.airgapped"
 
 # Who may use Grafana, Prometheus and Alertmanager through the ingress gateway
 # (/<namespace>/{grafana,prometheus,alertmanager}). oauth2-proxy (auth chart,
-# ext_authz) forwards the user's Keycloak access token in
-# X-Auth-Request-Access-Token and X-Forwarded-Access-Token. Each of the three
-# workloads verifies that token (templates/requestauthentication.yaml) and
+# ext_authz) puts the user's Keycloak access token in
+# X-Auth-Request-Access-Token, replacing any value the client sent. Each of the
+# three workloads verifies the token (templates/requestauthentication.yaml,
+# which also reads X-Forwarded-Access-Token: oauth2-proxy never sets that one,
+# so only a client sends it, and it counts only as a valid realm token) and
 # admits the gateway only for a token whose "groups" claim holds one of
-# `groups` (templates/authorizationpolicy.yaml). Grafana reads the same token
-# (grafana.ini auth.jwt below) and maps group admin to its Admin role.
+# `groups` (templates/authorizationpolicy.yaml). Grafana reads
+# X-Auth-Request-Access-Token (grafana.ini auth.jwt below) and maps group
+# admin to its Admin role.
 monitoring:
   access:
     # Issuer of realm teknoir (Keycloak serves under /auth). istiod fetches the
@@ -476,7 +479,8 @@ kube-prometheus-stack:
     ##
     ## Sign-in: every user comes in through the gateway with a Keycloak access
     ## token (monitoring.access above), and Grafana signs them in from it
-    ## (auth.jwt): login = preferred_username (the e-mail), role Admin for
+    ## (auth.jwt): login = preferred_username (the Keycloak username: the
+    ## e-mail for users made by user-controller), role Admin for
     ## group admin, Viewer otherwise (the gateway lets only monitoring.access
     ## groups through). No anonymous access. Basic auth stays on for the
     ## dashboard/datasource sidecars (REQ_USERNAME/REQ_PASSWORD on localhost)

@@ -15,8 +15,10 @@
 #   G1  Grafana starts with the rendered grafana.ini, its CA mount and
 #       SSL_CERT_DIR (as in the Deployment)
 #   G2  no token: 401 (no anonymous access)
-#   G3  token with groups [admin]: signed in, login = preferred_username,
-#       email set, org role Admin; a second request reuses the same user
+#   G3  token with groups [admin]: signed in, login = preferred_username and
+#       email = email (the two differ in the token, so a swap of
+#       username_claim and email_claim fails), org role Admin; a second
+#       request reuses the same user
 #   G4  token without group admin: signed in as Viewer
 #   G5  rejected (401): another issuer, another signing key, expired
 #   G6  basic auth as the local admin still works (sidecars, break-glass)
@@ -135,21 +137,25 @@ mint() {
   s="$(printf '%s.%s' "${h}" "${p}" | openssl dgst -sha256 -sign "$1" | b64url)"
   printf '%s.%s.%s' "${h}" "${p}" "${s}"
 }
-# claims ISSUER GROUPS_JSON USER EXP_OFFSET: access-token claims like Keycloak's.
+# claims ISSUER GROUPS_JSON USER EXP_OFFSET [EMAIL]: access-token claims like
+# Keycloak's. EMAIL defaults to USER: user-controller makes the Keycloak
+# username the e-mail address, the realm's platform admin has a username of
+# its own.
 claims() {
-  jq -n -c --arg iss "$1" --argjson groups "$2" --arg user "$3" --argjson off "$4" '
+  jq -n -c --arg iss "$1" --argjson groups "$2" --arg user "$3" --argjson off "$4" --arg email "${5:-$3}" '
     (now | floor) as $t
     | {iss: $iss, sub: ($user | @base64), aud: "account", typ: "Bearer", azp: "teknoir",
-       iat: ($t - 60), exp: ($t + $off), preferred_username: $user, email: $user,
+       iat: ($t - 60), exp: ($t + $off), preferred_username: $user, email: $email,
        email_verified: true, groups: $groups}'
 }
-ADMIN_USER=admin.user@example.org
+ADMIN_USER=jdoe
+ADMIN_EMAIL=jdoe@example.org
 VIEWER_USER=viewer.user@example.org
-T_ADMIN="$(mint "${tmp}/sign.key" "$(claims "${ISSUER}" '["admin"]' "${ADMIN_USER}" 600)")"
+T_ADMIN="$(mint "${tmp}/sign.key" "$(claims "${ISSUER}" '["admin"]' "${ADMIN_USER}" 600 "${ADMIN_EMAIL}")")"
 T_VIEWER="$(mint "${tmp}/sign.key" "$(claims "${ISSUER}" '["staff"]' "${VIEWER_USER}" 600)")"
-T_OTHER_ISS="$(mint "${tmp}/sign.key" "$(claims "https://auth.example.org/auth/realms/teknoir" '["admin"]' "${ADMIN_USER}" 600)")"
-T_OTHER_KEY="$(mint "${tmp}/other.key" "$(claims "${ISSUER}" '["admin"]' "${ADMIN_USER}" 600)")"
-T_EXPIRED="$(mint "${tmp}/sign.key" "$(claims "${ISSUER}" '["admin"]' "${ADMIN_USER}" -120)")"
+T_OTHER_ISS="$(mint "${tmp}/sign.key" "$(claims "https://auth.example.org/auth/realms/teknoir" '["admin"]' "${ADMIN_USER}" 600 "${ADMIN_EMAIL}")")"
+T_OTHER_KEY="$(mint "${tmp}/other.key" "$(claims "${ISSUER}" '["admin"]' "${ADMIN_USER}" 600 "${ADMIN_EMAIL}")")"
+T_EXPIRED="$(mint "${tmp}/sign.key" "$(claims "${ISSUER}" '["admin"]' "${ADMIN_USER}" -120 "${ADMIN_EMAIL}")")"
 ADMIN_PW="$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 24)"
 printf 'user = "admin:%s"\n' "${ADMIN_PW}" > "${tmp}/basic"
 chmod 600 "${tmp}/basic"
@@ -222,12 +228,12 @@ get /api/user
 # G3
 get /api/user "${T_ADMIN}"
 if [[ "${code}" == 200 && "$(jq -r .login "${tmp}/body")" == "${ADMIN_USER}" \
-      && "$(jq -r .email "${tmp}/body")" == "${ADMIN_USER}" ]]; then
+      && "$(jq -r .email "${tmp}/body")" == "${ADMIN_EMAIL}" ]]; then
   admin_id="$(jq -r .id "${tmp}/body")"
-  pass G3 "group admin: signed in, login and email = preferred_username/email"
+  pass G3 "group admin: signed in, login = preferred_username (${ADMIN_USER}), email = email (${ADMIN_EMAIL})"
 else
   admin_id=""
-  fail G3 "group admin: HTTP ${code}, login '$(jq -r '.login // ""' "${tmp}/body" 2>/dev/null)'"
+  fail G3 "group admin: HTTP ${code}, login '$(jq -r '.login // ""' "${tmp}/body" 2>/dev/null)', email '$(jq -r '.email // ""' "${tmp}/body" 2>/dev/null)'"
 fi
 r="$(role_of "${T_ADMIN}")"
 [[ "${r}" == Admin ]] && pass G3 "group admin: org role Admin" || fail G3 "group admin: org role ${r}, want Admin"

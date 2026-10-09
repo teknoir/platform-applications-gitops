@@ -10,22 +10,31 @@ Only members of the Keycloak groups in `monitoring.access.groups` (default
 `[admin]`, realm `teknoir`) can reach the three UIs.
 
 1. The gateway's ext_authz (oauth2-proxy, auth chart) signs the user in and
-   forwards their Keycloak access token in `X-Auth-Request-Access-Token` and
-   `X-Forwarded-Access-Token`.
+   puts their Keycloak access token in `X-Auth-Request-Access-Token`,
+   replacing any value the client sent.
 2. `templates/requestauthentication.yaml` verifies the token on each workload
    against `monitoring.access.issuer`. istiod fetches the JWKS from
    `<issuer>/protocol/openid-connect/certs`. An invalid token gets 401.
-   `forwardOriginalToken` keeps the header, so Grafana sees it.
+   `forwardOriginalToken` keeps the header, so Grafana sees it. It also reads
+   `X-Forwarded-Access-Token` (the plan's header list, as in the Backstage
+   chart). oauth2-proxy's auth endpoint never sets that header, so only a
+   client sends it, and it passes the gateway unchanged. It counts only when
+   it is a valid, unexpired token of the realm, so using it needs a token of
+   a group-admin user as well as a session at the gateway. Dropping it from
+   `jwtRules` would close that path, and Grafana does not need it.
 3. `templates/authorizationpolicy.yaml` admits the gateway only when the
    token's `groups` claim holds one of `monitoring.access.groups`. Any other
    realm user signs in at the gateway, then gets 403 (`RBAC: access
    denied`) from the workload's sidecar on all three paths. This is not a
    sign-in failure: add the user to a group in `monitoring.access.groups`
    (the next token carries it, so sign out and in again).
-4. Grafana signs the user in from the same token (`grafana.ini` `auth.jwt`).
-   The login is `preferred_username` (the e-mail), and group `admin` maps to
-   the Admin role (`role_attribute_path`, strict). Anonymous access and
-   self sign-up are off.
+4. Grafana signs the user in from `X-Auth-Request-Access-Token`
+   (`grafana.ini` `auth.jwt`). The login is `preferred_username`, the
+   Keycloak username: the e-mail address for users that user-controller
+   creates, while the realm's platform admin signs in with its own username.
+   The e-mail is `email`. Group `admin` maps to the Admin role
+   (`role_attribute_path`, strict). Anonymous access and self sign-up are
+   off.
 
 The lifecycle endpoints are closed to every source.
 `prometheus-deny-lifecycle` and `alertmanager-deny-lifecycle` DENY `*/-/quit`
@@ -164,7 +173,7 @@ kubectl --context teknoir-local -n teknoir-system port-forward svc/monitoring-al
 |---|---|---|
 | `tests/render-test.sh` | Renders the chart and checks the RequestAuthentications, the groups conditions, alert delivery, the `grafana.ini` keys, the CA mount, the render guards and the lifecycle DENY | helm, yq and jq; no cluster |
 | `tests/namespace-authz-test.sh` | Renders every chart app-of-apps installs into teknoir-system and istio-system, and checks every AuthorizationPolicy that applies to Grafana, Prometheus and Alertmanager from any chart: the gateway only with the groups claim, token-less access only from teknoir-system and teknoir-auth, the in-mesh paths the stack needs, plus self-tests | helm, yq and jq; no cluster |
-| `tests/grafana-jwt-docker-test.sh` | Runs the chart's Grafana image with the rendered `grafana.ini`, plus a test CA (in a Secret volume's layout) and JWKS. Token sign-in, Admin/Viewer mapping, rejected tokens, basic auth on the API, the login form off, TLS verification, a CA that appears later needing a restart, the https requirement and that no secret reaches the logs | docker |
+| `tests/grafana-jwt-docker-test.sh` | Runs the chart's Grafana image with the rendered `grafana.ini`, plus a test CA (in a Secret volume's layout) and JWKS. Token sign-in (login and e-mail from different claims), Admin/Viewer mapping, rejected tokens, basic auth on the API, the login form off, TLS verification, a CA that appears later needing a restart, the https requirement and that no secret reaches the logs | docker |
 
 ## CRDs
 
