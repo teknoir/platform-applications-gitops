@@ -120,3 +120,14 @@ rbac:
       - cronjobs
       - ingresses
 
+# backend.auth.externalAccess (jwks, audience teknoir-cli, i.e. tnctl). Such a
+# caller is a Backstage *service* principal, and the permission framework
+# allows a service principal everything (the permission policy never sees
+# it) unless accessRestrictions narrow it. Without them a tnctl token could
+# use /api/kubernetes/proxy with backstage-api's ServiceAccount. tnctl only
+# reads catalog entities (cli pkg/api/devices.go, cmd/ns.go). Must not be
+# empty: the chart refuses to render an unrestricted externalAccess.
+externalAccess:
+  accessRestrictions:
+    - plugin: catalog
+      permission: catalog.entity.read
