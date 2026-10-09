@@ -1,3 +1,4 @@
 # Patterns to ignore when building packages.
-# The CRD vendoring script is a repo tool, not part of the chart.
+# The CRD vendoring script and the tests are repo tools, not part of the chart.
 update-crds.sh
+tests/

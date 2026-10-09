@@ -1,0 +1,31 @@
+{{- /*
+Verify the Keycloak access token that oauth2-proxy forwards from the gateway
+(the Backstage pattern, charts/backstage/templates/istio-requestauth.yaml), so
+the *-allow-ingress AuthorizationPolicies can require its "groups" claim. A
+request without a token passes this step (in-namespace traffic such as Grafana
+to Prometheus, or Prometheus to Alertmanager, carries none) and is then
+decided by the AuthorizationPolicies; an invalid token is rejected with 401.
+forwardOriginalToken keeps the header for the workload: Grafana signs the user
+in from it (grafana.ini auth.jwt).
+*/}}
+{{- $namespace := .Values.namespace | default .Release.Namespace -}}
+{{- $issuer := required "monitoring.access.issuer is required" .Values.monitoring.access.issuer -}}
+{{- range list "grafana" "prometheus" "alertmanager" }}
+---
+apiVersion: security.istio.io/v1beta1
+kind: RequestAuthentication
+metadata:
+  name: {{ . }}-request-auth
+  namespace: {{ $namespace }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ . }}
+  jwtRules:
+    - issuer: {{ $issuer | quote }}
+      jwksUri: {{ printf "%s/protocol/openid-connect/certs" $issuer | quote }}
+      fromHeaders:
+        - name: X-Auth-Request-Access-Token
+        - name: X-Forwarded-Access-Token
+      forwardOriginalToken: true
+{{- end }}

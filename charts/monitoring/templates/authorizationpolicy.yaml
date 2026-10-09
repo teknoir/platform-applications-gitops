@@ -1,57 +1,40 @@
 {{- $namespace := .Values.namespace | default .Release.Namespace -}}
+{{- $groups := .Values.monitoring.access.groups -}}
+{{- if not $groups }}
+{{- fail "monitoring.access.groups must list at least one Keycloak group" }}
+{{- end }}
+{{- /*
+Ingress: the gateway only, and only for a verified token
+(requestauthentication.yaml) whose "groups" claim holds one of
+monitoring.access.groups. A list claim matches when any element matches.
+*/}}
+{{- range list "grafana" "prometheus" "alertmanager" }}
 ---
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
-  name: grafana-allow-ingress
+  name: {{ . }}-allow-ingress
   namespace: {{ $namespace }}
 spec:
   selector:
     matchLabels:
-      # Apply to the actual components receiving ingress traffic now
-      app.kubernetes.io/name: grafana
+      app.kubernetes.io/name: {{ . }}
   action: ALLOW
   rules:
     - from:
         - source:
             principals:
               - "cluster.local/ns/istio-system/sa/istio-ingressgateway"
+      when:
+        - key: request.auth.claims[groups]
+          values:
+            {{- range $groups }}
+            - {{ . | quote }}
+            {{- end }}
+{{- end }}
 
 ---
-apiVersion: security.istio.io/v1beta1
-kind: AuthorizationPolicy
-metadata:
-  name: prometheus-allow-ingress
-  namespace: {{ $namespace }}
-spec:
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: prometheus
-  action: ALLOW
-  rules:
-    - from:
-        - source:
-            principals:
-              - "cluster.local/ns/istio-system/sa/istio-ingressgateway"
-
----
-apiVersion: security.istio.io/v1beta1
-kind: AuthorizationPolicy
-metadata:
-  name: alertmanager-allow-ingress
-  namespace: {{ $namespace }}
-spec:
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: alertmanager
-  action: ALLOW
-  rules:
-    - from:
-        - source:
-            principals:
-              - "cluster.local/ns/istio-system/sa/istio-ingressgateway"
-
----
+# In-namespace clients (Grafana's datasource, the operator, the sidecars).
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
@@ -67,3 +50,24 @@ spec:
         - source:
             namespaces:
               - {{ $namespace | quote }}
+
+---
+# Alert delivery: Prometheus posts to /<namespace>/alertmanager/api/v2/alerts.
+# Without this, Alertmanager's only ALLOW admitted the gateway, and Prometheus
+# logged "Error sending alerts" for every notification.
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: alertmanager-allow-prometheus
+  namespace: {{ $namespace }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: alertmanager
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              # kube-prometheus-stack's Prometheus ServiceAccount, <fullnameOverride>-prometheus.
+              - {{ printf "cluster.local/ns/%s/sa/%s-prometheus" $namespace (index .Values "kube-prometheus-stack" "fullnameOverride") | quote }}
