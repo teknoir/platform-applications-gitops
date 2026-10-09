@@ -42,6 +42,10 @@
 #       "false"
 #   M10 `istioctl validate` accepts every rendered Istio resource (skipped,
 #       not failed, when istioctl is not installed)
+#   M11 prometheus- and alertmanager-deny-lifecycle: DENY, for every source,
+#       of the lifecycle paths */-/quit and */-/reload (a cross-site POST
+#       through the gateway, or any platform pod, could stop or reload
+#       Prometheus); no other DENY, and none on Grafana
 #
 # Usage: charts/monitoring/tests/render-test.sh
 # Environment:
@@ -330,6 +334,21 @@ if command -v istioctl >/dev/null; then
 else
   echo "SKIP  M10  istioctl not installed"
 fi
+
+# --- M11 lifecycle endpoints ----------------------------------------------------------
+for w in prometheus alertmanager; do
+  check M11 "${w}-deny-lifecycle: DENY */-/quit and */-/reload from every source" '
+    [.[] | select(.kind == "AuthorizationPolicy" and .metadata.name == ($w + "-deny-lifecycle"))] as $p
+    | ($p | length) == 1
+      and $p[0].metadata.namespace == $ns
+      and $p[0].spec.action == "DENY"
+      and $p[0].spec.selector.matchLabels == {"app.kubernetes.io/name": $w}
+      and $p[0].spec.rules == [{"to": [{"operation": {"paths": ["*/-/quit", "*/-/reload"]}}]}]' \
+    --arg w "${w}" --arg ns "${NS}"
+done
+check M11 "no other DENY policy (none on Grafana, none that could cover an API path)" '
+  [.[] | select(.kind == "AuthorizationPolicy" and .spec.action == "DENY") | .metadata.name] | sort
+  == ["alertmanager-deny-lifecycle", "prometheus-deny-lifecycle"]'
 
 echo
 echo "render-test.sh (monitoring): ${fails} failed checks"

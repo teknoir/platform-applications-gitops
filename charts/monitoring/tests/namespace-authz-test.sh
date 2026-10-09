@@ -33,7 +33,8 @@
 #       namespace. Each N3 path must be denied once the policies that admit it
 #       are removed (today Grafana's Alertmanager datasource is admitted by
 #       harbor-allow-internal alone, so it is lost when that policy gets a
-#       selector)
+#       selector). A DENY for every operation denies an N3 path; a DENY
+#       limited to operations (the *-deny-lifecycle paths) does not
 # INFO lines list the namespace-wide policies and the effective mTLS mode. A
 # WARN line marks an N3 path that only another chart's policy admits.
 #
@@ -191,8 +192,12 @@ def n2($ws; $ok): [ $ws[] as $w | .[] | select(.action == "ALLOW" and applies($w
   | (.value | rule_ns) as $n | select(($n - $ok) | length > 0)
   | "\($w.name) <- \($p | plabel) rule \(.key) admits \($n - $ok | join(","))" ];
 # N3: is $id admitted to workload $w without a token? {ok, by, names, apps}
+# A DENY rule limited to operations (`to`, such as the *-deny-lifecycle paths)
+# does not deny the probed paths, which are API paths: render-test.sh M11
+# pins those operations. A DENY rule without `to` denies every path.
 def admitted($id; $w): [.[] | select(applies($w))] as $ps
-  | ([$ps[] | select(.action == "DENY") | select(any(.rules[]; rule_admits($id; false))) | plabel]) as $deny
+  | ([$ps[] | select(.action == "DENY")
+      | select(any(.rules[]; rule_admits($id; false) and ((.to // []) | length) == 0)) | plabel]) as $deny
   | ([$ps[] | select(.action == "ALLOW")]) as $allow
   | [$allow[] | select(any(.rules[]; rule_admits($id; true)))] as $ps
   | if ($deny | length) > 0 then {ok: false, by: ["DENY " + ($deny | join(", "))], names: [], apps: []}
@@ -303,6 +308,24 @@ nswide teamspace teknoir-system '[{from: [{source: {namespaces: ["teknoir-system
 expect_flag "a namespace-wide ALLOW admitting a teamspace (N2)" "${tmp}/teamspace.json" 'n2($ws[0]; $ok)'
 nswide mesh-gw istio-system '[{from: [{source: {principals: ["cluster.local/ns/istio-system/sa/*"]}}]}]'
 expect_flag "a mesh-wide ALLOW for istio-system/* in the root namespace (N1)" "${tmp}/mesh-gw.json" 'n1($ws[0]; $groups)'
+# A DENY for every operation must deny an N3 path; one limited to operations
+# (like the *-deny-lifecycle policies) must not.
+mutate deny-all '. + [{app: "selftest", ns: "teknoir-system", name: "deny-all", action: "DENY",
+  selector: {"app.kubernetes.io/name": "prometheus"}, targeted: false,
+  rules: [{from: [{source: {namespaces: ["teknoir-system"]}}]}]}]'
+if [[ "$(probe grafana prometheus "${tmp}/deny-all.json" | jq -r .ok)" == false ]]; then
+  pass N4 "flags Grafana's Prometheus datasource as denied by a DENY for every operation"
+else
+  fail N4 "a DENY for every operation does not deny Grafana's Prometheus datasource"
+fi
+mutate deny-ops '. + [{app: "selftest", ns: "teknoir-system", name: "deny-ops", action: "DENY",
+  selector: {"app.kubernetes.io/name": "prometheus"}, targeted: false,
+  rules: [{from: [{source: {namespaces: ["teknoir-system"]}}], to: [{operation: {paths: ["*/-/quit"]}}]}]}]'
+if [[ "$(probe grafana prometheus "${tmp}/deny-ops.json" | jq -r .ok)" == true ]]; then
+  pass N4 "a DENY limited to operations (*/-/quit) leaves Grafana's Prometheus datasource admitted"
+else
+  fail N4 "a DENY limited to operations (*/-/quit) denies Grafana's Prometheus datasource"
+fi
 for path in "${PATHS[@]}"; do
   read -r client target what <<< "${path}"
   names="$(probe "${client}" "${target}" | jq -c .names)"

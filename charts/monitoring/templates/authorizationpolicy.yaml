@@ -84,3 +84,35 @@ spec:
             principals:
               # kube-prometheus-stack's Prometheus ServiceAccount, <fullnameOverride>-prometheus.
               - {{ printf "cluster.local/ns/%s/sa/%s-prometheus" $namespace (index .Values "kube-prometheus-stack" "fullnameOverride") | quote }}
+{{- /*
+Lifecycle endpoints: no source in the mesh may call them. The operator runs
+Prometheus with --web.enable-lifecycle, so POST /<prefix>/-/quit stops it and
+/-/reload reloads it; Alertmanager serves /-/reload. These accept a simple
+cross-site POST, and the oauth2-proxy cookie is SameSite=None, so a page an
+admin visits could shut Prometheus down through the gateway, with the admin's
+token injected. The in-namespace ALLOWs (and harbor-allow-internal) would let
+any platform pod do the same without a token. The config-reloader sidecars
+call 127.0.0.1, which does not pass the inbound sidecar, so they are not
+affected. DENY is evaluated before every ALLOW, whichever chart renders it.
+Paths are matched without the query string and after Istio's path
+normalization; a suffix match also covers extra slashes before "/-/".
+*/}}
+{{- range list "prometheus" "alertmanager" }}
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: {{ . }}-deny-lifecycle
+  namespace: {{ $namespace }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ . }}
+  action: DENY
+  rules:
+    - to:
+        - operation:
+            paths:
+              - "*/-/quit"
+              - "*/-/reload"
+{{- end }}
