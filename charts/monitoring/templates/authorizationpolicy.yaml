@@ -1,57 +1,52 @@
 {{- $namespace := .Values.namespace | default .Release.Namespace -}}
+{{- $groups := .Values.monitoring.access.groups -}}
+{{- if not $groups }}
+{{- fail "monitoring.access.groups must list at least one Keycloak group" }}
+{{- end }}
+{{- /*
+Ingress: the gateway only, and only for a verified token
+(requestauthentication.yaml) whose "groups" claim holds one of
+monitoring.access.groups. A list claim matches when any element matches.
+
+In the mesh these are not the only ALLOWs. The harbor chart's
+harbor-allow-internal has no selector, so it applies to every workload in this
+namespace, these three included, and admits any mTLS source in teknoir-system
+and teknoir-auth without a token. Grafana's Alertmanager datasource works only
+through it today. So "group admin only" holds for the gateway path: platform
+pods in those two namespaces reach the Prometheus and Alertmanager APIs without
+a token. tests/namespace-authz-test.sh checks the namespace as a whole: no
+policy from any chart may admit the gateway without the groups claim. The
+in-namespace ALLOWs below are this chart's own, for the paths it needs, so
+they keep working when harbor-allow-internal gets a selector.
+*/}}
+{{- range list "grafana" "prometheus" "alertmanager" }}
 ---
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
-  name: grafana-allow-ingress
+  name: {{ . }}-allow-ingress
   namespace: {{ $namespace }}
 spec:
   selector:
     matchLabels:
-      # Apply to the actual components receiving ingress traffic now
-      app.kubernetes.io/name: grafana
+      app.kubernetes.io/name: {{ . }}
   action: ALLOW
   rules:
     - from:
         - source:
             principals:
               - "cluster.local/ns/istio-system/sa/istio-ingressgateway"
+      when:
+        - key: request.auth.claims[groups]
+          values:
+            {{- range $groups }}
+            - {{ . | quote }}
+            {{- end }}
+{{- end }}
 
 ---
-apiVersion: security.istio.io/v1beta1
-kind: AuthorizationPolicy
-metadata:
-  name: prometheus-allow-ingress
-  namespace: {{ $namespace }}
-spec:
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: prometheus
-  action: ALLOW
-  rules:
-    - from:
-        - source:
-            principals:
-              - "cluster.local/ns/istio-system/sa/istio-ingressgateway"
-
----
-apiVersion: security.istio.io/v1beta1
-kind: AuthorizationPolicy
-metadata:
-  name: alertmanager-allow-ingress
-  namespace: {{ $namespace }}
-spec:
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: alertmanager
-  action: ALLOW
-  rules:
-    - from:
-        - source:
-            principals:
-              - "cluster.local/ns/istio-system/sa/istio-ingressgateway"
-
----
+# In-namespace clients: Grafana's Prometheus datasource, the operator.
+# harbor-allow-internal admits them too today.
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
@@ -67,3 +62,25 @@ spec:
         - source:
             namespaces:
               - {{ $namespace | quote }}
+
+---
+# Alert delivery: Prometheus posts to /<namespace>/alertmanager/api/v2/alerts,
+# addressed to the Service (values: prometheusSpec.alertingEndpoints), so over
+# mTLS with its own identity. harbor-allow-internal (no selector) admits it
+# today as well. This ALLOW keeps alert delivery working without it.
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: alertmanager-allow-prometheus
+  namespace: {{ $namespace }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: alertmanager
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              # kube-prometheus-stack's Prometheus ServiceAccount, <fullnameOverride>-prometheus.
+              - {{ printf "cluster.local/ns/%s/sa/%s-prometheus" $namespace (index .Values "kube-prometheus-stack" "fullnameOverride") | quote }}

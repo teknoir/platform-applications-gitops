@@ -9,6 +9,17 @@ The Harbor integration is designed to work with the platform's existing Istio an
 - **TLS**: Terminated at the Istio `ingressgateway` using the wildcard certificate.
 - **Authentication**: Native OIDC integration with Keycloak, configured by a PostSync Job. `oauth2-proxy` is NOT used for Harbor to avoid breaking Docker and Helm CLI workflows.
 - **Persistence**: `hostPath` PersistentVolumes under `/opt/teknoir/harbor`, with optional `pvNodeAffinity`.
+- **Mesh policy, namespace-wide**: neither `harbor-strict-mtls` (STRICT
+  PeerAuthentication) nor `harbor-allow-internal` (ALLOW from teknoir-system
+  and teknoir-auth) has a selector. Both apply to every workload in
+  teknoir-system, including Argo CD, Backstage, the controllers and the
+  monitoring stack, not only to Harbor. Some in-namespace paths work only
+  through `harbor-allow-internal` today, for example Grafana's Alertmanager
+  datasource. `charts/monitoring/tests/namespace-authz-test.sh` lists them,
+  and test H3 makes sure the policy never admits the ingress gateway. The
+  next release, with VM tests, gives it a selector and adds explicit ALLOWs
+  for every workload. Once it has a selector, a workload with no ALLOW of its
+  own admits any mesh source.
 
 ## Prerequisites
 These Secrets exist before Harbor is first applied (the airgap bootstrap creates
@@ -64,7 +75,10 @@ configures Harbor's OIDC login through Harbor's API after every sync, from
 `oidcConfig.settings` in `values.yaml`: endpoint
 `https://auth.<teknoir domain>/auth/realms/teknoir`, client `harbor`, groups
 claim `groups`, admin group `admin`, certificate verification on (Harbor trusts
-the Teknoir Root CA through `harbor.caBundleSecretName`). It PUTs only the
+the Teknoir Root CA through `harbor.caBundleSecretName`), and project creation
+for Harbor admins only (`project_creation_restriction: adminonly`: the local
+`admin` and group `admin`; Harbor's default lets every user who signs in
+create projects). It PUTs only the
 settings that differ and sends the client secret only when its sha256 (kept in
 ConfigMap `harbor-oidc-config-state`) changes; it never prints a secret. Harbor
 refuses to switch `auth_mode` once users other than `admin` exist, and the Job

@@ -60,6 +60,9 @@ oidcConfig:
   # oidc_verify_cert relies on harbor.caBundleSecretName above. offline_access
   # (an optional client scope of realm teknoir) gives Harbor a refresh token, so
   # OIDC users' CLI secrets keep working after their ID token expires.
+  # project_creation_restriction: only Harbor admins (the local admin and
+  # members of oidc_admin_group) create projects; Harbor's default lets every
+  # user who signs in create one.
   settings:
     auth_mode: oidc_auth
     oidc_name: Keycloak
@@ -71,6 +74,7 @@ oidcConfig:
     oidc_admin_group: admin
     oidc_verify_cert: true
     oidc_auto_onboard: true
+    project_creation_restriction: adminonly
 
 # Harbor's internal registry credential: harbor-core and harbor-jobservice log
 # in to harbor-registry with basic auth as harbor.registry.credentials.username.
@@ -166,12 +170,15 @@ harbor:
         accessMode: ReadWriteOnce
         size: 5Gi
 
-  # Fix for hostPath permission issues on all components that use persistent volumes
+  # Fix for hostPath permission issues on all components that use persistent volumes.
+  # busybox is pinned by tag only: harbor is a one-shot tier, whose images
+  # the airgap bootstrap imports from docker archives (re-manifested, so a
+  # digest would not match); busybox:1.36.1 ships in the bundle.
   database:
     internal:
       extrInitContainers:
         - name: fix-permissions
-          image: busybox:latest
+          image: busybox:1.36.1
           imagePullPolicy: IfNotPresent
           command: ["sh", "-c", "chown -R 999:999 /var/lib/postgresql/data"]
           securityContext:
@@ -184,7 +191,7 @@ harbor:
     internal:
       initContainers:
         - name: fix-permissions
-          image: busybox:latest
+          image: busybox:1.36.1
           imagePullPolicy: IfNotPresent
           command: ["sh", "-c", "chown -R 999:999 /var/lib/redis"]
           securityContext:
@@ -197,7 +204,7 @@ harbor:
     enabled: true
     initContainers:
       - name: fix-permissions
-        image: busybox:latest
+        image: busybox:1.36.1
         imagePullPolicy: IfNotPresent
         command: ["sh", "-c", "chown -R 10000:10000 /home/scanner/.cache"]
         securityContext:
@@ -222,7 +229,7 @@ harbor:
     relativeurls: true
     initContainers:
       - name: fix-permissions
-        image: busybox:latest
+        image: busybox:1.36.1
         imagePullPolicy: IfNotPresent
         command: ["sh", "-c", "chown -R 10000:10000 /storage"]
         securityContext:
@@ -236,7 +243,7 @@ harbor:
     existingSecretKey: "JOBSERVICE_SECRET"
     initContainers:
       - name: fix-permissions
-        image: busybox:latest
+        image: busybox:1.36.1
         imagePullPolicy: IfNotPresent
         command: ["sh", "-c", "chown -R 10000:10000 /var/log/jobs"]
         securityContext:

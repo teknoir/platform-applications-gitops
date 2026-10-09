@@ -47,13 +47,17 @@ argo-cd:
         clientID: argocd
         clientSecret: $argocd-oidc-secret:oidc.auth.clientSecret
         requestedScopes: ["openid", "profile", "email", "groups"]
+      # The local admin stays enabled as break-glass (SSO depends on Keycloak
+      # and the CA): rotate its password, never disable it.
+      admin.enabled: "true"
 
+    # Only Keycloak group admin (realm teknoir, claim "groups") gets access,
+    # as role:admin. Any other SSO user can sign in but sees nothing: there is
+    # no default role.
     rbac:
-      policy.default: role:readonly
-      # Map the 'admin' group from Keycloak to ArgoCD admin role
+      policy.default: ""
       policy.csv: |
         g, admin, role:admin
-        g, argocd-admins, role:admin
 
     # argocd-tls-certs-cm (repo-server TLS trust per repository host) holds the
     # Teknoir Root CA for harbor.<domain>. The airgap node reconciles it from the

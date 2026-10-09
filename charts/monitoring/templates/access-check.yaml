@@ -1,0 +1,28 @@
+{{- /*
+grafana.ini lives in the grafana subchart's values, which cannot read
+monitoring.access, so its auth.jwt repeats the issuer. Fail the render when the
+two disagree, or when Grafana would let anyone in anonymously, so a domain or
+realm change cannot leave Grafana rejecting every token (or accepting tokens
+of another issuer). Renders nothing.
+*/}}
+{{- $issuer := required "monitoring.access.issuer is required" .Values.monitoring.access.issuer }}
+{{- if not (hasPrefix "https://" $issuer) }}
+{{- fail (printf "monitoring.access.issuer %q must be an https URL" $issuer) }}
+{{- end }}
+{{- $ini := index .Values "kube-prometheus-stack" "grafana" "grafana.ini" | default dict }}
+{{- $jwt := index $ini "auth.jwt" | default dict }}
+{{- if not $jwt.enabled }}
+{{- fail "grafana.ini auth.jwt.enabled must be true (Grafana signs users in from the forwarded token)" }}
+{{- end }}
+{{- $jwks := printf "%s/protocol/openid-connect/certs" $issuer }}
+{{- if ne (toString $jwt.jwk_set_url) $jwks }}
+{{- fail (printf "grafana.ini auth.jwt.jwk_set_url %q must be %q (monitoring.access.issuer)" (toString $jwt.jwk_set_url) $jwks) }}
+{{- end }}
+{{- $claims := fromJson (toString $jwt.expect_claims) }}
+{{- if ne (toString $claims.iss) $issuer }}
+{{- fail (printf "grafana.ini auth.jwt.expect_claims must be {\"iss\": %q} (monitoring.access.issuer)" $issuer) }}
+{{- end }}
+{{- $anon := index $ini "auth.anonymous" | default dict }}
+{{- if $anon.enabled }}
+{{- fail "grafana.ini auth.anonymous.enabled must be false: access is decided by monitoring.access" }}
+{{- end }}

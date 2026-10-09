@@ -2,6 +2,28 @@
 namespace: teknoir-system
 domain: "teknoir.airgapped"
 
+# Who may use Grafana, Prometheus and Alertmanager through the ingress gateway
+# (/<namespace>/{grafana,prometheus,alertmanager}). oauth2-proxy (auth chart,
+# ext_authz) forwards the user's Keycloak access token in
+# X-Auth-Request-Access-Token and X-Forwarded-Access-Token. Each of the three
+# workloads verifies that token (templates/requestauthentication.yaml) and
+# admits the gateway only for a token whose "groups" claim holds one of
+# `groups` (templates/authorizationpolicy.yaml). Grafana reads the same token
+# (grafana.ini auth.jwt below) and maps group admin to its Admin role.
+monitoring:
+  access:
+    # Issuer of realm teknoir (Keycloak serves under /auth). istiod fetches the
+    # JWKS from <issuer>/protocol/openid-connect/certs and trusts the Teknoir
+    # Root CA (istio chart). grafana.ini auth.jwt repeats this issuer in
+    # expect_claims and jwk_set_url: templates/access-check.yaml fails the
+    # render when they differ.
+    issuer: https://auth.teknoir.airgapped/auth/realms/teknoir
+    # Keycloak groups (flat names, claim "groups") let in. Grafana's
+    # role_attribute_path below gives Admin to group admin only; extend it
+    # when adding a group here.
+    groups:
+      - admin
+
 kube-prometheus-stack:
   namespaceOverride: "teknoir-system"
   fullnameOverride: "monitoring"
@@ -451,14 +473,45 @@ kube-prometheus-stack:
     namespaceOverride: ""
 
     ## This is an override of the grafana chart.
+    ##
+    ## Sign-in: every user comes in through the gateway with a Keycloak access
+    ## token (monitoring.access above), and Grafana signs them in from it
+    ## (auth.jwt): login = preferred_username (the e-mail), role Admin for
+    ## group admin, Viewer otherwise (the gateway lets only monitoring.access
+    ## groups through). No anonymous access. Basic auth stays on for the
+    ## dashboard/datasource sidecars (REQ_USERNAME/REQ_PASSWORD on localhost)
+    ## and as break-glass: the grafana-admin login (Secret monitoring-grafana)
+    ## over `kubectl port-forward`.
+    ## String values pass through the grafana chart's tpl: never put "{{" in one.
     grafana.ini:
       security:
         allow_embedding: true
       auth.anonymous:
-        enabled: true
-        org_role: Admin
+        enabled: false
       auth:
         disable_login_form: true
+      auth.basic:
+        enabled: true
+      auth.jwt:
+        enabled: true
+        header_name: X-Auth-Request-Access-Token
+        username_claim: preferred_username
+        email_claim: email
+        # Grafana accepts only an https JWKS URL ("jwt_set_url must have https
+        # scheme"), so not the in-mesh keycloak-http service: the issuer's own
+        # URL, verified with the Teknoir Root CA mounted below (SSL_CERT_DIR).
+        jwk_set_url: https://auth.teknoir.airgapped/auth/realms/teknoir/protocol/openid-connect/certs
+        expect_claims: '{"iss": "https://auth.teknoir.airgapped/auth/realms/teknoir"}'
+        auto_sign_up: true
+        role_attribute_path: "contains(groups[*], 'admin') && 'Admin' || 'Viewer'"
+        role_attribute_strict: true
+      users:
+        allow_sign_up: false
+      # Air-gapped: no update checks or usage reporting to grafana.com.
+      analytics:
+        check_for_updates: false
+        check_for_plugin_updates: false
+        reporting_enabled: false
       server:
         domain: "teknoir.airgapped"
         root_url: "%(protocol)s://%(domain)s/teknoir-system/grafana/"
@@ -485,6 +538,22 @@ kube-prometheus-stack:
       #       datasource: Prometheus
 
     ## End of override
+
+    # Trust the Teknoir Root CA for auth.jwt's jwk_set_url
+    # (https://auth.<domain>). Go reads every file in SSL_CERT_DIR (colon
+    # separated) on top of the system bundle. Secret teknoir-root-ca-bundle
+    # holds only the public certificate (ca.crt); the airgap node copies it
+    # into teknoir-system on every run. Optional: without it Grafana still
+    # starts, but no token verifies (break-glass: the grafana-admin login).
+    env:
+      SSL_CERT_DIR: /etc/ssl/certs:/etc/teknoir/ca
+    extraSecretMounts:
+      - name: teknoir-root-ca
+        secretName: teknoir-root-ca-bundle
+        mountPath: /etc/teknoir/ca
+        readOnly: true
+        optional: true
+        defaultMode: 0444
 
     sidecar:
       dashboards:
@@ -540,6 +609,28 @@ kube-prometheus-stack:
       ## Useful for proxies that rewrite URLs.
       ##
       routePrefix: /teknoir-system/prometheus
+
+      ## Alert delivery through the mesh. The chart's default endpoint
+      ## discovers Alertmanager's pod IPs, and the Prometheus sidecar sends a
+      ## request addressed to a pod IP to its PassthroughCluster: plaintext,
+      ## which Alertmanager's sidecar (STRICT mTLS) resets, so every
+      ## notification failed with 503 (response flag UC). Same endpoint, but
+      ## addressed to the Service, so the request is routed as
+      ## monitoring-alertmanager over mTLS with Prometheus' identity, which
+      ## AuthorizationPolicy alertmanager-allow-prometheus admits (and, today,
+      ## the harbor chart's namespace-wide harbor-allow-internal). With more
+      ## than one Alertmanager replica each alert reaches one of them, and
+      ## the replicas share it (Alertmanager HA).
+      alertingEndpoints:
+        - namespace: teknoir-system
+          name: monitoring-alertmanager
+          port: http-web
+          pathPrefix: /teknoir-system/alertmanager
+          apiVersion: v2
+          relabelings:
+            - action: replace
+              targetLabel: __address__
+              replacement: monitoring-alertmanager.teknoir-system.svc.cluster.local:9093
 
       ## Prometheus StorageSpec for persistent data
       ## ref: https://github.com/prometheus-operator/prometheus-operator/blob/main/Documentation/user-guides/storage.md

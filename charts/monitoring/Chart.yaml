@@ -2,7 +2,7 @@ apiVersion: v2
 name: monitoring
 description: Prometheus and Grafana for cluster monitoring
 type: application
-version: 0.0.4
+version: 0.0.5
 appVersion: "82.18.0"
 dependencies:
   # Bump together with crds/: run update-crds.sh (templates/crds-version-check.yaml

@@ -34,7 +34,22 @@ spec:
             principals:
               - "cluster.local/ns/istio-system/sa/istio-ingressgateway"
 
+{{- /*
+harbor-allow-internal has no selector, so it applies to every workload in the
+namespace, not only to Harbor: Argo CD, Backstage, the controllers and the
+monitoring stack too. Any mTLS source in this namespace and in teknoir-auth
+reaches all of them without a token. Some in-namespace paths work only through
+this policy today, for example Grafana's Alertmanager datasource
+(charts/monitoring/tests/namespace-authz-test.sh lists them).
 
+Planned for the next release, with VM tests: a selector
+(app.kubernetes.io/name: harbor), plus explicit in-namespace ALLOWs for those
+paths. Once it has a selector, a workload with no ALLOW of its own admits any
+mesh source (Istio's default), teamspaces included. So the explicit ALLOWs
+must cover every workload, not only the ones that lose access.
+Never add istio-system here. The gateway must reach the monitoring workloads
+only with the groups claim, and the namespace-authz test fails if it can.
+*/}}
 ---
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
