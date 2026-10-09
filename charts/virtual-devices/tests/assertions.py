@@ -8,8 +8,11 @@ Checks:
     tag+digest, and every *_IMAGE env var is pinned (VIRT_OPERATOR_IMAGE by digest
     only, see hack/vendor.py) to the digests in vendor/upstream.lock.yaml;
   - KubeVirt CR: no feature gates, serial console log disabled, uninstall blocked
-    while workloads exist, applied after the operator (sync wave 1);
-  - CDI CR: only HonorWaitForFirstConsumer, explicit worker resources;
+    while workloads exist, two infra replicas, applied after the operator (sync wave 1);
+  - CDI CR: only HonorWaitForFirstConsumer, explicit worker resources, two
+    cdi-apiserver replicas;
+  - neither CR carries an empty struct other than disableSerialConsoleLog: {} (empty
+    structs the server may default invite Argo CD drift);
   - PriorityClass teknoir-virtual-device: negative value, preemptionPolicy Never,
     not global default;
   - coredns-custom: one key, virtual-devices.override, whose rewrite regex matches
@@ -24,6 +27,22 @@ PINNED = re.compile(r"^[a-z0-9.-]+(?::[0-9]+)?/[a-z0-9._/-]+:[A-Za-z0-9._-]+@sha
 DIGEST_ONLY = re.compile(r"^[a-z0-9.-]+(?::[0-9]+)?/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$")
 
 failures = []
+
+# Empty mappings that mean something (an enabled "flag struct").
+ALLOWED_EMPTY = {"KubeVirt": {"spec.configuration.virtualMachineOptions.disableSerialConsoleLog"}, "CDI": set()}
+
+
+def empty_structs(node, path=""):
+    """Paths of every empty mapping or list below node."""
+    out = []
+    if isinstance(node, dict):
+        if not node and path:
+            out.append(path)
+        for k, v in node.items():
+            out += empty_structs(v, f"{path}.{k}" if path else k)
+    elif isinstance(node, list) and not node and path:
+        out.append(path)
+    return out
 
 
 def check(cond, msg):
@@ -86,6 +105,9 @@ def main():
         check(kv["metadata"]["annotations"].get("argocd.argoproj.io/sync-wave") == "1", "KubeVirt CR in sync wave 1")
         check("SkipDryRunOnMissingResource=true" in kv["metadata"]["annotations"].get("argocd.argoproj.io/sync-options", ""), "KubeVirt CR skips dry-run until its CRD exists")
         check(kv["metadata"]["namespace"] == "kubevirt", "KubeVirt CR in namespace kubevirt")
+        check(kv["spec"].get("infra", {}).get("replicas") == 2, "KubeVirt: two virt-api/virt-controller replicas (aggregated APIService survives a pod restart)")
+        empties = [p for p in empty_structs(kv["spec"], "spec") if p not in ALLOWED_EMPTY["KubeVirt"] and not p.endswith(".featureGates")]
+        check(not empties, f"KubeVirt: no empty structs besides disableSerialConsoleLog ({empties or 'none'})")
 
     # ---- CDI CR
     cdi = by_kind.get("CDI", [])
@@ -97,6 +119,9 @@ def main():
         check(bool(res["requests"]) and bool(res["limits"]), "CDI: explicit worker pod requests and limits (quota budgeting)")
         check(cdi["spec"].get("uninstallStrategy") == "BlockUninstallIfWorkloadsExist", "CDI: uninstall blocked while workloads exist")
         check(cdi["metadata"]["annotations"].get("argocd.argoproj.io/sync-wave") == "1", "CDI CR in sync wave 1")
+        check(cdi["spec"].get("infra", {}).get("apiServerReplicas") == 2, "CDI: two cdi-apiserver replicas (aggregated APIService survives a pod restart)")
+        empties = [p for p in empty_structs(cdi["spec"], "spec") if p not in ALLOWED_EMPTY["CDI"]]
+        check(not empties, f"CDI: no empty structs ({empties or 'none'})")
 
     # ---- operator deployments match the lock versions
     deps = {d["metadata"]["name"]: d for d in by_kind.get("Deployment", [])}

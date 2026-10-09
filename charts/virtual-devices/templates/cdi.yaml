@@ -15,6 +15,7 @@ spec:
       {{- toYaml .Values.cdi.podResourceRequirements | nindent 6 }}
   imagePullPolicy: IfNotPresent
   infra:
+    apiServerReplicas: {{ int .Values.cdi.apiServerReplicas }}
     nodeSelector:
       kubernetes.io/os: linux
   workload:

@@ -6,8 +6,16 @@
 
 kubevirt:
   enabled: true
-  # virt-api / virt-controller replicas (upstream default 2). r415 is a single node.
-  infraReplicas: 1
+  # virt-api / virt-controller replicas. virt-api serves the aggregated
+  # subresources.kubevirt.io APIServices: while no virt-api pod is ready, API
+  # discovery is incomplete for every client, which stalls
+  # namespace deletion and garbage collection cluster-wide. Two replicas keep one
+  # serving through a single pod crash, OOM kill or eviction. Both fit on one node
+  # (KubeVirt's anti-affinity is only preferred). The second virt-api and
+  # virt-controller request +775Mi/+15m; r415 has 252 GiB. KubeVirt then adds PDBs
+  # with minAvailable 1, which block a drain of a single node; r415 cannot be drained
+  # today anyway (keycloak, backstage and oauth2-proxy PDBs allow 0 disruptions).
+  infraReplicas: 2
   # No feature gates: nothing in the virtual-device design needs one.
   featureGates: []
   # The auto-attached serial console is still available (virtctl console), but its
@@ -36,6 +44,10 @@ cdi:
     limits:
       cpu: 750m
       memory: 600M
+  # cdi-apiserver replicas. It serves the aggregated APIService
+  # v1beta1.upload.cdi.kubevirt.io and CDI's webhooks; two for the same reason as
+  # kubevirt.infraReplicas (+150Mi requests). CDI's anti-affinity is only preferred.
+  apiServerReplicas: 2
   uninstallStrategy: BlockUninstallIfWorkloadsExist
 
 # Scheduling class for virtual-device VMs (virt-launcher pods). Platform pods run at

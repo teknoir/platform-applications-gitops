@@ -10,7 +10,6 @@ metadata:
   annotations:
     {{- include "virtual-devices.operandAnnotations" . | nindent 4 }}
 spec:
-  certificateRotateStrategy: {}
   configuration:
     developerConfiguration:
       featureGates: {{ toJson .Values.kubevirt.featureGates }}
@@ -19,10 +18,8 @@ spec:
     virtualMachineOptions:
       disableSerialConsoleLog: {}
     {{- end }}
-  customizeComponents: {}
   imagePullPolicy: IfNotPresent
   infra:
     replicas: {{ int .Values.kubevirt.infraReplicas }}
   uninstallStrategy: {{ .Values.kubevirt.uninstallStrategy }}
-  workloadUpdateStrategy: {}
 {{- end }}
