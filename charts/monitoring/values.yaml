@@ -480,8 +480,10 @@ kube-prometheus-stack:
     ## group admin, Viewer otherwise (the gateway lets only monitoring.access
     ## groups through). No anonymous access. Basic auth stays on for the
     ## dashboard/datasource sidecars (REQ_USERNAME/REQ_PASSWORD on localhost)
-    ## and as break-glass: the grafana-admin login (Secret monitoring-grafana)
-    ## over `kubectl port-forward`.
+    ## and as break-glass: the grafana-admin password (Secret
+    ## monitoring-grafana) with `curl -u` against the API over
+    ## `kubectl port-forward`. The login form stays off
+    ## (disable_login_form), so there is no browser sign-in with it.
     ## String values pass through the grafana chart's tpl: never put "{{" in one.
     grafana.ini:
       security:
@@ -544,7 +546,9 @@ kube-prometheus-stack:
     # separated) on top of the system bundle. Secret teknoir-root-ca-bundle
     # holds only the public certificate (ca.crt); the airgap node copies it
     # into teknoir-system on every run. Optional: without it Grafana still
-    # starts, but no token verifies (break-glass: the grafana-admin login).
+    # starts, but no token verifies (break-glass: basic auth as grafana-admin
+    # on the API). Go loads the roots once per process, so restart
+    # monitoring-grafana after the Secret is created or rotated (test G11).
     env:
       SSL_CERT_DIR: /etc/ssl/certs:/etc/teknoir/ca
     extraSecretMounts:

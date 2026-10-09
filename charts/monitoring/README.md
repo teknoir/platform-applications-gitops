@@ -17,8 +17,11 @@ Only members of the Keycloak groups in `monitoring.access.groups` (default
    `<issuer>/protocol/openid-connect/certs`. An invalid token gets 401.
    `forwardOriginalToken` keeps the header, so Grafana sees it.
 3. `templates/authorizationpolicy.yaml` admits the gateway only when the
-   token's `groups` claim holds one of `monitoring.access.groups`. Other
-   realm users get 403.
+   token's `groups` claim holds one of `monitoring.access.groups`. Any other
+   realm user signs in at the gateway, then gets 403 (`RBAC: access
+   denied`) from the workload's sidecar on all three paths. This is not a
+   sign-in failure: add the user to a group in `monitoring.access.groups`
+   (the next token carries it, so sign out and in again).
 4. Grafana signs the user in from the same token (`grafana.ini` `auth.jwt`).
    The login is `preferred_username` (the e-mail), and group `admin` maps to
    the Admin role (`role_attribute_path`, strict). Anonymous access and
@@ -70,7 +73,15 @@ Grafana's `jwk_set_url` must be https: Grafana 12 refuses to start with an
 http one ("must have https scheme"). So it is the issuer's own URL, not the
 in-mesh `keycloak-http` service. Grafana trusts the Teknoir Root CA from Secret
 `teknoir-root-ca-bundle`, which the airgap node copies into teknoir-system,
-mounted at `/etc/teknoir/ca` and added through `SSL_CERT_DIR`.
+mounted at `/etc/teknoir/ca` and added through `SSL_CERT_DIR`. The mount is
+optional, so Grafana starts without the Secret, but no token verifies. Go
+loads the trusted roots once per process: after the Secret is created or
+rotated, restart Grafana, or it keeps rejecting every token
+(`tests/grafana-jwt-docker-test.sh` G11):
+
+```sh
+kubectl --context teknoir-local -n teknoir-system rollout restart deployment/monitoring-grafana
+```
 
 `grafana.ini` sits in the grafana subchart's values and cannot read
 `monitoring.access`, so it repeats the issuer. `templates/access-check.yaml`
@@ -86,15 +97,42 @@ fails the render if the two differ, or if anonymous access is turned on.
 
 ### Break-glass
 
-When no token verifies, for example because the CA Secret is missing or
-Keycloak is down:
+When no token verifies or no admin can sign in (Secret
+`teknoir-root-ca-bundle` missing, Keycloak down, Grafana not restarted after a
+CA change), go around the gateway with a port-forward. A port-forward reaches
+the pod directly, past the gateway and the Istio policies.
 
-- Use the local Grafana admin from Secret `monitoring-grafana`
-  (`admin-user`/`admin-password`) with basic auth over
-  `kubectl port-forward svc/monitoring-grafana 3000:80`. Basic auth stays on;
-  the dashboard and datasource sidecars need it.
-- Prometheus and Alertmanager can be reached the same way through their
-  Services.
+Grafana: the browser sign-in with the local admin does not work. The login
+form stays off (`auth.disable_login_form: true`; `tests/render-test.sh` M6
+and `tests/grafana-jwt-docker-test.sh` G10 check this), so the break-glass is
+basic auth against Grafana's HTTP API only. Basic auth stays on because the
+dashboard and datasource sidecars need it too. The user is `admin` (key
+`admin-user` of Secret `monitoring-grafana`) and the password is key
+`admin-password` (on the airgap LAN host:
+`./teknoir-airgap credentials grafana-admin --out FILE`). `curl -u admin`
+prompts for the password, so it never lands on the command line:
+
+```sh
+kubectl --context teknoir-local -n teknoir-system port-forward svc/monitoring-grafana 3000:80
+# in another terminal:
+curl -u admin http://127.0.0.1:3000/teknoir-system/grafana/api/user
+curl -u admin http://127.0.0.1:3000/teknoir-system/grafana/api/datasources
+curl -u admin 'http://127.0.0.1:3000/teknoir-system/grafana/api/search?query='
+```
+
+Grafana serves under `/teknoir-system/grafana/` (`serve_from_sub_path`), on
+the port-forward too. Changing a user's role through the API does not last:
+`auth.jwt` sets the role from the token's groups at every sign-in.
+
+Prometheus and Alertmanager have no login of their own, so a port-forward to
+their Service works in a browser:
+
+```sh
+kubectl --context teknoir-local -n teknoir-system port-forward svc/monitoring-prometheus 9090:9090
+# http://127.0.0.1:9090/teknoir-system/prometheus/
+kubectl --context teknoir-local -n teknoir-system port-forward svc/monitoring-alertmanager 9093:9093
+# http://127.0.0.1:9093/teknoir-system/alertmanager/
+```
 
 ## Tests
 
@@ -102,7 +140,7 @@ Keycloak is down:
 |---|---|---|
 | `tests/render-test.sh` | Renders the chart and checks the RequestAuthentications, the groups conditions, alert delivery, the `grafana.ini` keys, the CA mount and the render guards | helm, yq and jq; no cluster |
 | `tests/namespace-authz-test.sh` | Renders every chart app-of-apps installs into teknoir-system and istio-system, and checks every AuthorizationPolicy that applies to Grafana, Prometheus and Alertmanager from any chart: the gateway only with the groups claim, token-less access only from teknoir-system and teknoir-auth, the in-mesh paths the stack needs, plus self-tests | helm, yq and jq; no cluster |
-| `tests/grafana-jwt-docker-test.sh` | Runs the chart's Grafana image with the rendered `grafana.ini`, plus a test CA and JWKS. Token sign-in, Admin/Viewer mapping, rejected tokens, basic auth, TLS verification, the https requirement and that no secret reaches the logs | docker |
+| `tests/grafana-jwt-docker-test.sh` | Runs the chart's Grafana image with the rendered `grafana.ini`, plus a test CA (in a Secret volume's layout) and JWKS. Token sign-in, Admin/Viewer mapping, rejected tokens, basic auth on the API, the login form off, TLS verification, a CA that appears later needing a restart, the https requirement and that no secret reaches the logs | docker |
 
 ## CRDs
 
