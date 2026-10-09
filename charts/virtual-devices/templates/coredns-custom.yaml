@@ -1,0 +1,25 @@
+{{- if .Values.coreDNS.enabled }}
+{{- if not .Values.coreDNS.prefixes }}
+{{- fail "coreDNS.prefixes must not be empty" }}
+{{- end }}
+{{- $domain := .Values.coreDNS.domain | replace "." "\\." }}
+{{- $prefixes := join "|" .Values.coreDNS.prefixes }}
+---
+# k3s CoreDNS imports every *.override key of this optional ConfigMap into its
+# .:53 server block (Corefile: import /etc/coredns/custom/*.override). This chart
+# owns the whole ConfigMap; add other cluster overrides here as further keys.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns-custom
+  namespace: kube-system
+  labels:
+    {{- include "virtual-devices.labels" . | nindent 4 }}
+data:
+  virtual-devices.override: |
+    # charts/virtual-devices: answer ({{ join "|" .Values.coreDNS.prefixes }})-<teamspace>.{{ .Values.coreDNS.domain }} with the
+    # in-cluster address of {{ .Values.coreDNS.target }},
+    # so virtual devices reach EMQX and deadend through the public gateway (same SNI
+    # routing as an external device). "answer auto" restores the queried name in the reply.
+    rewrite stop name regex ^({{ $prefixes }})-[a-z0-9]([-a-z0-9]*[a-z0-9])?\.{{ $domain }}\.$ {{ .Values.coreDNS.target }}. answer auto
+{{- end }}

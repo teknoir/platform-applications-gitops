@@ -1,0 +1,33 @@
+{{- /*
+Virtual-device runtime (KubeVirt + CDI, PriorityClass, CoreDNS override).
+Off unless the environment's values set virtualDevices.enabled: true.
+No resources-finalizer: turning the flag off removes the Application but leaves
+KubeVirt, CDI and any VMs in place (both operator CRs block uninstall while
+workloads exist).
+*/ -}}
+{{- if (.Values.virtualDevices).enabled }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: virtual-devices
+spec:
+  destination:
+    namespace: kubevirt
+    server: https://kubernetes.default.svc
+  source:
+    path: charts/virtual-devices
+    repoURL: https://github.com/teknoir/platform-applications-gitops
+    targetRevision: {{ .Values.project }}
+  sources: [ ]
+  project: {{ .Values.project }}
+  syncPolicy:
+    syncOptions:
+      # kubevirts.kubevirt.io and cdis.cdi.kubevirt.io exceed the 256 KiB
+      # last-applied-configuration annotation of client-side apply.
+      - ServerSideApply=true
+    automated:
+      prune: true
+      selfHeal: true
+      enabled: true
+{{- end }}

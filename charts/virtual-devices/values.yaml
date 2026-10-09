@@ -1,0 +1,60 @@
+# Values for teknoir-cloud (staging, r415). The chart is only deployed when
+# charts/app-of-apps sets virtualDevices.enabled.
+#
+# The operator manifests themselves are vendored (vendor/, pinned by version,
+# upstream sha256 and image digest) and are not configurable here.
+
+kubevirt:
+  enabled: true
+  # virt-api / virt-controller replicas (upstream default 2). r415 is a single node.
+  infraReplicas: 1
+  # No feature gates: nothing in the virtual-device design needs one.
+  featureGates: []
+  # The auto-attached serial console is still available (virtctl console), but its
+  # output is not copied into a guest-console-log container. That log would carry
+  # cloud-init and bootstrap output into pod logs (readable through any Kubernetes
+  # log path) and onto r415's small /var.
+  disableSerialConsoleLog: true
+  # Refuse to delete the KubeVirt CR while VMs exist.
+  uninstallStrategy: BlockUninstallIfWorkloadsExist
+
+cdi:
+  enabled: true
+  # HonorWaitForFirstConsumer: local-path is WaitForFirstConsumer, so the disk is
+  # imported on the node the VM is scheduled to. (Upstream's default CR also enables
+  # WebhookPvcRendering, which only applies to PVCs labelled for StorageProfile
+  # rendering; virtual devices use DataVolumes, so it is left off.)
+  featureGates:
+    - HonorWaitForFirstConsumer
+  # Resources of CDI worker pods (importer, cloner, upload server). Set explicitly
+  # (these are the upstream defaults) so the per-teamspace ResourceQuota in
+  # <ns>-vdev can budget for the importer pod.
+  podResourceRequirements:
+    requests:
+      cpu: 100m
+      memory: 60M
+    limits:
+      cpu: 750m
+      memory: 600M
+  uninstallStrategy: BlockUninstallIfWorkloadsExist
+
+# Scheduling class for virtual-device VMs (virt-launcher pods). Platform pods run at
+# priority 0 (no class), so a negative value keeps VMs below the platform; with
+# preemptionPolicy Never a VM never evicts anything to get scheduled.
+priorityClass:
+  enabled: true
+  name: teknoir-virtual-device
+  value: -100
+
+# CoreDNS override (coredns-custom key virtual-devices.override). Answers
+# <prefix>-<ns>.<domain> with the ClusterIP of the public ingress gateway, so a VM
+# reaches EMQX (8883/8084) and deadend (2222) through the same gateway and SNI as
+# an external device, without depending on router hairpin NAT. r415 has no other
+# coredns-custom keys (checked 2026-10-09); this chart owns the ConfigMap there.
+coreDNS:
+  enabled: true
+  domain: teknoir.cloud
+  prefixes:
+    - mqtt
+    - deadend
+  target: istio-ingressgateway-public.istio-system.svc.cluster.local

@@ -1,0 +1,28 @@
+{{- if .Values.kubevirt.enabled }}
+---
+apiVersion: kubevirt.io/v1
+kind: KubeVirt
+metadata:
+  name: kubevirt
+  namespace: kubevirt
+  labels:
+    {{- include "virtual-devices.labels" . | nindent 4 }}
+  annotations:
+    {{- include "virtual-devices.operandAnnotations" . | nindent 4 }}
+spec:
+  certificateRotateStrategy: {}
+  configuration:
+    developerConfiguration:
+      featureGates: {{ toJson .Values.kubevirt.featureGates }}
+    imagePullPolicy: IfNotPresent
+    {{- if .Values.kubevirt.disableSerialConsoleLog }}
+    virtualMachineOptions:
+      disableSerialConsoleLog: {}
+    {{- end }}
+  customizeComponents: {}
+  imagePullPolicy: IfNotPresent
+  infra:
+    replicas: {{ int .Values.kubevirt.infraReplicas }}
+  uninstallStrategy: {{ .Values.kubevirt.uninstallStrategy }}
+  workloadUpdateStrategy: {}
+{{- end }}

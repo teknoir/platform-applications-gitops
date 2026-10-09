@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Fake kubectl for test/run.sh: records every invocation and answers with canned,
+# credential-free JSON (the Device fixture is the only object that carries keys).
+printf '%s\n' "$*" >>"${FAKE_LOG:?}"
+args=" $* "
+case "$args" in
+  *" version "*) echo '{"serverVersion":{"gitVersion":"v1.34.5+k3s1"}}' ;;
+  *" auth can-i "*) echo no; exit 1 ;;
+  *" get device "*) cat "${FAKE_DEVICE:?}" ;;
+  *" get nodes -o json "*)
+    echo '{"items":[{"metadata":{"name":"node1","labels":{"host-model-cpu.node.kubevirt.io/Opteron_G5":"true"}},"status":{"allocatable":{"devices.kubevirt.io/kvm":"1k"},"addresses":[{"type":"InternalIP","address":"192.0.2.10"}]}}]}' ;;
+  *" get nodes "*"jsonpath"*) echo -n "192.0.2.10" ;;
+  *" get --raw "*) echo '{"node":{"fs":{"availableBytes":3865470566},"runtime":{"imageFs":{"availableBytes":3600000000000}}}}' ;;
+  *" logs "*) echo "compute log line without findings" ;;
+  *" get "*"jsonpath"*) echo -n "10.43.0.99" ;;
+  *" get "*" -o name "*) exit 1 ;;
+  *" get "*"-o json"*) echo '{"items":[]}' ;;
+  *) echo '{}' ;;
+esac
