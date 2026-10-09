@@ -12,20 +12,92 @@ config:
   oidc:
     realm: teknoir
     basePath: /auth
+    # Keycloak client of the browser session (oauth2-proxy's client). When
+    # realm is set, the frontend gets teknoir.auth.issuer and
+    # teknoir.auth.clientId (env APP_CONFIG_teknoir_auth_*), and its logout
+    # ends the Keycloak session as well (oauth2-proxy /oauth2/sign_out, then
+    # the realm's end_session endpoint). Without realm the frontend keeps the
+    # legacy logout URL. Default: teknoir.
+    clientId: teknoir
+
+# Catalog: override the schedules of the image's catalog.providers.k8s.<name>
+# entity providers. A map <provider> -> Backstage schedule ({frequency,
+# timeout}, optionally initialDelay/scope); each entry replaces the image's
+# array for that provider (Backstage replaces arrays wholesale). Only the
+# providers whose entries hold nothing but a schedule can be overridden
+# (users, profiles, roles, orgtree, services, devices,
+# deviceapplicationsets); never peripherals, which also carries wsUrl,
+# mqttUrl and syncOrgConfig. Default {}: the image's schedules (30 min for
+# users and profiles).
+#
+# teknoir-local: a new User or Profile (e.g. the GitOps teamspace
+# teknoir-default, or an owner claim from `teknoir-airgap admin-user`) shows
+# up in Backstage within about a minute. A restart never pulls a scheduled
+# run forward (next run = min(stored, now + cadence)), so only a short
+# cadence makes it fast.
+catalog:
+  k8sProviderSchedules:
+    users:
+      frequency: { minutes: 1 }
+      timeout: { minutes: 2 }
+    profiles:
+      frequency: { minutes: 1 }
+      timeout: { minutes: 2 }
+    roles:
+      frequency: { minutes: 5 }
+      timeout: { minutes: 3 }
+    orgtree:
+      frequency: { minutes: 5 }
+      timeout: { minutes: 3 }
+
+# Images: <repo>:<immutable tag>@sha256:<linux/amd64 manifest digest>
+# (`crane digest --platform linux/amd64 <repo>:<tag>`; never the index digest:
+# the airgap bundle pushes only the amd64 manifest to Harbor), IfNotPresent.
+# PIN(WP-BS): the two sha-PENDING-WP-BS placeholders below are replaced by the
+# r5-backstage builds (SIGN-C4 logout, TS-C7 create-teamspace) in one commit;
+# until then the chart must not be released (the placeholder digest does not
+# exist and the tag is not immutable).
 
 # Backstage frontend deployment
 backstage:
   replicas: 1
-  image: ghcr.io/teknoir/backstage-app:robot
-  imagePullPolicy: Always
+  image: ghcr.io/teknoir/backstage-app:sha-PENDING-WP-BS@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  imagePullPolicy: IfNotPresent
   imagePullSecrets: []
 
 # Backstage API deployment
 backstageApi:
   replicas: 1
-  image: ghcr.io/teknoir/backstage:robot
-  imagePullPolicy: Always
+  image: ghcr.io/teknoir/backstage:sha-PENDING-WP-BS@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  imagePullPolicy: IfNotPresent
   imagePullSecrets: []
+  # Root health endpoints of @backstage/backend-defaults: readiness answers
+  # 503 until every plugin has started (and again on shutdown), liveness is
+  # always 200 once the HTTP server listens. The startup probe allows 10 min
+  # for a first start on an empty database (migrations of ~15 plugin
+  # databases); liveness only takes over afterwards. No initialDelaySeconds.
+  probes:
+    startupProbe:
+      httpGet:
+        path: /.backstage/health/v1/readiness
+        port: 7007
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 60
+    readinessProbe:
+      httpGet:
+        path: /.backstage/health/v1/readiness
+        port: 7007
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+    livenessProbe:
+      httpGet:
+        path: /.backstage/health/v1/liveness
+        port: 7007
+      periodSeconds: 20
+      timeoutSeconds: 5
+      failureThreshold: 6
   nodeOptions: '--max-old-space-size=8192'
   podSecurityContext:
     fsGroup: 1000
@@ -62,12 +134,13 @@ backstageApi:
 # PostgreSQL database configuration
 postgres:
   replicas: 1
-  image: postgres:17-alpine
-  imagePullPolicy: Always
+  # Same 17.11 as live (no data migration); linux/amd64 manifest digest.
+  image: postgres:17.11-alpine@sha256:aa90e97ee862e558111d34cfb8b2c4bec768c2b039fb791341686928560263b3
+  imagePullPolicy: IfNotPresent
   storage: 10Gi
   exporter:
     image: prometheuscommunity/postgres-exporter:v0.15.0
-    imagePullPolicy: Always
+    imagePullPolicy: IfNotPresent
 
 # Istio configuration (optional)
 istio:

@@ -30,6 +30,33 @@ data:
     teknoir:
       projectId: teknoir
       domain: {{ .Values.config.domain }}
+{{- /*
+catalog.k8sProviderSchedules: each provider gets a one-entry array with only a
+schedule, which replaces the image's array. Restricted to providers that read
+nothing else from their entries (packages/backend/src/plugins/providers/*).
+*/}}
+{{- $scheduleOnly := list "users" "profiles" "roles" "orgtree" "services" "devices" "deviceapplicationsets" }}
+{{- $schedules := (.Values.catalog | default dict).k8sProviderSchedules | default dict }}
+{{- if $schedules }}
+
+    catalog:
+      providers:
+        k8s:
+{{- range $name, $schedule := $schedules }}
+{{- if not (has $name $scheduleOnly) }}
+{{- fail (printf "catalog.k8sProviderSchedules.%s: only these providers hold nothing but a schedule and can be overridden: %s" $name (join ", " $scheduleOnly)) }}
+{{- end }}
+{{- if not (kindIs "map" $schedule) }}
+{{- fail (printf "catalog.k8sProviderSchedules.%s must be a map with frequency and timeout" $name) }}
+{{- end }}
+{{- if not (and $schedule.frequency $schedule.timeout) }}
+{{- fail (printf "catalog.k8sProviderSchedules.%s needs both frequency and timeout (Backstage requires them)" $name) }}
+{{- end }}
+          {{ $name }}:
+            - schedule:
+                {{- toYaml $schedule | nindent 16 }}
+{{- end }}
+{{- end }}
 
 {{- if .Values.backstageApi.github.enabled }}
 
