@@ -25,9 +25,14 @@ data:
   {{- with .Values.config.pluginChartVersion }}
   PLUGIN_CHART_VERSION: {{ . | toString | quote }}
   {{- end }}
+  {{- /* istiod fetches the jwksUri (default <issuer>/protocol/openid-connect/certs)
+  from istio-system without a sidecar: an http:// or in-cluster URL fails
+  there (see values.yaml). */}}
   {{- with .Values.config.oidcIssuer }}
+  {{- include "profile-controller.istiodFetchableUrl" (list "config.oidcIssuer" .) }}
   OIDC_ISSUER: {{ . | quote }}
   {{- end }}
   {{- with .Values.config.oidcJwksUri }}
+  {{- include "profile-controller.istiodFetchableUrl" (list "config.oidcJwksUri" .) }}
   OIDC_JWKS_URI: {{ . | quote }}
   {{- end }}

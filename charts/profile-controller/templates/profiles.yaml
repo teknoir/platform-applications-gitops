@@ -7,11 +7,11 @@ the controller turns into a namespace, its RBAC and the default plugins.
 - No spec.plugins: the controller fills in and owns that list; declaring it
   here would make ArgoCD and the controller fight over it.
 - Refused: an empty owner, a name that is not a DNS-1123 label, a reserved
-  name (it would collide with a platform namespace or with the AppProject
-  teknoir-system/<name> the controller writes), a duplicate, and any key
-  other than name, owner and resourceQuotaSpec.
+  name (profile-controller.reservedNames: it would collide with a platform
+  namespace or AppProject; the admission policies refuse those names too), a
+  duplicate, and any key other than name, owner and resourceQuotaSpec.
 */}}
-{{- $reserved := list "default" "teknoir" "teknoir-local" "teknoir-system" "teknoir-auth" "istio-system" "cert-manager" "teknoir-user-credentials" }}
+{{- $reserved := include "profile-controller.reservedNames" . | trim | splitList " " }}
 {{- $allowedKeys := list "name" "owner" "resourceQuotaSpec" }}
 {{- $seen := dict }}
 {{- range $i, $p := .Values.profiles | default list }}

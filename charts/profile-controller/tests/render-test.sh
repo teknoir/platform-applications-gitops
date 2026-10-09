@@ -14,14 +14,17 @@
 #      rules, Role profile-controller-argocd in teknoir-system (argoproj
 #      create/update/patch/delete), no leader-election Role
 #   P3 ConfigMap K2 keys: PLUGIN_CHART_REPO (= app-of-apps repoURL, no
-#      oci://), PLUGIN_CHART_VERSION, OIDC_ISSUER, OIDC_JWKS_URI
+#      oci://), PLUGIN_CHART_VERSION, OIDC_ISSUER; OIDC_JWKS_URI unset, so
+#      the effective jwksUri is the public <issuer>/protocol/openid-connect/
+#      certs that istiod can fetch; an explicit https:// value is rendered
 #   P4 Profile teknoir-default (K3): owner config.admin, kind User,
 #      Prune=false,Delete=false, sync-wave 1, no spec.plugins
 #   P5 profiles variations: owner override lower-cased, resourceQuotaSpec
 #      passed through, `profiles: []` renders none, owner without
 #      config.admin
 #   P6 refused: empty owner, non-DNS-1123 names, reserved names, kube-*,
-#      duplicates, spec.plugins or unknown keys, non-map entries, oci://
+#      duplicates, spec.plugins or unknown keys, non-map entries, oci://,
+#      an http:// or cluster-internal jwksUri/issuer
 #   P7 empty K2 values render no K2 keys (the other env branches)
 #   P8 image: '<immutable tag>@sha256:<64 hex>' (K5) or the WP-PC
 #      placeholder (WARN), pullPolicy IfNotPresent
@@ -120,11 +123,22 @@ repo=$(cm "$WORK/r.json" PLUGIN_CHART_REPO)
 [ "$repo" = "$aoa_repo" ] && ok "P3 PLUGIN_CHART_REPO=$repo (= app-of-apps repoURL)" || bad "P3 PLUGIN_CHART_REPO=$repo, app-of-apps repoURL=$aoa_repo"
 for kv in PLUGIN_CHART_VERSION=0.0.99 \
 	OIDC_ISSUER=https://auth.teknoir.airgapped/auth/realms/teknoir \
-	OIDC_JWKS_URI=http://keycloak-http.teknoir-auth.svc.cluster.local/auth/realms/teknoir/protocol/openid-connect/certs \
+	OIDC_JWKS_URI='<unset>' \
 	ADMIN=anders.aslund@teknoir.ai DOMAIN=teknoir.airgapped; do
 	v=$(cm "$WORK/r.json" "${kv%%=*}")
 	[ "$v" = "${kv#*=}" ] && ok "P3 ${kv%%=*}=$v" || bad "P3 ${kv%%=*}=$v, want ${kv#*=}"
 done
+# The jwksUri the controller writes (OIDC_JWKS_URI, else <issuer>/protocol/
+# openid-connect/certs) is resolved by istiod, from istio-system without a
+# sidecar: it must be the public URL the platform RequestAuthentications
+# (backstage) already use, never the in-mesh keycloak-http Service.
+jwks=$(cm "$WORK/r.json" OIDC_JWKS_URI); [ "$jwks" = '<unset>' ] && jwks="$(cm "$WORK/r.json" OIDC_ISSUER)/protocol/openid-connect/certs"
+[ "$jwks" = https://auth.teknoir.airgapped/auth/realms/teknoir/protocol/openid-connect/certs ] \
+	&& ok "P3 effective jwksUri $jwks (public, fetchable by istiod)" || bad "P3 effective jwksUri $jwks"
+f=$(values jwks <<<'config: {oidcJwksUri: "https://auth.example.com/auth/realms/x/protocol/openid-connect/certs"}')
+render -f "$f" >"$WORK/j.yaml" && json "$WORK/j.yaml" >"$WORK/j.json"
+[ "$(cm "$WORK/j.json" OIDC_JWKS_URI)" = https://auth.example.com/auth/realms/x/protocol/openid-connect/certs ] \
+	&& ok "P3 an explicit https:// oidcJwksUri is rendered" || bad "P3 explicit oidcJwksUri: $(cm "$WORK/j.json" OIDC_JWKS_URI)"
 # The args still name only the flags every image knows.
 b=$(jq -r '.[] | select(.kind == "Deployment") | .spec.template.spec.containers[0].args | map(select(startswith("-"))) | join(" ")' "$WORK/r.json")
 [ "$b" = "-userid-header -userid-prefix -domain -domain-prefix -istio-revision" ] && ok "P3 no new args (K2 is env only)" || bad "P3 args: $b"
@@ -182,8 +196,8 @@ profiles:
 EOF
 )
 refused "empty owner" -f "$f"
-for n in Team-A team_a -team team- "$(printf 'a%.0s' $(seq 1 64))" "" default teknoir teknoir-local teknoir-system teknoir-auth \
-	istio-system cert-manager teknoir-user-credentials kube-system kube-foo; do
+for n in Team-A team_a -team team- "$(printf 'a%.0s' $(seq 1 64))" "" default teknoir teknoir-local teknoir-cloud teknoir-online \
+	teknoir-system teknoir-auth istio-system cert-manager teknoir-user-credentials kube-system kube-foo; do
 	f=$(values "name" <<<"profiles: [{name: \"$n\"}]")
 	refused "name '${n:0:20}'" -f "$f"
 done
@@ -196,6 +210,10 @@ refused "unknown key" -f "$f"
 f=$(values notmap <<<'profiles: [team-a]')
 refused "non-map entry" -f "$f"
 refused "oci:// plugin repo" --set config.pluginChartRepo=oci://harbor.teknoir.airgapped/teknoir
+refused "in-mesh http:// jwksUri" --set config.oidcJwksUri=http://keycloak-http.teknoir-auth.svc.cluster.local/auth/realms/teknoir/protocol/openid-connect/certs
+refused "https:// jwksUri on a .svc host" --set config.oidcJwksUri=https://keycloak-http.teknoir-auth.svc/auth/realms/teknoir/protocol/openid-connect/certs
+refused "https:// jwksUri on a .cluster.local host" --set config.oidcJwksUri=https://keycloak.teknoir-auth.svc.cluster.local:8443/certs
+refused "http:// issuer" --set config.oidcIssuer=http://auth.teknoir.airgapped/auth/realms/teknoir
 
 # --- P7 -----------------------------------------------------------------------
 f=$(values empty <<'EOF'

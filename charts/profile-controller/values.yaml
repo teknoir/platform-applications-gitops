@@ -51,12 +51,19 @@ config:
   # Empty: the controller's compiled defaults (teknoir.github.io, 0.0.99).
   pluginChartRepo: "harbor.teknoir.airgapped/teknoir"
   pluginChartVersion: "0.0.99"
-  # Issuer and JWKS of the RequestAuthentication jwt-policy the controller
-  # writes into every teamspace (env OIDC_ISSUER / OIDC_JWKS_URI). The JWKS
-  # is fetched in-cluster. Empty: the compiled defaults (auth.teknoir.online,
-  # realm master; JWKS = issuer + /protocol/openid-connect/certs).
+  # Issuer of the RequestAuthentication jwt-policy the controller writes into
+  # every teamspace (env OIDC_ISSUER). Empty: the compiled default
+  # (auth.teknoir.online, realm master).
   oidcIssuer: "https://auth.teknoir.airgapped/auth/realms/teknoir"
-  oidcJwksUri: "http://keycloak-http.teknoir-auth.svc.cluster.local/auth/realms/teknoir/protocol/openid-connect/certs"
+  # Its jwksUri (env OIDC_JWKS_URI). Keep it empty: the controller then uses
+  # <oidcIssuer>/protocol/openid-connect/certs, the public URL that istiod
+  # already fetches for the platform RequestAuthentications (backstage).
+  # istiod resolves jwksUri itself, from istio-system and without a sidecar,
+  # so an in-mesh http://keycloak-http.teknoir-auth.svc... URL fails there:
+  # teknoir-auth enforces STRICT mTLS and keycloak-allow-ingress admits only
+  # the gateway, teknoir-system and teknoir-auth. The chart refuses anything
+  # but an https:// URL outside the cluster domain.
+  oidcJwksUri: ""
 
 # Teamspaces declared in GitOps: one Profile per entry,
 #   {name, owner (default config.admin, lowercased), resourceQuotaSpec}.

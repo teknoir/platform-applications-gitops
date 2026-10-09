@@ -32,7 +32,8 @@
 #   R7  r5 image: AppProject sourceRepos = [PLUGIN_CHART_REPO] and no
 #       cluster whitelist; Applications on PLUGIN_CHART_REPO /
 #       PLUGIN_CHART_VERSION with RespectIgnoreDifferences=true;
-#       RequestAuthentication issuer/jwksUri = OIDC_ISSUER/OIDC_JWKS_URI
+#       RequestAuthentication issuer/jwksUri = OIDC_ISSUER and OIDC_JWKS_URI
+#       (unset: <issuer>/protocol/openid-connect/certs), a public https:// URL
 #   R8  a User with claim_set owner@rbac-test: RoleBinding to teknoir-admin
 #       and AuthorizationPolicy in rbac-test, Keycloak user created, one
 #       temporary password set; r5 image: K1 Secret (labels, expiry,
@@ -123,6 +124,9 @@ yq 'select(.kind == "CustomResourceDefinition" and .spec.group == "teknoir.org" 
 yq 'select(.kind == "Profile")' "$WORK/profile-controller.yaml" >"$WORK/profiles.yaml"
 cmv() { yq -r "select(.kind == \"ConfigMap\" and .metadata.name == \"profile-controller-config\") | .data.$1 // \"\"" "$WORK/profile-controller.yaml"; }
 REPO=$(cmv PLUGIN_CHART_REPO) VERSION=$(cmv PLUGIN_CHART_VERSION) ISSUER=$(cmv OIDC_ISSUER) JWKS=$(cmv OIDC_JWKS_URI)
+[ -n "$REPO" ] && [ -n "$VERSION" ] && [ -n "$ISSUER" ] || { echo "the profile-controller render lacks PLUGIN_CHART_REPO/VERSION or OIDC_ISSUER" >&2; exit 1; }
+# OIDC_JWKS_URI unset: the controller derives it from the issuer.
+JWKS=${JWKS:-${ISSUER%/}/protocol/openid-connect/certs}
 DEFAULT_OWNER=$(yq -r 'select(.kind == "Profile" and .metadata.name == "teknoir-default") | .spec.owner.name' "$WORK/profile-controller.yaml")
 [ -n "$DEFAULT_OWNER" ] || { echo "the profile-controller render has no Profile teknoir-default" >&2; exit 1; }
 
@@ -400,7 +404,14 @@ check_profile() { # check_profile <name> <owner>
 			  or ((.spec.syncPolicy.syncOptions // []) | index("RespectIgnoreDifferences=true") | not)) | .metadata.name] | join(" ")')
 		[ -z "$b" ] && ok "R7 $ns: Applications on $REPO $VERSION with RespectIgnoreDifferences=true" || bad "R7 $ns: Applications not on repo/version/syncOption: $b"
 		b=$(k -n "$ns" get requestauthentication jwt-policy -o jsonpath='{.spec.jwtRules[0].issuer} {.spec.jwtRules[0].jwksUri}')
-		[ "$b" = "$ISSUER $JWKS" ] && ok "R7 $ns: RequestAuthentication issuer/jwksUri from OIDC_ISSUER/OIDC_JWKS_URI" || bad "R7 $ns: RequestAuthentication '$b'"
+		[ "$b" = "$ISSUER $JWKS" ] && ok "R7 $ns: RequestAuthentication issuer/jwksUri from OIDC_ISSUER (and OIDC_JWKS_URI or its default)" || bad "R7 $ns: RequestAuthentication '$b', want '$ISSUER $JWKS'"
+		# istiod resolves jwksUri from istio-system without a sidecar: only a
+		# public https:// URL works (this cluster has no istiod to prove it).
+		case ${b#* } in
+		https://*.svc/* | https://*.svc:* | https://*.cluster.local/* | https://*.cluster.local:*) bad "R7 $ns: jwksUri ${b#* } is cluster-internal" ;;
+		https://*) ok "R7 $ns: jwksUri ${b#* } is a public https:// URL" ;;
+		*) bad "R7 $ns: jwksUri ${b#* } is not https://" ;;
+		esac
 	else
 		skp "R7 $ns: --legacy (AppProject $(k -n teknoir-system get appproject "$ns" -o jsonpath='{.spec.sourceRepos}'), issuer $(k -n "$ns" get requestauthentication jwt-policy -o jsonpath='{.spec.jwtRules[0].issuer}'))"
 	fi
