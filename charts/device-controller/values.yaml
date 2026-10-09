@@ -4,8 +4,11 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/teknoir/device-controller
-  tag: latest
-  pullPolicy: Always
+  # Pinned: '<immutable tag>@sha256:<linux/amd64 manifest digest>', the image
+  # production ran as :latest on 2026-10-09 (device-controller main 6c718b6).
+  # Change it only by promoting a new sha-<commit> through this branch.
+  tag: "sha-6c718b60@sha256:22bd79ae2509c808981ea31ddcdd76e22fb506c23b5ee2eb2e83ffcfc8602492"
+  pullPolicy: IfNotPresent
 
 imagePullSecrets:
   - name: ghcr-token
