@@ -1,0 +1,3 @@
+# Patterns to ignore when building packages.
+# The tests are repo tools, not part of the chart.
+tests/

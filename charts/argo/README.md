@@ -27,9 +27,12 @@ then:
   auth chart's gateway `EnvoyFilter` must disable both its `ext_authz` and its
   `lua` filter for the `argocd.<domain>:443` vhost, otherwise Argo CD's own
   `401`/`403` API responses become a cross-origin redirect to `/oauth2/start`.
-  Keycloak group `admin` (and `argocd-admins`) map to `role:admin`; everyone
-  else is read-only. The local `admin` stays enabled as break-glass; delete
-  `argocd-initial-admin-secret` once SSO works.
+  Keycloak group `admin` maps to `role:admin`. There is no default role
+  (`policy.default: ""`), so other realm users can sign in but see no
+  applications, projects or settings. The local `admin` stays enabled
+  (`admin.enabled: "true"`) as break-glass: rotate its password (the airgap
+  node's `rotate argocd-admin`) and delete `argocd-initial-admin-secret`
+  rather than disabling it.
 
 ## Secrets and trust (nothing injected at render time)
 
