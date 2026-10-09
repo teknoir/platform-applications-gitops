@@ -87,8 +87,8 @@ rbac:
   # Secrets backstage-api reads by name, in every teamspace namespace. Get by
   # name only; no list, no other Secret.
   teamspaceSecrets:
-    # OrgTreeEntityProvider and the org-tree API connect to the teamspace
-    # MongoDB with it.
+    # OrgTreeEntityProvider, PeripheralEntityProvider and the org-tree API
+    # connect to the teamspace MongoDB with it.
     - mongodb-credentials
     # PeripheralEntityProvider subscribes to the teamspace EMQX with it.
     - emqx-bootstrap-user
