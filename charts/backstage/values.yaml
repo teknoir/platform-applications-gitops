@@ -50,18 +50,26 @@ catalog:
       frequency: { minutes: 5 }
       timeout: { minutes: 3 }
 
+# Images: <repo>:<immutable tag>@sha256:<linux/amd64 manifest digest>
+# (`crane digest --platform linux/amd64 <repo>:<tag>`; never the index digest:
+# the airgap bundle pushes only the amd64 manifest to Harbor), IfNotPresent.
+# PIN(WP-BS): the two sha-PENDING-WP-BS placeholders below are replaced by the
+# r5-backstage builds (SIGN-C4 logout, TS-C7 create-teamspace) in one commit;
+# until then the chart must not be released (the placeholder digest does not
+# exist and the tag is not immutable).
+
 # Backstage frontend deployment
 backstage:
   replicas: 1
-  image: ghcr.io/teknoir/backstage-app:robot
-  imagePullPolicy: Always
+  image: ghcr.io/teknoir/backstage-app:sha-PENDING-WP-BS@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  imagePullPolicy: IfNotPresent
   imagePullSecrets: []
 
 # Backstage API deployment
 backstageApi:
   replicas: 1
-  image: ghcr.io/teknoir/backstage:robot
-  imagePullPolicy: Always
+  image: ghcr.io/teknoir/backstage:sha-PENDING-WP-BS@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  imagePullPolicy: IfNotPresent
   imagePullSecrets: []
   # Root health endpoints of @backstage/backend-defaults: readiness answers
   # 503 until every plugin has started (and again on shutdown), liveness is
@@ -126,12 +134,13 @@ backstageApi:
 # PostgreSQL database configuration
 postgres:
   replicas: 1
-  image: postgres:17-alpine
-  imagePullPolicy: Always
+  # Same 17.11 as live (no data migration); linux/amd64 manifest digest.
+  image: postgres:17.11-alpine@sha256:aa90e97ee862e558111d34cfb8b2c4bec768c2b039fb791341686928560263b3
+  imagePullPolicy: IfNotPresent
   storage: 10Gi
   exporter:
     image: prometheuscommunity/postgres-exporter:v0.15.0
-    imagePullPolicy: Always
+    imagePullPolicy: IfNotPresent
 
 # Istio configuration (optional)
 istio:
