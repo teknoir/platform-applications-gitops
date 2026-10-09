@@ -5,12 +5,18 @@ namespace: teknoir-auth
 keycloak:
   enabled: true
   fullnameOverride: keycloak
+  # Pinned (G-09): immutable tag plus the linux/amd64 manifest digest
+  # (`crane digest --platform linux/amd64`, never the index digest). keycloakx
+  # renders `<repository>@<digest>` and puts `tag` only into the label
+  # app.kubernetes.io/version, so the tag is part of `repository` and `tag`
+  # repeats it without the digest (a label value cannot hold '@'). With
+  # IfNotPresent a restart never pulls a different Keycloak, whose one-way DB
+  # migration would run unannounced. sha-29d2ed6a = main-20260421-114315
+  # (Keycloak 26.5.3), the image running since the redesign.
   image:
-    repository: ghcr.io/teknoir/keycloak-theme
-    # Mutable tag (an immutable one needs the keycloak-theme CI, G-09). With
-    # IfNotPresent a restart never pulls a newer Keycloak, whose one-way DB
-    # migration would run unannounced.
-    tag: latest
+    repository: ghcr.io/teknoir/keycloak-theme:sha-29d2ed6a
+    digest: sha256:ab392e6e52789483c63818cbe8919ae0e44b6cf547c17faf8a0f024cc29d35f7
+    tag: sha-29d2ed6a
     pullPolicy: IfNotPresent
   imagePullSecrets: []
   service:
@@ -68,6 +74,16 @@ keycloak:
           name: keycloak-db-secret
           key: username
 
+# keycloak-db: Keycloak's PostgreSQL (templates/keycloak-postgres.yaml).
+# Pinned to the version that runs today (16.15), amd64 manifest digest; a
+# major-version change needs a dump and restore, never just a new tag.
+keycloakDb:
+  image:
+    repository: docker.io/library/postgres
+    tag: "16.15"
+    digest: sha256:75adc2a65806c96bc0e59030230bfe3f1c1b0d6d8f8181a8913e2b8b53bdc166
+    pullPolicy: IfNotPresent
+
 oauth2Proxy:
   enabled: true
   secret:
@@ -121,6 +137,13 @@ oauth2Proxy:
   reverseProxy: true
   redis:
     enabled: true
+    # Session store. Pinned to the version that runs today (7.2.16), amd64
+    # manifest digest; a restart drops every session either way.
+    image:
+      repository: docker.io/library/redis
+      tag: 7.2.16-alpine
+      digest: sha256:84bab713067f5494d94c24e99ae3fa3ae2388c037152edcbcf301f7cfaeb3048
+      pullPolicy: IfNotPresent
     host: oauth2-proxy-redis
     port: 6379
     database: 0
@@ -143,10 +166,14 @@ istio:
     jwksIssuer: ""
     jwksUri: ""
 
+# Test backend behind the gateway (JWT required). Upstream publishes only
+# `latest`, so it is pinned by digest alone (amd64 manifest).
 httpbin:
   image:
     repository: docker.io/kennethreitz/httpbin
-    tag: latest
+    tag: ""
+    digest: sha256:599fe5e5073102dbb0ee3dbb65f049dab44fa9fc251f6835c9990f8fb196a72b
+    pullPolicy: IfNotPresent
   virtualService:
     hosts: []
 
