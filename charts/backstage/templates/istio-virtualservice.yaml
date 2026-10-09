@@ -1,3 +1,15 @@
+{{- /*
+Routes at the gateway. Envoy has already normalised the path (RFC 3986:
+dot segments, percent-encoded unreserved characters), but not its case or
+repeated slashes. Backstage's Express routing ignores case and routes
+/api/kubernetes//proxy to the proxy, while Istio's AuthorizationPolicy paths
+are case-sensitive. So /api/kubernetes and /api/auth reach backstage-api
+only in lowercase, where istio-api-guard.yaml applies; every other spelling
+is answered here. A client-supplied verified-jwt header is removed on the way
+to backstage-api: only the sidecar's RequestAuthentication may write it.
+*/ -}}
+{{- $guard := .Values.istio.apiGuard | default dict }}
+{{- $api := printf "backstage-api.%s.svc.cluster.local" .Release.Namespace }}
 ---
 apiVersion: networking.istio.io/v1alpha3
 kind: VirtualService
@@ -10,15 +22,51 @@ spec:
   hosts:
     - {{ .Values.config.domain | quote }}
   http:
-    - match:
+{{- if $guard.denyKubernetesProxy }}
+    # The Kubernetes plugin's proxy, in any spelling (istio.apiGuard).
+    - name: backstage-api-kubernetes-proxy-denied
+      match:
         - uri:
-            prefix: /api/
+            regex: '(?i)/api/kubernetes/+proxy(/.*)?'
+      directResponse:
+        status: 403
+{{- end }}
+    - name: backstage-api-guarded
+      match:
+        - uri:
+            prefix: /api/kubernetes/
+        - uri:
+            prefix: /api/auth/
+      headers:
+        request:
+          remove: [verified-jwt]
       route:
         - destination:
-            host: backstage-api.{{ .Release.Namespace }}.svc.cluster.local
+            host: {{ $api }}
             port:
               number: 80
-    - route:
+    # Any other spelling of the two guarded plugins (upper case, no trailing
+    # slash).
+    - name: backstage-api-guarded-other-spellings
+      match:
+        - uri:
+            regex: '(?i)/api/(kubernetes|auth)(/.*)?'
+      directResponse:
+        status: 404
+    - name: backstage-api
+      match:
+        - uri:
+            prefix: /api/
+      headers:
+        request:
+          remove: [verified-jwt]
+      route:
+        - destination:
+            host: {{ $api }}
+            port:
+              number: 80
+    - name: backstage
+      route:
         - destination:
             host: backstage.{{ .Release.Namespace }}.svc.cluster.local
             port:

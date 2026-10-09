@@ -1,0 +1,90 @@
+{{- /*
+Bounds backstage-api's cluster-wide write rules (templates/rbac.yaml) to the
+teamspaces (ValidatingAdmissionPolicy, admissionregistration.k8s.io/v1,
+Kubernetes 1.30+; the user-controller and profile-controller charts use the
+same pattern). RBAC cannot do it: teamspace namespaces appear at run time,
+and a resourceNames rule cannot grant create. Without this policy the
+ServiceAccount could create a ConfigMap in any namespace (on k3s
+kube-system/coredns-custom is an optional CoreDNS import: a cluster-wide DNS
+override), delete any PVC, or write Devices, Devstudios, Notebooks and
+ClaimSets in platform namespaces.
+
+For requests by backstage-api's ServiceAccount only:
+- ConfigMaps, PVCs and the namespaced teknoir.org objects it writes (devices,
+  devstudios, notebooks, claimsets) are created, changed and deleted only in
+  a teamspace namespace: label app.kubernetes.io/part-of=teknoir-profile and
+  an owner annotation (what profile-controller gives the namespaces it
+  creates for a Profile; its own admission policy keeps it from marking any
+  other namespace), not a reserved name, not kube-*, and not *-vdev (the
+  virtual-device runtime namespaces of device-controller; the suffix is
+  reserved, and backstage-api only reads there);
+- ConfigMaps only with a name in rbac.teamspaceConfigMaps (peripheral-config).
+Not covered: cluster-scoped Users and Profiles (no namespace to bound), and
+reads. Break-glass: rbac.admissionPolicy.enabled=false.
+*/ -}}
+{{- $rbac := .Values.rbac | default dict }}
+{{- $ap := $rbac.admissionPolicy | default dict }}
+{{- if $ap.enabled }}
+{{- $name := "backstage-api-teamspace-writes" }}
+{{- $user := printf "system:serviceaccount:%s:backstage-api" .Release.Namespace }}
+{{- $reserved := $ap.reservedNamespaces | default list }}
+{{- if not (has .Release.Namespace $reserved) }}
+{{- $reserved = append $reserved .Release.Namespace }}
+{{- end }}
+{{- $configMaps := $rbac.teamspaceConfigMaps | default list }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $name }}
+  labels:
+    app: backstage-api
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    matchPolicy: Equivalent
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["configmaps", "persistentvolumeclaims"]
+      - apiGroups: ["teknoir.org"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["devices", "devstudios", "notebooks", "claimsets"]
+  matchConditions:
+    - name: backstage-api
+      expression: 'request.userInfo.username == {{ $user | toJson }}'
+  variables:
+    - name: obj
+      expression: 'request.operation == "DELETE" ? oldObject : object'
+    - name: reserved
+      expression: '{{ $reserved | toJson }}'
+    - name: configMaps
+      expression: '{{ $configMaps | toJson }}'
+    - name: inTeamspace
+      expression: |-
+        has(namespaceObject.metadata.labels) && "app.kubernetes.io/part-of" in namespaceObject.metadata.labels &&
+        namespaceObject.metadata.labels["app.kubernetes.io/part-of"] == "teknoir-profile" &&
+        has(namespaceObject.metadata.annotations) && "owner" in namespaceObject.metadata.annotations &&
+        namespaceObject.metadata.annotations["owner"] != "" &&
+        !(namespaceObject.metadata.name in variables.reserved) && !namespaceObject.metadata.name.startsWith("kube-") &&
+        !namespaceObject.metadata.name.endsWith("-vdev")
+  validations:
+    - expression: 'variables.inTeamspace'
+      message: "backstage-api writes ConfigMaps, PVCs, Devices, Devstudios, Notebooks and ClaimSets only in a teamspace namespace (app.kubernetes.io/part-of=teknoir-profile, an owner annotation, not a reserved name, not kube-* or *-vdev)"
+      reason: Forbidden
+    - expression: 'request.resource.resource != "configmaps" || variables.obj.metadata.name in variables.configMaps'
+      messageExpression: '"backstage-api writes only the ConfigMaps " + variables.configMaps.join(", ") + ", not " + variables.obj.metadata.name'
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $name }}
+  labels:
+    app: backstage-api
+spec:
+  policyName: {{ $name }}
+  validationActions: [Deny]
+{{- end }}

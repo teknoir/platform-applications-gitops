@@ -75,10 +75,12 @@ namespace is readable. The ServiceAccount's own token Secret
 `backstage-k8s-sa-token` reaches the pod through the kubelet (env), not
 through the API.
 
-Limits of RBAC here:
+Limits of RBAC here, and what bounds them instead:
 
-- ConfigMap create cannot be limited by name, so backstage-api can create
-  (not overwrite) a ConfigMap in any namespace.
+- ConfigMap create cannot be limited by name, and the teamspace rules
+  (ConfigMaps, PVCs, Devices, Devstudios, Notebooks, ClaimSets) are
+  cluster-wide. The admission policy below keeps those writes inside the
+  teamspaces and ConfigMap writes to `peripheral-config`.
 - The `/api/teknoir-entity/core` PATCH route for Namespaces calls
   `patchNamespace` without a body and never reaches the API server, so no
   namespace permission is granted. Fixing that route needs `patch
@@ -86,14 +88,17 @@ Limits of RBAC here:
 
 **Kubernetes tab** (`rbac.kubernetesPlugin`): read-only `get`/`list` on
 `objectTypes`, which the chart also renders as app-config
-`kubernetes.objectTypes`, so the plugin asks for nothing that RBAC denies.
-`configmaps` is left out on purpose. The plugin runs every request with this
-ServiceAccount, so backstage's permission policy allows `kubernetes.proxy`,
-`kubernetes.resources.read` and `kubernetes.clusters.read` to platform admins
-only (catalog group `group:default/superadmin`). Images without that policy
-(backstage `robot` up to 9f15dacf) allow the proxy to every signed-in user,
-who then gets everything in the table above, though no longer every Secret
-or pods/exec. `enabled: false` drops the plugin's ClusterRole.
+`kubernetes.objectTypes`, so the plugin lists nothing that RBAC denies.
+`configmaps` is left out on purpose. The tab's pod drawers call the proxy
+for events, pod logs and pod delete; none of that is granted (and the API
+guard closes the proxy), so those drawers show errors. The plugin runs every request with this
+ServiceAccount. Two layers keep it to platform admins: the API guard below
+(mesh, independent of the image) and backstage's permission policy, which
+allows `kubernetes.proxy`, `kubernetes.resources.read` and
+`kubernetes.clusters.read` to catalog group `group:default/superadmin` only.
+Images without that policy (backstage `robot` up to 9f15dacf) allow the
+plugin to every signed-in user; behind the API guard that still leaves group
+`admin` only. `enabled: false` drops the plugin's ClusterRole.
 
 **externalAccess** (`externalAccess.accessRestrictions`): a `teknoir-cli`
 token is a Backstage service principal, which the permission framework
@@ -102,7 +107,90 @@ allows everything (the permission policy never sees it) unless
 token is limited to plugin `catalog`, permission `catalog.entity.read`. The
 chart refuses to render an empty list.
 
+**Admission policy** (`rbac.admissionPolicy`,
+`templates/admission-policy.yaml`): a ValidatingAdmissionPolicy (failurePolicy
+Fail, Deny binding) matched on backstage-api's ServiceAccount only. Its
+ConfigMap, PVC, Device, Devstudio, Notebook and ClaimSet creates, updates and
+deletes must happen in a teamspace namespace (label
+`app.kubernetes.io/part-of=teknoir-profile` and an `owner` annotation, as
+profile-controller creates them; not `rbac.admissionPolicy.reservedNamespaces`,
+the release namespace, `kube-*` or `*-vdev`, device-controller's
+virtual-device runtime namespaces), and ConfigMap writes must name one of
+`rbac.teamspaceConfigMaps`. So the ServiceAccount cannot create
+`kube-system/coredns-custom` (an optional CoreDNS import on k3s), delete a
+PVC outside a teamspace, or write Devices in platform namespaces. Users and
+Profiles are cluster-scoped and stay bounded by RBAC only. The AppProject
+must whitelist ValidatingAdmissionPolicy and ValidatingAdmissionPolicyBinding
+(app-of-apps values; r5 has them since r5-controllers, this branch's base
+does not, so the chart syncs only on r5). Break-glass:
+`rbac.admissionPolicy.enabled=false`.
+
 `charts/backstage/tests/rbac-test.sh` (not packaged) checks the render
 (`--static`) and, in a throw-away k3d cluster with the real CRDs, runs a
-`kubectl auth can-i` matrix and real calls as the ServiceAccount; see its
-header.
+`kubectl auth can-i` matrix, real calls as the ServiceAccount and the
+admission policy (server-side dry-runs); see its header.
+
+## API guard
+
+`templates/istio-api-guard.yaml` (a DENY AuthorizationPolicy on
+backstage-api) and the VirtualService close two paths in the mesh, whatever
+the Backstage image does (`istio.apiGuard`):
+
+- `/api/kubernetes`: the Kubernetes plugin answers with backstage-api's own
+  ServiceAccount (everything in the RBAC table). It needs a verified realm
+  token whose `groups` claim holds one of `istio.apiGuard.kubernetesGroups`
+  (`admin`: Keycloak group admin, which `teknoir-airgap admin-user` gives
+  platform admins). The gateway is admitted to it by an ALLOW rule with
+  those values in `backstage-api-auth-policy`: a DENY with `notValues` does
+  not apply to a token that has no `groups` claim at all (Keycloak's group
+  mapper may leave it out for a user in no group). No other ALLOW admits the
+  gateway to backstage-api; keep it that way. `/api/kubernetes/proxy`
+  forwards any Kubernetes API call and is closed for everyone
+  (`denyKubernetesProxy`); with this RBAC nothing in the UI can use it.
+- `/api/auth` without a verified token: the istioVerifiedJWT sign-in provider
+  trusts the `verified-jwt` header without a signature check. Envoy writes it
+  for a token it verified and then replaces a client-supplied one; with
+  Istio 1.29.2 it also drops a client-supplied one from a request without a
+  token (`istio-guard-test.sh` prints it as `INFO C4`). The guard does not
+  rely on that: `/api/auth` needs a verified token, the gateway removes the
+  header, and the in-mesh refresh rule of `backstage-api-auth-policy`
+  requires a request principal.
+
+DENY applies before every ALLOW, including namespace-wide ones such as the
+harbor chart's `harbor-allow-internal` (every mTLS source in teknoir-system
+and teknoir-auth). Istio matches paths case-sensitively, Backstage's Express
+routing does not (`/api/KUBERNETES/clusters` reaches the plugin, and
+`/api/kubernetes//proxy` the proxy). So at the gateway the VirtualService
+answers every other spelling of `/api/kubernetes` and `/api/auth` itself
+(404; the proxy 403), and removes a client-supplied `verified-jwt` from every
+request to backstage-api. In the mesh (every caller but the gateway, with or
+without a token, whatever ALLOW admits it), backstage-api's port 7007 answers
+only `/api/catalog/entities` and, with a verified token, `/api/auth/*`; any
+other path or spelling is denied, so `/api/kubernetes` is reachable through
+the gateway only. Nothing in the platform calls backstage-api in the mesh
+today (tnctl and the Ansible inventory go through the gateway). The metrics
+port 9464 is not guarded. Through the gateway every request carries the
+token oauth2-proxy hands on (X-Auth-Request-Access-Token).
+
+`charts/backstage/tests/istio-guard-test.sh` (not packaged) checks the render
+(`--static`) and, in a throw-away k3d cluster with Istio, sends requests
+through the gateway and from mesh pods to echo stand-ins, first against the
+policies as they were (control), then against this chart's; see its header.
+
+## Release gate (r5)
+
+The RBAC and the API guard assume a Backstage image with backstage
+`r5-backstage-perm` (SEC-C11): `kubernetes.*` for platform admins only,
+sign-in only as a User entity from UserEntityProvider, no User or Group
+entities from registered locations. On the r5 integration branch the WP-BS
+image pins (`PIN(WP-BS)` in values.yaml) must come from `r5-backstage` with
+`r5-backstage-perm` merged, and that comment must name SEC-C11;
+`tests/rbac-test.sh --static` (S9) fails until it does.
+
+Not covered here: the staging (`teknoir-cloud`) and production
+(`teknoir-online`) branches of this repo still bind backstage-api to
+`teknoir-admin` cluster-wide, and their `externalAccess` has no
+`accessRestrictions`. A backstage image with `r5-backstage-perm` closes only
+the signed-in-user path there; `teknoir-cli` tokens still bypass the
+permission policy. They need the same RBAC, `accessRestrictions` and API
+guard on their own branches (production with Anders).

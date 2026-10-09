@@ -79,6 +79,23 @@ istio:
     fromHeaders:
       - name: X-Forwarded-Access-Token
       - name: X-Auth-Request-Access-Token
+  # Mesh-layer guard for backstage-api (templates/istio-api-guard.yaml and the
+  # VirtualService), independent of the Backstage image: it holds even when
+  # the image's permission policy lets every signed-in user use the
+  # Kubernetes plugin (backstage `robot` up to 9f15dacf). README "API guard".
+  apiGuard:
+    # Keycloak groups (realm config.oidc.realm, access-token claim "groups")
+    # that may use /api/kubernetes (the Kubernetes tab). `teknoir-airgap
+    # admin-user` puts platform admins into group admin. Must not be empty.
+    kubernetesGroups:
+      - admin
+    # /api/kubernetes/proxy forwards any Kubernetes API call with
+    # backstage-api's own ServiceAccount token (templates/rbac.yaml: User
+    # patch, the named teamspace Secrets, PVC delete, ConfigMap create). With
+    # this chart's RBAC nothing in the UI can use it (pod logs, events and pod
+    # delete need pods/log, events and pods delete, which are not granted),
+    # so it is closed for everyone, platform admins included.
+    denyKubernetesProxy: true
 
 # backstage-api's own Kubernetes access (templates/rbac.yaml). It replaces the
 # cluster-wide teknoir-admin binding (every Secret, pods/exec everywhere).
@@ -98,6 +115,27 @@ rbac:
     - peripheral-config
   # The namespace whose Claims backstage-api lists (fixed in the image).
   claimsNamespace: teknoir-system
+  # ValidatingAdmissionPolicy (templates/admission-policy.yaml) that keeps the
+  # ServiceAccount's ConfigMap, PVC and namespaced teknoir.org writes inside
+  # teamspace namespaces, and its ConfigMap writes to teamspaceConfigMaps.
+  # enabled=false is the break-glass. The AppProject must whitelist
+  # ValidatingAdmissionPolicy and its binding (app-of-apps values).
+  admissionPolicy:
+    enabled: true
+    # Never a teamspace, even when labelled like one (profile-controller's
+    # reserved names, plus the user-controller credentials namespace). The
+    # release namespace and kube-* are always added.
+    reservedNamespaces:
+      - default
+      - teknoir
+      - teknoir-local
+      - teknoir-cloud
+      - teknoir-online
+      - teknoir-system
+      - teknoir-auth
+      - teknoir-user-credentials
+      - istio-system
+      - cert-manager
   # @backstage/plugin-kubernetes-backend (the Kubernetes tab, for platform
   # admins only: the backend's permission policy denies everyone else).
   # Read-only, cluster-wide, for exactly these object types; the chart also
