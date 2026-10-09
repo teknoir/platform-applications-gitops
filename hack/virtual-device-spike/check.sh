@@ -409,6 +409,10 @@ check_device() {
   deps=$(kc -n "$NAMESPACE" get deployments -o json 2>/dev/null |
     jq -r --arg d "$DEVICE" '[.items[] | select(.metadata.name|startswith("tunnel-")) | select(.metadata.name|endswith("-"+$d)) | "\(.metadata.name) \(.status.readyReplicas // 0)/\(.spec.replicas)"] | join(", ")' || true)
   result INFO D4 "tunnel deployments for ${DEVICE}: ${deps:-none}"
+  local das
+  das=$(kc -n "$NAMESPACE" get deviceapplicationsets -o json 2>/dev/null |
+    jq -r --slurpfile d "$DEVICE_JSON" '($d[0].metadata.labels // {}) as $l | [.items[] | select(.spec.selector.matchLabels as $m | ($m // {}) | to_entries | length > 0 and all(.[]; $l[.key] == .value)) | .metadata.name] | join(",")' 2>/dev/null || true)
+  result INFO D7 "DeviceApplicationSets selecting ${DEVICE} (matchLabels): ${das:-none}"
   if [[ -n $PROM_URL ]]; then
     local seen ncpu nmem
     seen=$(prom_query "min by (device_id) (time()-device_last_seen{device_id=\"${DEVICE}\"})")
