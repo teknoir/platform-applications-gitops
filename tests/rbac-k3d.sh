@@ -5,7 +5,7 @@
 # least-privilege RBAC (SEC-C6, SEC-C7) and the GitOps teamspace (TS-C2), in
 # a throw-away k3d cluster (k3s v1.33.5, as live).
 #
-#   tests/rbac-k3d.sh [--keep] [--legacy]
+#   tests/rbac-k3d.sh [--keep] [--legacy | --policies-only]
 #
 # Heavy (k3d, docker): run it under the shared lock where agents share the
 # host. Needs docker credentials for ghcr.io/teknoir (private images).
@@ -20,12 +20,15 @@
 #       (also against k3d-teknoir-dev when that cluster is up)
 #   R2  can-i matrix of the user-controller ServiceAccount
 #   R3  can-i matrix of the profile-controller ServiceAccount
-#   R4  real RoleBinding creates as each SA: teknoir-admin works,
-#       cluster-admin and admin are refused (escalation check)
+#   R4  real RoleBinding creates as each SA outside a teamspace: binding
+#       cluster-admin or admin is refused by the RBAC escalation check;
+#       binding teknoir-admin passes RBAC and is refused by the admission
+#       policy (without the policies: created)
 #   R5  both controllers start: lease acquired (user-controller), workers
 #       started, no cache-sync timeout
 #   R6  Profiles teknoir-default (from the chart) and rbac-test reconcile to
-#       completion (finalizer): namespace with owner, 3 RoleBindings, 2
+#       completion (finalizer), under the admission policies: namespace with
+#       owner, part-of label and Profile ownerReference, 3 RoleBindings, 2
 #       ServiceAccounts, 2 AuthorizationPolicies, RequestAuthentication,
 #       ConfigMaps, copied TLS and pull Secrets, AppProject, exactly the 9
 #       default plugin Applications
@@ -45,11 +48,34 @@
 #       in for ArgoCD), Profile, AppProject and namespace go
 #   R12 no 'forbidden' and no cache-sync timeout in either controller log;
 #       the temporary password appears in no log
+#   R13 the admission policies (ValidatingAdmissionPolicy): all type-checked
+#       without warnings; server-side dry runs as each SA, where every refusal
+#       must come from a policy (so RBAC allowed it):
+#       - profile-controller: the platform AppProjects (teknoir-local,
+#         default) and Applications cannot be changed, deleted or taken over;
+#         no AppProject that is widened, reserved, unowned or aimed outside
+#         its teamspace; no Application in another project, namespace or
+#         repository, or with several sources; no write outside a teamspace
+#         (Secrets, ConfigMaps, RoleBindings, AuthorizationPolicies), no
+#         Namespace without its Profile owner, none taken over or released;
+#         RoleBindings only to teknoir-* for users or local ServiceAccounts;
+#         the teamspace shapes it really writes are allowed
+#       - user-controller: no RoleBinding (teknoir-admin to itself) in
+#         teknoir-auth, teknoir-system or kube-system; no AuthorizationPolicy
+#         in istio-system, no delete in teknoir-auth; the owner's RoleBinding
+#         untouchable; only User-owned user-<User>-teknoir-* objects, users as
+#         subjects, ALLOW policies; its real shapes are allowed
+#       - a cluster admin is not affected
 #
 # Options / environment:
 #   --keep      keep the cluster (context k3d-rbac-k3d) and the work dir
 #   --legacy    the images predate r5 (WP-UC/WP-PC): checks of r5 behaviour
-#               (R7, K1 parts of R8/R10) are SKIPped, not failed
+#               (R7, K1 parts of R8/R10) are SKIPped, not failed, and the
+#               admission policies are left out (they refuse what the old
+#               profile-controller writes); R13 is SKIPped
+#   --policies-only  no controllers (no images needed): R1-R4 and R13
+#               against stand-ins of what the profile-controller creates for
+#               teknoir-default (namespace, AppProject, owner RoleBinding)
 #   UC_IMAGE, PC_IMAGE  images to run (default: the chart pins). A chart
 #               still on the PLACEHOLDER pin needs these. 'repo:tag@sha256:D'
 #               is verified (crane: the tag's linux/amd64 digest is D), pulled
@@ -69,16 +95,19 @@ KUBE_VERSION=${KUBE_VERSION:-1.33.5}
 RENDER_CACHE=${RENDER_CACHE:-$HOME/.cache/teknoir-render}
 ISTIO_BASE=${ISTIO_BASE:-https://istio-release.storage.googleapis.com/charts base 1.29.2}
 ARGO_CD=${ARGO_CD:-https://argoproj.github.io/argo-helm argo-cd 10.4.0}
-KEEP=0 LEGACY=0
+KEEP=0 LEGACY=0 ONLY_POLICIES=0
 for a in "$@"; do
 	case $a in
 	--keep) KEEP=1 ;;
 	--legacy) LEGACY=1 ;;
+	--policies-only) ONLY_POLICIES=1 ;;
 	-h | --help) sed -n '2,/^set -euo/p' "${BASH_SOURCE[0]}" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
 	*) echo "unknown argument: $a" >&2; exit 2 ;;
 	esac
 done
-for t in k3d kubectl helm docker go yq jq crane; do
+[ "$LEGACY" -eq 1 ] && [ "$ONLY_POLICIES" -eq 1 ] && { echo "--legacy and --policies-only exclude each other" >&2; exit 2; }
+tools="k3d kubectl helm docker yq jq"; [ "$ONLY_POLICIES" -eq 0 ] && tools="$tools go crane"
+for t in $tools; do
 	command -v "$t" >/dev/null || { echo "missing required tool: $t" >&2; exit 2; }
 done
 
@@ -90,6 +119,8 @@ ok() { echo "PASS $*"; pass=$((pass + 1)); }
 bad() { echo "FAIL $*"; fail=$((fail + 1)); }
 skp() { echo "SKIP $*"; skip=$((skip + 1)); }
 r5() { [ "$LEGACY" -eq 0 ]; } # r5 behaviour expected?
+policies() { [ "$LEGACY" -eq 0 ]; } # admission policies applied?
+controllers() { [ "$ONLY_POLICIES" -eq 0 ]; } # controllers run?
 cleanup() {
 	if [ "$KEEP" -eq 0 ]; then
 		k3d cluster delete "$CLUSTER" >/dev/null 2>&1 || true
@@ -131,6 +162,7 @@ DEFAULT_OWNER=$(yq -r 'select(.kind == "Profile" and .metadata.name == "teknoir-
 [ -n "$DEFAULT_OWNER" ] || { echo "the profile-controller render has no Profile teknoir-default" >&2; exit 1; }
 
 # --- images ----------------------------------------------------------------------
+if controllers; then
 chart_image() { yq -r 'select(.kind == "Deployment") | .spec.template.spec.containers[0].image' "$WORK/$1.yaml"; }
 UC_REF=${UC_IMAGE:-$(chart_image user-controller)}
 PC_REF=${PC_IMAGE:-$(chart_image profile-controller)}
@@ -172,13 +204,14 @@ for c in user-controller profile-controller; do
 	run=$UC_RUN; [ "$c" = profile-controller ] && run=$PC_RUN
 	yq -i "(select(.kind == \"Deployment\") | .spec.template.spec.containers[0].image) = \"$run\"" "$WORK/$c.yaml"
 done
+fi
 
 # --- cluster ---------------------------------------------------------------------
 echo "== cluster"
 k3d cluster delete "$CLUSTER" >/dev/null 2>&1 || true
 k3d cluster create "$CLUSTER" --image "$K3S_IMAGE" --no-lb --wait \
 	--k3s-arg '--disable=traefik,metrics-server,servicelb@server:0' >/dev/null
-k3d image import -c "$CLUSTER" "$UC_RUN" "$PC_RUN" "$FAKE_IMAGE" >/dev/null 2>&1
+if controllers; then k3d image import -c "$CLUSTER" "$UC_RUN" "$PC_RUN" "$FAKE_IMAGE" >/dev/null 2>&1; fi
 
 # istio and ArgoCD CRDs (the controllers watch and write these kinds)
 cached_chart() { # cached_chart <repo> <name> <version>: path of the .tgz
@@ -225,6 +258,41 @@ k -n teknoir-system create secret docker-registry ghcr-token --docker-server=ghc
 	--docker-username=dummy --docker-password=dummy >/dev/null
 k -n istio-system create secret generic teknoir-airgapped-wildcard-tls --type=kubernetes.io/tls \
 	--from-literal=tls.crt=dummy --from-literal=tls.key=dummy >/dev/null 2>&1
+# What the admission policies protect (R13): the platform AppProjects and an
+# Application in them, an ALLOW policy in teknoir-auth.
+k apply -f - >/dev/null <<'EOF'
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata: {name: teknoir-local, namespace: teknoir-system}
+spec:
+  sourceRepos: [harbor.teknoir.airgapped/teknoir]
+  destinations: [{namespace: teknoir-system, server: "https://kubernetes.default.svc"}, {namespace: teknoir-auth, server: "https://kubernetes.default.svc"}]
+  clusterResourceWhitelist: [{group: rbac.authorization.k8s.io, kind: ClusterRoleBinding}]
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata: {name: default, namespace: teknoir-system}
+spec:
+  sourceRepos: [harbor.teknoir.airgapped/teknoir]
+  destinations: [{namespace: teknoir-system, server: "https://kubernetes.default.svc"}]
+  clusterResourceWhitelist: [{group: argoproj.io, kind: Application}, {group: argoproj.io, kind: AppProject}]
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata: {name: auth, namespace: teknoir-system}
+spec:
+  project: teknoir-local
+  destination: {namespace: teknoir-auth, server: "https://kubernetes.default.svc"}
+  source: {repoURL: harbor.teknoir.airgapped/teknoir, chart: auth, targetRevision: 0.0.9}
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata: {name: keycloak-allow-ingress, namespace: teknoir-auth}
+spec:
+  action: ALLOW
+  rules: [{from: [{source: {namespaces: [teknoir-system, teknoir-auth]}}]}]
+EOF
+if controllers; then
 k -n teknoir-auth apply -f - >/dev/null <<EOF
 apiVersion: apps/v1
 kind: Deployment
@@ -256,6 +324,7 @@ spec:
   ports: [{name: api, port: 18083, targetPort: 18083}]
 EOF
 k -n teknoir-auth rollout status deploy/fake-services --timeout=120s >/dev/null
+fi
 fake_calls() { k get --raw /api/v1/namespaces/teknoir-auth/services/keycloak-http:80/proxy/__calls; }
 # fake_emqx <ns>: what the EMQX chart would provide (bootstrap Secrets, the API)
 fake_emqx() {
@@ -266,10 +335,18 @@ fake_emqx() {
 
 # --- the charts ------------------------------------------------------------------
 echo "== apply charts (server-side, as ArgoCD)"
+# --legacy: no admission policies; --policies-only: no controllers
+skip_kinds='"CustomResourceDefinition", "Profile"'
+policies || skip_kinds="$skip_kinds, \"ValidatingAdmissionPolicy\", \"ValidatingAdmissionPolicyBinding\""
+controllers || skip_kinds="$skip_kinds, \"Deployment\""
 for c in user-controller profile-controller; do
-	yq 'select(.kind != "CustomResourceDefinition" and .kind != "Profile")' "$WORK/$c.yaml" >"$WORK/$c.rest.yaml"
+	yq "select(.kind as \$k | [$skip_kinds] | contains([\$k]) | not)" "$WORK/$c.yaml" >"$WORK/$c.rest.yaml"
 	k apply --server-side --field-manager=argocd-controller -f "$WORK/$c.rest.yaml" >/dev/null
 done
+if policies; then
+	b=$(yq -r 'select(.kind == "ValidatingAdmissionPolicy") | .metadata.name' "$WORK/user-controller.rest.yaml" "$WORK/profile-controller.rest.yaml" | grep -v '^---$' | sort | paste -sd' ')
+	[ "$b" = "profile-controller-argocd profile-controller-teamspaces user-controller-teamspace-access" ] && ok "admission policies applied: $b" || bad "admission policies applied: '$b'"
+fi
 
 # --- R2 / R3 can-i -----------------------------------------------------------------
 echo "== R2/R3 can-i"
@@ -332,17 +409,195 @@ echo "== R4 escalation check"
 k create namespace rbac-probe >/dev/null
 for sa in "$UC_SA" "$PC_SA"; do
 	n=${sa##*:}
-	k --as="$sa" -n rbac-probe create rolebinding "$n-teknoir-admin" --clusterrole=teknoir-admin --user=probe@example.com >/dev/null 2>"$WORK/err" &&
-		ok "R4 $n creates a RoleBinding to teknoir-admin" || bad "R4 $n RoleBinding to teknoir-admin: $(cat "$WORK/err")"
+	# rbac-probe is no teamspace (no Profile owns it)
+	if k --as="$sa" -n rbac-probe create rolebinding "$n-teknoir-admin" --clusterrole=teknoir-admin --user=probe@example.com >/dev/null 2>"$WORK/err"; then
+		policies && bad "R4 $n created a RoleBinding to teknoir-admin outside a teamspace" || ok "R4 $n creates a RoleBinding to teknoir-admin (no admission policies)"
+	elif policies && grep -q 'ValidatingAdmissionPolicy' "$WORK/err"; then
+		ok "R4 $n: a RoleBinding to teknoir-admin passes RBAC and is refused by the admission policy outside a teamspace"
+	else
+		bad "R4 $n RoleBinding to teknoir-admin: $(cat "$WORK/err")"
+	fi
 	for role in cluster-admin admin; do
 		if k --as="$sa" -n rbac-probe create rolebinding "$n-$role" --clusterrole="$role" --user=probe@example.com >/dev/null 2>"$WORK/err"; then
 			bad "R4 $n created a RoleBinding to $role"
+		elif grep -qi forbidden "$WORK/err" && ! grep -q 'ValidatingAdmissionPolicy' "$WORK/err"; then
+			ok "R4 $n refused a RoleBinding to $role by RBAC (escalation check)"
 		else
-			grep -qi forbidden "$WORK/err" && ok "R4 $n refused a RoleBinding to $role (forbidden)" || bad "R4 $n RoleBinding to $role failed otherwise: $(cat "$WORK/err")"
+			bad "R4 $n RoleBinding to $role failed otherwise: $(cat "$WORK/err")"
 		fi
 	done
 done
 k delete namespace rbac-probe --wait=false >/dev/null
+
+# --- R13 admission policies ----------------------------------------------------------
+# probe <allow|deny> <sa> <label> <kubectl args...>: a server-side dry run as
+# <sa> (admission runs, nothing is stored). A refusal must come from an
+# admission policy, i.e. the RBAC allowed the request.
+probe() {
+	local want=$1 sa=$2 label=$3 got; shift 3
+	if k --as="$sa" "$@" --dry-run=server >/dev/null 2>"$WORK/err"; then got=allow; else got=deny; fi
+	case $want/$got in
+	allow/allow) ok "R13 ${sa##*:}: $label: allowed" ;;
+	deny/deny)
+		# "ValidatingAdmissionPolicy '<policy>' with binding '<b>' denied request: <message>";
+		# an expression that fails to evaluate denies too (failurePolicy Fail): not a pass
+		local policy msg
+		policy=$(grep -o "ValidatingAdmissionPolicy '[^']*'" "$WORK/err" | head -1 | cut -d"'" -f2)
+		msg=$(sed -n 's/.*denied request: //p' "$WORK/err" | head -1)
+		if [ -z "$policy" ] || [ -z "$msg" ]; then
+			bad "R13 ${sa##*:}: $label: refused, but not by an admission policy: $(head -c 300 "$WORK/err")"
+		elif grep -Eqi 'resulted in error|no such key|no matching overload|compil|evaluat' <<<"$msg"; then
+			bad "R13 ${sa##*:}: $label: $policy failed to evaluate: $(head -c 300 <<<"$msg")"
+		else
+			ok "R13 ${sa##*:}: $label: refused by $policy ($(cut -c1-60 <<<"$msg")...)"
+		fi ;;
+	allow/deny) bad "R13 ${sa##*:}: $label: refused: $(head -c 300 "$WORK/err")" ;;
+	deny/allow) bad "R13 ${sa##*:}: $label: allowed" ;;
+	esac
+}
+# owner <kind> <name> [uid]: ownerReferences JSON (a made-up uid is fine for a dry run)
+owner() { jq -nc --arg k "$1" --arg n "$2" --arg u "${3:-00000000-0000-0000-0000-000000000000}" '[{apiVersion: "teknoir.org/v1", kind: $k, name: $n, uid: $u, controller: true}]'; }
+IN_CLUSTER=https://kubernetes.default.svc NOPATCH='{}'
+# appproject <name> <owners> [spec patch]: the teamspace shape the controller writes, patched
+appproject() {
+	jq -nc --arg n "$1" --argjson o "$2" --arg r "$REPO" --arg s "$IN_CLUSTER" --argjson x "${3:-$NOPATCH}" '{apiVersion: "argoproj.io/v1alpha1", kind: "AppProject",
+		metadata: {name: $n, namespace: "teknoir-system", ownerReferences: $o},
+		spec: ({sourceRepos: [$r], destinations: [{namespace: $n, server: $s}], clusterResourceWhitelist: []} + $x)}'
+}
+# application <name> <owners> <project> <destination namespace> [spec patch]
+application() {
+	jq -nc --arg n "$1" --argjson o "$2" --arg p "$3" --arg d "$4" --arg r "$REPO" --arg v "$VERSION" --arg s "$IN_CLUSTER" --argjson x "${5:-$NOPATCH}" '{apiVersion: "argoproj.io/v1alpha1", kind: "Application",
+		metadata: {name: $n, namespace: "teknoir-system", ownerReferences: $o},
+		spec: ({project: $p, destination: {namespace: $d, server: $s},
+			source: {repoURL: $r, chart: "profile-plugin-jwks", targetRevision: $v, helm: {releaseName: "jwks"}},
+			syncPolicy: {syncOptions: ["RespectIgnoreDifferences=true"]}} + $x)}'
+}
+# rolebinding <namespace> <name> <owners> <clusterrole> <subject JSON>
+rolebinding() {
+	jq -nc --arg ns "$1" --arg n "$2" --argjson o "$3" --arg r "$4" --argjson s "$5" '{apiVersion: "rbac.authorization.k8s.io/v1", kind: "RoleBinding",
+		metadata: {name: $n, namespace: $ns, ownerReferences: $o}, roleRef: {apiGroup: "rbac.authorization.k8s.io", kind: "ClusterRole", name: $r}, subjects: [$s]}'
+}
+# authpolicy <namespace> <name> <owners> <action>
+authpolicy() {
+	jq -nc --arg ns "$1" --arg n "$2" --argjson o "$3" --arg a "$4" '{apiVersion: "security.istio.io/v1", kind: "AuthorizationPolicy",
+		metadata: {name: $n, namespace: $ns, ownerReferences: $o},
+		spec: {action: $a, rules: [{when: [{key: "request.headers[X-Auth-Request-Email]", values: ["probe@example.com"]}]}]}}'
+}
+r13() {
+	local td_uid b ts subject
+	ts=teknoir-default
+	subject='{"apiGroup":"rbac.authorization.k8s.io","kind":"User","name":"probe@example.com"}'
+	echo "== R13 admission policies"
+	if ! policies; then skp "R13 admission policies: --legacy"; return 0; fi
+	td_uid=$(k get profile "$ts" -o jsonpath='{.metadata.uid}')
+	# type-checked (async) against the matched kinds, without warnings
+	wait_for 60 sh -c "kubectl --context $CTX get validatingadmissionpolicies -o json | jq -e '[.items[] | select(.metadata.name | test(\"controller\"))
+		| select(.status.observedGeneration != .metadata.generation)] | length == 0'" || true
+	b=$(k get validatingadmissionpolicies -o json | jq -c '[.items[] | select(.metadata.name | test("controller"))
+		| {n: .metadata.name, gen: (.status.observedGeneration == .metadata.generation), w: (.status.typeChecking.expressionWarnings // [])}
+		| select(.gen | not) or (.w | length > 0)]')
+	[ "$b" = "[]" ] && ok "R13 every policy type-checked, no warnings" || bad "R13 type checking: $b"
+
+	# profile-controller: Applications and AppProjects
+	local P=$PC_SA o_ts o_none='[]'
+	o_ts=$(owner Profile "$ts" "$td_uid")
+	probe deny "$P" "widen the platform AppProject teknoir-local" patch appproject teknoir-local -n teknoir-system --type=merge -p '{"spec":{"sourceRepos":["*"]}}'
+	probe deny "$P" "relabel the platform AppProject default" patch appproject default -n teknoir-system --type=merge -p '{"metadata":{"labels":{"probe":"x"}}}'
+	probe deny "$P" "delete the platform AppProject teknoir-local" delete appproject teknoir-local -n teknoir-system
+	probe deny "$P" "change the platform Application auth" patch application auth -n teknoir-system --type=merge -p '{"spec":{"source":{"targetRevision":"9.9.9"}}}'
+	probe deny "$P" "take over the platform Application auth (add a Profile owner)" patch application auth -n teknoir-system --type=merge -p "{\"metadata\":{\"ownerReferences\":$o_ts}}"
+	probe deny "$P" "delete the platform Application auth" delete application auth -n teknoir-system
+	probe deny "$P" "AppProject with a cluster-scoped whitelist" create -f - <<<"$(appproject vap-x "$(owner Profile vap-x)" '{"clusterResourceWhitelist":[{"group":"*","kind":"*"}]}')"
+	probe deny "$P" "AppProject with sourceRepos *" create -f - <<<"$(appproject vap-x "$(owner Profile vap-x)" '{"sourceRepos":["*"]}')"
+	probe deny "$P" "AppProject with source namespaces" create -f - <<<"$(appproject vap-x "$(owner Profile vap-x)" '{"sourceNamespaces":["*"]}')"
+	probe deny "$P" "AppProject for reserved teknoir-auth" create -f - <<<"$(appproject teknoir-auth "$(owner Profile teknoir-auth)")"
+	probe deny "$P" "AppProject for kube-system" create -f - <<<"$(appproject kube-system "$(owner Profile kube-system)")"
+	probe deny "$P" "AppProject aimed at teknoir-auth" create -f - <<<"$(appproject vap-x "$(owner Profile vap-x)" "{\"destinations\":[{\"namespace\":\"teknoir-auth\",\"server\":\"$IN_CLUSTER\"}]}")"
+	probe deny "$P" "AppProject aimed at another cluster" create -f - <<<"$(appproject vap-x "$(owner Profile vap-x)" '{"destinations":[{"namespace":"vap-x","server":"https://evil.example.com"}]}')"
+	probe deny "$P" "AppProject without a Profile owner" create -f - <<<"$(appproject vap-x "$o_none")"
+	probe deny "$P" "AppProject named apart from its owner" create -f - <<<"$(appproject vap-x "$o_ts")"
+	probe deny "$P" "widen its own AppProject $ts (sourceRepos *)" patch appproject "$ts" -n teknoir-system --type=merge -p '{"spec":{"sourceRepos":["*"]}}'
+	probe deny "$P" "widen its own AppProject $ts (cluster-scoped kinds)" patch appproject "$ts" -n teknoir-system --type=merge -p '{"spec":{"clusterResourceWhitelist":[{"group":"*","kind":"*"}]}}'
+	probe deny "$P" "release its own AppProject $ts (drop the owner)" patch appproject "$ts" -n teknoir-system --type=json -p '[{"op":"remove","path":"/metadata/ownerReferences"}]'
+	probe allow "$P" "update its own AppProject $ts (a label)" patch appproject "$ts" -n teknoir-system --type=merge -p '{"metadata":{"labels":{"probe":"x"}}}'
+	probe deny "$P" "Application in AppProject teknoir-local" create -f - <<<"$(application "$ts-vap" "$o_ts" teknoir-local "$ts")"
+	probe deny "$P" "Application into teknoir-auth" create -f - <<<"$(application "$ts-vap" "$o_ts" "$ts" teknoir-auth)"
+	probe deny "$P" "Application from another repository" create -f - <<<"$(application "$ts-vap" "$o_ts" "$ts" "$ts" '{"source":{"repoURL":"https://charts.example.com","chart":"x","targetRevision":"1.0.0"}}')"
+	probe deny "$P" "Application with several sources" create -f - <<<"$(application "$ts-vap" "$o_ts" "$ts" "$ts" "{\"sources\":[{\"repoURL\":\"$REPO\",\"chart\":\"x\",\"targetRevision\":\"1\"},{\"repoURL\":\"https://charts.example.com\",\"chart\":\"y\",\"targetRevision\":\"1\"}]}")"
+	probe deny "$P" "Application on another cluster" create -f - <<<"$(application "$ts-vap" "$o_ts" "$ts" "$ts" '{"destination":{"namespace":"teknoir-default","server":"https://evil.example.com"}}')"
+	probe deny "$P" "Application without a Profile owner" create -f - <<<"$(application "$ts-vap" "$o_none" "$ts" "$ts")"
+	probe deny "$P" "Application not named <teamspace>-<plugin>" create -f - <<<"$(application auth2 "$o_ts" "$ts" "$ts")"
+	probe allow "$P" "Application $ts-vap in the teamspace shape" create -f - <<<"$(application "$ts-vap" "$o_ts" "$ts" "$ts")"
+	# profile-controller: writes outside a teamspace, namespaces
+	probe deny "$P" "RoleBinding teknoir-admin to itself in teknoir-auth" create rolebinding vap -n teknoir-auth --clusterrole=teknoir-admin --serviceaccount=teknoir-system:profile-controller
+	probe deny "$P" "RoleBinding teknoir-admin to itself in kube-system" create rolebinding vap -n kube-system --clusterrole=teknoir-admin --serviceaccount=teknoir-system:profile-controller
+	probe deny "$P" "Secret in teknoir-auth" create secret generic vap -n teknoir-auth --from-literal=k=dummy
+	probe deny "$P" "ConfigMap in teknoir-system" create configmap vap -n teknoir-system --from-literal=k=v
+	probe deny "$P" "AuthorizationPolicy in istio-system (mesh-wide)" create -f - <<<"$(authpolicy istio-system vap "$o_none" ALLOW)"
+	probe deny "$P" "delete AuthorizationPolicy teknoir-auth/keycloak-allow-ingress" delete authorizationpolicies.security.istio.io keycloak-allow-ingress -n teknoir-auth
+	probe deny "$P" "relabel Namespace teknoir-auth" patch namespace teknoir-auth --type=merge -p '{"metadata":{"labels":{"probe":"x"}}}'
+	probe deny "$P" "make teknoir-auth a teamspace (add a Profile owner)" patch namespace teknoir-auth --type=merge -p "{\"metadata\":{\"ownerReferences\":$(owner Profile teknoir-auth)}}"
+	probe deny "$P" "mark teknoir-auth as a teamspace (part-of label, owner annotation)" patch namespace teknoir-auth --type=merge -p '{"metadata":{"labels":{"app.kubernetes.io/part-of":"teknoir-profile"},"annotations":{"owner":"probe@example.com"}}}'
+	probe deny "$P" "Namespace without a Profile owner" create namespace vap-x
+	probe deny "$P" "Namespace kube-vap (reserved prefix)" create -f - <<<"$(jq -nc --argjson o "$(owner Profile kube-vap)" '{apiVersion: "v1", kind: "Namespace", metadata: {name: "kube-vap", ownerReferences: $o}}')"
+	probe deny "$P" "release Namespace $ts (drop its Profile owner)" patch namespace "$ts" --type=json -p '[{"op":"remove","path":"/metadata/ownerReferences"}]'
+	probe deny "$P" "RoleBinding in $ts for another namespace's ServiceAccount" create rolebinding vap -n "$ts" --clusterrole=teknoir-admin --serviceaccount=teknoir-system:profile-controller
+	probe deny "$P" "RoleBinding in $ts for system:anonymous" create rolebinding vap -n "$ts" --clusterrole=teknoir-view --user=system:anonymous
+	probe allow "$P" "Namespace vap-new owned by Profile vap-new" create -f - <<<"$(jq -nc --argjson o "$(owner Profile vap-new)" '{apiVersion: "v1", kind: "Namespace", metadata: {name: "vap-new", ownerReferences: $o}}')"
+	probe allow "$P" "relabel its Namespace $ts" patch namespace "$ts" --type=merge -p '{"metadata":{"labels":{"probe":"x"}}}'
+	probe allow "$P" "ConfigMap in $ts" create configmap vap -n "$ts" --from-literal=k=v
+	probe allow "$P" "Secret in $ts" create secret generic vap -n "$ts" --from-literal=k=dummy
+	probe allow "$P" "RoleBinding teknoir-view to $ts/default-viewer" create rolebinding vap -n "$ts" --clusterrole=teknoir-view --serviceaccount="$ts:default-viewer"
+	probe allow "$P" "RoleBinding teknoir-admin to the owner (User)" create rolebinding vap -n "$ts" --clusterrole=teknoir-admin --user=owner@example.com
+	probe allow "$P" "DENY AuthorizationPolicy in $ts (whitelist-namespaces)" create -f - <<<"$(authpolicy "$ts" vap "$o_ts" DENY)"
+
+	# user-controller
+	local U=$UC_SA o_user rb ap
+	o_user=$(owner User vap-probe)
+	rb=user-vap-probe-teknoir-role-binding ap=user-vap-probe-teknoir-authorization-policy
+	for ns in teknoir-auth teknoir-system kube-system; do
+		probe deny "$U" "RoleBinding teknoir-admin to itself in $ns" create rolebinding x -n "$ns" --clusterrole=teknoir-admin --serviceaccount=teknoir-system:user-controller
+	done
+	probe deny "$U" "its own-shaped RoleBinding in teknoir-auth" create -f - <<<"$(rolebinding teknoir-auth "$rb" "$o_user" teknoir-admin "$subject")"
+	probe deny "$U" "AuthorizationPolicy in istio-system (mesh-wide)" create -f - <<<"$(authpolicy istio-system "$ap" "$o_user" ALLOW)"
+	probe deny "$U" "delete AuthorizationPolicy teknoir-auth/keycloak-allow-ingress" delete authorizationpolicies.security.istio.io keycloak-allow-ingress -n teknoir-auth
+	probe deny "$U" "change the owner's RoleBinding $ts/namespaceAdmin" patch rolebinding namespaceAdmin -n "$ts" --type=merge -p '{"subjects":[{"apiGroup":"rbac.authorization.k8s.io","kind":"User","name":"probe@example.com"}]}'
+	probe deny "$U" "delete the owner's RoleBinding $ts/namespaceAdmin" delete rolebinding namespaceAdmin -n "$ts"
+	probe deny "$U" "RoleBinding in $ts for a ServiceAccount" create -f - <<<"$(rolebinding "$ts" "$rb" "$o_user" teknoir-admin '{"kind":"ServiceAccount","name":"user-controller","namespace":"teknoir-system"}')"
+	probe deny "$U" "RoleBinding in $ts for system:anonymous" create -f - <<<"$(rolebinding "$ts" "$rb" "$o_user" teknoir-view '{"apiGroup":"rbac.authorization.k8s.io","kind":"User","name":"system:anonymous"}')"
+	probe deny "$U" "RoleBinding in $ts without a User owner" create -f - <<<"$(rolebinding "$ts" "$rb" "$o_none" teknoir-view "$subject")"
+	probe deny "$U" "RoleBinding in $ts under another name" create -f - <<<"$(rolebinding "$ts" vap "$o_user" teknoir-view "$subject")"
+	probe deny "$U" "DENY AuthorizationPolicy in $ts" create -f - <<<"$(authpolicy "$ts" "$ap" "$o_user" DENY)"
+	probe allow "$U" "$rb (teknoir-view, User) in $ts" create -f - <<<"$(rolebinding "$ts" "$rb" "$o_user" teknoir-view "$subject")"
+	probe allow "$U" "$ap (ALLOW) in $ts" create -f - <<<"$(authpolicy "$ts" "$ap" "$o_user" ALLOW)"
+
+	# anyone else is not matched
+	if k patch appproject teknoir-local -n teknoir-system --type=merge -p '{"metadata":{"labels":{"probe":"x"}}}' --dry-run=server >/dev/null 2>"$WORK/err" &&
+		k -n teknoir-auth create rolebinding vap --clusterrole=teknoir-admin --serviceaccount=teknoir-system:user-controller --dry-run=server >/dev/null 2>>"$WORK/err"; then
+		ok "R13 a cluster admin is not affected (platform AppProject, RoleBinding in teknoir-auth)"
+	else
+		bad "R13 a cluster admin is refused: $(head -c 300 "$WORK/err")"
+	fi
+}
+summary() {
+	echo
+	echo "rbac-k3d: $pass passed, $fail failed, $skip skipped$([ "$LEGACY" -eq 1 ] && echo ' (--legacy)')$([ "$ONLY_POLICIES" -eq 1 ] && echo ' (--policies-only)')"
+	[ "$fail" -eq 0 ]
+}
+
+if ! controllers; then
+	# Stand-ins for what the profile-controller creates for teknoir-default.
+	echo "== teknoir-default stand-ins (no controllers)"
+	k apply --server-side --field-manager=argocd-controller -f "$WORK/profiles.yaml" >/dev/null
+	o=$(owner Profile teknoir-default "$(k get profile teknoir-default -o jsonpath='{.metadata.uid}')")
+	jq -nc --argjson o "$o" '{apiVersion: "v1", kind: "Namespace", metadata: {name: "teknoir-default", ownerReferences: $o,
+		labels: {"app.kubernetes.io/part-of": "teknoir-profile", "istio-injection": "enabled"}, annotations: {owner: "owner@example.com"}}}' | k apply -f - >/dev/null
+	appproject teknoir-default "$o" | k apply -f - >/dev/null
+	rolebinding teknoir-default namespaceAdmin "$o" teknoir-admin '{"apiGroup":"rbac.authorization.k8s.io","kind":"User","name":"owner@example.com"}' | k apply -f - >/dev/null
+	r13
+	summary
+	exit
+fi
 
 # --- R5 start ----------------------------------------------------------------------
 echo "== R5 controllers start"
@@ -377,8 +632,10 @@ check_profile() { # check_profile <name> <owner>
 	local ns=$1 owner=$2 b want
 	k get namespace "$ns" >/dev/null 2>&1 || return 0
 	if wait_for 240 has_finalizer profile "$ns" profile-finalizer; then ok "R6 $ns: reconciled to completion (profile-finalizer)"; else bad "R6 $ns: never completed a reconcile"; fi
-	b=$(k get namespace "$ns" -o go-template='{{index .metadata.annotations "owner"}} {{index .metadata.labels "istio-injection"}} {{(index .metadata.ownerReferences 0).kind}}')
-	[ "$b" = "$owner enabled Profile" ] && ok "R6 $ns: namespace owner/istio-injection/ownerReference" || bad "R6 $ns: namespace '$b'"
+	# (the admission policies recognise a teamspace by the part-of label and
+	# the owner annotation)
+	b=$(k get namespace "$ns" -o go-template='{{index .metadata.annotations "owner"}} {{index .metadata.labels "istio-injection"}} {{index .metadata.labels "app.kubernetes.io/part-of"}} {{(index .metadata.ownerReferences 0).kind}}/{{(index .metadata.ownerReferences 0).name}}')
+	[ "$b" = "$owner enabled teknoir-profile Profile/$ns" ] && ok "R6 $ns: namespace owner, istio-injection, part-of teknoir-profile, ownerReference Profile/$ns" || bad "R6 $ns: namespace '$b'"
 	b=$(k -n "$ns" get rolebindings -o go-template='{{range .items}}{{.metadata.name}}={{.roleRef.name}} {{end}}')
 	for want in namespaceAdmin=teknoir-admin default-editor=teknoir-edit default-viewer=teknoir-view; do
 		case " $b " in *" $want "*) ok "R6 $ns: RoleBinding $want" ;; *) bad "R6 $ns: no RoleBinding $want ($b)" ;; esac
@@ -418,6 +675,7 @@ check_profile() { # check_profile <name> <owner>
 }
 check_profile teknoir-default "$DEFAULT_OWNER"
 check_profile rbac-test rbac-owner@example.com
+r13
 
 # --- R8-R10 User ------------------------------------------------------------------------
 echo "== R8-R10 User"
@@ -513,6 +771,4 @@ else
 fi
 unset PW
 
-echo
-echo "rbac-k3d: $pass passed, $fail failed, $skip skipped$([ "$LEGACY" -eq 1 ] && echo ' (--legacy)')"
-[ "$fail" -eq 0 ]
+summary
