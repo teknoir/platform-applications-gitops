@@ -66,14 +66,25 @@
 #         untouchable; only User-owned user-<User>-teknoir-* objects, users as
 #         subjects, ALLOW policies; its real shapes are allowed
 #       - a cluster admin is not affected
+#   R14 the live break-glass of infra docs/airgap/OPERATE.md (r5, "Controller
+#       RBAC and admission policies"), with its commands, on stand-ins of the
+#       root app-of-apps (as infra's templates/app-of-apps.yaml.tmpl, applied
+#       as teknoir-bootstrap) and the controller Applications (as
+#       charts/app-of-apps renders them): a denial reads "is forbidden:
+#       ValidatingAdmissionPolicy '<p>' with binding '<b>' denied request";
+#       the JSON patch removes only spec.syncPolicy.automated; deleting one
+#       binding lifts only that policy; the revert (the runbook's merge patch
+#       or up's server-side apply of the root, then what ArgoCD's syncs apply)
+#       restores the specs as rendered and the refusals. No ArgoCD runs here:
+#       its self-heal is not tested, only what it would apply.
 #
 # Options / environment:
 #   --keep      keep the cluster (context k3d-rbac-k3d) and the work dir
 #   --legacy    the images predate r5 (WP-UC/WP-PC): checks of r5 behaviour
 #               (R7, K1 parts of R8/R10) are SKIPped, not failed, and the
 #               admission policies are left out (they refuse what the old
-#               profile-controller writes); R13 is SKIPped
-#   --policies-only  no controllers (no images needed): R1-R4 and R13
+#               profile-controller writes); R13 and R14 are SKIPped
+#   --policies-only  no controllers (no images needed): R1-R4, R13 and R14
 #               against stand-ins of what the profile-controller creates for
 #               teknoir-default (namespace, AppProject, owner RoleBinding)
 #   UC_IMAGE, PC_IMAGE  images to run (default: the chart pins). A chart
@@ -142,6 +153,7 @@ wait_for() {
 }
 
 UC_SA=system:serviceaccount:teknoir-system:user-controller
+PROBE_TAG=R13 # the check id probe() prints
 PC_SA=system:serviceaccount:teknoir-system:profile-controller
 PLUGINS="deadend emqx fleet-metrics grafana historian jwks mongodb observatory prometheus"
 
@@ -432,12 +444,13 @@ k delete namespace rbac-probe --wait=false >/dev/null
 # --- R13 admission policies ----------------------------------------------------------
 # probe <allow|deny> <sa> <label> <kubectl args...>: a server-side dry run as
 # <sa> (admission runs, nothing is stored). A refusal must come from an
-# admission policy, i.e. the RBAC allowed the request.
+# admission policy, i.e. the RBAC allowed the request. PROBE_POLICY=<name>
+# (optional): the refusal must come from that policy.
 probe() {
 	local want=$1 sa=$2 label=$3 got; shift 3
 	if k --as="$sa" "$@" --dry-run=server >/dev/null 2>"$WORK/err"; then got=allow; else got=deny; fi
 	case $want/$got in
-	allow/allow) ok "R13 ${sa##*:}: $label: allowed" ;;
+	allow/allow) ok "$PROBE_TAG ${sa##*:}: $label: allowed" ;;
 	deny/deny)
 		# "ValidatingAdmissionPolicy '<policy>' with binding '<b>' denied request: <message>";
 		# an expression that fails to evaluate denies too (failurePolicy Fail): not a pass
@@ -445,14 +458,16 @@ probe() {
 		policy=$(grep -o "ValidatingAdmissionPolicy '[^']*'" "$WORK/err" | head -1 | cut -d"'" -f2)
 		msg=$(sed -n 's/.*denied request: //p' "$WORK/err" | head -1)
 		if [ -z "$policy" ] || [ -z "$msg" ]; then
-			bad "R13 ${sa##*:}: $label: refused, but not by an admission policy: $(head -c 300 "$WORK/err")"
+			bad "$PROBE_TAG ${sa##*:}: $label: refused, but not by an admission policy: $(head -c 300 "$WORK/err")"
 		elif grep -Eqi 'resulted in error|no such key|no matching overload|compil|evaluat' <<<"$msg"; then
-			bad "R13 ${sa##*:}: $label: $policy failed to evaluate: $(head -c 300 <<<"$msg")"
+			bad "$PROBE_TAG ${sa##*:}: $label: $policy failed to evaluate: $(head -c 300 <<<"$msg")"
+		elif [ -n "${PROBE_POLICY:-}" ] && [ "$policy" != "$PROBE_POLICY" ]; then
+			bad "$PROBE_TAG ${sa##*:}: $label: refused by $policy, want $PROBE_POLICY"
 		else
-			ok "R13 ${sa##*:}: $label: refused by $policy ($(cut -c1-60 <<<"$msg")...)"
+			ok "$PROBE_TAG ${sa##*:}: $label: refused by $policy ($(cut -c1-60 <<<"$msg")...)"
 		fi ;;
-	allow/deny) bad "R13 ${sa##*:}: $label: refused: $(head -c 300 "$WORK/err")" ;;
-	deny/allow) bad "R13 ${sa##*:}: $label: allowed" ;;
+	allow/deny) bad "$PROBE_TAG ${sa##*:}: $label: refused: $(head -c 300 "$WORK/err")" ;;
+	deny/allow) bad "$PROBE_TAG ${sa##*:}: $label: allowed" ;;
 	esac
 }
 # owner <kind> <name> [uid]: ownerReferences JSON (a made-up uid is fine for a dry run)
@@ -579,6 +594,103 @@ r13() {
 		bad "R13 a cluster admin is refused: $(head -c 300 "$WORK/err")"
 	fi
 }
+# --- R14 break-glass ------------------------------------------------------------------
+# The commands of infra docs/airgap/OPERATE.md (r5, "Controller RBAC and
+# admission policies"); keep them in step with the runbook.
+BG_OFF='[{"op":"remove","path":"/spec/syncPolicy/automated"}]'
+BG_ON='{"spec":{"syncPolicy":{"automated":{"prune":true,"selfHeal":true,"enabled":true}}}}'
+# settle <allow|deny> <sa> <kubectl args...>: wait up to 30 s until a dry run
+# as <sa> gets that answer (a binding change reaches admission through an
+# informer)
+settle() {
+	local want=$1 sa=$2 got; shift 2
+	for _ in $(seq 1 15); do
+		if k --as="$sa" "$@" --dry-run=server >/dev/null 2>&1; then got=allow; else got=deny; fi
+		[ "$got" = "$want" ] && return 0
+		sleep 2
+	done
+	return 1
+}
+spec_of() { k -n teknoir-system get application "$1" -o json | jq -cS '.spec'; }
+r14() {
+	local PROBE_TAG=R14 P=$PC_SA U=$UC_SA app b
+	local -A spec0
+	local auth_patch='{"spec":{"source":{"targetRevision":"9.9.9"}}}'
+	local self_bind=(create rolebinding x -n teknoir-auth --clusterrole=teknoir-admin --serviceaccount=teknoir-system:user-controller)
+	echo "== R14 break-glass (OPERATE r5)"
+	if ! policies; then skp "R14 break-glass: --legacy"; return 0; fi
+	# stand-ins: the controller Applications as the root syncs them, the root as up applies it
+	helm template app-of-apps "$ROOT/charts/app-of-apps" --namespace teknoir-system --kube-version "$KUBE_VERSION" |
+		yq 'select(.kind == "Application" and (.metadata.name == "user-controller" or .metadata.name == "profile-controller"))' >"$WORK/children.yaml"
+	cat >"$WORK/root.yaml" <<'ROOT_APP'
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: app-of-apps
+  namespace: teknoir-system
+  annotations: {argocd.argoproj.io/compare-options: ServerSideDiff=true}
+spec:
+  project: default
+  destination: {namespace: teknoir-system, server: "https://kubernetes.default.svc"}
+  source: {repoURL: harbor.teknoir.airgapped/teknoir, chart: app-of-apps, targetRevision: 0.0.5}
+  syncPolicy:
+    automated: {prune: true, selfHeal: true, enabled: true}
+    retry: {limit: 10, backoff: {duration: 30s, factor: 2, maxDuration: 5m}}
+ROOT_APP
+	yq 'select(.kind == "ValidatingAdmissionPolicyBinding")' "$WORK/user-controller.yaml" "$WORK/profile-controller.yaml" >"$WORK/bindings.yaml"
+	k -n teknoir-system apply --server-side --field-manager=argocd-controller -f "$WORK/children.yaml" >/dev/null
+	k apply --server-side --field-manager=teknoir-bootstrap -f "$WORK/root.yaml" >/dev/null
+	for app in app-of-apps user-controller profile-controller; do
+		spec0[$app]=$(spec_of "$app")
+		[ "$(jq -c '.syncPolicy.automated' <<<"${spec0[$app]}")" = '{"enabled":true,"prune":true,"selfHeal":true}' ] &&
+			ok "R14 stand-in $app with auto-sync (prune, selfHeal)" || bad "R14 stand-in $app: ${spec0[$app]}"
+	done
+
+	PROBE_POLICY=profile-controller-argocd probe deny "$P" "change the platform Application auth" patch application auth -n teknoir-system --type=merge -p "$auth_patch"
+	grep -q "is forbidden: ValidatingAdmissionPolicy 'profile-controller-argocd' with binding 'profile-controller-argocd' denied request: " "$WORK/err" &&
+		ok "R14 a denial reads \"... is forbidden: ValidatingAdmissionPolicy '<policy>' with binding '<binding>' denied request: ...\" (E13's 'forbidden' check, the runbook's grep)" ||
+		bad "R14 denial text: $(head -c 300 "$WORK/err")"
+
+	# break-glass for profile-controller-argocd: the root, then the child, then the binding
+	k -n teknoir-system patch application app-of-apps --type json -p "$BG_OFF" >/dev/null 2>"$WORK/err" || bad "R14 step 1 (root): $(cat "$WORK/err")"
+	k -n teknoir-system patch application profile-controller --type json -p "$BG_OFF" >/dev/null 2>"$WORK/err" || bad "R14 step 2 (profile-controller): $(cat "$WORK/err")"
+	k delete validatingadmissionpolicybinding profile-controller-argocd >/dev/null 2>"$WORK/err" || bad "R14 step 3 (binding): $(cat "$WORK/err")"
+	for app in app-of-apps profile-controller; do
+		[ "$(spec_of "$app")" = "$(jq -cS 'del(.syncPolicy.automated)' <<<"${spec0[$app]}")" ] &&
+			ok "R14 $app: auto-sync off, the rest of its spec unchanged" || bad "R14 $app after the patch: $(spec_of "$app")"
+	done
+	[ "$(spec_of user-controller)" = "${spec0[user-controller]}" ] && ok "R14 the user-controller Application is untouched" || bad "R14 the user-controller Application changed"
+	settle allow "$P" patch application auth -n teknoir-system --type=merge -p "$auth_patch" || true
+	probe allow "$P" "change the platform Application auth, binding profile-controller-argocd deleted" patch application auth -n teknoir-system --type=merge -p "$auth_patch"
+	PROBE_POLICY=profile-controller-teamspaces probe deny "$P" "ConfigMap in teknoir-system (profile-controller-teamspaces still bound)" create configmap vap -n teknoir-system --from-literal=k=v
+	PROBE_POLICY=user-controller-teamspace-access probe deny "$U" "RoleBinding teknoir-admin to itself in teknoir-auth (still bound)" "${self_bind[@]}"
+	# the same for the user-controller (the root's auto-sync is already off)
+	k -n teknoir-system patch application user-controller --type json -p "$BG_OFF" >/dev/null 2>"$WORK/err" || bad "R14 step 2 (user-controller): $(cat "$WORK/err")"
+	k delete validatingadmissionpolicybinding user-controller-teamspace-access >/dev/null 2>"$WORK/err" || bad "R14 step 3 (binding): $(cat "$WORK/err")"
+	settle allow "$U" "${self_bind[@]}" || true
+	probe allow "$U" "RoleBinding teknoir-admin to itself in teknoir-auth, binding user-controller-teamspace-access deleted" "${self_bind[@]}"
+	b=$(k get validatingadmissionpolicies -o name | grep -c controller || true)
+	[ "$b" = 3 ] && ok "R14 the three policies stay (only bindings deleted)" || bad "R14 $b controller policies left"
+
+	# revert: the root's auto-sync back, by the runbook's merge patch and by up
+	# (server-side apply of the root as teknoir-bootstrap)
+	k -n teknoir-system patch application app-of-apps --type merge -p "$BG_ON" >/dev/null 2>"$WORK/err" || bad "R14 revert patch: $(cat "$WORK/err")"
+	[ "$(spec_of app-of-apps)" = "${spec0[app-of-apps]}" ] && ok "R14 revert by merge patch: the root's spec is as up applied it" || bad "R14 root after the revert patch: $(spec_of app-of-apps)"
+	k -n teknoir-system patch application app-of-apps --type json -p "$BG_OFF" >/dev/null
+	k apply --server-side --force-conflicts --field-manager=teknoir-bootstrap -f "$WORK/root.yaml" >/dev/null 2>"$WORK/err" || bad "R14 up's apply of the root: $(cat "$WORK/err")"
+	[ "$(spec_of app-of-apps)" = "${spec0[app-of-apps]}" ] && ok "R14 revert by up: the root's auto-sync is back" || bad "R14 root after up's apply: $(spec_of app-of-apps)"
+	# what the root's self-heal and the children's syncs then apply
+	k -n teknoir-system apply --server-side --field-manager=argocd-controller -f "$WORK/children.yaml" >/dev/null
+	k apply --server-side --field-manager=argocd-controller -f "$WORK/bindings.yaml" >/dev/null
+	for app in user-controller profile-controller; do
+		[ "$(spec_of "$app")" = "${spec0[$app]}" ] && ok "R14 revert: $app has its auto-sync back" || bad "R14 $app after the revert: $(spec_of "$app")"
+	done
+	settle deny "$P" patch application auth -n teknoir-system --type=merge -p "$auth_patch" || true
+	settle deny "$U" "${self_bind[@]}" || true
+	PROBE_POLICY=profile-controller-argocd probe deny "$P" "change the platform Application auth, after the revert" patch application auth -n teknoir-system --type=merge -p "$auth_patch"
+	PROBE_POLICY=user-controller-teamspace-access probe deny "$U" "RoleBinding teknoir-admin to itself in teknoir-auth, after the revert" "${self_bind[@]}"
+	k -n teknoir-system delete application app-of-apps user-controller profile-controller >/dev/null
+}
 summary() {
 	echo
 	echo "rbac-k3d: $pass passed, $fail failed, $skip skipped$([ "$LEGACY" -eq 1 ] && echo ' (--legacy)')$([ "$ONLY_POLICIES" -eq 1 ] && echo ' (--policies-only)')"
@@ -595,6 +707,7 @@ if ! controllers; then
 	appproject teknoir-default "$o" | k apply -f - >/dev/null
 	rolebinding teknoir-default namespaceAdmin "$o" teknoir-admin '{"apiGroup":"rbac.authorization.k8s.io","kind":"User","name":"owner@example.com"}' | k apply -f - >/dev/null
 	r13
+	r14
 	summary
 	exit
 fi
@@ -676,6 +789,7 @@ check_profile() { # check_profile <name> <owner>
 check_profile teknoir-default "$DEFAULT_OWNER"
 check_profile rbac-test rbac-owner@example.com
 r13
+r14
 
 # --- R8-R10 User ------------------------------------------------------------------------
 echo "== R8-R10 User"
