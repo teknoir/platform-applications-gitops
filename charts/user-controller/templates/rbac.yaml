@@ -1,14 +1,123 @@
+{{- /*
+Least privilege for the user-controller (replaces the cluster-admin binding;
+the old <fullname>-cluster-role-binding is pruned by ArgoCD). What the code
+does (branch teknoir-cloud, r5):
+- Users: reconcile (spec update for defaults/plugins/finalizer), status.
+- Claims, ClaimSets (typed, cached) and Profiles (unstructured get/list).
+- Per Profile namespace: RoleBinding user-<name>-teknoir-role-binding to
+  ClusterRole teknoir-admin|edit|view and an AuthorizationPolicy, created,
+  re-created (RoleBinding) or updated (policy), and deleted on revoke.
+- Leader election (--leader-elect): a Lease in the release namespace.
+- Temporary passwords: one Secret per User in credentials.namespace, read by
+  name through the API reader (no list/watch, so no cluster-wide Secret
+  cache).
+Nothing on Secrets elsewhere, pods, namespaces or cluster-scoped bindings.
+The kubebuilder markers in the user-controller repo match these rules.
+*/}}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "user-controller.fullname" . }}
+  labels:
+    {{- include "user-controller.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["teknoir.org"]
+    resources: ["users"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["teknoir.org"]
+    resources: ["users/status"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: ["teknoir.org"]
+    resources: ["users/finalizers"]
+    verbs: ["update"]
+  - apiGroups: ["teknoir.org"]
+    resources: ["claims", "claimsets", "profiles"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["rolebindings"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # A RoleBinding to these ClusterRoles only (the roleRef is 'teknoir-' +
+  # the user's role in the namespace); never cluster-admin, admin or edit.
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles"]
+    resourceNames: ["teknoir-admin", "teknoir-edit", "teknoir-view"]
+    verbs: ["bind"]
+  - apiGroups: ["security.istio.io"]
+    resources: ["authorizationpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "user-controller.fullname" . }}-cluster-role-binding
+  name: {{ include "user-controller.fullname" . }}
   labels:
     {{- include "user-controller.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: cluster-admin
+  name: {{ include "user-controller.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "user-controller.fullname" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# Leader election (--leader-elect, Lease 07b1c4e7.teknoir.org).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "user-controller.fullname" . }}-leader-election
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "user-controller.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "user-controller.fullname" . }}-leader-election
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "user-controller.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "user-controller.fullname" . }}-leader-election
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "user-controller.fullname" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# Temporary-password Secrets: by name only (no list/watch).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "user-controller.fullname" . }}-credentials
+  namespace: {{ include "user-controller.credentialsNamespace" . }}
+  labels:
+    {{- include "user-controller.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "update", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "user-controller.fullname" . }}-credentials
+  namespace: {{ include "user-controller.credentialsNamespace" . }}
+  labels:
+    {{- include "user-controller.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "user-controller.fullname" . }}-credentials
 subjects:
   - kind: ServiceAccount
     name: {{ include "user-controller.fullname" . }}

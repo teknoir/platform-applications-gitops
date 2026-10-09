@@ -11,3 +11,5 @@ data:
   MAIL_CLIENT_API_KEY: {{ .Values.config.mailClientApiKey | quote }}
   WEB_DOMAIN: {{ .Values.config.webDomain | quote }}
   KEYCLOAK_URL: "http://keycloak-http.teknoir-auth/auth"
+  USER_CREDENTIALS_NAMESPACE: {{ include "user-controller.credentialsNamespace" . | quote }}
+  INITIAL_PASSWORD_TTL: {{ .Values.credentials.initialPasswordTTL | required "credentials.initialPasswordTTL is required" | quote }}
