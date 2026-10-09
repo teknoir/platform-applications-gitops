@@ -27,7 +27,10 @@
 #       grafana policies select
 #   M8  monitoring.access.groups renders into all three ingress policies
 #   M9  the render fails on: no groups, an issuer that grafana.ini does not
-#       repeat, an http issuer, anonymous access, auth.jwt off
+#       repeat, an http issuer, anonymous access, auth.jwt off, an
+#       expect_claims of another issuer
+#   M10 `istioctl validate` accepts every rendered Istio resource (skipped,
+#       not failed, when istioctl is not installed)
 #
 # Usage: charts/monitoring/tests/render-test.sh
 # Environment:
@@ -36,7 +39,7 @@
 #                 (default ~/.cache/teknoir-render)
 #   HELM          helm binary (default helm)
 # Requires helm, yq (mikefarah v4) and jq; network access for an uncached
-# kube-prometheus-stack.
+# kube-prometheus-stack. Optional: istioctl (M10).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -248,6 +251,18 @@ kube-prometheus-stack:
         expect_claims: '{"iss": "https://auth.example.org/auth/realms/teknoir"}'
 EOF
 expect_render_failure "expect_claims of another issuer" "expect_claims" -f "${tmp}/other-iss.yaml"
+
+# --- M10 istioctl validate ----------------------------------------------------------
+if command -v istioctl >/dev/null; then
+  yq 'select(.apiVersion | test("istio\\.io/"))' "${tmp}/render.yaml" > "${tmp}/istio.yaml"
+  if istioctl validate -f "${tmp}/istio.yaml" > "${tmp}/err" 2>&1; then
+    pass M10 "istioctl validate: $(grep -c '^kind:' "${tmp}/istio.yaml") Istio resources valid"
+  else
+    fail M10 "istioctl validate: $(tr '\n' ' ' < "${tmp}/err")"
+  fi
+else
+  echo "SKIP  M10  istioctl not installed"
+fi
 
 echo
 echo "render-test.sh (monitoring): ${fails} failed checks"
