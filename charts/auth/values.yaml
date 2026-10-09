@@ -198,11 +198,23 @@ realm:
   # from Secret keycloakConfig.platformAdminSecret (platform-secrets); the
   # email is <username>@<domain>. The password is temporary (forced change at
   # first login) and only set when the import creates the user. The user
-  # stays managed: enabled: false disables it once named admins exist.
+  # stays managed: every import re-applies `enabled`.
+  # Disabled (r5, decision D1): named admins exist (`teknoir-airgap
+  # admin-user`), and anyone who can read Secret keycloak-platform-admin could
+  # otherwise sign in as an admin. Break-glass is the master-realm admin
+  # (Secret keycloak-admin), who can re-enable the user in the console until
+  # the next sync of auth disables it again.
   platformAdmin:
-    enabled: true
+    enabled: false
     firstName: Platform
     lastName: Admin
+  # Required action VERIFY_PROFILE (the "Update your account information"
+  # form). Keycloak 26's default user profile requires a last name, which
+  # users created by user-controller may lack, so the form would appear at
+  # their first login. false disables the required action; set true once
+  # user-controller fills lastName for every user. The realm import manages
+  # only this required action and imports no userProfile document.
+  verifyProfile: false
 
 # keycloak-config-cli PostSync Job that imports the realm.
 keycloakConfig:

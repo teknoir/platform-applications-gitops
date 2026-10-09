@@ -32,6 +32,23 @@ accessTokenLifespan: {{ $r.accessTokenLifespan }}
 ssoSessionIdleTimeout: {{ $r.ssoSessionIdleTimeout }}
 ssoSessionMaxLifespan: {{ $r.ssoSessionMaxLifespan }}
 
+# Keycloak 26's default user profile requires firstName and lastName, and the
+# enabled-by-default required action VERIFY_PROFILE then shows the "Update
+# your account information" form at the first login of a user that lacks one
+# (user-controller images before r5 set no last name, and existing users keep
+# whatever they were created with). realm.verifyProfile turns it on again.
+# keycloak-config-cli manages required actions by alias and leaves the other
+# built-in ones alone. No userProfile document is imported: it would replace
+# the whole profile, including the unmanaged-attribute policy that
+# user-controller's claim attributes rely on.
+requiredActions:
+  - alias: VERIFY_PROFILE
+    name: Verify Profile
+    providerId: VERIFY_PROFILE
+    enabled: {{ $r.verifyProfile | default false }}
+    defaultAction: false
+    priority: 90
+
 clientScopes:
   # Flat group names in the ID/access tokens and userinfo: ArgoCD maps group
   # `admin` to role:admin, Harbor uses it as its OIDC admin group.
@@ -77,6 +94,10 @@ clients:
       - "+"
     attributes:
       pkce.code.challenge.method: S256
+      # RP-initiated logout (Backstage: /oauth2/sign_out?rd=<end_session URL
+      # with client_id=teknoir&post_logout_redirect_uri=https://<domain>/>)
+      # may return to the platform host only.
+      post.logout.redirect.uris: "https://{{ $domain }}/*"
     # "basic" carries `sub`, which Backstage requires.
     defaultClientScopes: {{ toJson $r.defaultClientScopes }}
     optionalClientScopes: {{ toJson $r.optionalClientScopes }}
@@ -156,6 +177,8 @@ users:
   # password change at first login and later imports never reset it. email,
   # firstName and lastName satisfy the default user profile, so there is no
   # profile form at first login. Membership is exactly group admin.
+  # `enabled` is re-applied on every import (realm.platformAdmin.enabled,
+  # false since r5: break-glass only, re-enabled by the master admin).
   - username: $(env:PLATFORM_ADMIN_USERNAME)
     email: $(env:PLATFORM_ADMIN_USERNAME)@{{ $domain }}
     emailVerified: true
