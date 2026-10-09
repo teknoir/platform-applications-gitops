@@ -77,6 +77,15 @@ config:
 profiles:
   - name: teknoir-default
 
+# ValidatingAdmissionPolicies that keep the controller's ServiceAccount inside
+# the teamspaces (Kubernetes 1.30+; see templates/admission-policies.yaml):
+# namespaced writes only in namespaces its Profile owns, RoleBindings only to
+# teknoir-admin/-edit/-view, and Applications/AppProjects only when a
+# teamspace Profile owns them and only in the narrowed teamspace shape. They
+# never touch requests by anyone else. false is the break-glass.
+admissionPolicies:
+  enabled: true
+
 resources: {}
   # limits:
   #   cpu: 100m

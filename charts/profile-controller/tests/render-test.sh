@@ -31,6 +31,13 @@
 #   P9 kubeconform -strict, with the Profile checked against the chart's
 #      CRD (unknown fields rejected; a bad Profile is caught); SKIP without
 #      kubeconform
+#   P10 admission policies: profile-controller-teamspaces and -argocd, each
+#      bound with Deny, failurePolicy Fail, matched only on the controller's
+#      ServiceAccount; every kind the RBAC lets it write (except events and
+#      its Profiles) is matched by one of them; the AppProject/Application
+#      repository is PLUGIN_CHART_REPO (the compiled default when empty);
+#      the reserved list is the one the Profile template refuses;
+#      admissionPolicies.enabled=false renders none
 # Requires helm, yq (mikefarah v4), jq, python3 (PyYAML); kubeconform
 # optional.
 set -euo pipefail
@@ -271,6 +278,45 @@ if command -v kubeconform >/dev/null; then
 else
 	echo "SKIP P9 kubeconform not installed"
 fi
+
+# --- P10 ----------------------------------------------------------------------
+vap() { jq -c --arg n "$2" '.[] | select(.kind == "ValidatingAdmissionPolicy" and .metadata.name == $n)' "$1"; }
+SA_USER=system:serviceaccount:teknoir-system:profile-controller
+for n in profile-controller-teamspaces profile-controller-argocd; do
+	v=$(vap "$WORK/r.json" "$n")
+	if [ -z "$v" ]; then bad "P10 no ValidatingAdmissionPolicy $n"; continue; fi
+	b=$(jq -r '"\(.spec.failurePolicy) \(.spec.matchConditions | map(.expression) | join(";"))"' <<<"$v")
+	[ "$b" = "Fail request.userInfo.username == \"$SA_USER\"" ] && ok "P10 $n: failurePolicy Fail, only requests by $SA_USER" || bad "P10 $n: $b"
+	b=$(jq -r --arg n "$n" '[.[] | select(.kind == "ValidatingAdmissionPolicyBinding" and .spec.policyName == $n) | .spec.validationActions | join(",")] | join(" ")' "$WORK/r.json")
+	[ "$b" = Deny ] && ok "P10 $n: bound with validationActions [Deny]" || bad "P10 $n bindings: '$b'"
+	b=$(jq -r '[.spec.validations[] | select(.reason != "Forbidden" or (.message // "") == "")] | length' <<<"$v")
+	[ "$b" = 0 ] && ok "P10 $n: every validation has a message and reason Forbidden" || bad "P10 $n: $b validations without message/Forbidden"
+done
+# RBAC write grants (group/resource) vs the kinds the policies match
+writes=$(jq -r '[.[] | select(.kind == "ClusterRole" or .kind == "Role") | select(.metadata.name | startswith("profile-controller"))
+	| .rules[] | select(.verbs | any(. == "create" or . == "update" or . == "patch" or . == "delete"))
+	| .apiGroups[] as $g | .resources[] | "\($g)/\(.)"]
+	| map(select(. != "/events" and (startswith("teknoir.org/profiles") | not))) | unique | join(" ")' "$WORK/r.json")
+matched=$(jq -r '[.[] | select(.kind == "ValidatingAdmissionPolicy") | .spec.matchConstraints.resourceRules[]
+	| select(.operations | (index("CREATE") and index("UPDATE") and index("DELETE")))
+	| .apiGroups[] as $g | .resources[] | "\($g)/\(.)"] | unique | join(" ")' "$WORK/r.json")
+[ -n "$writes" ] && [ "$writes" = "$matched" ] && ok "P10 every kind the RBAC lets it write is matched (CREATE/UPDATE/DELETE): $writes" \
+	|| bad "P10 RBAC writes '$writes' != policy matches '$matched'"
+var() { jq -r --arg n "$2" '.spec.variables[] | select(.name == $n) | .expression' <<<"$1"; }
+v=$(vap "$WORK/r.json" profile-controller-argocd)
+b=$(var "$v" repo | jq -r .)
+[ "$b" = "$(cm "$WORK/r.json" PLUGIN_CHART_REPO)" ] && ok "P10 argocd policy repository = PLUGIN_CHART_REPO ($b)" || bad "P10 argocd policy repository '$b'"
+v=$(vap "$WORK/e.json" profile-controller-argocd)
+b=$(var "$v" repo | jq -r .)
+[ "$b" = https://teknoir.github.io/profile-plugins-helm ] && ok "P10 empty pluginChartRepo: the compiled default ($b)" || bad "P10 empty pluginChartRepo: policy repository '$b'"
+for n in profile-controller-teamspaces profile-controller-argocd; do
+	b=$(var "$(vap "$WORK/r.json" "$n")" reserved | jq -r 'sort | join(" ")')
+	want="cert-manager default istio-system teknoir teknoir-auth teknoir-cloud teknoir-local teknoir-online teknoir-system teknoir-user-credentials"
+	[ "$b" = "$want" ] && ok "P10 $n: reserved names = the Profile template's" || bad "P10 $n: reserved '$b'"
+done
+render --set admissionPolicies.enabled=false >"$WORK/np.yaml"
+b=$(yq 'select(.kind == "ValidatingAdmissionPolicy*") | .metadata.name' "$WORK/np.yaml" | grep -vc '^---$' || true)
+[ "$b" = 0 ] && ok "P10 admissionPolicies.enabled=false renders no policy" || bad "P10 admissionPolicies.enabled=false renders $b policy objects"
 
 echo
 echo "profile-controller render-test: $pass passed, $fail failed, $warn warnings"
