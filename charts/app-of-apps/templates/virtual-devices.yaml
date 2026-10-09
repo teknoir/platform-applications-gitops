@@ -48,6 +48,9 @@ spec:
       # kubevirts.kubevirt.io and cdis.cdi.kubevirt.io exceed the 256 KiB
       # last-applied-configuration annotation of client-side apply.
       - ServerSideApply=true
+      # A sync writes the live value of the ignored fields below, so it does not
+      # undo what the operator set.
+      - RespectIgnoreDifferences=true
     automated:
       prune: true
       selfHeal: true
@@ -61,4 +64,14 @@ spec:
         duration: 30s
         factor: 2
         maxDuration: 5m
+  ignoreDifferences:
+    # cdi-operator reconciles its own CRD and drops the deprecated v1alpha1 version
+    # that the v1.65.0 release manifest still ships. Without this, Argo CD (selfHeal)
+    # and the operator rewrite spec.versions in turn, indefinitely (found by the k3d
+    # e2e with Argo CD v3.5.1). The operator owns this field.
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+      name: cdis.cdi.kubevirt.io
+      jsonPointers:
+        - /spec/versions
 {{- end }}

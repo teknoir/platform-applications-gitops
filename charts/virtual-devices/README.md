@@ -32,7 +32,15 @@ environment name.
 The Application syncs with server-side apply and server-side diff, prune and selfHeal, and
 retries a failed sync 10 times with backoff (30 s to 5 min), the same as `teknoir-local`.
 The k3d e2e syncs it with Argo CD v3.5.1, the version r415 runs, and checks that Argo CD
-and the operators do not fight (see `hack/virtual-device-spike/README.md`).
+and the operators do not fight (see `hack/virtual-device-spike/README.md`). It found one
+fight: cdi-operator rewrites the `spec.versions` of its own CRD `cdis.cdi.kubevirt.io` (it
+drops the deprecated `v1alpha1` that the v1.65.0 release manifest still ships), and
+selfHeal put it back every few minutes. The Application therefore ignores that one field
+(`ignoreDifferences` with `RespectIgnoreDifferences=true`, so a sync keeps the operator's
+value). The KubeVirt CR also leaves out `developerConfiguration` while there are no
+feature gates: `featureGates` is `omitempty` in the KubeVirt API types, so any typed write
+by the operator drops an empty list, which Argo CD would see as drift. `tests/assertions.py`
+rejects empty structs and an empty `featureGates`.
 
 ## Replicas
 

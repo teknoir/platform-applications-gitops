@@ -1,11 +1,42 @@
 #!/usr/bin/env bash
 # Fake kubectl for test/run.sh: records every invocation and answers with canned,
 # credential-free JSON (the Device fixture is the only object that carries keys).
+# FAKE_SCENARIO=leftover answers as a cluster where the virtual-device runtime was
+# removed in the wrong order (operators before their CRs): stale APIServices, CRDs,
+# webhooks, RBAC, the coredns-custom key and incomplete API discovery.
 printf '%s\n' "$*" >>"${FAKE_LOG:?}"
 args=" $* "
+leftover=false
+[[ ${FAKE_SCENARIO:-} == leftover ]] && leftover=true
+not_found() { echo "Error from server (NotFound): $1 not found" >&2; exit 1; }
+
+if $leftover; then
+  case "$args" in
+    *" get applications.argoproj.io virtual-devices -o name "*) not_found 'applications.argoproj.io "virtual-devices"' ;;
+    *" get namespace kubevirt -o name "*) echo "namespace/kubevirt"; exit 0 ;;
+    *" get priorityclass kubevirt-cluster-critical -o name "*) echo "priorityclass.scheduling.k8s.io/kubevirt-cluster-critical"; exit 0 ;;
+    *" api-resources "*)
+      echo "pods"
+      echo "error: unable to retrieve the complete list of server APIs: subresources.kubevirt.io/v1: stale GroupVersion discovery: subresources.kubevirt.io/v1" >&2
+      exit 1
+      ;;
+    *" get crd -o json "*) echo '{"items":[{"metadata":{"name":"virtualmachines.kubevirt.io"}},{"metadata":{"name":"certificates.cert-manager.io"}}]}'; exit 0 ;;
+    *" get apiservices -o json "*)
+      echo '{"items":[{"metadata":{"name":"v1.subresources.kubevirt.io"},"spec":{"group":"subresources.kubevirt.io","service":{"name":"virt-api","namespace":"kubevirt"}},"status":{"conditions":[{"type":"Available","status":"False","reason":"ServiceNotFound"}]}},{"metadata":{"name":"v1.apps"},"spec":{"group":"apps"},"status":{"conditions":[{"type":"Available","status":"True"}]}},{"metadata":{"name":"v1.kubevirt.io"},"spec":{"group":"kubevirt.io"},"status":{"conditions":[{"type":"Available","status":"True","reason":"Local"}]}}]}'; exit 0 ;;
+    *" get validatingwebhookconfigurations -o json "*)
+      echo '{"items":[{"metadata":{"name":"virt-api-validator"},"webhooks":[{"clientConfig":{"service":{"name":"virt-api","namespace":"kubevirt"}}}]},{"metadata":{"name":"cert-manager-webhook"},"webhooks":[{"clientConfig":{"service":{"name":"cert-manager-webhook","namespace":"cert-manager"}}}]}]}'; exit 0 ;;
+    *" get mutatingwebhookconfigurations -o json "*) echo '{"items":[{"metadata":{"name":"istio-sidecar-injector"},"webhooks":[{"clientConfig":{"service":{"name":"istiod","namespace":"istio-system"}}}]}]}'; exit 0 ;;
+    *" get configmap coredns-custom -o json "*) echo '{"metadata":{"name":"coredns-custom"},"data":{"virtual-devices.override":"rewrite stop name regex x y answer auto"}}'; exit 0 ;;
+    *" get clusterroles -o json "*) echo '{"items":[{"metadata":{"name":"kubevirt.io:admin"}},{"metadata":{"name":"admin"}},{"metadata":{"name":"cdi.kubevirt.io:view"}}]}'; exit 0 ;;
+    *" get clusterrolebindings -o json "*) echo '{"items":[{"metadata":{"name":"cluster-admin"}}]}'; exit 0 ;;
+    *" get clusterrole admin -o json "*) echo '{"metadata":{"name":"admin"},"rules":[{"apiGroups":["kubevirt.io"],"resources":["virtualmachines"],"verbs":["*"]},{"apiGroups":[""],"resources":["pods"],"verbs":["*"]}]}'; exit 0 ;;
+  esac
+fi
+
 case "$args" in
   *" version "*) echo '{"serverVersion":{"gitVersion":"v1.34.5+k3s1"}}' ;;
   *" auth can-i "*) echo no; exit 1 ;;
+  *" api-resources "*) printf 'pods\nnamespaces\n' ;;
   *" get device "*) cat "${FAKE_DEVICE:?}" ;;
   *" get nodes -o json "*)
     echo '{"items":[{"metadata":{"name":"node1","labels":{"host-model-cpu.node.kubevirt.io/Opteron_G5":"true"}},"status":{"allocatable":{"devices.kubevirt.io/kvm":"1k"},"addresses":[{"type":"InternalIP","address":"192.0.2.10"}]}}]}' ;;
@@ -13,7 +44,7 @@ case "$args" in
   *" get --raw "*) echo '{"node":{"fs":{"availableBytes":3865470566},"runtime":{"imageFs":{"availableBytes":3600000000000}}}}' ;;
   *" logs "*) echo "compute log line without findings" ;;
   *" get "*"jsonpath"*) echo -n "10.43.0.99" ;;
-  *" get "*" -o name "*) exit 1 ;;
+  *" get "*" -o name "*) not_found "${*: -3:1}" ;;
   *" get "*"-o json"*) echo '{"items":[]}' ;;
   *) echo '{}' ;;
 esac

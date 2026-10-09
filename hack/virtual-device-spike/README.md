@@ -13,10 +13,11 @@ The kit has three parts. None of them changes the cluster:
 | `manifests/teknoir-demo-vdev.yaml` | The runtime namespace for `teknoir-demo` as `render.sh --namespace-only` renders it, committed for review. It sets PSA `baseline`, turns off Istio injection, adds a default-deny NetworkPolicy with minimal egress, and a ResourceQuota and LimitRange sized with the KubeVirt/CDI overhead. |
 | `check.sh` | Runs the S1 checks. Toward the cluster it only uses `kubectl get/describe/logs/version/auth can-i`, which the `kc` wrapper enforces. In the guest it reads state and makes TCP connection attempts over SSH through the device's own reverse tunnel. |
 
-The cluster side is deployed by `charts/virtual-devices`, which the same PR adds and
-enables for `teknoir-cloud`. It contains KubeVirt v1.8.4 and CDI v1.65.0 (vendored and pinned),
-PriorityClass `teknoir-virtual-device`, and the CoreDNS override for
-`mqtt-`/`deadend-<ns>.teknoir.cloud`.
+The cluster side is deployed by `charts/virtual-devices`, which the same PR adds. The
+PR's last commit enables it for `teknoir-cloud`, and the app-of-apps template renders it
+on no other environment (see the chart README). It contains KubeVirt v1.8.4 and CDI
+v1.65.0 (vendored and pinned), PriorityClass `teknoir-virtual-device`, and the CoreDNS
+override for `mqtt-`/`deadend-<ns>.teknoir.cloud`.
 
 **Why the kit lives here.** It is not part of any deployed chart: Argo CD only reads `charts/*`, so
 `hack/` is never synced. It sits next to `charts/virtual-devices` because its namespace
@@ -72,7 +73,9 @@ the tunnel.
 
 | Question | k3d result |
 |---|---|
-| Chart deploys in Argo CD wave order | KubeVirt and CDI were `Deployed` about 2 minutes after the operators were applied. Every running image was pinned by digest, including the operands the operators create. |
+| Chart deploys in Argo CD wave order | Synced by Argo CD v3.5.1 (the version on r415) from the Application as app-of-apps renders it: the first sync took 20-30 s with no retry, and KubeVirt and CDI were `Deployed` about 2 minutes later. Every running image was pinned by digest, including the operands the operators create. |
+| Argo CD and the operators fight? | Not with this chart. The first Argo CD run found one fight: cdi-operator and selfHeal kept rewriting the `spec.versions` of the CRD `cdis.cdi.kubevirt.io`. The Application now ignores that field, and the KubeVirt CR carries no empty `featureGates` list (it is `omitempty` in the API, so an operator write would drop it). In the final run, counted from the Application's events, Argo CD ran exactly two operations in 11 minutes: the first automated sync and the forced re-sync. Nothing went OutOfSync and no generation moved, over 210 s after the operators were `Deployed` and 330 s after the re-sync. One earlier run saw a single partial selfHeal of the KubeVirt and CDI CRs right after the first sync, while the operators were filling them in. It ended with the same generations as the other runs. |
+| Rollback and removal | Deleting the Application (the flag off) leaves the runtime and the DNS rewrite in place. Removal in the order of step 10 leaves no CRD, aggregated APIService, webhook, RBAC, PriorityClass or `coredns-custom`, and API discovery stays complete. CDI's upload APIService and webhooks were still there right after `delete cdi` returned, so step 2 waits for them. |
 | Non-root virt-launcher and `/dev/kvm` | Works. The launcher runs as uid 107 with only `NET_BIND_SERVICE`, and the guest reports `systemd-detect-virt=kvm`. libvirt logs one harmless `Unable to open /dev/kvm` from an early CPUID probe; V10 ignores it and G6b is the real check. |
 | PSA `baseline` | virt-launcher and the CDI importer are admitted under `enforce=baseline`. |
 | CDI with local-path WaitForFirstConsumer | Works with `HonorWaitForFirstConsumer`: a temporary launcher pod triggers binding, then the importer runs with `pullMethod: node`. CDI has no StorageProfile defaults for `rancher.io/local-path`, so the VM's explicit `accessModes`/`volumeMode` are required. |
@@ -100,7 +103,8 @@ read-only and can be run by anyone with the `r415` context, including Claude.
 | 6 | Enable a tunnel for the test Device in Backstage | **[Anders]** |
 | 7 | Run all checks, open the web terminal, and record the results | anyone (the browser step needs a signed-in session) |
 | 8 | Go/no-go | **[Anders]** |
-| 9 | Clean up | **[Anders]** |
+| 9 | Clean up the test device | **[Anders]** |
+| 10 | Only if the runtime goes away: roll back and remove it in order | **[Anders]** |
 
 Tools on the machine running the kit: `kubectl` (context `r415`), `jq`, `git`, `go`,
 `base64`, `ssh` and `ncat` (or `openssl`). `python3` with PyYAML and `kubeconform` are
@@ -116,9 +120,9 @@ sync wave 1, plus PriorityClass `teknoir-virtual-device` and `kube-system/coredn
 That ConfigMap has one key, `virtual-devices.override`; r415 had no `coredns-custom` before.
 The images are about 2 GB, pulled to `/opt` (imagefs). The operators need a few minutes.
 
-Turning `virtualDevices.enabled` off later removes the Application but leaves KubeVirt
-in place, because the Application has no cascading finalizer. Both CRs also block
-uninstall while VMs exist.
+Turning `virtualDevices.enabled` off later removes only the Application, because it has
+no resources finalizer. KubeVirt, CDI, both PriorityClasses and `kube-system/coredns-custom`
+stay, and so does the DNS rewrite. Removal is step 10.
 
 ### 2. Platform checks
 
@@ -137,6 +141,14 @@ Expect the following:
 - P10: PriorityClass -100/Never.
 - P11: the override is present.
 - P13: free space on `/var`. It was 3.6 GiB at design time, so expect a WARN.
+- P14: the aggregated KubeVirt and CDI APIServices are Available.
+- P15: two ready replicas each of virt-api, virt-controller and cdi-apiserver.
+
+This is the first Argo CD sync on r415; the k3d e2e ran the same Application against the
+same Argo CD version. P2 must stay Synced. Repeated syncs after the first one mean Argo CD
+and an operator fight over a field. The Application's events list every sync operation,
+including partial selfHeal syncs:
+`kubectl --context r415 -n teknoir-system get events --field-selector involvedObject.name=virtual-devices`.
 
 The rewrite itself is proven later from inside the guest (G14). CoreDNS's `reload`
 plugin may not notice a newly created `coredns-custom`. If G14 fails, run step 5b.
@@ -265,6 +277,7 @@ no errors, and take a screenshot.
 | tnctl bootstrap succeeds; `k3s check-config` passes; genericcloud kernel modules | G5, G7, G8 |
 | Inner k3s starts with the device-rooted custom CA (the k3s >= 1.34.12 finding) | G9, G9b |
 | Inner k3s on 10.52/10.53, version pinned | G9, G10 |
+| A virt-api or cdi-apiserver restart does not break API discovery | P14, P15 |
 | TOE connects (TOE log) and Last Seen updates (platform) | G12; D2; D5 with `--prom-url` |
 | Reverse tunnel works; web terminal works | G1 (SSH through deadend and the device's tunnel), D3, D4; web terminal in the browser |
 | DNS rewrite vs hairpin | G14 (guest resolves to the gateway ClusterIP); I17 (public IP of the mqtt name, `open` means the router hairpins) |
@@ -302,8 +315,99 @@ kubectl --context r415 delete namespace teknoir-demo-vdev
 
 Then delete the test Device in Backstage. The finalizer revokes the JWKS key and the
 deadend key. Its key is a real platform credential that also sat in the VM, so do
-not keep the Device around. KubeVirt and CDI stay until the gitops change is reverted.
-To remove them, delete the `KubeVirt` and `CDI` CRs first, then the operators.
+not keep the Device around. The runtime (KubeVirt, CDI, the PriorityClasses and the
+CoreDNS rewrite) stays; step 10 removes it.
+
+### 10. [Anders] Rollback and removing the runtime
+
+There are two levels.
+
+**Rollback.** This stops Argo CD from managing the runtime. Set
+`virtualDevices.enabled: false` in `charts/app-of-apps/values.yaml` on `teknoir-cloud`
+(or revert the enable commit) and merge. Argo CD prunes the `virtual-devices` Application.
+It has no resources finalizer, so **everything else stays**: KubeVirt, CDI, their
+APIServices and webhooks, PriorityClasses `kubevirt-cluster-critical` and
+`teknoir-virtual-device`, and `kube-system/coredns-custom` with the cluster-wide
+`mqtt-`/`deadend-<ns>.teknoir.cloud` rewrite. The k3d e2e confirms this.
+
+**Removal.** It starts with the rollback; otherwise selfHeal re-creates what you delete.
+The order matters:
+- The operators remove what they created only while they run, and only when their CR is
+  deleted. That covers virt-api and cdi-apiserver, the aggregated APIServices
+  (`subresources.kubevirt.io`, `upload.cdi.kubevirt.io`), their webhooks, CRDs and
+  ClusterRoles. Part of it goes only after the CR itself is gone, so step 2 waits for it.
+- If the operators go first, the APIServices stay behind without a backend. API discovery
+  then fails for every client, which stalls namespace deletion and garbage collection
+  cluster-wide. Stale webhooks also reject writes to the objects they match.
+
+```sh
+CTX=r415
+# 0. After the rollback: the Application is gone.
+kubectl --context $CTX -n teknoir-system get applications.argoproj.io virtual-devices   # NotFound
+
+# 1. No virtual devices: delete the VMs (their VMIs and DataVolumes go with them) and
+#    the runtime namespaces. Both CRs refuse to uninstall while workloads exist.
+kubectl --context $CTX get vm,vmi,dv -A
+kubectl --context $CTX -n teknoir-demo-vdev delete vm --all --wait
+kubectl --context $CTX delete namespace teknoir-demo-vdev --wait
+kubectl --context $CTX get vm,vmi,dv -A          # must print nothing
+
+# 2. Delete the CRs while the operators still run. Each delete returns once its CR is
+#    gone, but not everything goes with it: CDI's aggregated upload APIService and its
+#    webhooks were still there right after 'delete cdi' returned in the k3d e2e.
+kubectl --context $CTX -n kubevirt delete kubevirt kubevirt --wait --timeout=10m
+kubectl --context $CTX delete cdi cdi --wait --timeout=10m
+#    Wait until no aggregated APIService and no KubeVirt/CDI webhook is left. "Local"
+#    APIServices belong to CRDs and are harmless: those of kubevirts.kubevirt.io and
+#    cdis.cdi.kubevirt.io (the chart ships both CRDs) stay until step 3. If this times
+#    out, stop (see the notes below).
+timeout 5m sh -c "until [ -z \"\$(kubectl --context $CTX get apiservices | grep kubevirt.io | grep -v Local)\" ] &&
+  [ -z \"\$(kubectl --context $CTX get validatingwebhookconfigurations,mutatingwebhookconfigurations -o name | grep -E 'virt|cdi')\" ];
+  do sleep 10; done" && echo "operands gone"
+
+# 3. Remove the rest of what the chart created: the operators with their namespaces,
+#    CRDs and RBAC, both PriorityClasses, and kube-system/coredns-custom. Run it from
+#    the commit that was deployed.
+helm template virtual-devices charts/virtual-devices --namespace kubevirt \
+  --show-only templates/kubevirt-operator.yaml --show-only templates/cdi-operator.yaml \
+  --show-only templates/priorityclass.yaml --show-only templates/coredns-custom.yaml |
+  kubectl --context $CTX delete --ignore-not-found --wait --timeout=10m -f -
+
+# 4. Verify. This step is read-only.
+kubectl --context $CTX get apiservices | grep kubevirt   # must print nothing
+hack/virtual-device-spike/check.sh --context $CTX --phase removed
+```
+
+Notes:
+- **`coredns-custom`.** The chart owns the whole ConfigMap, so step 3 deletes any other
+  key someone added. Before step 3, look at its keys with
+  `kubectl --context r415 -n kube-system get configmap coredns-custom -o jsonpath='{.data}'`.
+  Check R7 confirms the key is gone. In the k3d e2e CoreDNS stopped rewriting the
+  `mqtt-` name without a restart, as it had picked the ConfigMap up without one.
+- **Operators removed while a CR still exists.** Nothing removes the operands then. Apply
+  the operator again so it can process the deletion:
+  `helm template ... --show-only templates/kubevirt-operator.yaml | kubectl apply --server-side -f -`
+  (or `cdi-operator.yaml`), wait for the CR to go, then continue with the wait in step 2.
+- **Aggregated APIServices or webhooks still there after the wait in step 2,** or after the
+  operators went first. R3 names the stale APIServices and R4 the stale webhooks. Their
+  backends are gone, so they only break API discovery and writes. Delete each one with
+  `kubectl delete apiservice <name>` or
+  `kubectl delete validatingwebhookconfiguration|mutatingwebhookconfiguration <name>`.
+- **Node leftovers.** virt-handler labels the node with the CPU models and features
+  KubeVirt detected (413 `*.kubevirt.io` labels on the k3d node), adds two `kubevirt.io`
+  annotations, and registers the extended resources `devices.kubevirt.io/kvm`, `tun` and
+  `vhost-net`. Nothing reads them once KubeVirt is gone, and R10 lists them as INFO.
+  In the k3d e2e the extended resources were allocatable 0 as soon as virt-handler was
+  gone, so nothing can be scheduled against them; their capacity stays listed in the node
+  status until the kubelet drops it or k3s restarts. To remove the labels and annotations:
+
+  ```sh
+  NODE=r415
+  kubectl --context $CTX label node $NODE $(kubectl --context $CTX get node $NODE -o json |
+    jq -r '.metadata.labels | keys[] | select(test("kubevirt\\.io")) | . + "-"')
+  kubectl --context $CTX annotate node $NODE $(kubectl --context $CTX get node $NODE -o json |
+    jq -r '.metadata.annotations | keys[] | select(test("kubevirt\\.io")) | . + "-"')
+  ```
 
 ## Security notes for the spike
 
@@ -324,13 +428,30 @@ To remove them, delete the `KubeVirt` and `CDI` CRs first, then the operators.
 ## Tests
 
 ```sh
-hack/virtual-device-spike/test/run.sh        # offline: shellcheck, dry render against a fixture, kubeconform, check.sh against a fake kubectl
-charts/virtual-devices/tests/run.sh          # offline: vendored pins, helm lint/template, kubeconform with CRD schemas, assertions, app-of-apps wiring
+hack/virtual-device-spike/test/run.sh        # offline: shellcheck, dry render against a fixture, kubeconform, check.sh (all phases and removed) against a fake kubectl
+charts/virtual-devices/tests/run.sh          # offline: vendored pins, helm lint/template, kubeconform with CRD schemas, assertions, app-of-apps guard and Application spec
 VD_ONLINE=1 charts/virtual-devices/tests/run.sh   # + byte-identical rebuild of the vendored manifests from upstream
-flock <heavy.lock> hack/virtual-device-spike/test/k3d-e2e.sh   # HEAVY: throwaway k3d + KVM, chart + kit + check.sh end to end
+flock <heavy.lock> hack/virtual-device-spike/test/k3d-e2e.sh   # HEAVY: throwaway k3d + KVM + Argo CD, chart + kit + check.sh + removal end to end
 ```
 
-The k3d e2e runs everything except what needs r415 itself: Argo CD, the real device-controller,
-EMQX and deadend, and the Opteron CPU. It replaces those with stand-ins, renders with
+The k3d e2e runs everything except what needs r415 itself: the real device-controller, EMQX and
+deadend, and the Opteron CPU. It replaces those with stand-ins, renders with
 `--allow-virtctl-ssh --debug-user` and uses `--transport virtctl`. On a Debian/Ubuntu host it
 reproduces the `/dev/kvm` `0660 root:kvm` and k3s-containerd conditions the critique asks about.
+
+Argo CD is real: v3.5.1, the version r415 runs, with r415's `argocd-cm` sync settings. It
+syncs the `virtual-devices` Application as `charts/app-of-apps` renders it for `teknoir-cloud`.
+Only `spec.source` differs, because the branch is not on GitHub: Argo CD reads the same chart
+from an in-cluster Helm repository, rendered the same way (release name, namespace, values).
+After the sync, the e2e:
+- watches for a fight between Argo CD and the operators over r415's reconciliation window
+  (210 s): OutOfSync resources, any sync operation (counted from the Application's events,
+  so a partial selfHeal counts too), or spec writes to the CRs, CRDs, operator Deployments,
+  `coredns-custom` and PriorityClasses;
+- forces a full re-sync and watches again for 330 s;
+- at the end, deletes the Application (the flag-off rollback), checks the runtime stays, and
+  runs the step 10 removal, including its wait for the aggregated APIServices and
+  webhooks, followed by `check.sh --phase removed`.
+
+The last run (2026-10-09) passed: the Argo CD checks above, check.sh with only the three
+FAILs the stand-ins cannot satisfy (D2, G12, T1), and the removal with all R checks passing.

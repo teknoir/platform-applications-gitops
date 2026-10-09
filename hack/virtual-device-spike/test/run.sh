@@ -199,15 +199,19 @@ rc=$?
 set -e
 [[ $rc == 1 ]] && ok "check.sh exits 1 when checks fail" || bad "check.sh exit status $rc (want 1)"
 grep -q '^Summary: ' "$TMP/check.out" && ok "check.sh ran every phase to its summary" || { bad "check.sh did not finish"; tail -20 "$TMP/check.out"; }
-for id in P1 P3 P6 P9 N1 V0 V1 D1 D2 G1 I0 T0; do
+for id in P1 P3 P6 P9 P14 P15 N1 V0 V1 D1 D2 G1 I0 T0; do
   grep -qE "^[A-Z]{4} +${id} " "$TMP/check.out" || bad "check.sh printed no result for $id"
 done
 verbs=$(grep -- '^--context fake-ctx' "$FAKE_LOG" | sed -E 's/^--context fake-ctx (-n [^ ]+ )?//' | awk '{print $1}' | sort -u)
-bad_verbs=$(grep -vxE 'get|describe|logs|version|auth' <<<"$verbs" || true)
+bad_verbs=$(grep -vxE 'get|describe|logs|version|auth|api-resources' <<<"$verbs" || true)
 read_verbs=$(tr '\n' ' ' <<<"$verbs")
 [[ -z $bad_verbs ]] && grep -q -- '--context fake-ctx' "$FAKE_LOG" && ok "check.sh used only read verbs: ${read_verbs}" || bad "check.sh used other verbs: $bad_verbs"
-grep '^--context' "$FAKE_LOG" | grep -q 'auth can-i' && ! grep '^--context' "$FAKE_LOG" | grep 'auth' | grep -vq 'auth can-i' && ok "auth is only 'auth can-i'" || true
-grep -v '^--context' "$FAKE_LOG" | grep -q . && grep -q '^ARGS ' "$FAKE_LOG" || true
+grep '^--context' "$FAKE_LOG" | grep -q 'auth can-i' && ! grep '^--context' "$FAKE_LOG" | grep ' auth ' | grep -vq ' auth can-i ' &&
+  ok "auth is only 'auth can-i'" || bad "check.sh used 'auth' other than 'auth can-i', or never ran 'auth can-i'"
+# Every line of the log is a kubectl call with --context, or the fake ssh's ARGS/STDIN.
+others=$(grep -vE '^(--context fake-ctx |ARGS |STDIN )' "$FAKE_LOG" || true)
+[[ -z $others ]] && ok "every kubectl call passed --context fake-ctx" || bad "calls without --context: $(head -3 <<<"$others")"
+grep -q '^ARGS ' "$FAKE_LOG" && ok "check.sh tried the guest transport (ssh)" || bad "check.sh never called ssh"
 no_secrets_in "$TMP/check.out" "check.sh output"
 if grep '^ARGS ' "$FAKE_LOG" | grep -qF -- "$PASSWORD" || grep '^ARGS ' "$FAKE_LOG" | grep -qF -- "$KEY_MARKER"; then
   bad "a credential appeared in ssh arguments"
@@ -216,6 +220,45 @@ else
 fi
 grep '^ARGS ' "$FAKE_LOG" | grep -q 'deadend-teknoir-demo.teknoir.cloud' && grep '^ARGS ' "$FAKE_LOG" | grep -q -- '-p 40123' &&
   ok "tunnel transport goes through deadend-<ns>.<domain>:2222 to the device's tunnel port" || bad "tunnel transport arguments unexpected"
+
+step "check.sh --phase removed: passes on a clean cluster, catches a wrong-order removal"
+# shellcheck disable=SC2031  # PATH as of this shell, not the subshell above
+fake_path="${HERE}/fakebin:$PATH"
+: >"$FAKE_LOG"
+set +e
+PATH="$fake_path" "${KIT}/check.sh" --context fake-ctx --argocd-namespace argocd --phase removed >"$TMP/removed-clean.out" 2>&1
+rc=$?
+set -e
+[[ $rc == 0 ]] && ok "clean cluster: exit 0" || { bad "clean cluster: exit $rc"; cat "$TMP/removed-clean.out"; }
+grep -q '^FAIL' "$TMP/removed-clean.out" && bad "clean cluster reported a FAIL" || ok "clean cluster: no FAIL"
+for id in R1 R2 R3 R3b R4 R5 R6 R7 R8 R8b R9; do
+  grep -qE "^PASS +${id} " "$TMP/removed-clean.out" || bad "clean cluster: no PASS for ${id}"
+done
+grep -qE '^INFO +R10 .*1 labels' "$TMP/removed-clean.out" && ok "R10 reports the node labels virt-handler leaves behind" || bad "R10 did not report node labels"
+grep -q -- '-n argocd get applications.argoproj.io virtual-devices' "$FAKE_LOG" && ok "--argocd-namespace is used for the Application" || bad "--argocd-namespace ignored"
+verbs=$(grep -- '^--context fake-ctx' "$FAKE_LOG" | sed -E 's/^--context fake-ctx (-n [^ ]+ )?//' | awk '{print $1}' | sort -u)
+[[ -z $(grep -vxE 'get|version|api-resources' <<<"$verbs" || true) ]] && ok "removed phase used only read verbs: $(tr '\n' ' ' <<<"$verbs")" || bad "removed phase used other verbs: $verbs"
+set +e
+PATH="$fake_path" FAKE_SCENARIO=leftover "${KIT}/check.sh" --context fake-ctx --phase removed >"$TMP/removed-left.out" 2>&1
+rc=$?
+set -e
+[[ $rc == 1 ]] && ok "leftover cluster: exit 1" || bad "leftover cluster: exit $rc (want 1)"
+for id in R2 R3 R3b R4 R5 R6 R7 R8 R8b R9; do
+  grep -qE "^FAIL +${id} " "$TMP/removed-left.out" || { bad "leftover cluster: no FAIL for ${id}"; }
+done
+grep -qE '^FAIL +R3 .*v1\.subresources\.kubevirt\.io' "$TMP/removed-left.out" && grep -qE '^FAIL +R9 .*stale GroupVersion' "$TMP/removed-left.out" &&
+  ok "leftover cluster: the stale APIService and the incomplete discovery are named" || bad "leftover cluster: stale APIService not named"
+grep -qE '^FAIL +R3 .*v1\.kubevirt\.io' "$TMP/removed-left.out" && bad "R3 flagged a Local (CRD-backed) APIService" ||
+  ok "R3 names only service-backed APIServices (a Local one goes with its CRD, R2)"
+grep -qE '^FAIL +R4 .*cert-manager|^FAIL +R4 .*istio|^FAIL +R2 .*cert-manager|^FAIL +R8 .*(left: |,)(admin|cluster-admin)(,| |$)' "$TMP/removed-left.out" &&
+  bad "leftover cluster: an unrelated object was flagged" || ok "leftover cluster: unrelated objects (cert-manager, istio, admin) are not flagged"
+grep -qE '^PASS +R1 ' "$TMP/removed-left.out" && grep -qE '^PASS +R5 +namespace cdi' "$TMP/removed-left.out" &&
+  ok "leftover cluster: objects that are gone still PASS" || bad "leftover cluster: R1/R5 cdi"
+if PATH="$fake_path" "${KIT}/check.sh" --context fake-ctx --phase removed,platform >/dev/null 2>&1; then
+  bad "--phase removed,platform was accepted"
+else
+  ok "--phase removed cannot be combined with other phases"
+fi
 
 printf '\n'
 if ((fail)); then

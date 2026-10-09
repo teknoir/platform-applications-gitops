@@ -22,12 +22,16 @@ usage() {
   cat <<EOF
 Usage: $(basename "$0") [options]
 
-  --device NAME        test Device (required for every phase except platform)
+  --device NAME        test Device (required for every phase except platform and removed)
   --namespace NS       teamspace (default: teknoir-demo); runtime namespace NS-vdev
   --domain DOMAIN      platform domain (default: teknoir.cloud)
   --context CTX        kubectl context (default: r415)
+  --argocd-namespace NS
+                       namespace of the Argo CD Applications (default: teknoir-system)
   --phase P[,P...]     platform | namespace | vm | device | guest | isolation | timing | all
                        (default: all). guest, isolation and timing need guest access.
+                       removed: after the runtime was removed (README "Removing the
+                       runtime"), check that nothing of it is left; not part of all.
   --transport T        tunnel (default: SSH via deadend and the device's reverse tunnel;
                        needs remote access enabled for the device) | virtctl (SSH over
                        'virtctl port-forward'; needs virtctl and portforward rights)
@@ -51,6 +55,7 @@ DEVICE=""
 NAMESPACE="teknoir-demo"
 DOMAIN="teknoir.cloud"
 KUBE_CONTEXT="r415"
+ARGOCD_NS="teknoir-system"
 PHASES="all"
 TRANSPORT="tunnel"
 INNER_POD=false
@@ -64,6 +69,7 @@ while [[ $# -gt 0 ]]; do
     --namespace) NAMESPACE=$2; shift 2 ;;
     --domain) DOMAIN=$2; shift 2 ;;
     --context) KUBE_CONTEXT=$2; shift 2 ;;
+    --argocd-namespace) ARGOCD_NS=$2; shift 2 ;;
     --phase) PHASES=$2; shift 2 ;;
     --transport) TRANSPORT=$2; shift 2 ;;
     --inner-pod) INNER_POD=true; shift ;;
@@ -76,6 +82,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 is_dns_label "$NAMESPACE" || die "--namespace is not a DNS label"
+is_dns_label "$ARGOCD_NS" || die "--argocd-namespace is not a DNS label"
 VDEV_NS="${NAMESPACE}-vdev"
 [[ -z $DEVICE ]] || is_dns_label "$DEVICE" || die "--device is not a DNS label"
 [[ $WAIT_ONLINE =~ ^[0-9]+$ ]] || die "--wait-online must be a number of minutes"
@@ -83,9 +90,10 @@ case "$TRANSPORT" in tunnel | virtctl) ;; *) die "--transport must be tunnel or 
 [[ $PHASES == all ]] && PHASES="platform,namespace,vm,device,guest,isolation,timing"
 want() { [[ ",${PHASES}," == *",$1,"* ]]; }
 for p in ${PHASES//,/ }; do
-  case "$p" in platform | namespace | vm | device | guest | isolation | timing) ;; *) die "unknown phase: $p" ;; esac
+  case "$p" in platform | namespace | vm | device | guest | isolation | timing | removed) ;; *) die "unknown phase: $p" ;; esac
 done
-if [[ -z $DEVICE ]] && [[ $PHASES != platform ]]; then die "--device is required for phases other than platform"; fi
+if want removed && [[ $PHASES != removed ]]; then die "--phase removed cannot be combined with other phases"; fi
+if [[ -z $DEVICE ]] && [[ $PHASES != platform && $PHASES != removed ]]; then die "--device is required for phases other than platform and removed"; fi
 need kubectl jq awk
 
 PRIV=$(make_private_dir "")
@@ -109,7 +117,7 @@ check_platform() {
   fi
 
   local app
-  if app=$(kc -n teknoir-system get applications.argoproj.io virtual-devices -o json 2>/dev/null); then
+  if app=$(kc -n "$ARGOCD_NS" get applications.argoproj.io virtual-devices -o json 2>/dev/null); then
     local sync health
     sync=$(jget '.status.sync.status' <<<"$app")
     health=$(jget '.status.health.status' <<<"$app")
@@ -201,6 +209,39 @@ check_platform() {
   else
     result FAIL P11 "ConfigMap kube-system/coredns-custom not found"
   fi
+
+  # Aggregated APIServices (virt-api: subresources.kubevirt.io; cdi-apiserver:
+  # upload.cdi.kubevirt.io). While one is unavailable, API discovery is incomplete for
+  # every client in the cluster: namespace deletion and garbage collection stall.
+  local apis kv_apis bad_apis
+  if apis=$(kc get apiservices -o json 2>/dev/null); then
+    kv_apis=$(jget '[.items[] | select(.spec.service != null and ((.spec.group // "") | test("(^|\\.)kubevirt\\.io$"))) | .metadata.name] | join(",")' <<<"$apis")
+    bad_apis=$(jget '[.items[] | select(.spec.service != null and ((.spec.group // "") | test("(^|\\.)kubevirt\\.io$"))) | select(([.status.conditions[]? | select(.type=="Available") | .status][0] // "Unknown") != "True") | .metadata.name] | join(",")' <<<"$apis")
+    if [[ -z $kv_apis ]]; then
+      result FAIL P14 "no aggregated KubeVirt/CDI APIServices (operands not deployed)"
+    elif [[ -z $bad_apis ]]; then
+      result PASS P14 "aggregated APIServices Available: ${kv_apis}"
+    else
+      result FAIL P14 "aggregated APIServices not Available: ${bad_apis}. API discovery is incomplete cluster-wide (namespace deletion and garbage collection stall)"
+    fi
+  else
+    result FAIL P14 "cannot list APIServices"
+  fi
+  # The pods behind them: with one replica, any restart of that pod makes its
+  # APIService unavailable (kubevirt.infraReplicas, cdi.apiServerReplicas).
+  local d dep want_r ready_r
+  for d in kubevirt/virt-api kubevirt/virt-controller cdi/cdi-apiserver; do
+    dep=$(kc -n "${d%/*}" get deployment "${d#*/}" -o json 2>/dev/null || echo '{}')
+    want_r=$(jget '.spec.replicas // 0' <<<"$dep")
+    ready_r=$(jget '.status.readyReplicas // 0' <<<"$dep")
+    if ((ready_r >= 2)); then
+      result PASS P15 "${d}: ${ready_r}/${want_r} replicas ready"
+    elif ((ready_r == 1)); then
+      result WARN P15 "${d}: only ${ready_r}/${want_r} replica ready; a restart of that pod interrupts its APIService or webhooks"
+    else
+      result FAIL P15 "${d}: no ready replica (${ready_r}/${want_r})"
+    fi
+  done
 
   local sp
   if sp=$(kc get storageprofile local-path -o json 2>/dev/null); then
@@ -744,6 +785,128 @@ report_probes() {
   done <<<"$out"
 }
 
+# ------------------------------------------------------------------ removed
+# absent ARGS...: 0 when the API answers NotFound (or the type no longer exists), 1 when
+# the object exists, 2 on any other error (connection, RBAC): never a silent PASS.
+absent() {
+  local err
+  if err=$(kc "$@" -o name 2>&1 >/dev/null); then return 1; fi
+  [[ $err == *NotFound* || $err == *"not found"* || $err == *"doesn't have a resource type"* ]] && return 0
+  return 2
+}
+absent_result() { # absent_result ID LABEL HINT ARGS...
+  local id=$1 label=$2 hint=$3 rc=0
+  shift 3
+  absent "$@" || rc=$?
+  case $rc in
+    0) result PASS "$id" "$label: gone" ;;
+    1) result FAIL "$id" "$label: still exists${hint:+ ($hint)}" ;;
+    *) result FAIL "$id" "$label: cannot tell (kubectl error)" ;;
+  esac
+}
+
+check_removed() {
+  section "removed: nothing of the virtual-device runtime is left ($KUBE_CONTEXT)"
+  kc version -o json >/dev/null 2>&1 || { result FAIL R0 "cluster not reachable"; return; }
+  local out names
+
+  absent_result R1 "Argo CD application ${ARGOCD_NS}/virtual-devices" \
+    "turn virtualDevices.enabled off first, or Argo CD re-creates what you delete" \
+    -n "$ARGOCD_NS" get applications.argoproj.io virtual-devices
+
+  if out=$(kc get crd -o json 2>/dev/null); then
+    names=$(jget '[.items[].metadata.name | select(test("(^|\\.)kubevirt\\.io$"))] | join(",")' <<<"$out")
+    [[ -z $names ]] && result PASS R2 "no CustomResourceDefinitions in *.kubevirt.io" ||
+      result FAIL R2 "CRDs left: ${names} (delete the KubeVirt and CDI CRs while the operators run; they remove their CRDs)"
+  else
+    result FAIL R2 "cannot list CustomResourceDefinitions"
+  fi
+
+  if out=$(kc get apiservices -o json 2>/dev/null); then
+    names=$(jget '[.items[] | select(.spec.service != null and ((.spec.group // "") | test("(^|\\.)kubevirt\\.io$"))) | .metadata.name] | join(",")' <<<"$out")
+    [[ -z $names ]] && result PASS R3 "no aggregated (service-backed) APIServices for *.kubevirt.io" ||
+      result FAIL R3 "stale aggregated APIServices: ${names}. Without their service, API discovery is incomplete cluster-wide (namespace deletion and garbage collection stall); see README 'Removing the runtime'"
+    names=$(jget '[.items[] | select(([.status.conditions[]? | select(.type=="Available") | .status][0] // "True") != "True") | .metadata.name] | join(",")' <<<"$out")
+    [[ -z $names ]] && result PASS R3b "every APIService in the cluster is Available" ||
+      result FAIL R3b "APIServices not Available: ${names}"
+  else
+    result FAIL R3 "cannot list APIServices"
+  fi
+
+  local kind
+  for kind in validatingwebhookconfigurations mutatingwebhookconfigurations; do
+    if out=$(kc get "$kind" -o json 2>/dev/null); then
+      names=$(jget '[.items[] | select(([.webhooks[]?.clientConfig.service.namespace // empty] | any(. == "kubevirt" or . == "cdi")) or (.metadata.name | test("^(virt-|kubevirt|cdi)"))) | .metadata.name] | join(",")' <<<"$out")
+      [[ -z $names ]] && result PASS R4 "no ${kind} of KubeVirt or CDI" ||
+        result FAIL R4 "${kind} left: ${names} (a webhook whose service is gone rejects writes to the objects it matches)"
+    else
+      result FAIL R4 "cannot list ${kind}"
+    fi
+  done
+
+  local ns
+  for ns in kubevirt cdi; do
+    absent_result R5 "namespace ${ns}" "" get namespace "$ns"
+  done
+  local pc
+  for pc in kubevirt-cluster-critical teknoir-virtual-device; do
+    absent_result R6 "PriorityClass ${pc}" "" get priorityclass "$pc"
+  done
+
+  if out=$(kc -n kube-system get configmap coredns-custom -o json 2>/dev/null); then
+    if [[ $(jget '.data | has("virtual-devices.override")' <<<"$out") == true ]]; then
+      result FAIL R7 "kube-system/coredns-custom still has key virtual-devices.override: (mqtt|deadend)-* names are still rewritten cluster-wide"
+    else
+      result PASS R7 "kube-system/coredns-custom has no virtual-devices.override key (other keys: $(jget '[.data // {} | keys[]] | join(",")' <<<"$out"))"
+    fi
+  else
+    absent_result R7 "ConfigMap kube-system/coredns-custom (and with it the mqtt-/deadend- rewrite)" "" -n kube-system get configmap coredns-custom
+  fi
+
+  for kind in clusterroles clusterrolebindings; do
+    if out=$(kc get "$kind" -o json 2>/dev/null); then
+      names=$(jget '[.items[].metadata.name | select(test("kubevirt|^cdi([.:-]|$)"))] | join(",")' <<<"$out")
+      [[ -z $names ]] && result PASS R8 "no ${kind} of KubeVirt or CDI" || result FAIL R8 "${kind} left: ${names}"
+    else
+      result FAIL R8 "cannot list ${kind}"
+    fi
+  done
+  # KubeVirt and CDI aggregate their roles into the built-in admin/edit/view; the
+  # aggregation controller drops those rules once the source roles are gone.
+  local role
+  for role in admin edit view; do
+    out=$(kc get clusterrole "$role" -o json 2>/dev/null || echo '{}')
+    names=$(jget '[.rules[]?.apiGroups[]? | select(test("(^|\\.)kubevirt\\.io$"))] | unique | join(",")' <<<"$out")
+    [[ -z $names ]] && result PASS R8b "ClusterRole ${role} aggregates no *.kubevirt.io rules" ||
+      result FAIL R8b "ClusterRole ${role} still aggregates rules for: ${names}"
+  done
+
+  local err
+  if err=$(kc api-resources -o name 2>&1 >/dev/null) && [[ -z $err ]]; then
+    result PASS R9 "API discovery is complete (kubectl api-resources reports no error)"
+  else
+    result FAIL R9 "API discovery is incomplete: $(head -n 2 <<<"$err" | tr '\n' ' ')"
+  fi
+
+  # Left on the nodes by virt-handler (labels, annotations, extended resources). Harmless
+  # for the platform; README 'Removing the runtime' has the cleanup commands.
+  if out=$(kc get nodes -o json 2>/dev/null); then
+    local n nl na nr
+    while IFS=$'\t' read -r n nl na nr; do
+      if ((nl + na + nr == 0)); then
+        result PASS R10 "node ${n}: no KubeVirt labels, annotations or extended resources"
+      else
+        result INFO R10 "node ${n}: left by virt-handler: ${nl} labels, ${na} annotations, ${nr} extended resources (cosmetic; README has the cleanup)"
+      fi
+    done < <(jq -r '.items[] | [.metadata.name,
+        ([(.metadata.labels // {}) | keys[] | select(test("kubevirt\\.io"))] | length),
+        ([(.metadata.annotations // {}) | keys[] | select(test("kubevirt\\.io"))] | length),
+        ([(.status.capacity // {}) | to_entries[] | select((.key | test("kubevirt\\.io")) and .value != "0")] | length)] | @tsv' <<<"$out")
+  else
+    result FAIL R10 "cannot list nodes"
+  fi
+}
+
 # ------------------------------------------------------------------ timing
 check_timing() {
   section "timing: time to online"
@@ -798,6 +961,7 @@ want device && check_device
 want guest && { check_guest || true; }
 want isolation && { check_isolation || true; }
 want timing && { check_timing || true; }
+want removed && check_removed
 
 printf '\nSummary: %d PASS, %d FAIL, %d WARN, %d INFO/SKIP\n' "$PASS_COUNT" "$FAIL_COUNT" "$WARN_COUNT" "$INFO_COUNT"
 ((FAIL_COUNT == 0))

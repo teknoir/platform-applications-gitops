@@ -85,6 +85,9 @@ if helm template virtual-devices "$CHART" --set priorityClass.value=0 >/dev/null
 else
   ok "priorityClass.value >= 0 is rejected"
 fi
+helm template virtual-devices "$CHART" --set 'kubevirt.featureGates={Snapshot}' --show-only templates/kubevirt.yaml >"$TMP/kv-gates.yaml"
+python3 -I -c 'import sys, yaml; d = yaml.safe_load(open(sys.argv[1])); assert d["spec"]["configuration"]["developerConfiguration"] == {"featureGates": ["Snapshot"]}, d["spec"]["configuration"]' "$TMP/kv-gates.yaml" &&
+  ok "kubevirt.featureGates renders developerConfiguration.featureGates only when set" || bad "kubevirt.featureGates not rendered"
 helm template virtual-devices "$CHART" --set coreDNS.domain=teknoir.airgapped >"$TMP/airgapped.yaml"
 grep -q 'teknoir\\.airgapped\\.\$ ' "$TMP/airgapped.yaml" && ok "coreDNS.domain is escaped into the regex" || bad "coreDNS.domain not applied"
 
@@ -122,13 +125,14 @@ assert src == {"path": "charts/virtual-devices", "repoURL": "https://github.com/
 assert spec["project"] == "teknoir-cloud"
 assert spec["destination"] == {"namespace": "kubevirt", "server": "https://kubernetes.default.svc"}, spec["destination"]
 sp = spec["syncPolicy"]
-assert sp["syncOptions"] == ["ServerSideApply=true"], sp["syncOptions"]
+assert sp["syncOptions"] == ["ServerSideApply=true", "RespectIgnoreDifferences=true"], sp["syncOptions"]
 assert sp["automated"] == {"prune": True, "selfHeal": True, "enabled": True}, sp["automated"]
 assert sp["retry"] == {"limit": 10, "backoff": {"duration": "30s", "factor": 2, "maxDuration": "5m"}}, sp.get("retry")
 assert app["metadata"]["annotations"] == {"argocd.argoproj.io/compare-options": "ServerSideDiff=true"}, app["metadata"].get("annotations")
 assert "finalizers" not in app["metadata"], "no cascading delete when the flag is turned off"
+assert spec["ignoreDifferences"] == [{"group": "apiextensions.k8s.io", "kind": "CustomResourceDefinition", "name": "cdis.cdi.kubevirt.io", "jsonPointers": ["/spec/versions"]}], spec.get("ignoreDifferences")
 others = sorted(n for n in apps if n != "virtual-devices")
-print("ok   virtual-devices -> charts/virtual-devices @ teknoir-cloud: ServerSideApply, ServerSideDiff, retry 10 x 30s..5m, automated prune/selfHeal, no finalizer")
+print("ok   virtual-devices -> charts/virtual-devices @ teknoir-cloud: ServerSideApply, ServerSideDiff, RespectIgnoreDifferences (cdis CRD /spec/versions), retry 10 x 30s..5m, automated prune/selfHeal, no finalizer")
 print("ok   other Applications:", ", ".join(others))
 PY
 
@@ -158,7 +162,27 @@ cp "$TMP/no-key.yaml" "$TMP/aoa-nokey/values.yaml"
 helm template app-of-apps "$TMP/aoa-nokey" >"$TMP/aoa-nokey.yaml"
 grep -q 'name: virtual-devices' "$TMP/aoa-nokey.yaml" && bad "a values file without virtualDevices renders the Application" || ok "default (no virtualDevices key) is off"
 diff <(grep -v '^#' "$TMP/aoa-nokey.yaml") <(grep -v '^#' "$TMP/aoa-off.yaml") >/dev/null &&
-  ok "with the flag off the app-of-apps output is unchanged" || bad "flag off changes other Applications"
+  ok "a missing key renders the same as virtualDevices.enabled=false" || bad "a missing key renders differently from the flag off"
+# Against app-of-apps without the virtual-devices template at all (what the chart was
+# before this change): the flag off, and every other environment with the flag on, must
+# render byte-identical output, so the template cannot leak into other Applications.
+cp -r "$AOA" "$TMP/aoa-without"
+rm "$TMP/aoa-without/templates/virtual-devices.yaml"
+helm template app-of-apps "$TMP/aoa-without" --set project=teknoir-cloud >"$TMP/aoa-without.yaml"
+diff -q "$TMP/aoa-without.yaml" "$TMP/aoa-off.yaml" >/dev/null &&
+  ok "with the flag off the output equals app-of-apps without the template" || bad "the flag off still changes the app-of-apps output"
+helm template app-of-apps "$TMP/aoa-without" --set project=teknoir-online >"$TMP/aoa-without-online.yaml"
+diff -q "$TMP/aoa-without-online.yaml" "$TMP/aoa-teknoir-online.yaml" >/dev/null &&
+  ok "teknoir-online with the flag on equals app-of-apps without the template" || bad "teknoir-online with the flag on changes the output"
+python3 -I - "$TMP/aoa-without.yaml" "$TMP/aoa.yaml" <<'PY' && ok "teknoir-cloud with the flag on adds exactly one object, the Application" || bad "the flag on changes more than the Application"
+import sys, yaml
+key = lambda d: (d["kind"], d["metadata"]["name"])
+before = {key(d): d for d in yaml.safe_load_all(open(sys.argv[1])) if d}
+after = {key(d): d for d in yaml.safe_load_all(open(sys.argv[2])) if d}
+assert set(after) - set(before) == {("Application", "virtual-devices")}, set(after) ^ set(before)
+assert not set(before) - set(after)
+assert all(before[k] == after[k] for k in before), [k for k in before if before[k] != after[k]]
+PY
 # Informational: what this checkout's values.yaml deploys. The teknoir-cloud opt-in is a
 # separate last commit, so the chart commits can be cherry-picked without enabling it.
 python3 -I - "${AOA}/values.yaml" "$(aoa_vd "$TMP/aoa-head.yaml")" <<'PY'

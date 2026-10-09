@@ -98,15 +98,18 @@ def main():
     if kv:
         kv = kv[0]
         conf = kv["spec"]["configuration"]
-        check(conf["developerConfiguration"]["featureGates"] == [], "KubeVirt: no feature gates")
+        check(conf.get("developerConfiguration", {}).get("featureGates", []) == [], "KubeVirt: no feature gates")
+        # virt-operator writes the CR back with omitempty: an empty list would be dropped
+        # and re-applied by Argo CD (k3d e2e, Argo CD v3.5.1).
+        check("developerConfiguration" not in conf, "KubeVirt: no empty developerConfiguration/featureGates (operator drops it, Argo CD would re-apply)")
         check(conf.get("virtualMachineOptions", {}).get("disableSerialConsoleLog") == {}, "KubeVirt: serial console log disabled")
-        check(not conf["developerConfiguration"].get("useEmulation"), "KubeVirt: no software emulation")
+        check(not conf.get("developerConfiguration", {}).get("useEmulation"), "KubeVirt: no software emulation")
         check(kv["spec"].get("uninstallStrategy") == "BlockUninstallIfWorkloadsExist", "KubeVirt: uninstall blocked while workloads exist")
         check(kv["metadata"]["annotations"].get("argocd.argoproj.io/sync-wave") == "1", "KubeVirt CR in sync wave 1")
         check("SkipDryRunOnMissingResource=true" in kv["metadata"]["annotations"].get("argocd.argoproj.io/sync-options", ""), "KubeVirt CR skips dry-run until its CRD exists")
         check(kv["metadata"]["namespace"] == "kubevirt", "KubeVirt CR in namespace kubevirt")
         check(kv["spec"].get("infra", {}).get("replicas") == 2, "KubeVirt: two virt-api/virt-controller replicas (aggregated APIService survives a pod restart)")
-        empties = [p for p in empty_structs(kv["spec"], "spec") if p not in ALLOWED_EMPTY["KubeVirt"] and not p.endswith(".featureGates")]
+        empties = [p for p in empty_structs(kv["spec"], "spec") if p not in ALLOWED_EMPTY["KubeVirt"]]
         check(not empties, f"KubeVirt: no empty structs besides disableSerialConsoleLog ({empties or 'none'})")
 
     # ---- CDI CR
