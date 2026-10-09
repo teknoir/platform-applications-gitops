@@ -37,12 +37,30 @@
 # INFO lines list the namespace-wide policies and the effective mTLS mode. A
 # WARN line marks an N3 path that only another chart's policy admits.
 #
-# Usage: charts/monitoring/tests/namespace-authz-test.sh
+# Usage: charts/monitoring/tests/namespace-authz-test.sh [--renders DIR]
+#   --renders DIR  evaluate the renders that `tests/render.sh --out DIR` wrote
+#                  (DIR/<chart>.yaml) instead of rendering the charts again,
+#                  so tests/render.sh can run this as its monitoring-authz
+#                  check. The ALLOWs that admit no gateway (in-namespace
+#                  sources such as prometheus-allow-internal,
+#                  alertmanager-allow-prometheus and harbor's
+#                  harbor-allow-internal) need no groups condition; N1 holds
+#                  every rule that may admit the gateway to it.
 # Environment: KUBE_VERSION (default 1.33.5), RENDER_CACHE (default
 # ~/.cache/teknoir-render, shared with tests/render.sh), HELM (default helm).
 # Requires helm, yq (mikefarah v4) and jq; network access for uncached chart
 # dependencies.
 set -euo pipefail
+
+RENDERS=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --renders) [[ -n "${2:-}" && -d "$2" ]] || { echo "--renders needs a directory" >&2; exit 2; }
+               RENDERS="$(cd "$2" && pwd)"; shift 2 ;;
+    -h|--help) sed -n '4,/^set -euo/p' "$0" | sed 's/^# \{0,1\}//; /^set -euo/d'; exit 0 ;;
+    *) echo "unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source-path=SCRIPTDIR source=lib.sh
@@ -69,21 +87,26 @@ info() { printf 'INFO  %-3s %s\n' "$1" "$2"; }
 # --- render every chart installed into teknoir-system and the root namespace ----
 : > "${tmp}/all.json"
 while IFS=$'\t' read -r app chart ns; do
-  [[ -d "${CHARTS}/${chart}" ]] || { fail N0 "app-of-apps ${app}: no chart ${chart} in charts/"; continue; }
-  chart_render_setup "${CHARTS}/${chart}" "${tmp}/src-${app}"
-  if "${HELM}" template "${app}" "${tmp}/src-${app}" --namespace "${ns}" \
-       --kube-version "${KUBE_VERSION}" > "${tmp}/${app}.yaml" 2> "${tmp}/err"; then
-    yq -o=json -I=0 'select(. != null)' "${tmp}/${app}.yaml" \
-      | jq -c --arg app "${app}" --arg ns "${ns}" '. + {"_app": $app, "_ns": (.metadata.namespace // $ns)}' \
-      >> "${tmp}/all.json"
+  if [[ -n "${RENDERS}" ]]; then
+    [[ -f "${RENDERS}/${chart}.yaml" ]] || { fail N0 "app-of-apps ${app}: no render ${RENDERS}/${chart}.yaml"; continue; }
+    cp "${RENDERS}/${chart}.yaml" "${tmp}/${app}.yaml"
   else
-    fail N0 "app-of-apps ${app}: helm template failed: $(tr '\n' ' ' < "${tmp}/err")"
+    [[ -d "${CHARTS}/${chart}" ]] || { fail N0 "app-of-apps ${app}: no chart ${chart} in charts/"; continue; }
+    chart_render_setup "${CHARTS}/${chart}" "${tmp}/src-${app}"
+    if ! "${HELM}" template "${app}" "${tmp}/src-${app}" --namespace "${ns}" \
+         --kube-version "${KUBE_VERSION}" > "${tmp}/${app}.yaml" 2> "${tmp}/err"; then
+      fail N0 "app-of-apps ${app}: helm template failed: $(tr '\n' ' ' < "${tmp}/err")"
+      continue
+    fi
   fi
+  yq -o=json -I=0 'select(. != null)' "${tmp}/${app}.yaml" \
+    | jq -c --arg app "${app}" --arg ns "${ns}" '. + {"_app": $app, "_ns": (.metadata.namespace // $ns)}' \
+    >> "${tmp}/all.json"
 done < <(yq -o=json '.applications' "${APPS}" | jq -r --arg ns "${NS}" --arg root "${ROOT_NS}" '
   to_entries[] | select(.value.enabled != false and (.value.namespace == $ns or .value.namespace == $root))
   | [.key, (.value.chart // .key), .value.namespace] | @tsv')
 jq -s . "${tmp}/all.json" > "${tmp}/all.array.json"
-echo "rendered: $(jq -r '[.[]._app] | unique | join(" ")' "${tmp}/all.array.json")"
+echo "${RENDERS:+renders from ${RENDERS}: }rendered: $(jq -r '[.[]._app] | unique | join(" ")' "${tmp}/all.array.json")"
 
 # Policies as {app, ns, name, action, selector, targeted, rules}.
 jq '[.[] | select(.kind == "AuthorizationPolicy")

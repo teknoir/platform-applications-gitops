@@ -50,7 +50,9 @@ teknoir-system and teknoir-auth needs no token:
   namespace-wide PeerAuthentication.
 
 `tests/namespace-authz-test.sh` renders every chart that app-of-apps installs
-into teknoir-system and the root namespace. It checks every policy that
+into teknoir-system and the root namespace (or, with `--renders DIR`, reads
+the renders of `tests/render.sh --out DIR`, so render.sh can run it as its
+monitoring-authz check). It checks every policy that
 applies to the three workloads, whichever chart renders it: none may admit
 the gateway without the groups claim, and only teknoir-system and teknoir-auth
 get in without a token. It also lists which policies admit each in-mesh path.
