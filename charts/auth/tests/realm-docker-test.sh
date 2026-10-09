@@ -6,6 +6,8 @@
 # packaged: .helmignore tests/). No Kubernetes needed.
 #
 #   charts/auth/tests/realm-docker-test.sh
+#   ADMIN_CHECK=<file> charts/auth/tests/realm-docker-test.sh   (run another
+#                       admin-check script instead of the rendered one)
 #
 # Renders the chart, extracts the realm file and keycloak-admin-check.sh from
 # the keycloak-config ConfigMap, and runs them with the chart's pinned images
@@ -38,7 +40,9 @@
 #       their service-account users; their secrets get 401 on realm master;
 #       the admin still logs in; built-in clients, an unlisted master client
 #       and realm teknoir's clients are kept; a second run is a no-op; built-in
-#       names are refused even when realm teknoir has the same clientId
+#       names are refused even when realm teknoir has the same clientId; a
+#       listed master client that realm teknoir lacks is kept (the guard).
+#       tests/admin-check-test.sh covers the step's other branches with a stub
 #   R12 platform-admin with the default values (enabled: false): disabled by
 #       the import, its login is refused, a console re-enable is reverted by
 #       the next import, other users are unaffected
@@ -81,6 +85,7 @@ realm_file() { yq -r 'select(.kind == "ConfigMap" and .metadata.name == "keycloa
 realm_file "$WORK/render.yaml" >"$WORK/teknoir.yaml"
 realm_file "$WORK/render-default.yaml" >"$WORK/teknoir-default.yaml"
 yq -r 'select(.kind == "ConfigMap" and .metadata.name == "keycloak-config") | .data["keycloak-admin-check.sh"]' <"$WORK/render.yaml" >"$WORK/keycloak-admin-check.sh"
+[ -z "${ADMIN_CHECK:-}" ] || cp "$ADMIN_CHECK" "$WORK/keycloak-admin-check.sh"
 CLI_IMAGE=$(yq -r 'select(.kind == "Job" and .metadata.name == "keycloak-config") | .spec.template.spec.containers[0].image' <"$WORK/render.yaml")
 TOOLBOX=$(yq -r 'select(.kind == "Job" and .metadata.name == "keycloak-config") | .spec.template.spec.initContainers[0].image' <"$WORK/render.yaml")
 # The Job's env: literal values are used as rendered (except the in-cluster
@@ -431,6 +436,20 @@ toolbox URL=$URL NEW_PW="$NEW_PW" S_teknoir=x S_harbor=x -- "$CHECK$R11_STATE" >
 [ "$(grep -c 'it is a Keycloak built-in client' "$WORK/r11-builtin.log")" -eq 8 ] && ! grep -q deleted "$WORK/r11-builtin.log" &&
 	! grep -qE '^kept-.* [^1]$' "$WORK/r11-state2.log" && [ "$(grep -c '^kept-' "$WORK/r11-state2.log")" -eq 8 ] &&
 	ok "R11 built-in client names are refused and the clients kept" || bad "R11 built-in guard"
+# The guard itself: keep-me is in realm master but not in realm teknoir, so it
+# stays although it is listed (a client that was never moved).
+admin_check KC_ADMIN_PASSWORD="$NEW_PW" KC_MASTER_LEGACY_CLIENTS=keep-me >"$WORK/r11-unmigrated.log" 2>&1 ||
+	bad "R11 admin-check failed with keep-me listed"
+cat "$WORK/r11-unmigrated.log"
+toolbox URL=$URL NEW_PW="$NEW_PW" -- "$CHECK"'
+echo "kept-keep-me $(mapi "/clients?clientId=keep-me" | jq length)"
+echo "teknoir-keep-me $(api "/clients?clientId=keep-me" | jq length)"
+' >"$WORK/r11-state3.log" 2>&1 || true
+cat "$WORK/r11-state3.log"
+grep -qxF "keycloak-admin-check: keeping master client 'keep-me': realm teknoir has no client 'keep-me' (not migrated)" "$WORK/r11-unmigrated.log" &&
+	! grep -q deleted "$WORK/r11-unmigrated.log" &&
+	grep -qx 'kept-keep-me 1' "$WORK/r11-state3.log" && grep -qx 'teknoir-keep-me 0' "$WORK/r11-state3.log" &&
+	ok "R11 a listed master client that realm teknoir lacks is kept (not migrated)" || bad "R11 guard: an unmigrated client"
 
 echo "== R13 realm sign-in/out settings"
 toolbox URL=$URL NEW_PW="$NEW_PW" -- "$CHECK"'

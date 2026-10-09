@@ -130,6 +130,8 @@ realm master, with Keycloak deleting their service-account users:
   script refuses them again.
 - Idempotent: a client that is gone is logged and skipped. Logs client names
   only. `[]` turns the step off.
+- Fails the Job before deleting anything when a lookup fails or a clientId
+  appears more than once in either realm.
 - **Irreversible** except from a backup: take the encrypted node backup
   before the first sync of 0.0.9 on an existing install.
 
@@ -250,6 +252,13 @@ Not packaged (`.helmignore tests/`); dependencies come from the cache that
   cookies), fetch/XHR/websocket (401, no Location), upstream 401/403 for a
   signed-in user (unchanged), `/oauth2/*`, other statuses, and that the
   redirect URL ignores `X-Forwarded-*`.
+- `tests/admin-check-test.sh` (jq; no docker): the legacy-client step under
+  dash and busybox sh with a stub curl playing Keycloak's admin API: what is
+  deleted (by the master client's id) and what is kept (realm `teknoir`
+  missing, or without the clientId), a clientId twice in either realm, exact
+  clientId matching, built-in and non-plain names, the off switches, lookup
+  and delete errors, and no password or token in the output.
+  `ADMIN_CHECK=<file>` runs another script (a mutant) instead.
 - `tests/realm-docker-test.sh` runs the rendered realm file and admin check
   against Keycloak 26.5.3 in docker: admin rotation from `previous-password`,
   a full import, user-controller's service-account rights (and that it cannot
@@ -259,7 +268,8 @@ Not packaged (`.helmignore tests/`); dependencies come from the cache that
   a scripted browser login that meets exactly the Update Password form, and a
   changed password that survives re-imports), the legacy master-realm clients
   (R11: kept before realm teknoir exists, the severity, deleted with their
-  service accounts, old secrets 401, built-ins kept, idempotent), platform-admin
+  service accounts, old secrets 401, built-ins kept, a listed client realm
+  `teknoir` lacks kept, idempotent), platform-admin
   disabled by the default values (R12), the logout redirect and VERIFY_PROFILE
   (R13: a user without a last name gets no profile form; a signed-in logout
   meets the confirmation page and returns to `https://<domain>/`), and a scan
