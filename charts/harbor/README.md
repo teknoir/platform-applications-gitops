@@ -64,7 +64,10 @@ configures Harbor's OIDC login through Harbor's API after every sync, from
 `oidcConfig.settings` in `values.yaml`: endpoint
 `https://auth.<teknoir domain>/auth/realms/teknoir`, client `harbor`, groups
 claim `groups`, admin group `admin`, certificate verification on (Harbor trusts
-the Teknoir Root CA through `harbor.caBundleSecretName`). It PUTs only the
+the Teknoir Root CA through `harbor.caBundleSecretName`), and project creation
+for Harbor admins only (`project_creation_restriction: adminonly`: the local
+`admin` and group `admin`; Harbor's default lets every user who signs in
+create projects). It PUTs only the
 settings that differ and sends the client secret only when its sha256 (kept in
 ConfigMap `harbor-oidc-config-state`) changes; it never prints a secret. Harbor
 refuses to switch `auth_mode` once users other than `admin` exist, and the Job
