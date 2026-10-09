@@ -85,6 +85,13 @@ credentials:
 # templates/admission-policies.yaml): user-<User>-teknoir-role-binding and
 # -authorization-policy, owned by a User, created only in namespaces a Profile
 # owns, RoleBindings only to teknoir-admin/-edit/-view for users. It never
-# touches requests by anyone else. false is the break-glass.
+# touches requests by anyone else (people, ArgoCD, other controllers).
+# false is the permanent off switch, for a later release: it takes a new chart
+# version, an app-of-apps bump and a new bundle (the app-of-apps Applications
+# pass no Helm values, and Harbor takes each chart version once). It is not
+# the break-glass on a live cluster; that is in infra docs/airgap/OPERATE.md
+# (r5, "Controller RBAC and admission policies"): stop the auto-sync of the
+# root app-of-apps and of this Application, then delete the
+# ValidatingAdmissionPolicyBinding user-controller-teamspace-access.
 admissionPolicies:
   enabled: true

@@ -25,8 +25,9 @@
 #   U9 kubeconform -strict: built-in kinds (schema cache under
 #      RENDER_CACHE) and the chart's CRDs (User, Claim, ClaimSet); SKIP
 #      without kubeconform
-#   U10 admission policy user-controller-teamspace-access: bound with Deny,
-#      failurePolicy Fail, matched only on the controller's ServiceAccount;
+#   U10 admission policy user-controller-teamspace-access: bound with Deny
+#      by exactly one binding of the same name (the name the OPERATE
+#      break-glass deletes), failurePolicy Fail, matched only on the controller's ServiceAccount;
 #      it matches every kind the ClusterRole lets the controller write
 #      (except events and its Users); its reserved namespaces equal the
 #      profile-controller chart's (plus an overridden credentials namespace,
@@ -190,6 +191,8 @@ if [ -n "$v" ]; then
 	[ "$b" = "Fail request.userInfo.username == \"$SA_USER\"" ] && ok "U10 failurePolicy Fail, only requests by $SA_USER" || bad "U10 policy: $b"
 	b=$(jq -r '[.[] | select(.kind == "ValidatingAdmissionPolicyBinding" and .spec.policyName == "user-controller-teamspace-access") | .spec.validationActions | join(",")] | join(" ")' "$WORK/r.json")
 	[ "$b" = Deny ] && ok "U10 bound with validationActions [Deny]" || bad "U10 bindings: '$b'"
+	b=$(jq -r '[.[] | select(.kind == "ValidatingAdmissionPolicyBinding" and .spec.policyName == "user-controller-teamspace-access") | .metadata.name] | join(" ")' "$WORK/r.json")
+	[ "$b" = user-controller-teamspace-access ] && ok "U10 its one binding is named user-controller-teamspace-access (OPERATE break-glass)" || bad "U10 binding names '$b', the break-glass deletes user-controller-teamspace-access"
 	b=$(jq -r '[.spec.validations[] | select(.reason != "Forbidden" or (.message // "") == "")] | length' <<<"$v")
 	[ "$b" = 0 ] && ok "U10 every validation has a message and reason Forbidden" || bad "U10 $b validations without message/Forbidden"
 	writes=$(jq -r '[.[] | select(.kind == "ClusterRole" and .metadata.name == "user-controller")
