@@ -37,14 +37,28 @@ Only members of the Keycloak groups in `monitoring.access.groups` (default
    off.
 
 The lifecycle endpoints are closed to every source.
-`prometheus-deny-lifecycle` and `alertmanager-deny-lifecycle` DENY `*/-/quit`
-and `*/-/reload`. The operator runs Prometheus with `--web.enable-lifecycle`,
-so a POST to `/teknoir-system/prometheus/-/quit` stops it. Such a POST can be a
-simple cross-site request, and the oauth2-proxy cookie is `SameSite=None`.
-Without the DENY, a page that an admin visits could stop Prometheus through
-the gateway with the admin's token, and any platform pod could do it without
-one. The config-reloader sidecars reload through `127.0.0.1`, which does not
-pass the inbound sidecar, so they are not affected.
+`prometheus-deny-lifecycle` and `alertmanager-deny-lifecycle` DENY quit and
+reload. The operator runs Prometheus with `--web.enable-lifecycle`, so a POST
+to `/teknoir-system/prometheus/-/quit` stops it. Such a POST can be a simple
+cross-site request, and the oauth2-proxy cookie is `SameSite=None`. Without
+the DENY, a page that an admin visits could stop Prometheus through the
+gateway with the admin's token, and any platform pod could do it without one.
+The config-reloader sidecars reload through `127.0.0.1`, which does not pass
+the inbound sidecar, so they are not affected.
+
+The policies match each endpoint with every spelling of its slashes:
+`*-/quit`, `*-%2Fquit`, `*-%2fquit` and the same for `reload`. Istio matches
+paths after the mesh's path normalization, which is BASE (the istio chart
+sets none). BASE resolves dot segments and decodes encoded unreserved
+characters such as `%2D`, but keeps an encoded slash. Prometheus and
+Alertmanager decode `%2F` before they route. With a plain `*/-/quit`, a POST
+to `/teknoir-system/prometheus/-%2Fquit` or `.../prometheus%2F-/quit` passed
+the DENY and stopped Prometheus (`tests/lifecycle-deny-docker-test.sh` L5).
+Matching from the `-` covers the slash before it in all three spellings. A
+doubled or trailing slash gets a redirect to the clean path, which goes back
+through the sidecar. A mesh-wide `pathNormalization: DECODE_AND_MERGE_SLASHES`
+would close encoded slashes for every path-based policy at once; that is an
+istio chart change.
 
 "Group admin only" holds for the gateway path. Inside the mesh, traffic from
 teknoir-system and teknoir-auth needs no token:
@@ -173,6 +187,7 @@ kubectl --context teknoir-local -n teknoir-system port-forward svc/monitoring-al
 |---|---|---|
 | `tests/render-test.sh` | Renders the chart and checks the RequestAuthentications, the groups conditions, alert delivery, the `grafana.ini` keys, the CA mount, the render guards and the lifecycle DENY | helm, yq and jq; no cluster |
 | `tests/namespace-authz-test.sh` | Renders every chart app-of-apps installs into teknoir-system and istio-system, and checks every AuthorizationPolicy that applies to Grafana, Prometheus and Alertmanager from any chart: the gateway only with the groups claim, token-less access only from teknoir-system and teknoir-auth, the in-mesh paths the stack needs, plus self-tests | helm, yq and jq; no cluster |
+| `tests/lifecycle-deny-docker-test.sh` | Puts Envoy from the istio chart's proxyv2 version, with the mesh's BASE path normalization and the rendered lifecycle DENYs as RBAC, in front of the chart's Prometheus and Alertmanager images. The API and `/-/ready` stay reachable; every spelling of quit and reload (encoded slashes, `%2D`, dot segments, a query, PUT) gets 403, and a doubled or trailing slash never a 2xx; Prometheus survives every quit probe; a self-test shows that a plain `*/-/quit` lets `-%2Fquit` stop Prometheus | docker; run it under the heavy-job lock |
 | `tests/grafana-jwt-docker-test.sh` | Runs the chart's Grafana image with the rendered `grafana.ini`, plus a test CA (in a Secret volume's layout) and JWKS. Token sign-in (login and e-mail from different claims), Admin/Viewer mapping, rejected tokens, basic auth on the API, the login form off, TLS verification, a CA that appears later needing a restart, the https requirement and that no secret reaches the logs | docker |
 
 ## CRDs

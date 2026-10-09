@@ -43,9 +43,11 @@
 #   M10 `istioctl validate` accepts every rendered Istio resource (skipped,
 #       not failed, when istioctl is not installed)
 #   M11 prometheus- and alertmanager-deny-lifecycle: DENY, for every source,
-#       of the lifecycle paths */-/quit and */-/reload (a cross-site POST
-#       through the gateway, or any platform pod, could stop or reload
-#       Prometheus); no other DENY, and none on Grafana
+#       of the lifecycle endpoints quit and reload (a cross-site POST through
+#       the gateway, or any platform pod, could stop or reload Prometheus),
+#       each as the suffixes -/<x>, -%2F<x> and -%2f<x>: Istio keeps an
+#       encoded slash, Go decodes it (lifecycle-deny-docker-test.sh); no other
+#       DENY, and none on Grafana
 #
 # Usage: charts/monitoring/tests/render-test.sh
 # Environment:
@@ -337,13 +339,14 @@ fi
 
 # --- M11 lifecycle endpoints ----------------------------------------------------------
 for w in prometheus alertmanager; do
-  check M11 "${w}-deny-lifecycle: DENY */-/quit and */-/reload from every source" '
+  check M11 "${w}-deny-lifecycle: DENY quit and reload, encoded slashes included, from every source" '
     [.[] | select(.kind == "AuthorizationPolicy" and .metadata.name == ($w + "-deny-lifecycle"))] as $p
     | ($p | length) == 1
       and $p[0].metadata.namespace == $ns
       and $p[0].spec.action == "DENY"
       and $p[0].spec.selector.matchLabels == {"app.kubernetes.io/name": $w}
-      and $p[0].spec.rules == [{"to": [{"operation": {"paths": ["*/-/quit", "*/-/reload"]}}]}]' \
+      and $p[0].spec.rules == [{"to": [{"operation": {"paths": [
+            "*-/quit", "*-%2Fquit", "*-%2fquit", "*-/reload", "*-%2Freload", "*-%2freload"]}}]}]' \
     --arg w "${w}" --arg ns "${NS}"
 done
 check M11 "no other DENY policy (none on Grafana, none that could cover an API path)" '
