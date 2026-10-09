@@ -35,7 +35,13 @@
 #   S5 the Secret deleted: the next run re-creates it with all 3 keys
 #   S6 RBAC: the ServiceAccount cannot get keycloak-db-secret, list secrets,
 #      patch oauth2-proxy-secret or restart other Deployments
-#   S7 no value (plain or base64) of A, A2, B or the cookie in any Job log
+#   HC tests/staging-hash-check.sh (the rollout pre-check and STG-C1 step 6)
+#      against the real API: DIFFERENT on the stale fixture, EQUAL after S1,
+#      S3 and S5, DIFFERENT after the k3s revert, and ERROR (never EQUAL) for
+#      a deleted Secret, missing keys on both sides, a wrong context and a
+#      Forbidden identity
+#   S7 no value (plain or base64) of A, A2, B or the cookie in any Job log or
+#      in the hash-check output (stdout and stderr)
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -63,11 +69,42 @@ cleanup() {
 trap cleanup EXIT
 
 # Harness-only helpers. Values are compared as hashes and never echoed.
+# Every Secret read is captured, never shown, with stderr discarded: when a
+# template fails, kubectl prints the whole object, .data included (go-template
+# on stdout, jsonpath on stderr). A failed or empty read returns 1 with no
+# output, so it can never equal h(<dummy>); never compare two reads with each
+# other without checking their rc. For r415, use tests/staging-hash-check.sh.
 rnd32() { head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32; }
-h() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
-key_hash() { k -n "$1" get secret "$2" -o go-template="{{index .data \"$3\" | base64decode}}" | sha256sum | cut -d' ' -f1; }
-get_plain() { k -n "$1" get secret "$2" -o go-template="{{index .data \"$3\" | base64decode}}"; }
-data_hash() { k -n "$1" get secret "$2" -o jsonpath='{.data}' | sha256sum | cut -d' ' -f1; }
+h() { printf '%s' "$1" | sha256sum | cut -c1-64; }
+# key_b64 <ns> <secret> <key>: the base64 value (key without '.')
+key_b64() {
+	local v
+	v=$(k -n "$1" get secret "$2" -o "jsonpath={.data.$3}" 2>/dev/null) || return 1
+	[ -n "$v" ] || return 1
+	printf '%s' "$v"
+}
+key_hash() {
+	local v
+	v=$(key_b64 "$@") || return 1
+	printf '%s' "$v" | base64 -d | sha256sum | cut -c1-64
+}
+get_plain() { # only for the non-secret keys (realm, client id)
+	local v
+	v=$(key_b64 "$@") || return 1
+	printf '%s' "$v" | base64 -d
+}
+data_hash() {
+	local v
+	v=$(k -n "$1" get secret "$2" -o jsonpath='{.data}' 2>/dev/null) || return 1
+	[ -n "$v" ] || return 1
+	printf '%s' "$v" | sha256sum | cut -c1-64
+}
+data_keys() { # sorted key names as a JSON list
+	local v
+	v=$(k -n "$1" get secret "$2" -o jsonpath='{.data}' 2>/dev/null) || return 1
+	[ -n "$v" ] || return 1
+	printf '%s' "$v" | yq -p json -o json -I0 'keys | sort'
+}
 rv() { k -n "$1" get secret "$2" -o jsonpath='{.metadata.resourceVersion}'; }
 restarted_at() { k -n "$1" get deploy "$2" -o jsonpath='{.spec.template.metadata.annotations.kubectl\.kubernetes\.io/restartedAt}'; }
 generation() { k -n "$1" get deploy "$2" -o jsonpath='{.metadata.generation}'; }
@@ -91,6 +128,21 @@ run_job() {
 }
 # has_log <file> <fixed string>
 has_log() { grep -qF -- "$2" "$LOGS/$1.log"; }
+# hc <label> [args...]: tests/staging-hash-check.sh against this cluster (a
+# later --context overrides). Sets hc_res to "<stdout>:<rc>"; stdout and
+# stderr go to the hash-check log, which S7 scans; the last stderr stays in
+# $WORK/hc.err.
+HC=$HERE/staging-hash-check.sh
+hc() {
+	local label=$1 out rc=0
+	shift
+	out=$("$HC" --context "$CTX" "$@" 2>"$WORK/hc.err") || rc=$?
+	hc_res="$out:$rc"
+	{
+		echo "## $label: $hc_res"
+		cat "$WORK/hc.err"
+	} >>"$LOGS/hashcheck.log"
+}
 
 # Dummy values (never printed).
 A=$(rnd32)
@@ -184,10 +236,15 @@ done
 uc_r0=$(restarted_at teknoir-system user-controller)
 ba_r0=$(restarted_at teknoir-system backstage-api)
 op_r0=$(restarted_at teknoir-auth oauth2-proxy)
-o2p_hash0=$(data_hash teknoir-auth oauth2-proxy-secret)
+o2p_hash0=$(data_hash teknoir-auth oauth2-proxy-secret) || {
+	bad "fixture: oauth2-proxy-secret unreadable"
+	o2p_hash0=unreadable
+}
 o2p_rv0=$(rv teknoir-auth oauth2-proxy-secret)
 db_rv0=$(rv teknoir-auth keycloak-db-secret)
 secrets0=$(secret_ns_names)
+hc pre
+[ "$hc_res" = DIFFERENT:1 ] && ok "HC pre-check on the stale fixture: DIFFERENT" || bad "HC pre-check: $hc_res"
 
 echo "== S1 hook Job (render applied server-side as argocd-controller)"
 helm template platform-secrets "$CHART" >"$WORK/render.yaml"
@@ -227,6 +284,8 @@ for l in 'teknoir-system/backstage-keycloak-secrets: synced keys: KEYCLOAK_CLIEN
 	'done: 0 created, 1 updated, 0 unchanged, 0 failed'; do
 	has_log ensure "$l" && ok "S1 log: $l" || bad "S1 log lacks: $l"
 done
+hc s1
+[ "$hc_res" = EQUAL:0 ] && ok "HC after S1 (STG-C1 step 6): EQUAL, reading the hyphenated key client-secret" || bad "HC after S1: $hc_res"
 
 echo "== S2 re-run is a no-op"
 s_rv=$(rv teknoir-system backstage-keycloak-secrets)
@@ -259,6 +318,8 @@ else
 	bad "S3 k3s restart did not revert the Secret; re-applying the stale manifest instead"
 	k apply -f "$WORK/stale.yaml" >/dev/null
 fi
+hc s3-reverted
+[ "$hc_res" = DIFFERENT:1 ] && ok "HC after the k3s revert: DIFFERENT" || bad "HC after the revert: $hc_res"
 uc_r2=$(restarted_at teknoir-system user-controller)
 sleep 1
 run_job s3 && ok "S3 run succeeded" || bad "S3 run failed"
@@ -266,6 +327,8 @@ has_log s3 'teknoir-system/backstage-keycloak-secrets: synced keys: KEYCLOAK_CLI
 	has_log s3 'restarted deployment teknoir-system/user-controller' && ok "S3 log: synced KEYCLOAK_CLIENTSECRET, restarted" || bad "S3 log"
 [ "$(key_hash teknoir-system backstage-keycloak-secrets KEYCLOAK_CLIENTSECRET)" = "$(h "$A")" ] &&
 	ok "S3 copy is back to the oauth2-proxy client secret" || bad "S3 copy not restored"
+hc s3
+[ "$hc_res" = EQUAL:0 ] && ok "HC after the S3 run: EQUAL" || bad "HC after S3: $hc_res"
 uc_r3=$(restarted_at teknoir-system user-controller)
 [ -n "$uc_r3" ] && [ "$uc_r3" != "$uc_r2" ] && [ -z "$(pending)" ] && ok "S3 user-controller restarted, marker cleared" || bad "S3 restart"
 
@@ -283,16 +346,21 @@ has_log s4 'teknoir-system/backstage-keycloak-secrets: synced keys: KEYCLOAK_CLI
 
 echo "== S5 deleted Secret is re-created"
 k -n teknoir-system delete secret backstage-keycloak-secrets >/dev/null
+hc s5-deleted
+[ "$hc_res" = ERROR:2 ] && grep -qF 'secrets "backstage-keycloak-secrets" not found' "$WORK/hc.err" &&
+	ok "HC deleted copy: ERROR (NotFound on stderr)" || bad "HC deleted copy: $hc_res"
 sleep 1
 run_job s5 && ok "S5 run succeeded" || bad "S5 run failed"
 [ "$(get_plain teknoir-system backstage-keycloak-secrets KEYCLOAK_REALM)" = master ] &&
 	[ "$(get_plain teknoir-system backstage-keycloak-secrets KEYCLOAK_CLIENTID)" = teknoir ] &&
 	[ "$(key_hash teknoir-system backstage-keycloak-secrets KEYCLOAK_CLIENTSECRET)" = "$(h "$A2")" ] &&
-	[ "$(k -n teknoir-system get secret backstage-keycloak-secrets -o go-template='{{len .data}}')" = 3 ] &&
+	[ "$(data_keys teknoir-system backstage-keycloak-secrets)" = '["KEYCLOAK_CLIENTID","KEYCLOAK_CLIENTSECRET","KEYCLOAK_REALM"]' ] &&
 	ok "S5 re-created with KEYCLOAK_REALM, KEYCLOAK_CLIENTID and KEYCLOAK_CLIENTSECRET" || bad "S5 keys"
 [ "$(managed_by teknoir-system backstage-keycloak-secrets)" = platform-secrets ] && ok "S5 label set" || bad "S5 label"
 has_log s5 'teknoir-system/backstage-keycloak-secrets: created (keys: KEYCLOAK_CLIENTID, KEYCLOAK_REALM, KEYCLOAK_CLIENTSECRET)' &&
 	ok "S5 log: created" || bad "S5 log"
+hc s5
+[ "$hc_res" = EQUAL:0 ] && ok "HC after the S5 re-create: EQUAL" || bad "HC after S5: $hc_res"
 uc_r5=$(restarted_at teknoir-system user-controller)
 [ -n "$uc_r5" ] && [ "$uc_r5" != "$uc_r4" ] && [ -z "$(pending)" ] && ok "S5 user-controller restarted, marker cleared" || bad "S5 restart"
 
@@ -310,7 +378,27 @@ can() { k auth can-i "$@" --as="$sa" 2>/dev/null || true; }
 [ "$(can delete secret/backstage-keycloak-secrets -n teknoir-system)" = no ] && [ "$(can get secret/argocd-secret -n teknoir-system)" = no ] &&
 	ok "S6 no delete, no other teknoir-system Secret" || bad "S6 delete or other Secret allowed"
 
+echo "== HC staging-hash-check fails closed (never EQUAL on a failed read)"
+hc missing-both --source teknoir-auth/oauth2-proxy-secret/NO_SUCH_KEY --copy teknoir-system/backstage-keycloak-secrets/NO_SUCH_KEY
+[ "$hc_res" = ERROR:2 ] && [ "$(grep -c 'key NO_SUCH_KEY is missing or empty' "$WORK/hc.err")" = 2 ] &&
+	ok "HC missing key on both sides (jsonpath prints nothing, rc 0): ERROR" || bad "HC missing keys: $hc_res"
+hc wrong-context --context k3d-no-such-cluster
+[ "$hc_res" = ERROR:2 ] && grep -qF 'context "k3d-no-such-cluster" does not exist' "$WORK/hc.err" &&
+	ok "HC wrong context: ERROR" || bad "HC wrong context: $hc_res"
+# An identity without Secret access: the same cluster, impersonating
+# system:serviceaccount:default:default (kubeconfig `as`).
+k config view --raw --minify >"$WORK/kc-nobody"
+yq -i '.users[0].user.as = "system:serviceaccount:default:default"' "$WORK/kc-nobody"
+KUBECONFIG=$WORK/kc-nobody hc forbidden
+[ "$hc_res" = ERROR:2 ] && [ "$(grep -c 'Error from server (Forbidden)' "$WORK/hc.err")" = 2 ] &&
+	ok "HC Forbidden on both reads: ERROR" || bad "HC Forbidden: $hc_res"
+rm -f "$WORK/kc-nobody"
+hc final
+[ "$hc_res" = EQUAL:0 ] && ok "HC default pair still EQUAL" || bad "HC final: $hc_res"
+
 echo "== S7 never print"
+[ "$(grep -c '^## ' "$LOGS/hashcheck.log")" = 10 ] && ok "S7 scans the output of all 10 hash-check runs" ||
+	bad "S7 hash-check log has $(grep -c '^## ' "$LOGS/hashcheck.log") runs, want 10"
 cat "$LOGS"/*.log >"$WORK/all.log"
 leaks=0
 checked=0
@@ -319,12 +407,12 @@ for name in A A2 B COOKIE DECOY; do
 	for form in "$val" "$(b64 "$val")"; do
 		checked=$((checked + 1))
 		if grep -qF -- "$form" "$WORK/all.log"; then
-			echo "  LEAK: value $name appears in a Job log"
+			echo "  LEAK: value $name appears in a Job log or the hash-check output"
 			leaks=$((leaks + 1))
 		fi
 	done
 done
-[ "$leaks" -eq 0 ] && ok "S7 0 leaks: $checked values (plain and base64) vs $(wc -l <"$WORK/all.log") log lines" || bad "S7 $leaks leaks"
+[ "$leaks" -eq 0 ] && ok "S7 0 leaks: $checked values (plain and base64) vs $(wc -l <"$WORK/all.log") Job and hash-check log lines" || bad "S7 $leaks leaks"
 
 echo
 echo "RESULT: $pass passed, $fail failed"
