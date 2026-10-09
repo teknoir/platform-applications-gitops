@@ -46,20 +46,44 @@ environment variables the script already honours. `--source tnctl` runs the lite
 `tnctl bootstrap <device> --skip-upload` instead, which needs `tnctl login`.
 
 **genericcloud vs generic** (critique #9). The containerdisks image is built from Debian's
-`genericcloud` image (cloud kernel), not `generic`. Check G7/G8 settles whether that kernel is
-enough for k3s. If it is not, re-render with `--disk generic`.
+`genericcloud` image (cloud kernel), not `generic`. The k3d e2e found that kernel enough
+(see below), and G7/G8 confirm it on r415. If it is not, re-render with `--disk generic`.
 
 ## Finding: k3s >= 1.34.12 and the tnctl custom CA (affects real devices too)
 
 Found by the k3d e2e on 2026-10-09:
 - **Symptom.** With `INSTALL_K3S_VERSION=v1.34.12+k3s1`, the inner k3s server never became ready. The bootstrap hung in `systemctl restart k3s` (the unit has no start timeout). Every 2 s k3s logged `Failed to validate connection to cluster at https://127.0.0.1:6443: CA cert validation failed: ... x509: certificate signed by unknown authority`. `openssl verify` and `curl --cacert` accept the same chain.
 - **Cause.** k3s commit 6c7a974 ("Improve CA hash validation", 2026-09-24) shipped in **v1.34.12, v1.35.9 and v1.36.5** (2026-09-30). Its `appendCertsFromPEM` drops every CA certificate without the `keyCertSign` key usage before choosing roots. The tnctl `server.sh.tmpl` (and bootstrap-device `05_tn_install_k3s.sh`) installs the device certificate `rsa_public` as `server/tls/root-ca.pem`. Backstage creates that certificate with `openssl req -x509` and no `-addext keyUsage`, so it carries no key usage at all. The r415 devices `rpi4-white-se`, `rtx2000-ada-128gb-se` and `orin-agx-32gb-se` all have only `basicConstraints CA:TRUE` (checked read-only on their public certificates). The root is dropped, the pool is empty, and validation fails.
-- **Impact beyond the spike.** `get.k3s.io` serves stable = v1.36.5. A **real** device bootstrapped today with `tnctl bootstrap` without `INSTALL_K3S_VERSION` should hang the same way. This was not tested on hardware.
+- **Impact beyond the spike.** `get.k3s.io` serves stable = v1.36.5. A **real** device bootstrapped today with `tnctl bootstrap` without `INSTALL_K3S_VERSION` should hang the same way. This was not tested on hardware. Also untested: whether an existing device breaks when its k3s is upgraded to an affected release and restarted.
 - **Spike handling.** Pin `v1.34.11+k3s1`. `render.sh` refuses an affected k3s version when the device certificate lacks `keyCertSign`. Check G9b names the condition if it happens anyway.
 - **Fix options (outside this kit):**
   1. In the template, before installing the CA, re-issue the root certificate from the device key with `keyUsage=critical,keyCertSign,cRLSign,digitalSignature` (`openssl req -x509 -new -key rsa_private.pem ...`). The key does not change, so it also works for existing devices.
   2. In Backstage and the controller fallback, add `-addext keyUsage=...` when generating device certificates. This covers new devices only.
   3. Pin `INSTALL_K3S_VERSION` in tnctl. This is a stopgap.
+
+## What the k3d e2e already answered (2026-10-09)
+
+`test/k3d-e2e.sh` ran the chart and the kit end to end on a throwaway k3d cluster: k3s
+v1.34.5 like r415, KVM from an Ubuntu host with `/dev/kvm` `0660 root:kvm`, and k3s's
+default containerd. The results below were measured there. Anything that depends on
+r415 itself is still open for the spike: the Opteron CPU and its speed, the
+svclb/kube-proxy path, `/var` space, the real EMQX, deadend and device-controller, and
+the tunnel.
+
+| Question | k3d result |
+|---|---|
+| Chart deploys in Argo CD wave order | KubeVirt and CDI were `Deployed` about 2 minutes after the operators were applied. Every running image was pinned by digest, including the operands the operators create. |
+| Non-root virt-launcher and `/dev/kvm` | Works. The launcher runs as uid 107 with only `NET_BIND_SERVICE`, and the guest reports `systemd-detect-virt=kvm`. libvirt logs one harmless `Unable to open /dev/kvm` from an early CPUID probe; V10 ignores it and G6b is the real check. |
+| PSA `baseline` | virt-launcher and the CDI importer are admitted under `enforce=baseline`. |
+| CDI with local-path WaitForFirstConsumer | Works with `HonorWaitForFirstConsumer`: a temporary launcher pod triggers binding, then the importer runs with `pullMethod: node`. CDI has no StorageProfile defaults for `rancher.io/local-path`, so the VM's explicit `accessModes`/`volumeMode` are required. |
+| Quota headroom | A 4 Gi guest gets a launcher with requests and limits of 4592762881 B, about 283 MiB of overhead on both. A 20 Gi disk becomes a 21.2 Gi PVC because of CDI's 5.5% filesystem overhead. The quota allows +1 Gi and 1.1x per device, which leaves room for a second Small. |
+| genericcloud kernel (critique #9) | Enough. `k3s check-config` reports `STATUS: pass`, and overlay, br_netfilter, vxlan, nf_tables and the iptables modules all load (kernel 6.12.111+deb13-cloud-amd64). `--disk generic` stays available as a fallback. |
+| Inner CIDRs | Services are on 10.53/16 with kube-dns at 10.53.0.10, and pods on 10.52.0.0/24. The guest's resolver chain is systemd-resolved, then the outer kube-dns. |
+| CoreDNS override | Took effect **without** a CoreDNS restart once the ConfigMap existed. The guest and inner pods resolve `mqtt-`/`deadend-teknoir-demo.teknoir.cloud` to the gateway ClusterIP. |
+| Isolation (critique #16) | I1-I11 are blocked and I12-I15 are reachable, from the guest shell **and** from an inner pod. |
+| Inner k3s and the tnctl custom CA | k3s v1.34.11 works. v1.34.12 does not (see Finding). |
+| virtctl access | `virtctl port-forward/ssh` is dialed by virt-api and is blocked by default-deny. Use `--allow-virtctl-ssh`. |
+| Time to online | The bootstrap finished 56 s after the VM was created: disk import 36 s, then boot and bootstrap 20 s. TOE started at +75 s. The stand-in gateway is not EMQX, so the TOE cloud connection, `Connected` and Last Seen remain for r415. |
 
 ## Who does what
 

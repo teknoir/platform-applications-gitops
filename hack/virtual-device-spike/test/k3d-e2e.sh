@@ -199,11 +199,17 @@ set -e
 # (D2), the stand-in gateway is not EMQX, so TOE cannot complete a TLS/MQTT
 # connection (G12) and never comes online (T1).
 EXPECTED_FAIL="P2 D2 G12 T1"
-MUST_PASS="P1 P3 P4 P5 P6 P7k P8k P7c P8c P9 P10 P11 N1 N2 N4 N5 V0 V2 V3 V4 V5 V6 V7 V8 V9a G1 G3 G4 G5 G6 G7 G8 G9 G10 G11 G14 I1 I2 I3 I4 I5 I6 I7 I8 I9 I10 I11 I12 I13 I14 I15"
+MUST_PASS="P1 P3 P4 P5 P6 P7k P8k P7c P8c P9 P10 P11 N1 N2 N4 N5 V0 V2 V3 V4 V5 V6 V7 V8 V9a V10 V12 G1 G3 G4 G5 G6 G6b G7 G8 G9 G10 G11 G14 I1 I2 I3 I4 I5 I6 I7 I8 I9 I10 I11 I12 I13 I14 I15"
 fail=0
 for id in $MUST_PASS; do
   grep -qE "^PASS +${id} " "${TMP}/check.out" || { log "expected PASS for ${id}"; fail=1; }
 done
+# The expected failures must actually fail: they show the checks discriminate.
+for id in $EXPECTED_FAIL; do
+  grep -qE "^FAIL +${id} " "${TMP}/check.out" || { log "expected FAIL for ${id} (stand-ins cannot satisfy it)"; fail=1; }
+done
+n_inner=$(grep -cE '^PASS +I([1-9]|1[0-5]) +\[inner pod\]' "${TMP}/check.out" || true)
+[[ $n_inner == 15 ]] || { log "expected 15 passing inner-pod probes, got ${n_inner}"; fail=1; }
 while read -r id; do
   [[ " $EXPECTED_FAIL " == *" $id "* ]] || { log "unexpected FAIL ${id}"; fail=1; }
 done < <(awk '$1=="FAIL"{print $2}' "${TMP}/check.out" | sort -u)

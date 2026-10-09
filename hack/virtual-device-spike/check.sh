@@ -193,7 +193,7 @@ check_platform() {
     local rule
     rule=$(jget '.data["virtual-devices.override"] // ""' <<<"$cm" | grep -E '^\s*rewrite ' || true)
     if [[ $rule == *"${DOMAIN//./\\\\.}"* || $rule == *"${DOMAIN//./\\.}"* ]]; then
-      result PASS P11 "coredns-custom virtual-devices.override rewrites (mqtt|deadend)-*.${DOMAIN} (effect verified from the guest, G7)"
+      result PASS P11 "coredns-custom virtual-devices.override rewrites (mqtt|deadend)-*.${DOMAIN} (effect verified from the guest, G14)"
     else
       result FAIL P11 "coredns-custom has no virtual-devices.override rule for ${DOMAIN}"
     fi
@@ -311,7 +311,7 @@ check_vm() {
     agent=$(jget '[.status.conditions[]? | select(.type=="AgentConnected") | .status][0] // "False"' <<<"$vmi")
     [[ $agent == True ]] && result PASS V5 "guest agent connected: $(jget '.status.guestOSInfo | "\(.prettyName // .name) kernel \(.kernelRelease)"' <<<"$vmi")" ||
       result FAIL V5 "guest agent not connected (qemu-guest-agent is installed by cloud-init; wait for cloud-init)"
-    result INFO V5b "VMI interfaces: $(jget '[.status.interfaces[]? | "\(.name)=\(.ipAddress)"] | join(" ")' <<<"$vmi")"
+    result INFO V5b "VMI interfaces: $(jget '[.status.interfaces[]? | select(.name != null) | "\(.name)=\(.ipAddress)"] | join(" ")' <<<"$vmi")"
   fi
 
   local pods pod
@@ -336,11 +336,18 @@ check_vm() {
     [[ $containers != *guest-console-log* ]] && result PASS V9a "no guest-console-log container (serial console not copied to pod logs); containers: $containers" ||
       result FAIL V9a "guest-console-log container present: serial console output reaches pod logs"
     [[ $containers != *istio-proxy* ]] || result FAIL V9b "istio-proxy sidecar injected into virt-launcher"
-    result INFO V9c "virt-launcher: priorityClass $(jget '.spec.priorityClassName' <<<"$pod") (priority $(jget '.spec.priority' <<<"$pod")), automountServiceAccountToken=$(jget '.spec.automountServiceAccountToken // "unset"' <<<"$pod"), SA token volume: $(jget '[.spec.volumes[]? | select(.projected.sources[]?.serviceAccountToken) | .name] | if length==0 then "none" else join(",") end' <<<"$pod")"
+    result INFO V9c "virt-launcher: priorityClass $(jget '.spec.priorityClassName' <<<"$pod") (priority $(jget '.spec.priority' <<<"$pod")), automountServiceAccountToken=$(jget '.spec | if has("automountServiceAccountToken") then .automountServiceAccountToken else "unset" end' <<<"$pod"), SA token volume: $(jget '[.spec.volumes[]? | select(.projected.sources[]?.serviceAccountToken) | .name] | if length==0 then "none" else join(",") end' <<<"$pod")"
     result INFO V9d "virt-launcher compute resources: $(jget '[.spec.containers[] | select(.name=="compute") | .resources | "requests \(.requests.cpu)/\(.requests.memory), limits \(.limits.cpu)/\(.limits.memory)"][0]' <<<"$pod")"
     local hits
-    hits=$(kc -n "$VDEV_NS" logs "$name" -c compute --tail=2000 2>/dev/null | grep -i -E 'apparmor|permission denied|/dev/kvm|could not access kvm' | cut -c1-200 | head -n 5 || true)
-    [[ -z $hits ]] && result PASS V10 "virt-launcher log has no AppArmor / permission / KVM access errors" || result WARN V10 "virt-launcher log mentions: ${hits//$'\n'/ | }"
+    local logs probe
+    logs=$(kc -n "$VDEV_NS" logs "$name" -c compute --tail=5000 2>/dev/null || true)
+    # libvirt's early host CPUID probe (virHostCPUGetCPUID) runs before virt-handler has
+    # handed /dev/kvm to the qemu user and logs "Permission denied"; seen on k3d with a
+    # working KVM guest. G6b is the real KVM check.
+    probe=$(grep -c 'virHostCPUGetCPUID' <<<"$logs" || true)
+    hits=$(grep -i -E 'apparmor|permission denied|/dev/kvm|could not access kvm' <<<"$logs" | grep -v 'virHostCPUGetCPUID' | cut -c1-200 | head -n 5 || true)
+    [[ -z $hits ]] && result PASS V10 "virt-launcher log has no AppArmor / permission / KVM access errors (benign libvirt CPUID probe messages: ${probe})" ||
+      result WARN V10 "virt-launcher log mentions: ${hits//$'\n'/ | }"
   fi
 
   local q
@@ -357,8 +364,10 @@ check_vm() {
   fi
 
   local ev
+  # CDI emits ImportTargetInUse (the WaitForFirstConsumer helper pod) and "Completed"
+  # as Warnings during a normal import; they are not counted.
   ev=$(kc -n "$VDEV_NS" get events --field-selector type=Warning -o json 2>/dev/null |
-    jq -r '[.items[] | "\(.involvedObject.kind)/\(.involvedObject.name) \(.reason): \(.message|.[0:160])"] | unique | .[-8:] | .[]' 2>/dev/null || true)
+    jq -r '[.items[] | select(.reason != "ImportTargetInUse" and .reason != "Completed") | "\(.involvedObject.kind)/\(.involvedObject.name) \(.reason): \(.message|.[0:160])"] | unique | .[-8:] | .[]' 2>/dev/null || true)
   [[ -z $ev ]] && result PASS V12 "no Warning events in ${VDEV_NS}" || {
     result WARN V12 "Warning events in ${VDEV_NS} (latest):"
     while IFS= read -r line; do printf '           %s\n' "$line"; done <<<"$ev"
@@ -521,6 +530,8 @@ kv() { printf '%s=%s\n' "$1" "$2"; }
 . /etc/teknoir-spike/spike.env 2>/dev/null || true
 kv os "${PRETTY_NAME:-unknown}"
 kv kernel "$(uname -r)"
+kv virt "$(systemd-detect-virt 2>/dev/null)"
+kv hypervisor "$(journalctl -k -b --no-pager 2>/dev/null | grep -m1 -o 'Hypervisor detected: .*')"
 kv nproc "$(nproc)"
 kv mem_kib "$(awk '/^MemTotal/{print $2}' /proc/meminfo)"
 kv root_bytes "$(df -B1 --output=size / | tail -n1 | tr -d ' ')"
@@ -548,10 +559,15 @@ kv inner_podcidr "$($K get nodes -o jsonpath='{.items[0].spec.podCIDR}' 2>/dev/n
 kv toe_phase "$($K -n kube-system get pods -l app=toe -o jsonpath='{.items[0].status.phase}' 2>/dev/null)"
 kv toe_started "$($K -n kube-system get pods -l app=toe -o jsonpath='{.items[0].status.containerStatuses[0].state.running.startedAt}' 2>/dev/null)"
 kv toe_image "$($K -n kube-system get pods -l app=toe -o jsonpath='{.items[0].status.containerStatuses[0].imageID}' 2>/dev/null)"
+# TOE has two MQTT clients that log the same messages: MQTTCloud (the platform's
+# EMQX, what "online" means) and MQTTEdge (the device-local emqx-edge broker).
 tl=$($K -n kube-system logs deploy/toe --timestamps --tail=-1 2>/dev/null)
-kv toe_first_up "$(printf '%s\n' "$tl" | grep -m1 'mqtt connection up' | awk '{print $1}')"
-kv toe_up_count "$(printf '%s\n' "$tl" | grep -c 'mqtt connection up')"
-kv toe_err_count "$(printf '%s\n' "$tl" | grep -c 'error whilst attempting connection')"
+cloud=$(printf '%s\n' "$tl" | grep 'MQTTCloud' | grep -v 'MQTTCloudHandler')
+kv toe_first_up "$(printf '%s\n' "$cloud" | grep -m1 'mqtt connection up' | awk '{print $1}')"
+kv toe_up_count "$(printf '%s\n' "$cloud" | grep -c 'mqtt connection up')"
+kv toe_err_count "$(printf '%s\n' "$cloud" | grep -c 'error whilst attempting connection')"
+kv toe_last_err "$(printf '%s\n' "$cloud" | grep 'error whilst attempting connection' | tail -n1 | sed 's/.*error whilst attempting connection//' | tr -d '\t' | cut -c1-200)"
+kv toe_edge_up "$(printf '%s\n' "$tl" | grep 'MQTTEdge' | grep -c 'mqtt connection up')"
 kv rt_pods "$($K get pods -A --no-headers 2>/dev/null | awk '$2 ~ /reverse-tunnel/ {print $1"/"$2":"$4}' | tr '\n' ' ')"
 kv dns_mqtt "$(getent ahostsv4 "mqtt-${NAMESPACE}.${DOMAIN}" | awk 'NR==1{print $1}')"
 kv dns_deadend "$(getent ahostsv4 "deadend-${NAMESPACE}.${DOMAIN}" | awk 'NR==1{print $1}')"
@@ -585,6 +601,9 @@ check_guest() {
   [[ $(kvget spike_bootstrap-exit) == 0 ]] && result PASS G5 "tnctl server bootstrap exited 0 ($(kvget spike_bootstrap-started) -> $(kvget spike_bootstrap-finished))" ||
     result FAIL G5 "tnctl server bootstrap exit '$(kvget spike_bootstrap-exit)'; log tail: $(kvget bootstrap_log_tail)"
   [[ $(kvget qga) == active ]] && result PASS G6 "qemu-guest-agent active" || result FAIL G6 "qemu-guest-agent '$(kvget qga)'"
+  # systemd-detect-virt says "kvm" for hardware virtualization and "qemu" for TCG.
+  [[ $(kvget virt) == kvm ]] && result PASS G6b "hardware virtualization in the guest: systemd-detect-virt=kvm ($(kvget hypervisor))" ||
+    result FAIL G6b "guest is not KVM-accelerated: systemd-detect-virt='$(kvget virt)'"
 
   local ccs
   ccs=$(kvget checkconfig_status)
@@ -616,10 +635,11 @@ check_guest() {
     result FAIL G10 "inner k3s CIDRs wrong: kubernetes=$svc kube-dns=$dns podCIDR=$pc"
   [[ $(kvget toe_phase) == Running ]] && result PASS G11 "TOE pod Running (image $(kvget toe_image | sed 's/.*@//' | cut -c1-19)...)" || result FAIL G11 "TOE pod phase '$(kvget toe_phase)'"
   if [[ $(kvget toe_up_count) =~ ^[1-9][0-9]*$ ]]; then
-    result PASS G12 "TOE logged 'mqtt connection up' $(kvget toe_up_count)x (first $(kvget toe_first_up)); connection errors: $(kvget toe_err_count)"
+    result PASS G12 "TOE's cloud MQTT client connected to mqtt-<ns>.<domain> $(kvget toe_up_count)x (first $(kvget toe_first_up)); failed attempts: $(kvget toe_err_count)"
   else
-    result FAIL G12 "TOE never logged 'mqtt connection up' (connection errors: $(kvget toe_err_count))"
+    result FAIL G12 "TOE's cloud MQTT client never connected (failed attempts: $(kvget toe_err_count); last: $(kvget toe_last_err))"
   fi
+  result INFO G12b "TOE's local edge-broker client connections: $(kvget toe_edge_up)"
   result INFO G13 "reverse-tunnel pods: $(kvget rt_pods)"
 
   local gw_ip pub
@@ -696,9 +716,14 @@ ${targets}EOT"
       nc_lines+="if nc -z -w 3 $host $port </dev/null >/dev/null 2>&1; then r=open; else r=closed; fi; echo \"$e|$id|$label|$host|$port|\$r\"; "
     done <<<"$targets"
     local pod_name="vd-s1-probe-$RANDOM"
-    local inner="k3s kubectl -n default run ${pod_name} --image=${VDS_PROBE_IMAGE} --restart=Never --rm -i --quiet --pod-running-timeout=3m --command -- sh -c '${nc_lines//\'/}'"
-    if out=$(guest_run "$inner" sudo 2>"${PRIV}/ssh.err"); then
-      report_probes "inner pod" "$(grep '|' <<<"$out" || true)"
+    # Not 'kubectl run -i': attaching races the first probe results. Run, wait, read logs.
+    local inner="K='k3s kubectl -n default'
+\$K run ${pod_name} --image=${VDS_PROBE_IMAGE} --restart=Never --command -- sh -c '${nc_lines//\'/}' >/dev/null
+\$K wait --for=jsonpath='{.status.phase}'=Succeeded pod/${pod_name} --timeout=240s >/dev/null 2>&1
+\$K logs pod/${pod_name}
+\$K delete pod ${pod_name} --wait=false >/dev/null 2>&1"
+    if out=$(guest_run "$inner" sudo 2>"${PRIV}/ssh.err") && grep -q '|' <<<"$out"; then
+      report_probes "inner pod" "$(grep '|' <<<"$out")"
     else
       result FAIL I0p "inner-pod probes failed: $(head -c 300 "${PRIV}/ssh.err" | tr '\n' ' ')"
     fi
@@ -738,11 +763,11 @@ check_timing() {
     "VMI running|$(jget '[.status.phaseTransitionTimestamps[]? | select(.phase=="Running") | .phaseTransitionTimestamp][0]' <<<"$vmi")"
     "guest booted|$(kvget boot_time)"
     "cloud-init runcmd started|$(kvget spike_runcmd-started)"
-    "guest agent connected|$(jget '[.status.conditions[]? | select(.type=="AgentConnected" and .status=="True") | .lastTransitionTime][0]' <<<"$vmi")"
+    "guest agent connected|$(jget '[.status.conditions[]? | select(.type=="AgentConnected" and .status=="True") | (.lastTransitionTime // .lastProbeTime)][0]' <<<"$vmi")"
     "bootstrap started|$(kvget spike_bootstrap-started)"
     "bootstrap finished|$(kvget spike_bootstrap-finished)"
     "TOE container started|$(kvget toe_started)"
-    "TOE mqtt connection up (online)|$(kvget toe_first_up)"
+    "TOE cloud MQTT connection up (online)|$(kvget toe_first_up)"
   )
   local row label ts e
   for row in "${rows[@]}"; do
@@ -758,7 +783,7 @@ check_timing() {
   local online
   online=$(ts_to_epoch "$(kvget toe_first_up)")
   if [[ -n $online ]]; then
-    result PASS T1 "time to online (VM created -> TOE mqtt connection up): $((online - t0))s"
+    result PASS T1 "time to online (VM created -> TOE cloud MQTT connection up): $((online - t0))s"
   else
     result FAIL T1 "time to online not measurable: TOE has not connected"
   fi
