@@ -248,7 +248,7 @@ watch_into() { # watch_into FILE JQ_FUNCTION KUBECTL_GET_ARGS...
       kubectl --context "$CTX" get "$@" --watch --output-watch-events -o json 2>>"${out}.err" || true
       sleep 2
     done | jq -L "$JQ_LIB" -n -c --unbuffered "include \"argo\"; ${fn}" >>"$out" 2>>"${out}.err"
-  ) &
+  ) 2>/dev/null & # stop_watchers kills it: no "Terminated" notice from the subshell in the log
   WATCHERS+=("$!")
 }
 watch_into "${ART}/application.jsonl" app_timeline -n "$ARGO_NS" applications.argoproj.io --field-selector metadata.name=virtual-devices
@@ -268,7 +268,8 @@ controller_log() {
 argo_diagnostics() {
   ARGO_DIAG_DONE=1
   log "timeline (A: Application, one line per change of its operation, operationState, sync/health or not-Synced resources;"
-  log "          C: KubeVirt/CDI CR, one line per change of generation, spec, finalizers or spec owners):"
+  log "          C: KubeVirt/CDI CR, one line per change of generation, spec, finalizers or spec owners."
+  log "          The CDI CRD has no status subresource, so cdi-operator's status writes move CDI's generation too):"
   { sed 's/^/A /' "${ART}/application.jsonl"; sed 's/^/C /' "${ART}/kubevirt.jsonl" "${ART}/cdi.jsonl" 2>/dev/null; } |
     sort -s -k2,2 | cut -c1-1500 | sed 's/^/[e2e]   /' >&2
   log "application-controller log about the Application's operations (full log: ${ART}/application-controller.log):"

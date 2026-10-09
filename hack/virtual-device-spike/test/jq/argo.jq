@@ -65,7 +65,8 @@ def cr_view:
 # Timeline of custom resources from `kubectl get --watch --output-watch-events -o json`
 # (run with jq -n): one line per change of cr_view, with the full spec the first time an
 # object is seen and only the spec changes (path: [before, after]) after that. Status
-# writes alone print nothing.
+# writes alone print nothing, unless they move the generation: the CDI CRD has no status
+# subresource, so such a line shows an empty specChanges.
 def cr_timeline:
   foreach inputs as $e ({out: null};
     ($e.object) as $o | "\($o.kind)/\($o.metadata.name)" as $k | ($o | cr_view) as $v | .[$k] as $p
