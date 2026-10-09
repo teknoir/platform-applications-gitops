@@ -61,7 +61,8 @@ spec:
     spec:
       containers:
         - name: redis
-          image: docker.io/redis:7.2-alpine
+          image: {{ include "auth.image" .Values.oauth2Proxy.redis.image | quote }}
+          imagePullPolicy: {{ .Values.oauth2Proxy.redis.image.pullPolicy | default "IfNotPresent" }}
           command:
             - sh
             - -c

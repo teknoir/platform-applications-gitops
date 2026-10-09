@@ -33,3 +33,17 @@ https://auth.<domain>/auth/realms/teknoir.
 {{- define "auth.issuer" -}}
 {{- printf "%s/realms/%s" (include "auth.keycloakPublicUrl" .) .Values.realm.name -}}
 {{- end }}
+
+{{/*
+Image reference from {repository, tag, digest}: <repository>[:<tag>][@<digest>].
+Pinned images carry an immutable tag plus the linux/amd64 manifest digest
+(G-09); a digest alone is fine for upstreams that publish only `latest`.
+*/}}
+{{- define "auth.image" -}}
+{{- $ref := .repository -}}
+{{- if not $ref }}{{ fail "auth: an image has no repository" }}{{ end -}}
+{{- if .tag }}{{ $ref = printf "%s:%s" $ref (toString .tag) }}{{ end -}}
+{{- if .digest }}{{ $ref = printf "%s@%s" $ref .digest }}{{ end -}}
+{{- if not (or .tag .digest) }}{{ fail (printf "auth: image %s has neither a tag nor a digest" .repository) }}{{ end -}}
+{{- $ref -}}
+{{- end }}
