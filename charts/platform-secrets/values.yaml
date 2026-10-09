@@ -53,7 +53,14 @@
 #
 # Tests (not packaged: .helmignore tests/):
 #   tests/render-test-teknoir-cloud.sh  render, kubeconform, spec and RBAC
-#   tests/k3d-test-teknoir-cloud.sh     S1-S7 on a throw-away k3d cluster
+#   tests/k3d-test-teknoir-cloud.sh     S0-S7 and HC on a throw-away k3d cluster
+#   tests/staging-hash-check-test.sh    unit test of the hash check (fake kubectl)
+#
+# Rollout check on r415 (read-only; prints only EQUAL, DIFFERENT or ERROR):
+#   tests/staging-hash-check.sh --context r415
+# DIFFERENT before the merge (the stale copy), EQUAL once the Job has run.
+# Use this script, not an ad-hoc one-liner: a failing kubectl template prints
+# the whole Secret, and two failed reads would compare as EQUAL.
 
 # Namespace of the ServiceAccount, ConfigMap, Job and CronJob. Explicit (not
 # .Release.Namespace) so that every render is the same.
