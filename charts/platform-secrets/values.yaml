@@ -1,0 +1,126 @@
+# Values for platform-secrets on teknoir-cloud (staging, r415).
+#
+# The chart code (templates, files/ensure-secrets.sh, README) is identical to
+# platform-secrets 0.0.1 on airgap-redesign/teknoir-local. Only this file
+# differs: staging manages exactly ONE Secret, so a missing values override
+# can never generate the airgap's Secrets here.
+#
+# A Job (files/ensure-secrets.sh) reconciles the Secrets listed under
+# `secrets` below:
+#
+#   - A Secret that does not exist is created with every key.
+#   - A Secret that exists is never regenerated. Its `random` keys and its
+#     plain `value` keys are left alone; missing ones are only added when the
+#     Secret sets `addMissingKeys: true`.
+#   - `copyFrom` keys (and `value` keys with `sync: true`) are re-synced on
+#     every run, so a consumer can never drift from the canonical value.
+#   - When a Secret is created or any of its keys changes, the Deployments in
+#     `restartDeployments` get a rollout (kubectl.kubernetes.io/restartedAt).
+#   - Nothing ever prints a value. Values only exist in shell variables and
+#     pipes inside the Job pod.
+#
+# On teknoir-cloud the Job runs two ways, with the same render:
+#   1. ArgoCD Sync hook (wave -10, BeforeHookCreation) on every sync of the
+#      `platform-secrets` Application (app-of-apps).
+#   2. CronJob every 10 minutes, which re-syncs the copies (a rotated source
+#      never needs an ArgoCD sync to reach its consumers, and a K3s manifest
+#      file that reverts the Secret is overridden again within 10 minutes).
+#
+# The generated Secrets carry no ArgoCD tracking and no ownerReference, so no
+# Application can ever prune them, and they are not K3s files.
+#
+# Key specs (exactly one of random / value / copyFrom per key):
+#   KEY:
+#     random:              # create-only
+#       length: 32         # characters from `charset` (alnum | hex), or
+#       charset: alnum     #   alnum values always hold upper, lower and digit
+#       bytes: 32          # ...N random bytes in `encoding`
+#       encoding: base64url  # base64 | base64url (unpadded) | hex
+#     format: "secret: %s" # optional; %s is replaced by the random value
+#   KEY:
+#     random:
+#       length: 32
+#       seedFrom: <namespace>/<secret>/<key>
+#     # Whenever this random value is generated, an existing, non-empty seed
+#     # key is used verbatim instead (format is not applied).
+#   KEY:
+#     value: teknoir       # literal, non-secret; create-only unless sync: true
+#     sync: true
+#   KEY:
+#     copyFrom: <namespace>/<secret>/<key>   # always re-synced
+#
+# Labels must be valid Kubernetes label keys/values.
+#
+# Tests (not packaged: .helmignore tests/):
+#   tests/render-test-teknoir-cloud.sh  render, kubeconform, spec and RBAC
+#   tests/k3d-test-teknoir-cloud.sh     S1-S7 on a throw-away k3d cluster
+
+# Namespace of the ServiceAccount, ConfigMap, Job and CronJob. Explicit (not
+# .Release.Namespace) so that every render is the same.
+namespace: teknoir-system
+
+# Toolbox image (sh, kubectl). Staging pulls it from Docker Hub, so it is
+# pinned to the linux/amd64 manifest digest of the 1.34.11 tag
+# (`crane digest --platform linux/amd64 docker.io/alpine/k8s:1.34.11`): the
+# Job can read the master-realm `teknoir` client secret, so a moved tag must
+# never run here. r415 is amd64.
+image:
+  repository: docker.io/alpine/k8s
+  tag: "1.34.11@sha256:9ec4a7d9720f07c2f4ff20025bc9798918a4b2a050fb62226dd4f3e904e59121"
+  pullPolicy: IfNotPresent
+
+# Label added to every Secret this chart creates.
+managedByLabel:
+  key: teknoir.org/managed-by
+  value: platform-secrets
+
+job:
+  name: platform-secrets-ensure
+  backoffLimit: 6
+  activeDeadlineSeconds: 900
+  # ArgoCD hook settings.
+  syncWave: "-10"
+
+cronJob:
+  enabled: true
+  name: platform-secrets-resync
+  schedule: "*/10 * * * *"
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    memory: 128Mi
+
+secrets:
+  # --- user-controller (teknoir-system) -------------------------------------
+  # user-controller logs in to Keycloak with the client-credentials grant of
+  # client `teknoir` in realm `master` (its service account has master-realm
+  # manage/view/query-users). The client secret is copied from
+  # teknoir-auth/oauth2-proxy-secret[client-secret]: the copy oauth2-proxy
+  # signs users in with, and the value Keycloak holds for that client. After a
+  # rotation of the `teknoir` client secret only oauth2-proxy-secret is
+  # updated; this copy follows within 10 minutes and user-controller restarts.
+  #
+  # This replaces the hand-made K3s manifest file
+  # /opt/k3s/server/manifests/teknoir-backstage-keycloak-secrets.yaml on r415
+  # (infra scripts/gen-backstage-keycloak-secrets.sh), whose stale copy made
+  # every user-controller Keycloak login fail with 401. Never create this
+  # Secret by hand or as a K3s file again.
+  #
+  # backstage-api also loads this Secret (envFrom) but does not use it, so it
+  # is not restarted.
+  - namespace: teknoir-system
+    name: backstage-keycloak-secrets
+    keys:
+      KEYCLOAK_REALM:
+        value: master
+        sync: true
+      KEYCLOAK_CLIENTID:
+        value: teknoir
+        sync: true
+      KEYCLOAK_CLIENTSECRET:
+        copyFrom: teknoir-auth/oauth2-proxy-secret/client-secret
+    restartDeployments:
+      - teknoir-system/user-controller
