@@ -99,7 +99,9 @@ spec:
       so wait here. Runs after the native istio-proxy sidecar (injected
       first), so the mTLS the postgres AuthorizationPolicy requires works.
       Bounded: on timeout the app starts anyway and behaves as before. The
-      image defaults to the postgres image (pg_isready), already mirrored. */}}
+      image defaults to the postgres image (pg_isready), already mirrored.
+      -U/-d are required: the container runs as uid 1000 without a passwd
+      entry, and pg_isready then reports "no attempt" (rc 3) forever. */}}
       initContainers:
         - name: wait-for-postgres
           image: {{ $wait.image | default .Values.postgres.image }}
@@ -116,7 +118,7 @@ spec:
             - |
               i=0
               while [ "$i" -lt {{ $wait.attempts | default 120 }} ]; do
-                if pg_isready -q -h backstage-postgres -p 5432; then
+                if pg_isready -q -h backstage-postgres -p 5432 -U backstage -d postgres; then
                   echo "backstage-postgres accepts connections"
                   exit 0
                 fi

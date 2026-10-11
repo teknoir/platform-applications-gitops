@@ -139,7 +139,7 @@ always=$(q "$WORK/local.yaml" '.spec.template.spec | select(.) | (.initContainer
 
 wi=$(q "$WORK/local.yaml" 'select(.kind == "Deployment" and .metadata.name == "backstage-api") | .spec.template.spec.initContainers[] | select(.name == "wait-for-postgres") | .image + " " + .command[2]')
 wi_img=${wi%% *}
-[ "$wi_img" = "${pg%% *}" ] && [[ "$wi" == *"pg_isready -q -h backstage-postgres -p 5432"* ]] && [[ "$wi" == *"exit 0"* ]] &&
+[ "$wi_img" = "${pg%% *}" ] && [[ "$wi" == *"pg_isready -q -h backstage-postgres -p 5432 -U backstage -d postgres"* ]] && [[ "$wi" == *"exit 0"* ]] &&
 	ok "L8 backstage-api waits for postgres with the pinned postgres image" ||
 	bad "L8 wait-for-postgres initContainer missing or wrong ('$wi_img')"
 render "$CHART" "$WORK/nowait.yaml" --set backstageApi.waitForDb.enabled=false
