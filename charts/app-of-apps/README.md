@@ -19,12 +19,16 @@ child Application healthy as soon as it exists, so the waves order creation and
 pruning; each Application then converges through its own retries.
 
 An entry with `enabled: false` renders no Application but stays declared, so
-`tests/render.sh` still checks its pin, policy and project. In 0.0.4 that is
-`argo`: ArgoCD's self-management starts with 0.0.5, after the live K3s file
-`teknoir-argo.yaml` is detached (DESIGN M7a; see `charts/argo/README.md`).
+`tests/render.sh` still checks its pin, policy and project. No entry is
+disabled since 0.0.4, which enabled `argo` (ArgoCD's self-management, DESIGN
+M7a; see `charts/argo/README.md`).
 
 The AppProject only allows charts from `harbor.<domain>/teknoir`, the
-namespaces the charts deploy into, and the cluster-scoped kinds they render.
+namespaces the charts deploy into, and the cluster-scoped kinds they render
+(since 0.0.5 also `teknoir.org/Profile` for the GitOps teamspace
+`teknoir-default`, and `ValidatingAdmissionPolicy` plus its binding for the
+policies that keep the user-controller, profile-controller and backstage-api
+ServiceAccounts inside the teamspaces).
 `tests/render.sh` renders every chart and fails when a resource falls outside
 the project, when a pin does not match `charts/<chart>/Chart.yaml`, or when an
 Application loses its retry, server-side apply or ignore rules.
@@ -32,3 +36,22 @@ Application loses its retry, server-side apply or ignore rules.
 Releasing: bump the chart(s), pin the new versions here, bump this chart's
 version, and set `APP_OF_APPS_VERSION` in infra `airgap/versions.env`. A
 version is released once; Harbor keeps the first push.
+
+## 0.0.5 (r5)
+
+| Chart | 0.0.4 | 0.0.5 |
+|---|---|---|
+| auth | 0.0.8 | 0.0.9 |
+| monitoring | 0.0.4 | 0.0.5 |
+| argo | 0.0.3 | 0.0.4 |
+| harbor | 0.0.9 | 0.0.10 |
+| backstage | 0.0.83 | 0.0.84 |
+| user-controller | 0.0.84 | 0.0.85 |
+| profile-controller | 0.0.83 | 0.0.84 |
+| device-, devstudio-, notebook-controller | 0.0.83 | 0.0.84 |
+
+istio 0.0.3, cert-manager 0.0.2 and platform-secrets 0.0.1 are unchanged. The
+monitoring ignoreDifferences now name the admission webhooks
+`monitoring-admission`, the name the chart renders (the old
+`monitoring-kube-prome-admission` matched nothing, so the in-cluster caBundle
+patch showed as drift).

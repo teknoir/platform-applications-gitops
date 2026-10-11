@@ -10,7 +10,9 @@ image:
   # PLACEHOLDER: the r5 build (branch r5-profile-controller: plugin chart
   # repo/version and OIDC issuer from the environment, narrowed AppProject)
   # is not pushed yet. Replace this one line with its sha-<8> tag and amd64
-  # digest. tests/render.sh and the bundle gate fail on the placeholder on
+  # digest, and drop its entry from PENDING_IMAGE_PINS in tests/render.sh in
+  # the same commit. Until then render.sh only WARNs through that allowance
+  # (--strict-pins FAILs), and the bundle gate fails on the placeholder on
   # purpose.
   tag: "sha-PLACEHOLDER-WP-PC@sha256:0000000000000000000000000000000000000000000000000000000000000000"
   pullPolicy: IfNotPresent

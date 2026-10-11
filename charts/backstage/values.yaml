@@ -54,7 +54,10 @@ catalog:
 # (`crane digest --platform linux/amd64 <repo>:<tag>`; never the index digest:
 # the airgap bundle pushes only the amd64 manifest to Harbor), IfNotPresent.
 # PIN(WP-BS): the two sha-PENDING-WP-BS placeholders below are replaced by the
-# r5-backstage builds (SIGN-C4 logout, TS-C7 create-teamspace) in one commit;
+# r5-backstage builds (SIGN-C4 logout, TS-C7 create-teamspace, SEC-C11
+# Kubernetes plugin for platform admins only, provider-managed sign-in: build
+# r5-backstage only after backstage r5-backstage-perm is merged into it) in
+# one commit, which also drops them from PENDING_IMAGE_PINS in tests/render.sh;
 # until then the chart must not be released (the placeholder digest does not
 # exist and the tag is not immutable).
 

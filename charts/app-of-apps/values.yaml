@@ -55,14 +55,17 @@ appProject:
       kind: MutatingWebhookConfiguration
     - group: admissionregistration.k8s.io
       kind: ValidatingWebhookConfiguration
-    # user-controller and profile-controller: the policies that keep their
-    # ServiceAccounts inside the teamspaces.
+    # user-controller, profile-controller and backstage: the policies that
+    # keep their ServiceAccounts inside the teamspaces.
     - group: admissionregistration.k8s.io
       kind: ValidatingAdmissionPolicy
     - group: admissionregistration.k8s.io
       kind: ValidatingAdmissionPolicyBinding
     - group: cert-manager.io
       kind: ClusterIssuer
+    # profile-controller: the GitOps-declared teamspaces (Profile teknoir-default).
+    - group: teknoir.org
+      kind: Profile
 
 # Application name -> chart pin. The name is also the Helm release name, so it
 # must not change for a running chart. Keys per Application:
@@ -103,7 +106,7 @@ applications:
   # after, with no k3s restart in between (DESIGN M3/M4/M7a).
   argo:
     enabled: true
-    version: 0.0.3
+    version: 0.0.4
     namespace: teknoir-system
     wave: -5
 
@@ -111,17 +114,17 @@ applications:
   # pair, registry.credentials.existingSecret for the htpasswd), so it needs
   # no ignoreDifferences.
   harbor:
-    version: 0.0.9
+    version: 0.0.10
     namespace: teknoir-system
     wave: 0
 
   auth:
-    version: 0.0.8
+    version: 0.0.9
     namespace: teknoir-auth
     wave: 0
 
   monitoring:
-    version: 0.0.4
+    version: 0.0.5
     namespace: teknoir-system
     wave: 0
     ignoreDifferences:
@@ -139,30 +142,31 @@ applications:
           - /spec/template/metadata/annotations/checksum~1secret
           - /spec/template/metadata/annotations/checksum~1sc-dashboard-provider-config
           - /spec/template/metadata/annotations/checksum~1dashboards-json-config
-      # The admission webhook's CA bundle is patched in-cluster.
+      # The admission webhooks' CA bundle is patched in-cluster (the chart
+      # names them monitoring-admission, after the release; HYG-C1).
       - group: admissionregistration.k8s.io
         kind: MutatingWebhookConfiguration
-        name: monitoring-kube-prome-admission
+        name: monitoring-admission
         jqPathExpressions:
           - '.webhooks[]?.clientConfig.caBundle'
       - group: admissionregistration.k8s.io
         kind: ValidatingWebhookConfiguration
-        name: monitoring-kube-prome-admission
+        name: monitoring-admission
         jqPathExpressions:
           - '.webhooks[]?.clientConfig.caBundle'
 
   notebook-controller:
-    version: 0.0.83
+    version: 0.0.84
     namespace: teknoir-system
     wave: 5
 
   devstudio-controller:
-    version: 0.0.83
+    version: 0.0.84
     namespace: teknoir-system
     wave: 5
 
   user-controller:
-    version: 0.0.84
+    version: 0.0.85
     namespace: teknoir-system
     wave: 5
     ignoreDifferences:
@@ -184,16 +188,16 @@ applications:
           - .rules
 
   profile-controller:
-    version: 0.0.83
+    version: 0.0.84
     namespace: teknoir-system
     wave: 5
 
   device-controller:
-    version: 0.0.83
+    version: 0.0.84
     namespace: teknoir-system
     wave: 5
 
   backstage:
-    version: 0.0.83
+    version: 0.0.84
     namespace: teknoir-system
     wave: 5
