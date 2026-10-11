@@ -1,0 +1,20 @@
+# Runs on every ArgoCD sync as a Sync hook, after the ConfigMap and RBAC
+# (wave -20) and before everything else. It is also a plain Job: the bootstrap
+# one-shot applies this same render with kubectl before ArgoCD exists (which
+# ignores the hook annotations) and waits for it to complete.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Values.job.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "platform-secrets.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: {{ .Values.job.syncWave | quote }}
+spec:
+  backoffLimit: {{ .Values.job.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.job.activeDeadlineSeconds }}
+  template:
+    {{- include "platform-secrets.podTemplate" . | nindent 4 }}
