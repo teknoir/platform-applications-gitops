@@ -1,0 +1,110 @@
+# shellcheck shell=bash source-path=SCRIPTDIR
+# Shared helpers for render.sh and check.sh.
+
+VDS_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC2034  # used by the sourcing scripts
+VDS_DIR="$(cd "${VDS_LIB_DIR}/.." && pwd)"
+# shellcheck source=pins.sh
+. "${VDS_LIB_DIR}/pins.sh"
+
+# Never trace: the scripts handle private keys and passwords in variables and files.
+set +x
+
+log() { printf '%s\n' "$*" >&2; }
+die() { log "ERROR: $*"; exit 1; }
+need() {
+  local t
+  for t in "$@"; do command -v "$t" >/dev/null 2>&1 || die "missing required tool: $t"; done
+}
+
+# DNS-1123 label check (device and namespace names become object names).
+is_dns_label() { [[ $1 =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ && ${#1} -le 63 ]]; }
+
+# kc: kubectl restricted to read-only verbs, always with an explicit --context.
+# Every kubectl call against a live cluster in this kit goes through kc.
+kc() {
+  [[ -n ${KUBE_CONTEXT:-} ]] || die "kc: KUBE_CONTEXT is not set"
+  # The verb is the first argument that is not a namespace flag.
+  local i=1 verb="" next=""
+  while ((i <= $#)); do
+    case "${!i}" in
+      -n | --namespace) i=$((i + 2)) ;;
+      --namespace=* | -A | --all-namespaces) i=$((i + 1)) ;;
+      -*) die "kc: unexpected flag '${!i}' before the kubectl verb" ;;
+      *)
+        verb=${!i}
+        i=$((i + 1))
+        next=${!i:-}
+        break
+        ;;
+    esac
+  done
+  case "$verb" in
+    get | describe | logs | version | api-resources | api-versions | explain) ;;
+    auth) [[ $next == can-i ]] || die "kc: only 'auth can-i' is allowed" ;;
+    *) die "kc: kubectl verb '${verb}' is not read-only; refusing" ;;
+  esac
+  kubectl --context "${KUBE_CONTEXT}" "$@"
+}
+
+# make_private_dir [path]: create (or accept an empty) directory with mode 0700.
+make_private_dir() {
+  local d=${1:-}
+  umask 077
+  if [[ -z $d ]]; then
+    d=$(mktemp -d "${TMPDIR:-/tmp}/vd-spike.XXXXXXXX")
+  elif [[ -e $d ]]; then
+    [[ -d $d ]] || die "$d exists and is not a directory"
+    [[ -z $(ls -A "$d") ]] || die "$d is not empty; refusing to mix secret files with existing content"
+    [[ -O $d ]] || die "$d is not owned by you"
+  else
+    mkdir -p "$d"
+  fi
+  chmod 700 "$d"
+  printf '%s\n' "$d"
+}
+
+# mode_of FILE: octal permission bits (GNU stat, falls back to BSD stat).
+mode_of() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }
+
+# sha256 of a file.
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'; else shasum -a 256 "$1" | awk '{print $1}'; fi
+}
+
+b64_oneline() { base64 | tr -d '\n'; }
+
+# Device JSON accessors (input on stdin).
+device_key_b64() { jq -r --arg k "$1" '.spec.keys.data[$k] // ""'; }
+
+# k3s_prunes_noncertsign_roots VERSION: true for k3s releases that ignore CA certs
+# without keyCertSign when validating /cacerts (k3s 6c7a974 "Improve CA hash
+# validation": v1.34.12+, v1.35.9+, v1.36.5+ and any later minor).
+k3s_prunes_noncertsign_roots() {
+  local minor patch
+  [[ $1 =~ ^v1\.([0-9]+)\.([0-9]+)\+k3s[0-9]+$ ]] || return 0
+  minor=${BASH_REMATCH[1]}
+  patch=${BASH_REMATCH[2]}
+  ((minor >= 37)) && return 0
+  ((minor == 36 && patch >= 5)) && return 0
+  ((minor == 35 && patch >= 9)) && return 0
+  ((minor == 34 && patch >= 12)) && return 0
+  return 1
+}
+
+# Probe result printing for check.sh.
+PASS_COUNT=0
+FAIL_COUNT=0
+WARN_COUNT=0
+INFO_COUNT=0
+result() { # result PASS|FAIL|WARN|INFO|SKIP id message
+  local status=$1 id=$2
+  shift 2
+  case "$status" in
+    PASS) PASS_COUNT=$((PASS_COUNT + 1)) ;;
+    FAIL) FAIL_COUNT=$((FAIL_COUNT + 1)) ;;
+    WARN) WARN_COUNT=$((WARN_COUNT + 1)) ;;
+    INFO | SKIP) INFO_COUNT=$((INFO_COUNT + 1)) ;;
+  esac
+  printf '%-4s %-5s %s\n' "$status" "$id" "$*"
+}

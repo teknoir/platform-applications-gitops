@@ -1,0 +1,18 @@
+{{- if .Values.priorityClass.enabled }}
+{{- if ge (int .Values.priorityClass.value) 0 }}
+{{- fail "priorityClass.value must be negative: platform pods run at priority 0 and virtual devices must rank below them" }}
+{{- end }}
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: {{ .Values.priorityClass.name }}
+  labels:
+    {{- include "virtual-devices.labels" . | nindent 4 }}
+value: {{ int .Values.priorityClass.value }}
+globalDefault: false
+preemptionPolicy: Never
+description: >-
+  Teknoir virtual devices (KubeVirt virt-launcher pods). Below every platform pod
+  (priority 0); never preempts other pods to be scheduled.
+{{- end }}

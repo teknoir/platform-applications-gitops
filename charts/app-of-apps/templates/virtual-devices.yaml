@@ -1,0 +1,77 @@
+{{- /*
+Virtual-device runtime (KubeVirt + CDI, PriorityClass, CoreDNS override).
+
+Two gates, both required:
+  1. virtualDevices.enabled: true in this environment's values (a missing key is off);
+  2. the environment (.Values.project) is in the allowlist below.
+
+The allowlist lives in this template, not in values, because the environment
+branches are kept in step by cherry-pick: a cherry-pick that brings this file and
+an enabled flag onto teknoir-online (production, EKS) or teknoir-local (airgapped)
+still renders nothing there. An environment that is not listed renders nothing
+rather than failing: a failed render of the root app-of-apps would stop every
+Application of that environment from syncing. Add an environment to the list only
+in its own reviewed commit, once it is ready (teknoir-local, for example, renders
+its own coredns-custom in infra and runs k3s 1.33, which KubeVirt 1.8 does not
+support).
+
+No resources-finalizer: turning the flag off removes the Application but leaves
+KubeVirt, CDI, kube-system/coredns-custom and the PriorityClasses in place. Full
+removal is a manual, ordered procedure (hack/virtual-device-spike/README.md,
+"Removing the runtime"); deleting the operators before their CRs would leave
+stale aggregated APIServices that break API discovery cluster-wide.
+*/ -}}
+{{- $allowedProjects := list "teknoir-cloud" }}
+{{- if and (.Values.virtualDevices).enabled (has .Values.project $allowedProjects) }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: virtual-devices
+  annotations:
+    # Diff with a server-side dry-run apply, matching ServerSideApply: fields the
+    # API server or the CRD schema default (KubeVirt/CDI CRs, CRDs) are not
+    # reported as drift.
+    argocd.argoproj.io/compare-options: ServerSideDiff=true
+spec:
+  destination:
+    namespace: kubevirt
+    server: https://kubernetes.default.svc
+  source:
+    path: charts/virtual-devices
+    repoURL: https://github.com/teknoir/platform-applications-gitops
+    targetRevision: {{ .Values.project }}
+  sources: [ ]
+  project: {{ .Values.project }}
+  syncPolicy:
+    syncOptions:
+      # kubevirts.kubevirt.io and cdis.cdi.kubevirt.io exceed the 256 KiB
+      # last-applied-configuration annotation of client-side apply.
+      - ServerSideApply=true
+      # A sync writes the live value of the ignored fields below, so it does not
+      # undo what the operator set.
+      - RespectIgnoreDifferences=true
+    automated:
+      prune: true
+      selfHeal: true
+      enabled: true
+    # A failed sync (for example an operator webhook that is not serving yet
+    # when wave 1 applies the CRs) is retried with backoff instead of waiting
+    # for the next commit or a manual sync. Same policy as teknoir-local.
+    retry:
+      limit: 10
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
+  ignoreDifferences:
+    # cdi-operator reconciles its own CRD and drops the deprecated v1alpha1 version
+    # that the v1.65.0 release manifest still ships. Without this, Argo CD (selfHeal)
+    # and the operator rewrite spec.versions in turn, indefinitely (found by the k3d
+    # e2e with Argo CD v3.5.1). The operator owns this field.
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+      name: cdis.cdi.kubevirt.io
+      jsonPointers:
+        - /spec/versions
+{{- end }}

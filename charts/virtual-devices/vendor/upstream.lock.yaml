@@ -1,0 +1,50 @@
+# Pinned upstream inputs for the vendored operator manifests in this directory.
+#
+# Every input is pinned three ways:
+#   version  the upstream release tag;
+#   sha256   the checksum of the release asset as downloaded from GitHub;
+#   images   the registry digest of every image the operator runs or deploys,
+#            resolved with `crane digest <registry>/<name>:<version>`.
+#
+# The vendored files are produced from these inputs by hack/vendor.py and are
+# never fetched at runtime. To bump a version, edit `version`, `source` and
+# `sha256`, run `python3 -I hack/vendor.py resolve` (rewrites the digests) and
+# `python3 -I hack/vendor.py rebuild`, then review the diff.
+#
+# Pairing: KubeVirt v1.8.4 + CDI v1.65.0 is the pair pinned by the
+# hyperconverged-cluster-operator release-1.18 branch (hack/config). KubeVirt 1.8
+# supports Kubernetes 1.34 and 1.35 (kubevirt/sig-release k8s-support-matrix.md),
+# which covers r415 (k3s v1.34.5).
+resolved: "2026-10-09"
+kubevirt:
+  version: v1.8.4
+  source: https://github.com/kubevirt/kubevirt/releases/download/v1.8.4/kubevirt-operator.yaml
+  sha256: d1d8264eec5b802c122bec6c54d8c3b11e119ee2a5c75602aaa8b53ea3857eda
+  output: kubevirt-operator.yaml
+  registry: quay.io/kubevirt
+  images:
+    virt-operator: sha256:65d23c9ad91707a4fb5f0103e04c12d02343437ac44e3a31608d7a1fff003d55
+    virt-api: sha256:8df9c3b10cafbca3bbd8d42f005f12abed14ec70c9f1feea209d5785618db028
+    virt-controller: sha256:4135c3f1284aadb60b914b50cbf3be6be3d2d14a050ada2397cc89b47c525e4e
+    virt-handler: sha256:d6b8f966f7f8cc032821d8c5d62507056381c739c886e3aa547482fb1ac6f6b0
+    virt-launcher: sha256:c89f733b1fdcc810d0b4326bbfc652a4cf3d25bc56cc8545f124d5cb71a1ce20
+    virt-exportproxy: sha256:ef68bb9b9f997d4aca56a8053cc368a5eeb2d9623de5fed3356e7ce4f38290e2
+    virt-exportserver: sha256:1489c5ee739a24a24fdaa0a96b4ea1336ebbcbcadd5f04deb2ca96c47a8a6e6a
+    virt-synchronization-controller: sha256:631ade5aced9ffb248f2725759c7d37376d596875b05f6a331a12342a281a1ce
+    libguestfs-tools: sha256:c5347bf0d9a88e9ef48d52a7f9fb7a09bab523226ef451a963016ec15ce82879
+    pr-helper: sha256:eca8d1f2c46ce09c18d4e59a44276ef4f02bea82665a6525aed8b5f76986131a
+    sidecar-shim: sha256:95255857aa7ea1924f6742534707930f452e46242c8ab7d5570d297ed89a34b0
+cdi:
+  version: v1.65.0
+  source: https://github.com/kubevirt/containerized-data-importer/releases/download/v1.65.0/cdi-operator.yaml
+  sha256: e96d59abdf358c5161cb96adcfdcc6107efc3fb608ec93ade11578c94a222015
+  output: cdi-operator.yaml
+  registry: quay.io/kubevirt
+  images:
+    cdi-operator: sha256:42ce149c020523b466cd8cb5e413bad9800d93f502d82ced69a2d98a01944ce5
+    cdi-controller: sha256:c924d99bf27fe6a198f9796c4250d4fb04af3dfc4e850f2a2f089fc4f988c5bf
+    cdi-importer: sha256:27fad4a3677e15fb6ff61d7ef0ae99c31d0462cc993b4b4f1e3d8988e4d0e698
+    cdi-cloner: sha256:4c485d088db067a81fce46899a5a577529c1a97a164f27d666d6317da0a32319
+    cdi-apiserver: sha256:bf8bbaf76410bc20adff6c9bd76493fdcf622b0bc0be3aea166eec57b1b34a59
+    cdi-uploadserver: sha256:6d7e71acf3087f4c2de2fa96ed968aff5793f6ba24d3bdb30080912e55929a78
+    cdi-uploadproxy: sha256:6fd47bf9fe695e3299764b7fd7729c5d438558e439c06ada3c472705e9c9d77c

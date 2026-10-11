@@ -1,0 +1,9 @@
+{{- /*
+CDI operator: namespace cdi, CRD cdis.cdi.kubevirt.io, RBAC and the cdi-operator
+Deployment. Vendored from the upstream release and pinned (vendor/upstream.lock.yaml,
+vendor/SHA256SUMS); never fetched at deploy time.
+*/ -}}
+{{- if .Values.cdi.enabled }}
+---
+{{ .Files.Get "vendor/cdi-operator.yaml" }}
+{{- end }}

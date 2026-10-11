@@ -1,0 +1,6 @@
+# Tooling and tests are not part of the rendered chart.
+hack/
+tests/
+.idea/
+*.pyc
+__pycache__/

@@ -1,0 +1,10 @@
+{{- /*
+KubeVirt operator: namespace kubevirt, CRD kubevirts.kubevirt.io, RBAC, PriorityClass
+kubevirt-cluster-critical and the virt-operator Deployment. Vendored from the upstream
+release and pinned (vendor/upstream.lock.yaml, vendor/SHA256SUMS); never fetched at
+deploy time. The CRD is larger than the client-side-apply annotation limit, so the
+Argo CD Application syncs with ServerSideApply=true.
+*/ -}}
+{{- if .Values.kubevirt.enabled }}
+{{ .Files.Get "vendor/kubevirt-operator.yaml" }}
+{{- end }}

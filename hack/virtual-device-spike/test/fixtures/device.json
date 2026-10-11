@@ -1,0 +1,38 @@
+{
+  "apiVersion": "teknoir.org/v1",
+  "kind": "Device",
+  "metadata": {
+    "name": "vd-s1-fixture",
+    "namespace": "teknoir-demo",
+    "labels": {
+      "hardware": "generic",
+      "teknoir": "alpha"
+    }
+  },
+  "spec": {
+    "device_type": "generic",
+    "keys": {
+      "type": "Opaque",
+      "data": {
+        "board": "Z2VuZXJpYw==",
+        "rsa_private": "__TEST_RSA_PRIVATE_B64__",
+        "rsa_public": "__TEST_RSA_PUBLIC_B64__",
+        "tunnel": "NA==",
+        "usermode": "Y3JlYXRl",
+        "username": "dGVrbm9pcg==",
+        "userpassword": "__TEST_PASSWORD_B64__"
+      }
+    },
+    "manifest": {
+      "apps": {}
+    }
+  },
+  "subresources": {
+    "status": {
+      "remote_access": {
+        "active": false,
+        "port": "NA"
+      }
+    }
+  }
+}

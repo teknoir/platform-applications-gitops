@@ -4,8 +4,11 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/teknoir/device-controller
-  tag: applicationset
-  pullPolicy: Always
+  # Pinned: '<immutable tag>@sha256:<linux/amd64 manifest digest>', the image
+  # staging ran as :applicationset on 2026-10-09 (device-controller 9780e40).
+  # Change it only by promoting a new sha-<commit> through this branch.
+  tag: "sha-9780e409@sha256:764377e6053f3a4c1d92c94d14ff73f493edda5df2f415c6dc68489795622d84"
+  pullPolicy: IfNotPresent
 
 imagePullSecrets:
   - name: ghcr-token
