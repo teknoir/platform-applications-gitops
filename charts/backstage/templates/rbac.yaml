@@ -1,114 +1,145 @@
+{{- /*
+backstage-api's own Kubernetes access: one rule per call its backend makes
+(README "RBAC" maps every rule to the code). This replaces the cluster-wide
+teknoir-admin binding, which let the ServiceAccount read every Secret and
+create pods/exec in every namespace.
+
+Teamspace namespaces are created at runtime by profile-controller, so the
+teamspace rules are cluster-wide. Secrets and the peripheral ConfigMap are
+limited by name (resourceNames); a resourceNames rule cannot grant create,
+so ConfigMap create stays unrestricted by name.
+*/}}
+{{- $rbac := .Values.rbac | default dict }}
+{{- $secrets := $rbac.teamspaceSecrets | default list }}
+{{- $configMaps := $rbac.teamspaceConfigMaps | default list }}
+{{- $claimsNamespace := $rbac.claimsNamespace | default "teknoir-system" }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: backstage-api-resources-role
+  labels:
+    app: backstage-api
 rules:
-- apiGroups:
-  - '*'
-  resources:
-  - devices
-  - users
-  - profiles
-  - devstudios
-  - notebooks
-  - claims
-  - claimsets
-  - helmcharts
-  - virtualservices
-  - deviceapplicationsets
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - teknoir.org
-  resources:
-  - devices/status
-  - users/status
-  - profiles/status
-  - devstudios/status
-  - notebooks/status
-  - deviceapplicationsets/status
-  verbs:
-  - get
-
+  # Catalog entity providers (get, list) and the teknoir-entity, teamspace and
+  # email-verification backends (create, merge/JSON patch, delete).
+  - apiGroups: [teknoir.org]
+    resources: [users, profiles, devices, devstudios, notebooks, claimsets]
+    verbs: [get, list, create, patch, delete]
+  - apiGroups: [teknoir.org]
+    resources: [deviceapplicationsets]
+    verbs: [get, list]
+  # Create/delete teamspace waits on the Profile status.
+  - apiGroups: [teknoir.org]
+    resources: [profiles/status]
+    verbs: [get]
+  # Email verification marks the User.
+  - apiGroups: [teknoir.org]
+    resources: [users/status]
+    verbs: [patch]
+  # ProfileEntityProvider: a teamspace plugin's APIs (by label selector).
+  - apiGroups: [networking.istio.io]
+    resources: [virtualservices]
+    verbs: [list]
+  # VolumeEntityProvider (get, list); volumes API (create, delete).
+  - apiGroups: [""]
+    resources: [persistentvolumeclaims]
+    verbs: [get, list, create, delete]
+{{- if $secrets }}
+  # Teamspace Secrets read by name only (README "RBAC": which and why).
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames:
+      {{- toYaml $secrets | nindent 6 }}
+    verbs: [get]
+{{- end }}
+{{- if $configMaps }}
+  # Peripheral API: the teamspace's peripheral ConfigMap.
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames:
+      {{- toYaml $configMaps | nindent 6 }}
+    verbs: [get, update]
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [create]
+{{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   name: backstage-api-resources-rolebinding
-  namespace: {{ .Release.Namespace }}
+  labels:
+    app: backstage-api
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: backstage-api-resources-role
 subjects:
-- kind: ServiceAccount
-  name: backstage-api
-  namespace: {{ .Release.Namespace }}
-
-{{/*---*/}}
-{{/*apiVersion: rbac.authorization.k8s.io/v1*/}}
-{{/*kind: ClusterRole*/}}
-{{/*metadata:*/}}
-{{/*  name: backstage-api-read-only-role*/}}
-{{/*rules:*/}}
-{{/*  - apiGroups:*/}}
-{{/*      - '*'*/}}
-{{/*    resources:*/}}
-{{/*      - pods*/}}
-{{/*      - pods/log*/}}
-{{/*      - configmaps*/}}
-{{/*      - services*/}}
-{{/*      - deployments*/}}
-{{/*      - replicasets*/}}
-{{/*      - horizontalpodautoscalers*/}}
-{{/*      - ingresses*/}}
-{{/*      - statefulsets*/}}
-{{/*      - limitranges*/}}
-{{/*      - resourcequotas*/}}
-{{/*      - daemonsets*/}}
-{{/*    verbs:*/}}
-{{/*      - create*/}}
-{{/*      - delete*/}}
-{{/*      - get*/}}
-{{/*      - list*/}}
-{{/*      - patch*/}}
-{{/*      - update*/}}
-{{/*      - watch*/}}
-{{/*  - apiGroups:*/}}
-{{/*      - batch*/}}
-{{/*    resources:*/}}
-{{/*      - jobs*/}}
-{{/*      - cronjobs*/}}
-{{/*    verbs:*/}}
-{{/*      - get*/}}
-{{/*      - list*/}}
-{{/*      - watch*/}}
-{{/*  - apiGroups:*/}}
-{{/*      - metrics.k8s.io*/}}
-{{/*    resources:*/}}
-{{/*      - pods*/}}
-{{/*    verbs:*/}}
-{{/*      - get*/}}
-{{/*      - list*/}}
-
+  - kind: ServiceAccount
+    name: backstage-api
+    namespace: {{ .Release.Namespace }}
+---
+# ClaimSetCRDHelper lists the Claims of this one namespace (hard-coded in the
+# image).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: backstage-api-claims
+  namespace: {{ $claimsNamespace }}
+  labels:
+    app: backstage-api
+rules:
+  - apiGroups: [teknoir.org]
+    resources: [claims]
+    verbs: [get, list]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
+kind: RoleBinding
 metadata:
-  name: backstage-api-teknoir-admin-rolebinding
-  namespace: {{ .Release.Namespace }}
+  name: backstage-api-claims
+  namespace: {{ $claimsNamespace }}
+  labels:
+    app: backstage-api
 roleRef:
   apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: teknoir-admin
+  kind: Role
+  name: backstage-api-claims
 subjects:
   - kind: ServiceAccount
     name: backstage-api
     namespace: {{ .Release.Namespace }}
+{{- $k8s := $rbac.kubernetesPlugin | default dict }}
+{{- if $k8s.enabled }}
+---
+# @backstage/plugin-kubernetes-backend (the Kubernetes tab): read-only, for
+# exactly the object types app-config kubernetes.objectTypes lists. The
+# backend's permission policy allows the plugin for platform admins only.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: backstage-api-kubernetes-plugin
+  labels:
+    app: backstage-api
+rules:
+{{- range $group, $resources := include "backstage.kubernetesPluginResources" . | fromYaml }}
+  - apiGroups: [{{ $group | quote }}]
+    resources: {{ $resources | toJson }}
+    verbs: [get, list]
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: backstage-api-kubernetes-plugin
+  labels:
+    app: backstage-api
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: backstage-api-kubernetes-plugin
+subjects:
+  - kind: ServiceAccount
+    name: backstage-api
+    namespace: {{ .Release.Namespace }}
+{{- end }}

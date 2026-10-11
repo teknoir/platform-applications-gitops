@@ -1,0 +1,96 @@
+{{- /*
+Mesh-layer guard for backstage-api (README "API guard"), independent of the
+Backstage image. DENY is evaluated before every ALLOW, so it also holds
+against namespace-wide ALLOWs such as the harbor chart's
+harbor-allow-internal (every mTLS source in teknoir-system and teknoir-auth).
+
+Istio matches paths case-sensitively; Backstage's Express routing does not
+(/api/KUBERNETES/clusters reaches the Kubernetes plugin). The VirtualService
+therefore answers every other spelling of /api/kubernetes and /api/auth at
+the gateway (404, and 403 for the proxy), so the lowercase paths below are the
+only ones that reach this workload from outside. In the mesh, the last rule
+keeps every caller to the catalog entity and auth paths. Every rule names the
+backend port 7007 (the deployment's containerPort), so the metrics port 9464
+is not affected and istioctl does not treat a rule as covering TCP ports.
+
+The token is the realm access token that oauth2-proxy hands to every request
+it lets through the gateway (X-Auth-Request-Access-Token), verified by
+backstage-api-request-auth.
+*/ -}}
+{{- $guard := .Values.istio.apiGuard | default dict }}
+{{- $groups := $guard.kubernetesGroups | default list }}
+{{- if not $groups }}
+{{- fail "istio.apiGuard.kubernetesGroups must list at least one Keycloak group: /api/kubernetes runs every request with backstage-api's ServiceAccount" }}
+{{- end }}
+{{- $gateway := printf "cluster.local/ns/%s/sa/%s" .Values.istio.ingressNamespace .Values.istio.ingressServiceAccount }}
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: backstage-api-guard
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: backstage-api
+spec:
+  selector:
+    matchLabels:
+      app: backstage-api
+  action: DENY
+  rules:
+    # The Kubernetes plugin: a verified token is required ...
+    - from:
+        - source:
+            notRequestPrincipals: ["*"]
+      to:
+        - operation:
+            ports: ["7007"]
+            paths: ["/api/kubernetes", "/api/kubernetes/*"]
+    # ... whose "groups" claim holds one of istio.apiGuard.kubernetesGroups.
+    # notValues does not match a token without the claim at all; the
+    # backstage-api-auth-policy ALLOW (values) refuses that one.
+    - to:
+        - operation:
+            ports: ["7007"]
+            paths: ["/api/kubernetes", "/api/kubernetes/*"]
+      when:
+        - key: request.auth.claims[groups]
+          notValues:
+            {{- range $groups }}
+            - {{ . | quote }}
+            {{- end }}
+{{- if $guard.denyKubernetesProxy }}
+    # The proxy, for everyone. Express also routes /api/kubernetes//proxy to it.
+    - to:
+        - operation:
+            ports: ["7007"]
+            paths:
+              - "/api/kubernetes/proxy"
+              - "/api/kubernetes/proxy/*"
+              - "/api/kubernetes//proxy"
+              - "/api/kubernetes//proxy/*"
+{{- end }}
+    # The auth plugin without a verified token. The istioVerifiedJWT sign-in
+    # provider trusts the verified-jwt header without checking a signature,
+    # and Envoy writes that header only when it verified a token: without one
+    # a client-supplied verified-jwt would reach the provider and could name
+    # any user.
+    - from:
+        - source:
+            notRequestPrincipals: ["*"]
+      to:
+        - operation:
+            ports: ["7007"]
+            paths: ["/api/auth", "/api/auth/*"]
+    # In the mesh (any caller but the gateway), only the catalog entity paths
+    # and, with a verified token (rule above), the auth paths of the backend
+    # port, whatever other ALLOW admits the caller (harbor-allow-internal).
+    # Covers every spelling the gateway's VirtualService does not see (it
+    # applies to the gateway only): /api/KUBERNETES is denied here too, with
+    # or without a token.
+    - from:
+        - source:
+            notPrincipals: [{{ $gateway | quote }}]
+      to:
+        - operation:
+            ports: ["7007"]
+            notPaths: ["/api/catalog/entities", "/api/catalog/entities/*", "/api/auth/*"]

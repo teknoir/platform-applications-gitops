@@ -18,6 +18,12 @@ data:
               algorithm: RS256
               audience: teknoir-cli
               subjectPrefix: keycloak
+{{- $restrictions := (.Values.externalAccess | default dict).accessRestrictions }}
+{{- if not $restrictions }}
+{{- fail "externalAccess.accessRestrictions must not be empty: an unrestricted externalAccess token is a service principal that the permission framework allows everything, /api/kubernetes/proxy included" }}
+{{- end }}
+            accessRestrictions:
+              {{- toYaml $restrictions | nindent 14 }}
         keys:
           - $include: /app/secrets/backend-auth-backstage-secrets.yaml
       baseUrl: https://{{ .Values.config.domain }}
@@ -65,4 +71,12 @@ nothing else from their entries (packages/backend/src/plugins/providers/*).
         - host: github.com
           apps:
             - $include: {{ .Values.backstageApi.githubAppSecretPath }}
+{{- end }}
+{{- $k8sTypes := ((.Values.rbac | default dict).kubernetesPlugin | default dict).objectTypes }}
+{{- if $k8sTypes }}
+
+    # Only the object types templates/rbac.yaml lets backstage-api read.
+    kubernetes:
+      objectTypes:
+        {{- toYaml $k8sTypes | nindent 8 }}
 {{- end }}

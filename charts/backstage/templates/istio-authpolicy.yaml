@@ -15,6 +15,11 @@ spec:
         - source:
             principals: [ "cluster.local/ns/{{ .Values.istio.ingressNamespace }}/sa/{{ .Values.istio.ingressServiceAccount }}" ]
 
+{{- $guard := .Values.istio.apiGuard | default dict }}
+{{- $groups := $guard.kubernetesGroups | default list }}
+{{- if not $groups }}
+{{- fail "istio.apiGuard.kubernetesGroups must list at least one Keycloak group: /api/kubernetes runs every request with backstage-api's ServiceAccount" }}
+{{- end }}
 ---
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
@@ -27,22 +32,57 @@ spec:
       app: backstage-api
   action: ALLOW
   rules:
-    # Allow calls only from gateway, no internal calls
+    # The gateway: every path but the Kubernetes plugin ...
     - from:
         - source:
             principals: [ "cluster.local/ns/{{ .Values.istio.ingressNamespace }}/sa/{{ .Values.istio.ingressServiceAccount }}" ]
-    # Allow calls from all namespaces to the catalog API and auth refresh endpoint
-    # These endpoints are portected by Backstage auth system
+      to:
+        - operation:
+            notPaths: ["/api/kubernetes", "/api/kubernetes/*"]
+    # ... which needs a verified token whose "groups" claim holds one of
+    # istio.apiGuard.kubernetesGroups (README "API guard"). The gate is here,
+    # in an ALLOW with values, because a token without the claim (Keycloak's
+    # group mapper may leave it out for a user in no group) matches no value,
+    # while the guard's DENY with notValues does not apply to such a token
+    # (istio-guard-test.sh E2 "no groups claim"). No other ALLOW
+    # admits the gateway to backstage-api, and in the mesh the guard denies
+    # /api/kubernetes to every other source.
+    - from:
+        - source:
+            principals: [ "cluster.local/ns/{{ .Values.istio.ingressNamespace }}/sa/{{ .Values.istio.ingressServiceAccount }}" ]
+      to:
+        - operation:
+            paths: ["/api/kubernetes", "/api/kubernetes/*"]
+      when:
+        - key: request.auth.claims[groups]
+          values:
+            {{- range $groups }}
+            - {{ . | quote }}
+            {{- end }}
+    # Allow calls from all namespaces to the catalog API; Backstage's own
+    # auth protects it.
     - from:
         - source:
             namespaces: [ '*' ]
       to:
         - operation:
             methods: ["GET", "POST"]
-            paths: ["/api/catalog/entities/*", "/api/auth/teknoir/refresh"]
+            paths: ["/api/catalog/entities/*"]
       when:
         - key: request.auth.principal
           notValues: [ "cluster.local/ns/{{ .Values.istio.ingressNamespace }}/sa/{{ .Values.istio.ingressServiceAccount }}" ]
+    # The auth refresh endpoint only with a verified token: the sign-in
+    # provider reads the verified-jwt header, which Envoy writes only for a
+    # verified token (istio-api-guard.yaml denies /api/auth without one, for
+    # every source).
+    - from:
+        - source:
+            namespaces: [ '*' ]
+            requestPrincipals: [ "*" ]
+      to:
+        - operation:
+            methods: ["GET", "POST"]
+            paths: ["/api/auth/teknoir/refresh"]
 
 ---
 apiVersion: security.istio.io/v1beta1
