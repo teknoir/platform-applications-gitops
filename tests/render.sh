@@ -510,6 +510,24 @@ policy_checks() {
     fi
   done
 
+  # --- istiod JWKS refresh (reboot 401s) -----------------------------------------------
+  # istiod fetches the Keycloak JWKS of every RequestAuthentication. A fetch that
+  # fails while Keycloak is still starting at a boot is retried a few times in
+  # about half a minute and then not again until the refresh interval (default
+  # 20 min): every sign-in gets 401 "Jwt verification fails" meanwhile. The
+  # istio chart must shorten PILOT_JWT_PUB_KEY_REFRESH_INTERVAL (found in the
+  # r5 VM e2e: E12/E13).
+  if [[ -f "${dir}/istio.json" ]]; then
+    local jwks_iv
+    jwks_iv="$(jq -r '[.[] | select(.kind == "Deployment" and .metadata.name == "istiod")
+        | .spec.template.spec.containers[].env[]? | select(.name == "PILOT_JWT_PUB_KEY_REFRESH_INTERVAL") | .value][0] // ""' "${dir}/istio.json")"
+    if [[ "${jwks_iv}" =~ ^([0-9]+m|[0-9]+s)$ ]] && { [[ "${jwks_iv}" == *s ]] || (( ${jwks_iv%m} <= 5 )); }; then
+      pass istiod-jwks "istio: istiod PILOT_JWT_PUB_KEY_REFRESH_INTERVAL=${jwks_iv} (<= 5m)"
+    else
+      fail istiod-jwks "istio: istiod PILOT_JWT_PUB_KEY_REFRESH_INTERVAL is '${jwks_iv:-unset}' (want <= 5m; default 20m leaves sign-in at 401 for up to 20 min after a reboot)"
+    fi
+  fi
+
   # --- monitoring-authz (SEC-C5) ---------------------------------------------------------
   # Grafana: no anonymous Admin (grafana.ini or GF_ env). AuthorizationPolicies
   # that apply to the monitoring stack (the monitoring chart's own, plus any

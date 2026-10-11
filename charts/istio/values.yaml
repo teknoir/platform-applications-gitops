@@ -51,6 +51,16 @@ istiod:
         requests:
           cpu: 10m
           memory: 50Mi
+  pilot:
+    env:
+      # istiod fetches the Keycloak JWKS of every RequestAuthentication. When a
+      # fetch fails because Keycloak is still starting (every boot of a node),
+      # istiod retries a handful of times within about 30 s and then only at the
+      # next refresh, 20 min by default: until then every JWT is rejected
+      # ("Jwt verification fails", 401 for every sign-in). A short interval
+      # bounds that window to about a minute. One small GET per minute per
+      # jwksUri (found in the r5 VM e2e, E12/E13).
+      PILOT_JWT_PUB_KEY_REFRESH_INTERVAL: 1m
   # istiod fetches the JWKS of every RequestAuthentication (Backstage, httpbin)
   # from https://auth.<domain>, whose certificate the Teknoir Root CA signs.
   # istiod adds /cacerts/extra.pem to its JWKS trust, reading it once when the

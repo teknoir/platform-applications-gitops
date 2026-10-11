@@ -88,7 +88,7 @@ applications:
     wave: -5
 
   istio:
-    version: 0.0.3
+    version: 0.0.4
     namespace: istio-system
     wave: -5
     ignoreDifferences:
