@@ -1,0 +1,29 @@
+{{- if .Values.kubevirt.enabled }}
+---
+apiVersion: kubevirt.io/v1
+kind: KubeVirt
+metadata:
+  name: kubevirt
+  namespace: kubevirt
+  labels:
+    {{- include "virtual-devices.labels" . | nindent 4 }}
+  annotations:
+    {{- include "virtual-devices.operandAnnotations" . | nindent 4 }}
+spec:
+  configuration:
+    {{- /* Only when non-empty: virt-operator writes the CR back with featureGates
+    omitempty, so an empty list would be dropped and re-applied by Argo CD. */}}
+    {{- with .Values.kubevirt.featureGates }}
+    developerConfiguration:
+      featureGates: {{ toJson . }}
+    {{- end }}
+    imagePullPolicy: IfNotPresent
+    {{- if .Values.kubevirt.disableSerialConsoleLog }}
+    virtualMachineOptions:
+      disableSerialConsoleLog: {}
+    {{- end }}
+  imagePullPolicy: IfNotPresent
+  infra:
+    replicas: {{ int .Values.kubevirt.infraReplicas }}
+  uninstallStrategy: {{ .Values.kubevirt.uninstallStrategy }}
+{{- end }}

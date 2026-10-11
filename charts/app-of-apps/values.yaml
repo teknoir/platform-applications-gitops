@@ -1,2 +1,9 @@
 # GitOps values
 project: teknoir-cloud
+
+# Virtual-device runtime (charts/virtual-devices: KubeVirt, CDI) for the S1 spike on
+# r415. The Application also needs this project in the allowlist in
+# templates/virtual-devices.yaml, which is teknoir-cloud only, so this flag does
+# nothing if it is cherry-picked onto another environment branch.
+virtualDevices:
+  enabled: true

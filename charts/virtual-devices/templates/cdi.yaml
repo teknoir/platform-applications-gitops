@@ -1,0 +1,25 @@
+{{- if .Values.cdi.enabled }}
+---
+apiVersion: cdi.kubevirt.io/v1beta1
+kind: CDI
+metadata:
+  name: cdi
+  labels:
+    {{- include "virtual-devices.labels" . | nindent 4 }}
+  annotations:
+    {{- include "virtual-devices.operandAnnotations" . | nindent 4 }}
+spec:
+  config:
+    featureGates: {{ toJson .Values.cdi.featureGates }}
+    podResourceRequirements:
+      {{- toYaml .Values.cdi.podResourceRequirements | nindent 6 }}
+  imagePullPolicy: IfNotPresent
+  infra:
+    apiServerReplicas: {{ int .Values.cdi.apiServerReplicas }}
+    nodeSelector:
+      kubernetes.io/os: linux
+  workload:
+    nodeSelector:
+      kubernetes.io/os: linux
+  uninstallStrategy: {{ .Values.cdi.uninstallStrategy }}
+{{- end }}

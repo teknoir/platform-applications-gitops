@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Fake ssh for test/run.sh: records its arguments and stdin, then fails like an
+# unreachable host.
+printf 'ARGS %s\n' "$*" >>"${FAKE_LOG:?}"
+printf 'STDIN %s\n' "$(cat)" >>"${FAKE_LOG:?}"
+echo "ssh: connect to host 127.0.0.1 port 22: Connection refused" >&2
+exit 255

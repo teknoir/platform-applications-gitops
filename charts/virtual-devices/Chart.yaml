@@ -1,0 +1,12 @@
+---
+apiVersion: v2
+name: virtual-devices
+description: >-
+  Runtime for Teknoir virtual devices: KubeVirt and CDI (vendored, pinned operator
+  manifests and their CRs), the teknoir-virtual-device PriorityClass and the CoreDNS
+  override that lets in-cluster virtual devices reach mqtt-/deadend-<ns> through the
+  public ingress gateway like external devices.
+type: application
+version: 0.1.0
+# KubeVirt / CDI release pair, see vendor/upstream.lock.yaml.
+appVersion: "kubevirt-v1.8.4_cdi-v1.65.0"

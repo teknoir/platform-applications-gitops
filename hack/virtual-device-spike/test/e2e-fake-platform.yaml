@@ -1,0 +1,133 @@
+# Stand-ins for the platform pieces the S1 checks look at, for the k3d e2e only:
+# the public ingress gateway (istio-system), the teamspace services the isolation
+# probes target (jwks, emqx, deadend, prometheus) and a pod in teknoir-system.
+# Each is a busybox httpd per port, so a TCP connect succeeds when nothing blocks it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: istio-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: istio-ingressgateway-public
+  namespace: istio-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      istio: ingressgateway-public
+  template:
+    metadata:
+      labels:
+        app: istio-ingressgateway-public
+        istio: ingressgateway-public
+    spec:
+      containers:
+        - name: listeners
+          image: docker.io/library/busybox:1.37.0@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e
+          command: ["sh", "-c", "mkdir -p /www && for p in 8883 8084 2222; do httpd -p $p -h /www; done; exec sleep 1d"]
+          ports:
+            - containerPort: 8883
+            - containerPort: 8084
+            - containerPort: 2222
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: istio-ingressgateway-public
+  namespace: istio-system
+spec:
+  type: LoadBalancer
+  selector:
+    istio: ingressgateway-public
+  ports:
+    - {name: tunnel, port: 2222, targetPort: 2222}
+    - {name: wss, port: 8084, targetPort: 8084}
+    - {name: mqtts, port: 8883, targetPort: 8883}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: teknoir-demo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fake-teamspace
+  namespace: teknoir-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jwks
+  template:
+    metadata:
+      labels:
+        app: jwks
+    spec:
+      containers:
+        - name: listeners
+          image: docker.io/library/busybox:1.37.0@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e
+          command: ["sh", "-c", "mkdir -p /www && for p in 8083 1883 18083 22 80; do httpd -p $p -h /www; done; exec sleep 1d"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jwks
+  namespace: teknoir-demo
+spec:
+  selector: {app: jwks}
+  ports: [{port: 8083}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: emqx
+  namespace: teknoir-demo
+spec:
+  selector: {app: jwks}
+  ports: [{name: mqtt, port: 1883}, {name: dashboard, port: 18083}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: deadend
+  namespace: teknoir-demo
+spec:
+  selector: {app: jwks}
+  ports: [{name: ssh, port: 22}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: teknoir-demo
+spec:
+  selector: {app: jwks}
+  ports: [{port: 80}]
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: teknoir-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-pod
+  namespace: teknoir-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: platform-pod}
+  template:
+    metadata:
+      labels: {app: platform-pod}
+    spec:
+      containers:
+        - name: listener
+          image: docker.io/library/busybox:1.37.0@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e
+          command: ["sh", "-c", "mkdir -p /www && httpd -f -p 9093 -h /www"]
+          ports:
+            - containerPort: 9093
