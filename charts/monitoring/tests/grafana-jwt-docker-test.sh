@@ -15,8 +15,10 @@
 #   G1  Grafana starts with the rendered grafana.ini, its CA mount and
 #       SSL_CERT_DIR (as in the Deployment)
 #   G2  no token: 401 (no anonymous access)
-#   G3  token with groups [admin]: signed in, login = preferred_username,
-#       email set, org role Admin; a second request reuses the same user
+#   G3  token with groups [admin]: signed in, login = preferred_username and
+#       email = email (the two differ in the token, so a swap of
+#       username_claim and email_claim fails), org role Admin; a second
+#       request reuses the same user
 #   G4  token without group admin: signed in as Viewer
 #   G5  rejected (401): another issuer, another signing key, expired
 #   G6  basic auth as the local admin still works (sidecars, break-glass)
@@ -26,6 +28,16 @@
 #       by Grafana ("must have https scheme"): why the chart uses
 #       https://auth.<domain>
 #   G9  no token or password value in the Grafana logs
+#   G10 the login form is off (auth.disable_login_form): a form login with the
+#       local admin's right password signs no one in, so the break-glass is
+#       basic auth against the API (G6), not a browser sign-in
+#   G11 a CA that appears after Grafana started is not used until Grafana
+#       restarts (Go loads the system roots once per process): why the
+#       runbook restarts monitoring-grafana after it creates or rotates
+#       Secret teknoir-root-ca-bundle
+#
+# The CA directory has the layout of a Kubernetes Secret volume
+# (ca.crt -> ..data/ca.crt, ..data -> ..<timestamp>/), as Grafana sees it.
 #
 # Usage: charts/monitoring/tests/grafana-jwt-docker-test.sh
 # Environment: TOOLBOX_IMAGE (default docker.io/alpine/k8s:1.34.11, the
@@ -91,21 +103,31 @@ echo "image ${IMAGE}  jwks ${JWKS_URL}  header ${HEADER}  subpath ${SUBPATH}"
 
 # --- test PKI, JWKS, tokens --------------------------------------------------
 b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
-mkdir -p "${tmp}/ca" "${tmp}/srv/www$(dirname "${JWKS_PATH}")"
+# secret_volume DIR CERT: DIR holds CERT as ca.crt the way the kubelet writes
+# a Secret volume (atomic writer: ca.crt -> ..data/ca.crt, ..data -> ..<ts>/).
+secret_volume() {
+  local ts="..2026_10_09_00_00_00.000000001"
+  mkdir -p "$1/${ts}"
+  cp "$2" "$1/${ts}/ca.crt"
+  ln -sfn "${ts}" "$1/..data"
+  ln -sfn ..data/ca.crt "$1/ca.crt"
+}
+mkdir -p "${tmp}/ca" "${tmp}/ca-late" "${tmp}/srv/www$(dirname "${JWKS_PATH}")"
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=Test Teknoir Root CA" \
   -addext basicConstraints=critical,CA:TRUE -addext keyUsage=critical,keyCertSign,cRLSign \
-  -keyout "${tmp}/ca.key" -out "${tmp}/ca/ca.crt" 2>/dev/null
+  -keyout "${tmp}/ca.key" -out "${tmp}/ca.crt" 2>/dev/null
+secret_volume "${tmp}/ca" "${tmp}/ca.crt"
 openssl req -newkey rsa:2048 -nodes -subj "/CN=${JWKS_HOST}" \
   -keyout "${tmp}/srv/tls.key" -out "${tmp}/tls.csr" 2>/dev/null
 printf 'subjectAltName=DNS:%s\nextendedKeyUsage=serverAuth\n' "${JWKS_HOST}" > "${tmp}/ext"
-openssl x509 -req -in "${tmp}/tls.csr" -CA "${tmp}/ca/ca.crt" -CAkey "${tmp}/ca.key" \
+openssl x509 -req -in "${tmp}/tls.csr" -CA "${tmp}/ca.crt" -CAkey "${tmp}/ca.key" \
   -CAcreateserial -days 1 -extfile "${tmp}/ext" -out "${tmp}/srv/tls.crt" 2>/dev/null
 openssl genrsa -out "${tmp}/sign.key" 2048 2>/dev/null
 openssl genrsa -out "${tmp}/other.key" 2048 2>/dev/null
 n="$(openssl rsa -in "${tmp}/sign.key" -noout -modulus | cut -d= -f2 | xxd -r -p | b64url)"
 jq -n -c --arg n "${n}" '{keys: [{kty: "RSA", kid: "test", use: "sig", alg: "RS256", n: $n, e: "AQAB"}]}' \
   > "${tmp}/srv/www${JWKS_PATH}"
-chmod -R a+rX "${tmp}/srv" "${tmp}/ca"
+chmod -R a+rX "${tmp}/srv" "${tmp}/ca" "${tmp}/ca-late"
 
 # mint KEY PAYLOAD_JSON: an RS256 token (kid test).
 mint() {
@@ -115,21 +137,25 @@ mint() {
   s="$(printf '%s.%s' "${h}" "${p}" | openssl dgst -sha256 -sign "$1" | b64url)"
   printf '%s.%s.%s' "${h}" "${p}" "${s}"
 }
-# claims ISSUER GROUPS_JSON USER EXP_OFFSET: access-token claims like Keycloak's.
+# claims ISSUER GROUPS_JSON USER EXP_OFFSET [EMAIL]: access-token claims like
+# Keycloak's. EMAIL defaults to USER: user-controller makes the Keycloak
+# username the e-mail address, the realm's platform admin has a username of
+# its own.
 claims() {
-  jq -n -c --arg iss "$1" --argjson groups "$2" --arg user "$3" --argjson off "$4" '
+  jq -n -c --arg iss "$1" --argjson groups "$2" --arg user "$3" --argjson off "$4" --arg email "${5:-$3}" '
     (now | floor) as $t
     | {iss: $iss, sub: ($user | @base64), aud: "account", typ: "Bearer", azp: "teknoir",
-       iat: ($t - 60), exp: ($t + $off), preferred_username: $user, email: $user,
+       iat: ($t - 60), exp: ($t + $off), preferred_username: $user, email: $email,
        email_verified: true, groups: $groups}'
 }
-ADMIN_USER=admin.user@example.org
+ADMIN_USER=jdoe
+ADMIN_EMAIL=jdoe@example.org
 VIEWER_USER=viewer.user@example.org
-T_ADMIN="$(mint "${tmp}/sign.key" "$(claims "${ISSUER}" '["admin"]' "${ADMIN_USER}" 600)")"
+T_ADMIN="$(mint "${tmp}/sign.key" "$(claims "${ISSUER}" '["admin"]' "${ADMIN_USER}" 600 "${ADMIN_EMAIL}")")"
 T_VIEWER="$(mint "${tmp}/sign.key" "$(claims "${ISSUER}" '["staff"]' "${VIEWER_USER}" 600)")"
-T_OTHER_ISS="$(mint "${tmp}/sign.key" "$(claims "https://auth.example.org/auth/realms/teknoir" '["admin"]' "${ADMIN_USER}" 600)")"
-T_OTHER_KEY="$(mint "${tmp}/other.key" "$(claims "${ISSUER}" '["admin"]' "${ADMIN_USER}" 600)")"
-T_EXPIRED="$(mint "${tmp}/sign.key" "$(claims "${ISSUER}" '["admin"]' "${ADMIN_USER}" -120)")"
+T_OTHER_ISS="$(mint "${tmp}/sign.key" "$(claims "https://auth.example.org/auth/realms/teknoir" '["admin"]' "${ADMIN_USER}" 600 "${ADMIN_EMAIL}")")"
+T_OTHER_KEY="$(mint "${tmp}/other.key" "$(claims "${ISSUER}" '["admin"]' "${ADMIN_USER}" 600 "${ADMIN_EMAIL}")")"
+T_EXPIRED="$(mint "${tmp}/sign.key" "$(claims "${ISSUER}" '["admin"]' "${ADMIN_USER}" -120 "${ADMIN_EMAIL}")")"
 ADMIN_PW="$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 24)"
 printf 'user = "admin:%s"\n' "${ADMIN_PW}" > "${tmp}/basic"
 chmod 600 "${tmp}/basic"
@@ -146,16 +172,22 @@ ctx.load_cert_chain("/srv/tls.crt", "/srv/tls.key")
 srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
 srv.serve_forever()' >/dev/null
 
-# start_grafana INI SSL_CERT_DIR: (re)start Grafana as the Deployment runs it;
-# sets BASE. Returns 1 when it does not become healthy within 120 s.
+# start_grafana INI SSL_CERT_DIR [CA_DIR]: (re)start Grafana as the
+# Deployment runs it, with CA_DIR (default the test CA) at the CA mount; sets
+# BASE. Returns 1 when it does not become healthy within 120 s.
 start_grafana() {
-  local port
   docker rm -f "${GRAFANA_CT}" >/dev/null 2>&1 || true
   docker run -d --name "${GRAFANA_CT}" --network "${NET}" -p 127.0.0.1::3000 \
-    -v "$1:/etc/grafana/grafana.ini:ro" -v "${tmp}/ca:${CA_MOUNT}:ro" \
+    -v "$1:/etc/grafana/grafana.ini:ro" -v "${3:-${tmp}/ca}:${CA_MOUNT}:ro" \
     --mount type=tmpfs,destination=/var/lib/grafana-search,tmpfs-mode=1777 \
     -e SSL_CERT_DIR="$2" -e GF_SECURITY_ADMIN_USER=admin -e GF_SECURITY_ADMIN_PASSWORD="${ADMIN_PW}" \
     "${IMAGE}" >/dev/null
+  wait_grafana
+}
+# wait_grafana: wait until Grafana answers /api/health; sets BASE (the host
+# port can change on a restart).
+wait_grafana() {
+  local port
   for _ in $(seq 1 60); do
     port="$(docker port "${GRAFANA_CT}" 3000/tcp 2>/dev/null | head -1 | sed 's/.*://')"
     if [[ -n "${port}" ]]; then
@@ -196,12 +228,12 @@ get /api/user
 # G3
 get /api/user "${T_ADMIN}"
 if [[ "${code}" == 200 && "$(jq -r .login "${tmp}/body")" == "${ADMIN_USER}" \
-      && "$(jq -r .email "${tmp}/body")" == "${ADMIN_USER}" ]]; then
+      && "$(jq -r .email "${tmp}/body")" == "${ADMIN_EMAIL}" ]]; then
   admin_id="$(jq -r .id "${tmp}/body")"
-  pass G3 "group admin: signed in, login and email = preferred_username/email"
+  pass G3 "group admin: signed in, login = preferred_username (${ADMIN_USER}), email = email (${ADMIN_EMAIL})"
 else
   admin_id=""
-  fail G3 "group admin: HTTP ${code}, login '$(jq -r '.login // ""' "${tmp}/body" 2>/dev/null)'"
+  fail G3 "group admin: HTTP ${code}, login '$(jq -r '.login // ""' "${tmp}/body" 2>/dev/null)', email '$(jq -r '.email // ""' "${tmp}/body" 2>/dev/null)'"
 fi
 r="$(role_of "${T_ADMIN}")"
 [[ "${r}" == Admin ]] && pass G3 "group admin: org role Admin" || fail G3 "group admin: org role ${r}, want Admin"
@@ -230,6 +262,18 @@ code="$(curl -s -m 20 -K "${tmp}/basic" -o "${tmp}/body" -w '%{http_code}' "${BA
 [[ "${code}" == 200 && "$(jq -r .login "${tmp}/body")" == admin ]] \
   && pass G6 "basic auth as the local admin: HTTP 200" || fail G6 "basic auth as the local admin: HTTP ${code}"
 
+# G10: a form login (what the browser's login page posts) with the right
+# password. The password goes to curl in a 0600 file, never argv.
+jq -n -c --rawfile pw <(printf '%s' "${ADMIN_PW}") '{user: "admin", password: $pw}' > "${tmp}/login.json"
+chmod 600 "${tmp}/login.json"
+code="$(curl -s -m 20 -X POST -H 'Content-Type: application/json' --data-binary "@${tmp}/login.json" \
+  -D "${tmp}/login.hdr" -o "${tmp}/body" -w '%{http_code}' "${BASE}/login")" || code=000
+if [[ "${code}" != 200 && "${code}" != 000 ]] && ! grep -qi '^set-cookie: grafana_session=[^;]' "${tmp}/login.hdr"; then
+  pass G10 "form login with the admin's right password: HTTP ${code}, no session (login form off: break-glass is basic auth on the API)"
+else
+  fail G10 "form login with the admin's right password: HTTP ${code}, a session cookie may be set"
+fi
+
 # G9 (this Grafana's logs, before it is replaced)
 docker logs "${GRAFANA_CT}" > "${tmp}/grafana.log" 2>&1
 leaked=""
@@ -245,6 +289,34 @@ if start_grafana "${tmp}/grafana.ini" /etc/ssl/certs; then
     || fail G7 "without the Teknoir CA: ${r}, want HTTP 401"
 else
   fail G7 "Grafana without the CA does not start"
+fi
+
+# G11: Secret teknoir-root-ca-bundle created after Grafana started. The
+# kubelet fills an optional Secret volume once the Secret exists; Grafana does
+# not pick the CA up until it restarts.
+if start_grafana "${tmp}/grafana.ini" "${SSL_CERT_DIR_VALUE}" "${tmp}/ca-late"; then
+  r="$(role_of "${T_ADMIN}")"
+  [[ "${r}" == "HTTP 401" ]] && pass G11 "no CA yet in the mount: the admin token is rejected" \
+    || fail G11 "no CA yet in the mount: ${r}, want HTTP 401"
+  # What an operator sees in the Grafana log (the runbook's symptom).
+  line="$(docker logs "${GRAFANA_CT}" 2>&1 | grep -iE 'x509|unknown authority|jwks|jwk' | tail -1 \
+    | sed -E 's/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/<jwt>/g' | cut -c1-300)"
+  printf 'INFO  G11 Grafana log without the CA: %s\n' "${line:-<no matching line>}"
+  secret_volume "${tmp}/ca-late" "${tmp}/ca.crt"
+  chmod -R a+rX "${tmp}/ca-late"
+  r="$(role_of "${T_ADMIN}")"
+  [[ "${r}" == "HTTP 401" ]] && pass G11 "CA added while Grafana runs: still rejected (roots loaded once per process)" \
+    || fail G11 "CA added while Grafana runs: ${r}; the runbook's restart step would be unnecessary, update it"
+  docker restart "${GRAFANA_CT}" >/dev/null
+  if wait_grafana; then
+    r="$(role_of "${T_ADMIN}")"
+    [[ "${r}" == Admin ]] && pass G11 "after a restart the CA is used: org role Admin" \
+      || fail G11 "after a restart: ${r}, want Admin"
+  else
+    fail G11 "Grafana does not come back after a restart"
+  fi
+else
+  fail G11 "Grafana with an empty CA mount does not start"
 fi
 
 # G8

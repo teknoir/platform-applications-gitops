@@ -84,3 +84,46 @@ spec:
             principals:
               # kube-prometheus-stack's Prometheus ServiceAccount, <fullnameOverride>-prometheus.
               - {{ printf "cluster.local/ns/%s/sa/%s-prometheus" $namespace (index .Values "kube-prometheus-stack" "fullnameOverride") | quote }}
+{{- /*
+Lifecycle endpoints: no source in the mesh may call them. The operator runs
+Prometheus with --web.enable-lifecycle, so POST /<prefix>/-/quit stops it and
+/-/reload reloads it; Alertmanager serves /-/reload. These accept a simple
+cross-site POST, and the oauth2-proxy cookie is SameSite=None, so a page an
+admin visits could shut Prometheus down through the gateway, with the admin's
+token injected. The in-namespace ALLOWs (and harbor-allow-internal) would let
+any platform pod do the same without a token. The config-reloader sidecars
+call 127.0.0.1, which does not pass the inbound sidecar, so they are not
+affected. DENY is evaluated before every ALLOW, whichever chart renders it.
+Paths are matched without the query string and after Istio's path
+normalization. The mesh uses the default, BASE: it resolves dot segments and
+decodes percent-encoded unreserved characters (%2D, %71), but it keeps an
+encoded slash (%2F, %2f) as it is. Prometheus and Alertmanager (Go) decode
+%2F before they route, so POST <prefix>/-%2Fquit and <prefix>%2F-/quit would
+pass a match on the suffix "/-/quit" and still stop Prometheus. Each path therefore ends in
+"-", then a slash in one of its three spellings, then the endpoint; the "-"
+is matched without the slash before it, which covers that slash's spellings
+too. tests/lifecycle-deny-docker-test.sh proves this against Envoy with the
+mesh's normalization and the chart's Prometheus and Alertmanager.
+*/}}
+{{- range list "prometheus" "alertmanager" }}
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: {{ . }}-deny-lifecycle
+  namespace: {{ $namespace }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ . }}
+  action: DENY
+  rules:
+    - to:
+        - operation:
+            paths:
+{{- range list "quit" "reload" }}
+              - "*-/{{ . }}"
+              - "*-%2F{{ . }}"
+              - "*-%2f{{ . }}"
+{{- end }}
+{{- end }}

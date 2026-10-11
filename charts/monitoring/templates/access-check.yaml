@@ -1,18 +1,28 @@
 {{- /*
+Render guards for access and alert delivery. Renders nothing.
+
 grafana.ini lives in the grafana subchart's values, which cannot read
 monitoring.access, so its auth.jwt repeats the issuer. Fail the render when the
 two disagree, or when Grafana would let anyone in anonymously, so a domain or
 realm change cannot leave Grafana rejecting every token (or accepting tokens
-of another issuer). Renders nothing.
+of another issuer).
+
+Grafana reads booleans with go-ini, which takes 1/t/T/true/TRUE/True/YES/yes/
+Yes/y/ON/on/On as true and anything else as false. So the string "false" (or a
+typo) turns auth.jwt off, and the string "on" turns anonymous access on. The
+checks below use the same set, not Go template truthiness.
 */}}
+{{- $namespace := .Values.namespace | default .Release.Namespace }}
+{{- $kps := index .Values "kube-prometheus-stack" }}
+{{- $iniTrue := list "1" "t" "T" "true" "TRUE" "True" "YES" "yes" "Yes" "y" "ON" "on" "On" }}
 {{- $issuer := required "monitoring.access.issuer is required" .Values.monitoring.access.issuer }}
 {{- if not (hasPrefix "https://" $issuer) }}
 {{- fail (printf "monitoring.access.issuer %q must be an https URL" $issuer) }}
 {{- end }}
-{{- $ini := index .Values "kube-prometheus-stack" "grafana" "grafana.ini" | default dict }}
+{{- $ini := index $kps "grafana" "grafana.ini" | default dict }}
 {{- $jwt := index $ini "auth.jwt" | default dict }}
-{{- if not $jwt.enabled }}
-{{- fail "grafana.ini auth.jwt.enabled must be true (Grafana signs users in from the forwarded token)" }}
+{{- if not (has (toString $jwt.enabled) $iniTrue) }}
+{{- fail (printf "grafana.ini auth.jwt.enabled must be true, not %q (Grafana signs users in from the forwarded token)" (toString $jwt.enabled)) }}
 {{- end }}
 {{- $jwks := printf "%s/protocol/openid-connect/certs" $issuer }}
 {{- if ne (toString $jwt.jwk_set_url) $jwks }}
@@ -23,6 +33,59 @@ of another issuer). Renders nothing.
 {{- fail (printf "grafana.ini auth.jwt.expect_claims must be {\"iss\": %q} (monitoring.access.issuer)" $issuer) }}
 {{- end }}
 {{- $anon := index $ini "auth.anonymous" | default dict }}
-{{- if $anon.enabled }}
+{{- if has (toString $anon.enabled) $iniTrue }}
 {{- fail "grafana.ini auth.anonymous.enabled must be false: access is decided by monitoring.access" }}
+{{- end }}
+{{- /*
+The policies and RequestAuthentications are rendered into $namespace. In
+another namespace than the workloads they would not apply, and with no ALLOW
+left a workload admits every source.
+*/}}
+{{- if and $kps.namespaceOverride (ne $kps.namespaceOverride $namespace) }}
+{{- fail (printf "kube-prometheus-stack.namespaceOverride %q must equal namespace %q: the access policies are rendered there" $kps.namespaceOverride $namespace) }}
+{{- end }}
+{{- /*
+Alert delivery goes to Alertmanager's Service, over mTLS (values:
+prometheusSpec.alertingEndpoints). Every endpoint must be this release's
+Alertmanager in $namespace, under its routePrefix, with __address__ rewritten
+to <fullnameOverride>-alertmanager.<namespace>.svc.cluster.local:<Service
+port>. Without the rewrite Prometheus sends to pod IPs, which leave the mesh in
+plaintext and are reset by the STRICT sidecar (503).
+
+The rewrite gives every replica the same address, which Prometheus
+deduplicates, so each batch reaches only the replica the Service picks.
+Alertmanager replicas gossip silences and the notification log, not alerts,
+so with more than one replica the others never see the alert: spurious
+"resolved" notifications or duplicates. HA needs per-pod addresses that still
+go over mTLS (for example a headless Service with the pods' DNS names), so more
+than one replica fails the render until that exists.
+*/}}
+{{- $am := $kps.alertmanager | default dict }}
+{{- $amSpec := $am.alertmanagerSpec | default dict }}
+{{- $amName := printf "%s-alertmanager" (required "kube-prometheus-stack.fullnameOverride is required (policies and alert delivery derive names from it)" $kps.fullnameOverride) }}
+{{- $amPort := ($am.service | default dict).port | default 9093 }}
+{{- $amAddress := printf "%s.%s.svc.cluster.local:%v" $amName $namespace $amPort }}
+{{- $endpoints := $kps.prometheus.prometheusSpec.alertingEndpoints | default list }}
+{{- if not $endpoints }}
+{{- fail "kube-prometheus-stack.prometheus.prometheusSpec.alertingEndpoints must address Alertmanager's Service (pod IPs leave the mesh in plaintext: 503)" }}
+{{- end }}
+{{- range $endpoints }}
+{{- if or (ne (toString .namespace) $namespace) (ne (toString .name) $amName) }}
+{{- fail (printf "alertingEndpoints: endpoint %s/%s must be %s/%s" (toString .namespace) (toString .name) $namespace $amName) }}
+{{- end }}
+{{- if and $amSpec.routePrefix (ne (toString .pathPrefix) (toString $amSpec.routePrefix)) }}
+{{- fail (printf "alertingEndpoints: pathPrefix %q must be Alertmanager's routePrefix %q" (toString .pathPrefix) (toString $amSpec.routePrefix)) }}
+{{- end }}
+{{- $replacements := list }}
+{{- range .relabelings | default list }}
+{{- if and (eq (toString .targetLabel) "__address__") (eq (toString (.action | default "replace")) "replace") }}
+{{- $replacements = append $replacements (toString .replacement) }}
+{{- end }}
+{{- end }}
+{{- if ne (toJson $replacements) (toJson (list $amAddress)) }}
+{{- fail (printf "alertingEndpoints: %s/%s must have exactly one relabeling that replaces __address__ with %q, not %s" (toString .namespace) (toString .name) $amAddress (toJson $replacements)) }}
+{{- end }}
+{{- end }}
+{{- if gt (int ($amSpec.replicas | default 1)) 1 }}
+{{- fail (printf "kube-prometheus-stack.alertmanager.alertmanagerSpec.replicas is %v: alert delivery goes to the Service, so each batch would reach one replica only. Alertmanager HA needs per-pod addressing over mTLS first" $amSpec.replicas) }}
 {{- end }}

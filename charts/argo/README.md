@@ -5,17 +5,16 @@ gateway. Argo CD is meant to manage itself through the `argo` Application in
 app-of-apps, which renders this chart; the airgap bootstrap applies the same
 render (no value overrides) before Argo CD exists.
 
-The `argo` Application is declared in app-of-apps 0.0.4 but disabled
-(`enabled: false`). On teknoir-local the K3s file `teknoir-argo.yaml` still
-owns Argo CD until DESIGN M7a detaches it, and a second owner would fight it on
-every k3s restart. M7a enables the Application in app-of-apps 0.0.5. Until
-then:
+The `argo` Application is enabled since app-of-apps 0.0.4 (wave -5):
 
-* fresh installs run Argo CD from the bootstrap's one-shot render of this
-  chart, which every `up` re-applies (server-side, as `argocd-controller`)
-  while no `argo` Application exists;
-* teknoir-local keeps the Argo CD of its K3s file, and the bootstrap skips the
-  `argo` tier while that file is in place.
+* on a fresh install the bootstrap applies this chart's one-shot render once
+  (server-side, as `argocd-controller`), then the `argo` Application adopts
+  it;
+* on teknoir-local, `teknoir-node migrate` detaches the other K3s files, `up`
+  creates the Application while the K3s file `teknoir-argo.yaml` is still in
+  place (the bootstrap skips the `argo` tier), and `migrate --argo` detaches
+  that file right after, with no k3s restart in between (infra DESIGN
+  M3/M4/M7a). Two owners would fight on every k3s restart.
 
 ## Architecture
 

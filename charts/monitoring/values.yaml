@@ -4,12 +4,15 @@ domain: "teknoir.airgapped"
 
 # Who may use Grafana, Prometheus and Alertmanager through the ingress gateway
 # (/<namespace>/{grafana,prometheus,alertmanager}). oauth2-proxy (auth chart,
-# ext_authz) forwards the user's Keycloak access token in
-# X-Auth-Request-Access-Token and X-Forwarded-Access-Token. Each of the three
-# workloads verifies that token (templates/requestauthentication.yaml) and
+# ext_authz) puts the user's Keycloak access token in
+# X-Auth-Request-Access-Token, replacing any value the client sent. Each of the
+# three workloads verifies the token (templates/requestauthentication.yaml,
+# which also reads X-Forwarded-Access-Token: oauth2-proxy never sets that one,
+# so only a client sends it, and it counts only as a valid realm token) and
 # admits the gateway only for a token whose "groups" claim holds one of
-# `groups` (templates/authorizationpolicy.yaml). Grafana reads the same token
-# (grafana.ini auth.jwt below) and maps group admin to its Admin role.
+# `groups` (templates/authorizationpolicy.yaml). Grafana reads
+# X-Auth-Request-Access-Token (grafana.ini auth.jwt below) and maps group
+# admin to its Admin role.
 monitoring:
   access:
     # Issuer of realm teknoir (Keycloak serves under /auth). istiod fetches the
@@ -476,12 +479,15 @@ kube-prometheus-stack:
     ##
     ## Sign-in: every user comes in through the gateway with a Keycloak access
     ## token (monitoring.access above), and Grafana signs them in from it
-    ## (auth.jwt): login = preferred_username (the e-mail), role Admin for
+    ## (auth.jwt): login = preferred_username (the Keycloak username: the
+    ## e-mail for users made by user-controller), role Admin for
     ## group admin, Viewer otherwise (the gateway lets only monitoring.access
     ## groups through). No anonymous access. Basic auth stays on for the
     ## dashboard/datasource sidecars (REQ_USERNAME/REQ_PASSWORD on localhost)
-    ## and as break-glass: the grafana-admin login (Secret monitoring-grafana)
-    ## over `kubectl port-forward`.
+    ## and as break-glass: the grafana-admin password (Secret
+    ## monitoring-grafana) with `curl -u` against the API over
+    ## `kubectl port-forward`. The login form stays off
+    ## (disable_login_form), so there is no browser sign-in with it.
     ## String values pass through the grafana chart's tpl: never put "{{" in one.
     grafana.ini:
       security:
@@ -544,7 +550,9 @@ kube-prometheus-stack:
     # separated) on top of the system bundle. Secret teknoir-root-ca-bundle
     # holds only the public certificate (ca.crt); the airgap node copies it
     # into teknoir-system on every run. Optional: without it Grafana still
-    # starts, but no token verifies (break-glass: the grafana-admin login).
+    # starts, but no token verifies (break-glass: basic auth as grafana-admin
+    # on the API). Go loads the roots once per process, so restart
+    # monitoring-grafana after the Secret is created or rotated (test G11).
     env:
       SSL_CERT_DIR: /etc/ssl/certs:/etc/teknoir/ca
     extraSecretMounts:
@@ -618,9 +626,14 @@ kube-prometheus-stack:
       ## addressed to the Service, so the request is routed as
       ## monitoring-alertmanager over mTLS with Prometheus' identity, which
       ## AuthorizationPolicy alertmanager-allow-prometheus admits (and, today,
-      ## the harbor chart's namespace-wide harbor-allow-internal). With more
-      ## than one Alertmanager replica each alert reaches one of them, and
-      ## the replicas share it (Alertmanager HA).
+      ## the harbor chart's namespace-wide harbor-allow-internal). Every
+      ## replica gets the same Service address, which Prometheus
+      ## deduplicates, so each batch reaches one replica only. Replicas do
+      ## not share alerts (they gossip silences and the notification log),
+      ## so more than one Alertmanager replica needs per-pod addresses over
+      ## mTLS first: templates/access-check.yaml fails the render on
+      ## alertmanagerSpec.replicas > 1, and on an endpoint that is not this
+      ## release's Alertmanager Service.
       alertingEndpoints:
         - namespace: teknoir-system
           name: monitoring-alertmanager

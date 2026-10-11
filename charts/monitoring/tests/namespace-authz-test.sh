@@ -33,16 +33,35 @@
 #       namespace. Each N3 path must be denied once the policies that admit it
 #       are removed (today Grafana's Alertmanager datasource is admitted by
 #       harbor-allow-internal alone, so it is lost when that policy gets a
-#       selector)
+#       selector). A DENY for every operation denies an N3 path; a DENY
+#       limited to operations (the *-deny-lifecycle paths) does not
 # INFO lines list the namespace-wide policies and the effective mTLS mode. A
 # WARN line marks an N3 path that only another chart's policy admits.
 #
-# Usage: charts/monitoring/tests/namespace-authz-test.sh
+# Usage: charts/monitoring/tests/namespace-authz-test.sh [--renders DIR]
+#   --renders DIR  evaluate the renders that `tests/render.sh --out DIR` wrote
+#                  (DIR/<chart>.yaml) instead of rendering the charts again,
+#                  so tests/render.sh can run this as its monitoring-authz
+#                  check. The ALLOWs that admit no gateway (in-namespace
+#                  sources such as prometheus-allow-internal,
+#                  alertmanager-allow-prometheus and harbor's
+#                  harbor-allow-internal) need no groups condition; N1 holds
+#                  every rule that may admit the gateway to it.
 # Environment: KUBE_VERSION (default 1.33.5), RENDER_CACHE (default
 # ~/.cache/teknoir-render, shared with tests/render.sh), HELM (default helm).
 # Requires helm, yq (mikefarah v4) and jq; network access for uncached chart
 # dependencies.
 set -euo pipefail
+
+RENDERS=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --renders) [[ -n "${2:-}" && -d "$2" ]] || { echo "--renders needs a directory" >&2; exit 2; }
+               RENDERS="$(cd "$2" && pwd)"; shift 2 ;;
+    -h|--help) sed -n '4,/^set -euo/p' "$0" | sed 's/^# \{0,1\}//; /^set -euo/d'; exit 0 ;;
+    *) echo "unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source-path=SCRIPTDIR source=lib.sh
@@ -69,21 +88,26 @@ info() { printf 'INFO  %-3s %s\n' "$1" "$2"; }
 # --- render every chart installed into teknoir-system and the root namespace ----
 : > "${tmp}/all.json"
 while IFS=$'\t' read -r app chart ns; do
-  [[ -d "${CHARTS}/${chart}" ]] || { fail N0 "app-of-apps ${app}: no chart ${chart} in charts/"; continue; }
-  chart_render_setup "${CHARTS}/${chart}" "${tmp}/src-${app}"
-  if "${HELM}" template "${app}" "${tmp}/src-${app}" --namespace "${ns}" \
-       --kube-version "${KUBE_VERSION}" > "${tmp}/${app}.yaml" 2> "${tmp}/err"; then
-    yq -o=json -I=0 'select(. != null)' "${tmp}/${app}.yaml" \
-      | jq -c --arg app "${app}" --arg ns "${ns}" '. + {"_app": $app, "_ns": (.metadata.namespace // $ns)}' \
-      >> "${tmp}/all.json"
+  if [[ -n "${RENDERS}" ]]; then
+    [[ -f "${RENDERS}/${chart}.yaml" ]] || { fail N0 "app-of-apps ${app}: no render ${RENDERS}/${chart}.yaml"; continue; }
+    cp "${RENDERS}/${chart}.yaml" "${tmp}/${app}.yaml"
   else
-    fail N0 "app-of-apps ${app}: helm template failed: $(tr '\n' ' ' < "${tmp}/err")"
+    [[ -d "${CHARTS}/${chart}" ]] || { fail N0 "app-of-apps ${app}: no chart ${chart} in charts/"; continue; }
+    chart_render_setup "${CHARTS}/${chart}" "${tmp}/src-${app}"
+    if ! "${HELM}" template "${app}" "${tmp}/src-${app}" --namespace "${ns}" \
+         --kube-version "${KUBE_VERSION}" > "${tmp}/${app}.yaml" 2> "${tmp}/err"; then
+      fail N0 "app-of-apps ${app}: helm template failed: $(tr '\n' ' ' < "${tmp}/err")"
+      continue
+    fi
   fi
+  yq -o=json -I=0 'select(. != null)' "${tmp}/${app}.yaml" \
+    | jq -c --arg app "${app}" --arg ns "${ns}" '. + {"_app": $app, "_ns": (.metadata.namespace // $ns)}' \
+    >> "${tmp}/all.json"
 done < <(yq -o=json '.applications' "${APPS}" | jq -r --arg ns "${NS}" --arg root "${ROOT_NS}" '
   to_entries[] | select(.value.enabled != false and (.value.namespace == $ns or .value.namespace == $root))
   | [.key, (.value.chart // .key), .value.namespace] | @tsv')
 jq -s . "${tmp}/all.json" > "${tmp}/all.array.json"
-echo "rendered: $(jq -r '[.[]._app] | unique | join(" ")' "${tmp}/all.array.json")"
+echo "${RENDERS:+renders from ${RENDERS}: }rendered: $(jq -r '[.[]._app] | unique | join(" ")' "${tmp}/all.array.json")"
 
 # Policies as {app, ns, name, action, selector, targeted, rules}.
 jq '[.[] | select(.kind == "AuthorizationPolicy")
@@ -168,8 +192,12 @@ def n2($ws; $ok): [ $ws[] as $w | .[] | select(.action == "ALLOW" and applies($w
   | (.value | rule_ns) as $n | select(($n - $ok) | length > 0)
   | "\($w.name) <- \($p | plabel) rule \(.key) admits \($n - $ok | join(","))" ];
 # N3: is $id admitted to workload $w without a token? {ok, by, names, apps}
+# A DENY rule limited to operations (`to`, such as the *-deny-lifecycle paths)
+# does not deny the probed paths, which are API paths: render-test.sh M11
+# pins those operations. A DENY rule without `to` denies every path.
 def admitted($id; $w): [.[] | select(applies($w))] as $ps
-  | ([$ps[] | select(.action == "DENY") | select(any(.rules[]; rule_admits($id; false))) | plabel]) as $deny
+  | ([$ps[] | select(.action == "DENY")
+      | select(any(.rules[]; rule_admits($id; false) and ((.to // []) | length) == 0)) | plabel]) as $deny
   | ([$ps[] | select(.action == "ALLOW")]) as $allow
   | [$allow[] | select(any(.rules[]; rule_admits($id; true)))] as $ps
   | if ($deny | length) > 0 then {ok: false, by: ["DENY " + ($deny | join(", "))], names: [], apps: []}
@@ -280,6 +308,24 @@ nswide teamspace teknoir-system '[{from: [{source: {namespaces: ["teknoir-system
 expect_flag "a namespace-wide ALLOW admitting a teamspace (N2)" "${tmp}/teamspace.json" 'n2($ws[0]; $ok)'
 nswide mesh-gw istio-system '[{from: [{source: {principals: ["cluster.local/ns/istio-system/sa/*"]}}]}]'
 expect_flag "a mesh-wide ALLOW for istio-system/* in the root namespace (N1)" "${tmp}/mesh-gw.json" 'n1($ws[0]; $groups)'
+# A DENY for every operation must deny an N3 path; one limited to operations
+# (like the *-deny-lifecycle policies) must not.
+mutate deny-all '. + [{app: "selftest", ns: "teknoir-system", name: "deny-all", action: "DENY",
+  selector: {"app.kubernetes.io/name": "prometheus"}, targeted: false,
+  rules: [{from: [{source: {namespaces: ["teknoir-system"]}}]}]}]'
+if [[ "$(probe grafana prometheus "${tmp}/deny-all.json" | jq -r .ok)" == false ]]; then
+  pass N4 "flags Grafana's Prometheus datasource as denied by a DENY for every operation"
+else
+  fail N4 "a DENY for every operation does not deny Grafana's Prometheus datasource"
+fi
+mutate deny-ops '. + [{app: "selftest", ns: "teknoir-system", name: "deny-ops", action: "DENY",
+  selector: {"app.kubernetes.io/name": "prometheus"}, targeted: false,
+  rules: [{from: [{source: {namespaces: ["teknoir-system"]}}], to: [{operation: {paths: ["*/-/quit"]}}]}]}]'
+if [[ "$(probe grafana prometheus "${tmp}/deny-ops.json" | jq -r .ok)" == true ]]; then
+  pass N4 "a DENY limited to operations (*/-/quit) leaves Grafana's Prometheus datasource admitted"
+else
+  fail N4 "a DENY limited to operations (*/-/quit) denies Grafana's Prometheus datasource"
+fi
 for path in "${PATHS[@]}"; do
   read -r client target what <<< "${path}"
   names="$(probe "${client}" "${target}" | jq -c .names)"
