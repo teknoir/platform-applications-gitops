@@ -68,3 +68,37 @@ nodeSelector: {}
 tolerations: []
 
 affinity: {}
+
+# Virtual devices (KubeVirt VMs that run the real Robot bootstrap). Everything in
+# this block is inert when enabled is false or the block is absent: no runtime
+# namespaces are rendered and the VIRTUAL_DEVICES key is left out of the controller
+# ConfigMap (the controller treats a missing key as disabled).
+# Needs KubeVirt + CDI (charts/virtual-devices) on the cluster. Plan:
+# virtual-device-phase1-plan.md section 3.4 / 3.7.
+virtualDevices:
+  enabled: true                # teknoir-cloud (staging) only
+  osImage: docker://quay.io/containerdisks/debian@sha256:6b992c4a8a62ca57858cbbf60110e673928d27b2885ea2a106660bc26b112b5b
+  k3sVersion: v1.34.11+k3s1
+  innerCIDRs: {cluster: 10.52.0.0/16, service: 10.53.0.0/16, dns: 10.53.0.10}
+  cpuOvercommit: 2
+  maxPerDevice: {cpu: "4", memory: 8Gi, disk: 40Gi}
+  storageClassName: local-path
+  priorityClassName: teknoir-virtual-device
+  # internet: virtual devices reach the platform gateway and the public internet
+  # (private ranges excluded); platform-only: the platform gateway only.
+  egress: internet
+  # One runtime namespace <teamspace>-vdev per entry, with the quota derived from
+  # the allowance (devices, whole vCPUs, whole Gi). Teamspace name: at most 58 chars.
+  # Removing an entry (or disabling the block, or reverting it) keeps the namespace
+  # (Prune=false,Delete=false) and its default-deny NetworkPolicy, ResourceQuota and
+  # LimitRange (Prune=false), so running VMs stay isolated and capped. Only
+  # vdev-egress-internet (and the DNS/gateway policies) are pruned.
+  # To revoke a teamspace's allowance through GitOps, set devices: 0 and keep cpu, memory
+  # and disk (any valid value): the namespace, default-deny, quota and LimitRange keep
+  # rendering, the allowance annotation says devices 0 (the controller admits nothing),
+  # and the quota's VM/VMI/DataVolume counts are 0. Running guests keep running; pods,
+  # PVCs and Secrets keep the headroom of one device so they can restart. Deleting the
+  # entry instead only stops managing the objects, and the old allowance stays in force.
+
+  allowances:
+    teknoir-demo: {devices: 2, cpu: "4", memory: 8Gi, disk: 60Gi}

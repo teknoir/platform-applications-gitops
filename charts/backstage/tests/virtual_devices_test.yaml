@@ -1,0 +1,78 @@
+suite: backstage virtual devices flag and sizes
+templates:
+  - templates/configmap-app-config.yaml
+  - templates/deployment.yaml
+  - templates/rbac.yaml
+tests:
+  - it: puts the flag, presets and custom limits in the backend app-config
+    template: templates/configmap-app-config.yaml
+    asserts:
+      - matchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: "virtualDevices:\\s+enabled: true"
+      - matchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: "name: small"
+      - matchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: "name: medium"
+      - matchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: "memoryGi:\\s+max: 8\\s+min: 4"
+
+  - it: sets the frontend env flag only when enabled
+    template: templates/deployment.yaml
+    documentSelector:
+      path: metadata.name
+      value: backstage
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: APP_CONFIG_teknoir_virtualDevices_enabled
+            value: "true"
+
+  - it: leaves the frontend env flag out when disabled
+    template: templates/deployment.yaml
+    set:
+      virtualDevices.enabled: false
+    documentSelector:
+      path: metadata.name
+      value: backstage
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: APP_CONFIG_teknoir_virtualDevices_enabled
+            value: "true"
+
+  - it: writes enabled false to the backend config when disabled
+    template: templates/configmap-app-config.yaml
+    set:
+      virtualDevices.enabled: false
+    asserts:
+      - matchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: "virtualDevices:\\s+enabled: false"
+
+  - it: renders no virtualDevices config when the block is absent
+    template: templates/configmap-app-config.yaml
+    set:
+      virtualDevices: null
+    asserts:
+      - notMatchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: "virtualDevices"
+
+  - it: lets the backend read resource quotas for the allowance check
+    template: templates/rbac.yaml
+    documentSelector:
+      path: metadata.name
+      value: backstage-api-resources-role
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [resourcequotas]
+            verbs: [get, list]

@@ -53,3 +53,19 @@ istio:
     fromHeaders:
       - name: X-Forwarded-Access-Token
       - name: X-Auth-Request-Access-Token
+
+# Virtual devices (board "Virtual" in Add Device). The flag is read by the backend
+# (app-config ConfigMap) and the frontend (APP_CONFIG_teknoir_virtualDevices_enabled);
+# both are driven by enabled. The sizes are backend-only (whole vCPUs and whole GiB) and
+# must stay within the controller's maxPerDevice (charts/device-controller). A teamspace
+# also needs an allowance: ResourceQuota vdev-quota in <teamspace>-vdev (device-controller chart).
+virtualDevices:
+  enabled: true                # teknoir-cloud (staging) only
+  presets:
+    - {name: small, label: Small, cpu: "2", memory: 4Gi, disk: 20Gi}
+    - {name: medium, label: Medium, cpu: "4", memory: 8Gi, disk: 40Gi}
+  custom:
+    enabled: true
+    cpu: {min: 2, max: 4}
+    memoryGi: {min: 4, max: 8}
+    diskGi: {min: 20, max: 40}

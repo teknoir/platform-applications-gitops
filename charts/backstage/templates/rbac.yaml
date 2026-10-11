@@ -25,6 +25,14 @@ rules:
   - patch
   - update
   - watch
+# Virtual devices: the advisory allowance check reads <teamspace>-vdev/vdev-quota.
+- apiGroups:
+  - ""
+  resources:
+  - resourcequotas
+  verbs:
+  - get
+  - list
 - apiGroups:
   - teknoir.org
   resources:

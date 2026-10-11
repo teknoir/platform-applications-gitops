@@ -30,6 +30,18 @@ data:
     teknoir:
       projectId: teknoir
       domain: {{ .Values.config.domain }}
+{{- with .Values.virtualDevices }}
+      virtualDevices:
+        enabled: {{ .enabled | default false }}
+        {{- with .presets }}
+        presets:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with .custom }}
+        custom:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+{{- end }}
 
     integrations:
       github:

@@ -1,0 +1,479 @@
+suite: virtual devices runtime namespaces
+templates:
+  - templates/virtual-devices-runtime.yaml
+tests:
+  - it: renders namespace, four network policies, quota and limit range for the default allowance
+    asserts:
+      - hasDocuments:
+          count: 7
+      - containsDocument:
+          kind: Namespace
+          apiVersion: v1
+          name: teknoir-demo-vdev
+        documentIndex: 0
+      - containsDocument:
+          kind: NetworkPolicy
+          apiVersion: networking.k8s.io/v1
+          name: vdev-default-deny
+          namespace: teknoir-demo-vdev
+        documentIndex: 1
+      - containsDocument:
+          kind: NetworkPolicy
+          apiVersion: networking.k8s.io/v1
+          name: vdev-egress-dns
+          namespace: teknoir-demo-vdev
+        documentIndex: 2
+      - containsDocument:
+          kind: NetworkPolicy
+          apiVersion: networking.k8s.io/v1
+          name: vdev-egress-gateway
+          namespace: teknoir-demo-vdev
+        documentIndex: 3
+      - containsDocument:
+          kind: NetworkPolicy
+          apiVersion: networking.k8s.io/v1
+          name: vdev-egress-internet
+          namespace: teknoir-demo-vdev
+        documentIndex: 4
+      - containsDocument:
+          kind: ResourceQuota
+          apiVersion: v1
+          name: vdev-quota
+          namespace: teknoir-demo-vdev
+        documentIndex: 5
+      - containsDocument:
+          kind: LimitRange
+          apiVersion: v1
+          name: vdev-limits
+          namespace: teknoir-demo-vdev
+        documentIndex: 6
+
+  - it: labels the namespace for admission and for the platform, and never prunes it
+    documentSelector:
+      path: kind
+      value: Namespace
+    asserts:
+      - equal:
+          path: metadata.labels["teknoir.org/vdev-for"]
+          value: teknoir-demo
+      - equal:
+          path: metadata.labels["teknoir.org/teamspace"]
+          value: teknoir-demo
+      - equal:
+          path: metadata.labels["teknoir.org/component"]
+          value: virtual-device-runtime
+      - equal:
+          path: metadata.labels["istio-injection"]
+          value: disabled
+      - equal:
+          path: metadata.labels["pod-security.kubernetes.io/enforce"]
+          value: baseline
+      - equal:
+          path: metadata.labels["pod-security.kubernetes.io/enforce-version"]
+          value: latest
+      - equal:
+          path: metadata.labels["pod-security.kubernetes.io/warn"]
+          value: restricted
+      - equal:
+          path: metadata.labels["pod-security.kubernetes.io/audit"]
+          value: restricted
+      - equal:
+          path: metadata.annotations["argocd.argoproj.io/sync-options"]
+          value: Prune=false,Delete=false
+
+  - it: keeps the isolation objects when the allowance or the block goes away (Prune=false), but leaves the internet policy prunable
+    asserts:
+      - equal:
+          path: metadata.annotations["argocd.argoproj.io/sync-options"]
+          value: Prune=false
+        documentIndex: 1
+      - equal:
+          path: metadata.annotations["argocd.argoproj.io/sync-options"]
+          value: Prune=false
+        documentIndex: 5
+      - equal:
+          path: metadata.annotations["argocd.argoproj.io/sync-options"]
+          value: Prune=false
+        documentIndex: 6
+      - notExists:
+          path: metadata.annotations["argocd.argoproj.io/sync-options"]
+        documentIndex: 4
+      - equal:
+          path: metadata.annotations["teknoir.org/allowance"]
+          value: '{"devices":2,"cpu":"4","memory":"8Gi","disk":"60Gi"}'
+        documentIndex: 5
+
+  - it: sets the allowance annotation and the exact teknoir-demo quota (devices 2, 4 vCPU, 8Gi, 60Gi, overcommit 2)
+    documentSelector:
+      path: kind
+      value: ResourceQuota
+    asserts:
+      - equal:
+          path: metadata.annotations["teknoir.org/allowance"]
+          value: '{"devices":2,"cpu":"4","memory":"8Gi","disk":"60Gi"}'
+      - equal:
+          path: spec.hard
+          value:
+            requests.cpu: 3000m
+            limits.cpu: "5"
+            requests.memory: 10Gi
+            limits.memory: 11Gi
+            requests.storage: 132Gi
+            persistentvolumeclaims: "6"
+            pods: "6"
+            count/secrets: "6"
+            count/virtualmachines.kubevirt.io: "2"
+            count/virtualmachineinstances.kubevirt.io: "2"
+            count/datavolumes.cdi.kubevirt.io: "2"
+            services: "0"
+            services.loadbalancers: "0"
+            services.nodeports: "0"
+            requests.nvidia.com/gpu: "0"
+
+  - it: sizes the limit range from maxPerDevice (4 vCPU, 8Gi, 40Gi)
+    documentSelector:
+      path: kind
+      value: LimitRange
+    asserts:
+      - equal:
+          path: spec.limits
+          value:
+            - type: Container
+              default:
+                cpu: 500m
+                memory: 256Mi
+              defaultRequest:
+                cpu: 50m
+                memory: 64Mi
+              max:
+                cpu: "4"
+                memory: 9Gi
+            - type: PersistentVolumeClaim
+              max:
+                storage: 45Gi
+
+  - it: rounds the quota up with integer math (3 devices, 3 vCPU, overcommit 2, 5Gi, 10Gi)
+    set:
+      virtualDevices.allowances.teknoir-demo: null
+      virtualDevices.allowances.ts-b: {devices: 3, cpu: "3", memory: 5Gi, disk: 10Gi}
+    documentSelector:
+      path: kind
+      value: ResourceQuota
+    asserts:
+      - equal:
+          path: spec.hard["requests.cpu"]
+          value: 2500m
+      - equal:
+          path: spec.hard["limits.cpu"]
+          value: "4"
+      - equal:
+          path: spec.hard["requests.memory"]
+          value: 8Gi
+      - equal:
+          path: spec.hard["limits.memory"]
+          value: 9Gi
+      - equal:
+          path: spec.hard["requests.storage"]
+          value: 22Gi
+      - equal:
+          path: spec.hard.pods
+          value: "9"
+      - equal:
+          path: spec.hard["count/secrets"]
+          value: "8"
+
+  - it: renders one full set per allowances entry
+    set:
+      virtualDevices.allowances.other-ts: {devices: 1, cpu: "2", memory: 4Gi, disk: 20Gi}
+    asserts:
+      - hasDocuments:
+          count: 14
+      - containsDocument:
+          kind: Namespace
+          apiVersion: v1
+          name: other-ts-vdev
+        documentIndex: 0
+      - containsDocument:
+          kind: ResourceQuota
+          apiVersion: v1
+          name: vdev-quota
+          namespace: other-ts-vdev
+        documentIndex: 5
+      - equal:
+          path: metadata.labels["teknoir.org/vdev-for"]
+          value: other-ts
+        documentIndex: 0
+      - equal:
+          path: metadata.labels["teknoir.org/vdev-for"]
+          value: teknoir-demo
+        documentIndex: 7
+      - equal:
+          path: spec.hard["requests.cpu"]
+          value: 2000m
+        documentIndex: 5
+      - equal:
+          path: spec.hard["requests.storage"]
+          value: 44Gi
+        documentIndex: 5
+      - equal:
+          path: spec.hard["requests.cpu"]
+          value: 3000m
+        documentIndex: 12
+
+  - it: gives the network policies the spike's rules
+    asserts:
+      - equal:
+          path: spec
+          value:
+            podSelector: {}
+            policyTypes:
+              - Ingress
+              - Egress
+        documentIndex: 1
+      - equal:
+          path: spec.egress[0].to[0].podSelector.matchLabels
+          value:
+            k8s-app: kube-dns
+        documentIndex: 2
+      - equal:
+          path: spec.egress[0].ports
+          value:
+            - protocol: UDP
+              port: 53
+            - protocol: TCP
+              port: 53
+        documentIndex: 2
+      - equal:
+          path: spec.egress[0].to[0].podSelector.matchLabels
+          value:
+            istio: ingressgateway-public
+        documentIndex: 3
+      - equal:
+          path: spec.egress[0].ports
+          value:
+            - protocol: TCP
+              port: 8883
+            - protocol: TCP
+              port: 8084
+            - protocol: TCP
+              port: 2222
+        documentIndex: 3
+      - equal:
+          path: spec.egress[0].to[0].ipBlock.cidr
+          value: 0.0.0.0/0
+        documentIndex: 4
+      - equal:
+          path: spec.egress[0].to[0].ipBlock.except
+          value:
+            - 0.0.0.0/8
+            - 10.0.0.0/8
+            - 100.64.0.0/10
+            - 127.0.0.0/8
+            - 169.254.0.0/16
+            - 172.16.0.0/12
+            - 192.168.0.0/16
+            - 224.0.0.0/4
+            - 240.0.0.0/4
+        documentIndex: 4
+
+  - it: omits vdev-egress-internet with egress platform-only
+    set:
+      virtualDevices.egress: platform-only
+    asserts:
+      - hasDocuments:
+          count: 6
+      - containsDocument:
+          kind: NetworkPolicy
+          apiVersion: networking.k8s.io/v1
+          name: vdev-egress-internet
+          namespace: teknoir-demo-vdev
+        not: true
+      - containsDocument:
+          kind: NetworkPolicy
+          apiVersion: networking.k8s.io/v1
+          name: vdev-egress-gateway
+          namespace: teknoir-demo-vdev
+        documentIndex: 3
+      - isKind:
+          of: ResourceQuota
+        documentIndex: 4
+
+  - it: renders nothing when virtualDevices.enabled is false
+    set:
+      virtualDevices.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders nothing when the virtualDevices block is absent
+    set:
+      virtualDevices: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders nothing when enabled but there are no allowances
+    set:
+      virtualDevices.allowances.teknoir-demo: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: accepts a teamspace name of 58 characters
+    set:
+      virtualDevices.allowances.teknoir-demo: null
+      virtualDevices.allowances.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: {devices: 1, cpu: "2", memory: 4Gi, disk: 20Gi}
+    documentSelector:
+      path: kind
+      value: Namespace
+    asserts:
+      - equal:
+          path: metadata.name
+          value: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-vdev
+
+  - it: fails the render for a teamspace name of 59 characters
+    set:
+      virtualDevices.allowances.teknoir-demo: null
+      virtualDevices.allowances.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: {devices: 1, cpu: "2", memory: 4Gi, disk: 20Gi}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at most 58 characters"
+
+  - it: fails the render for a teamspace name that is not a DNS label
+    set:
+      virtualDevices.allowances.Bad_Name: {devices: 1, cpu: "2", memory: 4Gi, disk: 20Gi}
+    asserts:
+      - failedTemplate:
+          errorPattern: "DNS label"
+
+  - it: fails the render for a fractional vCPU allowance
+    set:
+      virtualDevices.allowances.teknoir-demo.cpu: "0.5"
+    asserts:
+      - failedTemplate:
+          errorPattern: "virtualDevices.allowances.teknoir-demo.cpu must be a whole number"
+
+  - it: fails the render for a memory allowance that is not whole Gi
+    set:
+      virtualDevices.allowances.teknoir-demo.memory: 8G
+    asserts:
+      - failedTemplate:
+          errorPattern: "virtualDevices.allowances.teknoir-demo.memory must be a whole number followed by Gi"
+
+  - it: fails the render for a negative or fractional device count
+    set:
+      virtualDevices.allowances.teknoir-demo.devices: -1
+    asserts:
+      - failedTemplate:
+          errorPattern: "virtualDevices.allowances.teknoir-demo.devices must be a whole number, 0 or greater"
+
+  - it: fails the render for a fractional device count
+    set:
+      virtualDevices.allowances.teknoir-demo.devices: 1.5
+    asserts:
+      - failedTemplate:
+          errorPattern: "virtualDevices.allowances.teknoir-demo.devices must be a whole number, 0 or greater"
+
+  # Revoke path (plan 3.3): devices: 0 keeps rendering the Namespace, default-deny,
+  # quota and LimitRange, with an allowance that admits nothing.
+  - it: revokes with devices 0 and still renders the isolation objects
+    set:
+      virtualDevices.allowances.teknoir-demo.devices: 0
+    asserts:
+      - hasDocuments:
+          count: 7
+      - isKind:
+          of: Namespace
+        documentIndex: 0
+      - equal:
+          path: metadata.name
+          value: teknoir-demo-vdev
+        documentIndex: 0
+      - equal:
+          path: metadata.name
+          value: vdev-default-deny
+        documentIndex: 1
+      - equal:
+          path: metadata.annotations["teknoir.org/allowance"]
+          value: '{"devices":0,"cpu":"4","memory":"8Gi","disk":"60Gi"}'
+        documentSelector:
+          path: metadata.name
+          value: vdev-quota
+      - equal:
+          path: spec.hard["count/virtualmachines.kubevirt.io"]
+          value: "0"
+        documentSelector:
+          path: metadata.name
+          value: vdev-quota
+      - equal:
+          path: spec.hard["count/virtualmachineinstances.kubevirt.io"]
+          value: "0"
+        documentSelector:
+          path: metadata.name
+          value: vdev-quota
+      - equal:
+          path: spec.hard["count/datavolumes.cdi.kubevirt.io"]
+          value: "0"
+        documentSelector:
+          path: metadata.name
+          value: vdev-quota
+      # existing guests can still restart or reschedule: headroom of one device
+      - equal:
+          path: spec.hard.pods
+          value: "3"
+        documentSelector:
+          path: metadata.name
+          value: vdev-quota
+      - equal:
+          path: metadata.name
+          value: vdev-limits
+        documentSelector:
+          path: kind
+          value: LimitRange
+      - equal:
+          path: metadata.annotations["argocd.argoproj.io/sync-options"]
+          value: Prune=false,Delete=false
+        documentIndex: 0
+
+  - it: keeps the other allowances untouched when one is revoked
+    set:
+      virtualDevices.allowances.other-ts: {devices: 1, cpu: "2", memory: 4Gi, disk: 20Gi}
+      virtualDevices.allowances.teknoir-demo.devices: 0
+    asserts:
+      - equal:
+          path: metadata.annotations["teknoir.org/allowance"]
+          value: '{"devices":1,"cpu":"2","memory":"4Gi","disk":"20Gi"}'
+        documentIndex: 5   # other-ts-vdev sorts first: Namespace, 4 NetworkPolicies, then the quota
+      - equal:
+          path: metadata.annotations["teknoir.org/allowance"]
+          value: '{"devices":0,"cpu":"4","memory":"8Gi","disk":"60Gi"}'
+        documentIndex: 12
+
+  - it: fails the render for a missing disk allowance
+    set:
+      virtualDevices.allowances.teknoir-demo.disk: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "virtualDevices.allowances.teknoir-demo.disk"
+
+  - it: fails the render for an unknown egress mode
+    set:
+      virtualDevices.egress: everything
+    asserts:
+      - failedTemplate:
+          errorPattern: "virtualDevices.egress must be"
+
+  - it: fails the render for a malformed maxPerDevice
+    set:
+      virtualDevices.maxPerDevice.memory: 8192Mi
+    asserts:
+      - failedTemplate:
+          errorPattern: "virtualDevices.maxPerDevice.memory"
+
+  - it: fails the render for a missing cpuOvercommit even without allowances
+    set:
+      virtualDevices.allowances.teknoir-demo: null
+      virtualDevices.cpuOvercommit: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "virtualDevices.cpuOvercommit must be a whole number"
