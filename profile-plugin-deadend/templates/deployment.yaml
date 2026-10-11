@@ -42,8 +42,8 @@ spec:
         command: ["/bin/sh", "-c"]
         args:
           - |
-            apk add --no-cache stunnel
-            stunnel /etc/stunnel/stunnel.conf
+            command -v stunnel >/dev/null 2>&1 || apk add --no-cache stunnel
+            exec stunnel /etc/stunnel/stunnel.conf
         ports:
           - containerPort: 2222
         volumeMounts:

@@ -5,8 +5,10 @@ deadend:
     version: latest
 tlsTerminator:
   image:
-    registry: alpine
-    version: latest
+    # stunnel baked in (images/stunnel); no package install at start-up, so
+    # the sidecar also works on airgapped clusters
+    registry: ghcr.io/teknoir/stunnel
+    version: 3.22.6-5.75
 authorizedKeys: ""
 imagePullSecrets:
   - name: ghcr-token
