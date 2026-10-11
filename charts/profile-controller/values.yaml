@@ -7,14 +7,10 @@ image:
   # Pinned (G-09): '<immutable tag>@sha256:<linux/amd64 manifest digest>'
   # (`crane digest --platform linux/amd64 <repository>:<tag>`), so a restart
   # never re-pulls and the bundle carries exactly this image.
-  # PLACEHOLDER: the r5 build (branch r5-profile-controller: plugin chart
-  # repo/version and OIDC issuer from the environment, narrowed AppProject)
-  # is not pushed yet. Replace this one line with its sha-<8> tag and amd64
-  # digest, and drop its entry from PENDING_IMAGE_PINS in tests/render.sh in
-  # the same commit. Until then render.sh only WARNs through that allowance
-  # (--strict-pins FAILs), and the bundle gate fails on the placeholder on
-  # purpose.
-  tag: "sha-PLACEHOLDER-WP-PC@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  # r5 build: CI image of profile-controller branch r5-profile-controller at
+  # 3e71c789 (plugin chart repo/version and OIDC issuer from the environment,
+  # narrowed AppProject).
+  tag: "sha-3e71c789@sha256:a3fea04ce06416c97d2dc42faed2824b7f8e57b5803183819a4d3b0c328b0a37"
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
