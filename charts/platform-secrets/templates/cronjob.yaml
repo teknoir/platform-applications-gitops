@@ -1,0 +1,23 @@
+{{- if .Values.cronJob.enabled }}
+# Re-syncs the copyFrom keys (and re-creates a deleted Secret) between ArgoCD
+# syncs: rotating a source Secret never triggers a sync by itself.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Values.cronJob.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "platform-secrets.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.cronJob.schedule | quote }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: {{ .Values.job.activeDeadlineSeconds }}
+      template:
+        {{- include "platform-secrets.podTemplate" . | nindent 8 }}
+{{- end }}

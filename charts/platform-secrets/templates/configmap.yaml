@@ -1,0 +1,16 @@
+{{- $spec := include "platform-secrets.spec" . }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "platform-secrets.name" . }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "platform-secrets.labels" . | nindent 4 }}
+  annotations:
+    # Must exist before the Sync hook Job (wave {{ .Values.job.syncWave }}).
+    argocd.argoproj.io/sync-wave: "-20"
+data:
+  ensure-secrets.sh: |
+{{ .Files.Get "files/ensure-secrets.sh" | indent 4 }}
+  secrets.spec: |
+{{ $spec | trim | indent 4 }}

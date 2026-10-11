@@ -1,0 +1,9 @@
+apiVersion: v2
+name: platform-secrets
+description: >-
+  Declarative, create-if-absent generation of the platform's random Secrets
+  (Keycloak, oauth2-proxy, Harbor, ArgoCD OIDC, Backstage) plus re-synced
+  copies of shared values. Values never leave the cluster.
+type: application
+version: 0.0.1
+appVersion: "0.0.1"
