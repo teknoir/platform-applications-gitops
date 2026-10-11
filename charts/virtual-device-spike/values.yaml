@@ -36,11 +36,11 @@ k3s:
 
 # One-shot Job that renders the cloud-init Secret in the cluster (the device keys never
 # leave it). Image: .github/workflows/vdev-spike-render.yaml, built from
-# hack/virtual-device-spike/renderer/Dockerfile. The digest has no default on purpose:
-# pin the digest of a build before enabling the spike.
+# hack/virtual-device-spike/renderer/Dockerfile. Pinned to the build of gitops 5ead5b18
+# (workflow run 38147790939); an empty digest fails the render on purpose.
 renderer:
   image: ghcr.io/teknoir/vdev-spike-render
-  digest: ""
+  digest: sha256:2e25b4cb1e7d659fb6276402f686ed939c9f92b3e3c8c4ac6cb09d81c38229ba
   # Commit of github.com/teknoir/cli whose templates the image was built with
   # (VDS_CLI_REF in hack/virtual-device-spike/lib/pins.sh); it is recorded in the guest.
   cliRef: 7bb1beaa53069ef20cf9edfa300c1d9560429f0a
