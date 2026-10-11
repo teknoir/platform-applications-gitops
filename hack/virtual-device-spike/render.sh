@@ -456,53 +456,12 @@ fi
 SCRIPT="${WORK}/bootstrap.sh"
 RENDER_SUMMARY="${WORK}/render-summary.json"
 
-resolve_cli_src() {
-  local c
-  for c in "$CLI_SRC" "${HOME}/git/ai/cli"; do
-    [[ -n $c && -d $c ]] || continue
-    if git -C "$c" cat-file -e "${VDS_CLI_REF}^{commit}" 2>/dev/null; then
-      printf '%s\n' "$c"
-      return 0
-    fi
-    [[ $c == "$CLI_SRC" ]] && die "--cli-src $c does not contain commit ${VDS_CLI_REF}"
-  done
-  return 1
-}
-
-build_renderer() {
-  need go git tar
-  local main="${VDS_DIR}/renderer/main.go"
-  local key
-  key="$(printf '%s %s' "$VDS_CLI_REF" "$(sha256_of "$main")" | (sha256sum 2>/dev/null || shasum -a 256) | cut -c1-16)"
-  local cache="${XDG_CACHE_HOME:-${HOME}/.cache}/teknoir-vd-spike/renderer-${key}"
-  if [[ -x ${cache}/vdev-spike-render ]]; then
-    printf '%s\n' "${cache}/vdev-spike-render"
-    return 0
-  fi
-  local build src
-  build=$(mktemp -d "${TMPDIR:-/tmp}/vd-spike-build.XXXXXX")
-  if src=$(resolve_cli_src); then
-    log "renderer: using templates from ${src} at ${VDS_CLI_REF:0:12}"
-  else
-    log "renderer: cloning ${VDS_CLI_REPO_URL} for ${VDS_CLI_REF:0:12}"
-    src="${build}/cli.git"
-    git clone --quiet --bare --filter=blob:none "$VDS_CLI_REPO_URL" "$src" >&2
-    git -C "$src" cat-file -e "${VDS_CLI_REF}^{commit}" || die "commit ${VDS_CLI_REF} not found in ${VDS_CLI_REPO_URL}"
-  fi
-  mkdir -p "${build}/mod/cmd/vdev-spike-render"
-  git -C "$src" archive "$VDS_CLI_REF" go.mod go.sum pkg/templates | tar -x -C "${build}/mod"
-  grep -qx 'module teknoir/cli' "${build}/mod/go.mod" || die "unexpected module path in cli go.mod at ${VDS_CLI_REF}"
-  cp "$main" "${build}/mod/cmd/vdev-spike-render/main.go"
-  mkdir -p "$cache"
-  (cd "${build}/mod" && GOWORK=off GOFLAGS=-mod=mod CGO_ENABLED=0 go build -trimpath -o "${cache}/vdev-spike-render" ./cmd/vdev-spike-render) >&2 ||
-    die "building the renderer failed"
-  rm -rf "$build"
-  printf '%s\n' "${cache}/vdev-spike-render"
-}
-
+# The renderer renders the bootstrap (kubectl, fixture) and, for every source, the
+# cloud-init user data around it (renderer/userdata.tmpl, the one source of the user
+# data; the in-cluster Job of charts/virtual-device-spike uses the same template).
+RENDERER=$(build_renderer)
 case "$SOURCE" in
   kubectl | fixture)
-    RENDERER=$(build_renderer)
     "$RENDERER" -device-json "$DEVICE_JSON" -domain "$DOMAIN" -out "$SCRIPT" >"$RENDER_SUMMARY"
     TEMPLATE_SHA256=$(jq -r .templateSha256 "$RENDER_SUMMARY")
     BOOTSTRAP_SOURCE="cli ${VDS_CLI_REF:0:12} pkg/templates/server.sh.tmpl (sha256 ${TEMPLATE_SHA256})"
@@ -553,79 +512,13 @@ if grep -q '{{' "$SCRIPT"; then die "rendered script contains unrendered templat
 # ---------------------------------------------------------------- 10-cloudinit-secret.yaml
 K3S_EXEC="--cluster-cidr=${VDS_CLUSTER_CIDR} --service-cidr=${VDS_SERVICE_CIDR} --cluster-dns=${VDS_CLUSTER_DNS}"
 RENDERED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-SCRIPT_B64=$(b64_oneline <"$SCRIPT")
 USERDATA="${WORK}/userdata"
-cat >"$USERDATA" <<EOF
-#cloud-config
-# S1 spike: Teknoir virtual device ${DEVICE} (teamspace ${NAMESPACE}).
-# Rendered by hack/virtual-device-spike/render.sh at ${RENDERED_AT}.
-hostname: ${DEVICE}
-preserve_hostname: false
-manage_etc_hosts: true
-ssh_pwauth: false
-disable_root: true
-$(if [[ $DEBUG_USER == true ]]; then printf '%s\n' \
-  "# --debug-user: break-glass access while the bootstrap runs (device SSH key, sudo)." \
-  "users:" \
-  "  - name: vdspike" \
-  "    shell: /bin/bash" \
-  "    lock_passwd: true" \
-  "    sudo: ALL=(ALL) NOPASSWD:ALL" \
-  "    ssh_authorized_keys:" \
-  "      - ${DEBUG_PUBKEY}"; fi)
-package_update: true
-packages:
-  - qemu-guest-agent
-  - curl
-  - openssl
-  - ca-certificates
-write_files:
-  # The tnctl server bootstrap, unmodified (contains the device key, the device
-  # user's password and the k3s token).
-  - path: /usr/local/lib/teknoir/bootstrap.sh
-    owner: root:root
-    permissions: "0700"
-    encoding: b64
-    content: ${SCRIPT_B64}
-  # Runs it the way a person runs it on a real device, plus the three inputs a
-  # virtual device needs: non-interactive user creation, a pinned k3s version and
-  # inner k3s CIDRs that do not overlap the platform cluster.
-  - path: /usr/local/lib/teknoir/spike-run.sh
-    owner: root:root
-    permissions: "0755"
-    content: |
-      #!/bin/sh
-      set -u
-      state=/var/lib/teknoir-spike
-      mkdir -p "\$state"
-      date -u +%Y-%m-%dT%H:%M:%SZ > "\$state/bootstrap-started"
-      rc=0
-      CREATE_USER=true \\
-      INSTALL_K3S_VERSION='${K3S_VERSION}' \\
-      INSTALL_K3S_EXEC='${K3S_EXEC}' \\
-        /bin/sh /usr/local/lib/teknoir/bootstrap.sh > "\$state/bootstrap.log" 2>&1 || rc=\$?
-      echo "\$rc" > "\$state/bootstrap-exit"
-      date -u +%Y-%m-%dT%H:%M:%SZ > "\$state/bootstrap-finished"
-      exit "\$rc"
-  # Non-secret parameters, read by check.sh inside the guest.
-  - path: /etc/teknoir-spike/spike.env
-    owner: root:root
-    permissions: "0644"
-    content: |
-      DEVICE=${DEVICE}
-      NAMESPACE=${NAMESPACE}
-      DOMAIN=${DOMAIN}
-      K3S_VERSION=${K3S_VERSION}
-      CLUSTER_CIDR=${VDS_CLUSTER_CIDR}
-      SERVICE_CIDR=${VDS_SERVICE_CIDR}
-      CLUSTER_DNS=${VDS_CLUSTER_DNS}
-      CLI_REF=${VDS_CLI_REF}
-      RENDERED_AT=${RENDERED_AT}
-runcmd:
-  - [sh, -c, "mkdir -p /var/lib/teknoir-spike && chmod 700 /var/lib/teknoir-spike && date -u +%Y-%m-%dT%H:%M:%SZ > /var/lib/teknoir-spike/runcmd-started"]
-  - [systemctl, enable, --now, qemu-guest-agent]
-  - [/usr/local/lib/teknoir/spike-run.sh]
-EOF
+"$RENDERER" -userdata -script "$SCRIPT" -out "$USERDATA" \
+  -device "$DEVICE" -namespace "$NAMESPACE" -domain "$DOMAIN" \
+  -k3s-version "$K3S_VERSION" -cluster-cidr "$VDS_CLUSTER_CIDR" -service-cidr "$VDS_SERVICE_CIDR" \
+  -cluster-dns "$VDS_CLUSTER_DNS" -cli-ref "$VDS_CLI_REF" -rendered-at "$RENDERED_AT" \
+  ${DEBUG_PUBKEY:+-debug-pubkey "$DEBUG_PUBKEY"} ||
+  die "rendering the cloud-init user data failed"
 chmod 600 "$USERDATA"
 
 SECRET_FILE="${OUT}/10-cloudinit-secret.yaml"

@@ -1,0 +1,97 @@
+# S1 spike: virtual device {{ .Values.device.name }} of teamspace {{ .Values.device.teamspace }}. Ported from render.sh (20-vm.yaml).
+# Wave 2: after the render Job (wave 1) created Secret {{ .Values.device.name }}-cloudinit.
+{{- $dev := .Values.device.name }}
+{{- $vm := .Values.vm }}
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: {{ $dev }}
+  namespace: {{ include "vds.vdevNamespace" . }}
+  labels:
+    teknoir.org/device: {{ $dev }}
+    {{- include "vds.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    teknoir.org/os-image: {{ printf "%s@%s" $vm.containerDisk.tag $vm.containerDisk.digest | quote }}
+    teknoir.org/bootstrap: {{ printf "cli %s pkg/templates/server.sh.tmpl (rendered in-cluster by Job vd-spike-render)" (.Values.renderer.cliRef | trunc 12) | quote }}
+    teknoir.org/k3s-version: {{ .Values.k3s.version | quote }}
+spec:
+  runStrategy: Always
+  dataVolumeTemplates:
+    - metadata:
+        name: {{ $dev }}-root
+        labels:
+          teknoir.org/device: {{ $dev }}
+          {{- include "vds.labels" . | nindent 10 }}
+      spec:
+        source:
+          registry:
+            # Digest only in the CDI URL: CDI's registry importer does not accept tag+digest.
+            url: docker://{{ (split ":" $vm.containerDisk.tag)._0 }}@{{ $vm.containerDisk.digest }}
+            # The node's containerd pulls the image (no scratch PVC, no pod egress).
+            pullMethod: node
+        # local-path (WaitForFirstConsumer): the disk lands under /opt on the node
+        # the VM is scheduled to, never on r415's small /var.
+        storage:
+          storageClassName: {{ $vm.storageClassName }}
+          accessModes:
+            - ReadWriteOnce
+          volumeMode: Filesystem
+          resources:
+            requests:
+              storage: {{ $vm.diskGi }}Gi
+  template:
+    metadata:
+      labels:
+        teknoir.org/device: {{ $dev }}
+        kubevirt.io/domain: {{ $dev }}
+        {{- include "vds.labels" . | nindent 8 }}
+      annotations:
+        sidecar.istio.io/inject: "false"
+    spec:
+      priorityClassName: teknoir-virtual-device
+      # Single node, no live migration: a drain shuts the VM down.
+      evictionStrategy: None
+      terminationGracePeriodSeconds: 120
+      domain:
+        cpu:
+          sockets: 1
+          cores: {{ $vm.cpu }}
+          threads: 1
+          {{- with $vm.cpuModel }}
+          model: {{ . }}
+          {{- end }}
+        resources:
+          # cpu request = vCPU / {{ $vm.cpuOvercommit }}; memory is never overcommitted.
+          requests:
+            cpu: {{ div (mul $vm.cpu 1000) $vm.cpuOvercommit }}m
+            memory: {{ $vm.memoryGi }}Gi
+          limits:
+            cpu: {{ $vm.cpu | quote }}
+            memory: {{ $vm.memoryGi }}Gi
+        devices:
+          # Keep the serial console out of pod logs (also off cluster-wide).
+          logSerialConsole: false
+          rng: {}
+          disks:
+            - name: root
+              disk:
+                bus: virtio
+            - name: cloudinit
+              disk:
+                bus: virtio
+          interfaces:
+            - name: default
+              masquerade: {}
+      networks:
+        - name: default
+          pod: {}
+      volumes:
+        - name: root
+          dataVolume:
+            name: {{ $dev }}-root
+        - name: cloudinit
+          cloudInitNoCloud:
+            # Field "secretRef" (Go name UserDataSecretRef): key "userdata" of the Secret.
+            secretRef:
+              name: {{ $dev }}-cloudinit

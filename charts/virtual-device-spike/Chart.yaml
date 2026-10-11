@@ -1,0 +1,11 @@
+---
+apiVersion: v2
+name: virtual-device-spike
+description: >-
+  S1 spike of the virtual-device design: one test virtual Device (a KubeVirt VM that
+  runs the real tnctl server bootstrap) in <teamspace>-vdev, with its cloud-init
+  Secret rendered inside the cluster by a one-shot Job. Needs the runtime of
+  charts/virtual-devices. Delete it again when S1 is done (see README.md).
+type: application
+version: 0.1.0
+appVersion: "s1"

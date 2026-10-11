@@ -304,6 +304,23 @@ check_namespace() {
   ans=$(kc auth can-i get secrets -n "$VDEV_NS" --as=system:serviceaccount:teknoir-system:backstage-api 2>/dev/null || true)
   [[ $ans == no* ]] && result PASS N7 "backstage-api cannot get secrets in ${VDEV_NS}" ||
     result WARN N7 "backstage-api can get secrets in ${VDEV_NS} (known: critique #1, Backstage kubernetes-proxy fix in release r5); keep the spike to internal teamspaces"
+
+  # The render Job of charts/virtual-device-spike (only when that chart is deployed):
+  # it may read exactly one Device and one Secret and create Secrets in the vdev
+  # namespace, nothing else.
+  if kc get namespace teknoir-vdev-spike -o name >/dev/null 2>&1; then
+    local rsa=system:serviceaccount:teknoir-vdev-spike:vd-spike-render
+    can() { kc auth can-i "$@" --as="$rsa" 2>/dev/null || true; }
+    [[ $(can get "devices.teknoir.org/${DEVICE}" -n "$NAMESPACE") == yes* ]] && result PASS N8 "render SA can get Device ${DEVICE}" ||
+      result WARN N8 "render SA cannot get Device ${DEVICE} (chart not synced yet?)"
+    [[ $(can get devices.teknoir.org/other-device -n "$NAMESPACE") == no* ]] && result PASS N9 "render SA cannot get other Devices" || result FAIL N9 "render SA can get other Devices"
+    [[ $(can list devices.teknoir.org -n "$NAMESPACE") == no* ]] && result PASS N9 "render SA cannot list Devices" || result FAIL N9 "render SA can list Devices"
+    [[ $(can list secrets -n "$VDEV_NS") == no* ]] && result PASS N10 "render SA cannot list secrets in ${VDEV_NS}" || result FAIL N10 "render SA can list secrets in ${VDEV_NS}"
+    [[ $(can get secrets/other-cloudinit -n "$VDEV_NS") == no* ]] && result PASS N10 "render SA cannot get other secrets in ${VDEV_NS}" || result FAIL N10 "render SA can get other secrets in ${VDEV_NS}"
+    [[ $(can get secrets -n "$NAMESPACE") == no* ]] && result PASS N10 "render SA cannot get secrets in ${NAMESPACE}" || result FAIL N10 "render SA can get secrets in ${NAMESPACE}"
+    [[ $(can delete "secrets/${DEVICE}-cloudinit" -n "$VDEV_NS") == no* && $(can update "secrets/${DEVICE}-cloudinit" -n "$VDEV_NS") == no* ]] &&
+      result PASS N10 "render SA cannot update or delete the cloud-init Secret" || result FAIL N10 "render SA can update or delete the cloud-init Secret"
+  fi
 }
 
 # ------------------------------------------------------------------ vm

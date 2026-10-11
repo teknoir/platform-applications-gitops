@@ -88,6 +88,45 @@ the tunnel.
 | virtctl access | `virtctl port-forward/ssh` is dialed by virt-api and is blocked by default-deny. Use `--allow-virtctl-ssh`. |
 | Time to online | The bootstrap finished 56 s after the VM was created: disk import 36 s, then boot and bootstrap 20 s. TOE started at +75 s. The stand-in gateway is not EMQX, so the TOE cloud connection, `Connected` and Last Seen remain for r415. |
 
+## S1 delivered by GitOps (instead of steps 4 and 5)
+
+Steps 4 and 5 above need a person with key-read access, a Go toolchain and network
+access at render time, and they put the Secret file in a workstation's `/tmp`. The
+GitOps path avoids all three: Argo CD applies `charts/virtual-device-spike`, whose
+one-shot Job (`renderer/`, image `ghcr.io/teknoir/vdev-spike-render`) renders the
+cloud-init Secret inside the cluster from the Device's keys. The keys never leave the
+cluster. The VM, the namespaces and the Job run from git.
+
+The render logic is the same code in all three places: `renderer/main.go` renders the
+tnctl bootstrap and `renderer/userdata.tmpl` renders the cloud-init, whether `render.sh`
+runs them on a workstation or the Job runs them in the cluster (`-in-cluster`, standard
+library only). Re-syncs are no-ops: an existing Secret is left alone, so the k3s token
+of a running VM never changes.
+
+Order (the flag is off until step 3):
+1. **[Anders, once]** Merge the PR that adds the chart and the workflow. The workflow
+   `vdev-spike-render` builds the image on `teknoir-cloud` and prints its digest in the job
+   summary. Make the ghcr package `vdev-spike-render` public (r415 has no pull secret in
+   `teknoir-vdev-spike`).
+2. A PR pins that digest in `charts/virtual-device-spike/values.yaml` (`renderer.digest`).
+3. **[Anders]** Create the Device `vd-spike-1` in Backstage (step 3 above: Generic PC,
+   user mode create with the generated password, no `device-group: test`, not Virtual).
+   Why not a Device in git: the controller fallback generates only the RSA pair, no
+   password, and the bootstrap's `chpasswd` and `check.sh`'s sudo need it.
+4. A PR sets `virtualDevices.spike.enabled: true` in `charts/app-of-apps/values.yaml`.
+   Argo CD creates Application `virtual-device-spike`; wave 0 creates the namespaces
+   and RBAC, wave 1 runs the Job, wave 2 creates the VM. Then continue with step 6.
+5. Cleanup: a PR sets `spike.enabled: false`. The Application's finalizer deletes the
+   VM (with its VMI and DataVolume/PVC), both namespaces (with the Job and the Secret)
+   and the Role/RoleBinding in the teamspace. Then delete the Device in Backstage so its
+   finalizer revokes the JWKS and deadend keys. KubeVirt and CDI stay.
+
+`check.sh --phase namespace` also checks the render ServiceAccount (N8-N10): it can
+get its Device and nothing else.
+
+Fallback: the manual path above (steps 4 and 5) still works and needs an approval to
+apply.
+
 ## Who does what
 
 Steps marked **[Anders]** change staging or need his accounts. Everything else is

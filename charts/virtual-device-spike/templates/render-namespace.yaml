@@ -1,0 +1,13 @@
+# Where the cloud-init render Job runs. It is a separate namespace so that no
+# API-server egress hole is opened in <teamspace>-vdev, whose default-deny policies the
+# isolation checks I1-I15 rely on. No Istio sidecar (the Job must exit on its own), no
+# NetworkPolicies (nothing else runs here), PSA restricted.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ include "vds.renderNamespace" . }}
+  labels:
+    istio-injection: disabled
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    {{- include "vds.labels" . | nindent 4 }}

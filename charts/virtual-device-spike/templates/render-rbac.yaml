@@ -1,0 +1,74 @@
+# What the render Job may do, and nothing more:
+#   - get the one Device (no list, no watch, no other Device);
+#   - get the one cloud-init Secret (to leave an existing one alone);
+#   - create Secrets in <teamspace>-vdev (create cannot be limited by resourceName).
+# No update, patch, delete or list anywhere.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vd-spike-render
+  namespace: {{ include "vds.renderNamespace" . }}
+  labels:
+    {{- include "vds.labels" . | nindent 4 }}
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: vd-spike-render-device
+  namespace: {{ .Values.device.teamspace }}
+  labels:
+    {{- include "vds.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [teknoir.org]
+    resources: [devices]
+    resourceNames: [{{ .Values.device.name | quote }}]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: vd-spike-render-device
+  namespace: {{ .Values.device.teamspace }}
+  labels:
+    {{- include "vds.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: vd-spike-render-device
+subjects:
+  - kind: ServiceAccount
+    name: vd-spike-render
+    namespace: {{ include "vds.renderNamespace" . }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: vd-spike-render-secret
+  namespace: {{ include "vds.vdevNamespace" . }}
+  labels:
+    {{- include "vds.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create]
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [{{ printf "%s-cloudinit" .Values.device.name | quote }}]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: vd-spike-render-secret
+  namespace: {{ include "vds.vdevNamespace" . }}
+  labels:
+    {{- include "vds.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: vd-spike-render-secret
+subjects:
+  - kind: ServiceAccount
+    name: vd-spike-render
+    namespace: {{ include "vds.renderNamespace" . }}

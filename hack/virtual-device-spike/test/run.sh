@@ -4,7 +4,7 @@
 #
 #   hack/virtual-device-spike/test/run.sh
 #
-# Needs: bash, shellcheck, go, git, jq, openssl, python3 (PyYAML), kubeconform
+# Needs: bash, shellcheck, go, git, jq, openssl, helm, python3 (PyYAML), kubeconform
 # (fetches Kubernetes 1.34 and pinned CRDs-catalog schemas into its cache).
 # shellcheck disable=SC2015  # "test && ok || bad": ok and bad always return 0
 set -euo pipefail
@@ -166,6 +166,124 @@ for r in r1 r2 r3 r4 r5 r6 r7; do
   if [[ -d $TMP/$r ]] && find "$TMP/$r" -name '10-cloudinit-secret.yaml' | grep -q .; then bad "refused render $r left a Secret behind"; fi
 done
 find "$TMP" -maxdepth 2 -name '.work.*' | grep -q . && bad "a .work directory was left behind" || ok "no .work directories left behind"
+
+step "renderer -in-cluster against a fake API server"
+# shellcheck source-path=SCRIPTDIR/.. source=lib/common.sh
+RENDERER=$(. "${KIT}/lib/common.sh"; build_renderer 2>/dev/null)
+CHART="$(cd "${KIT}/../.." && pwd)/charts/virtual-device-spike"
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=localhost" -addext "subjectAltName=IP:127.0.0.1" \
+  -keyout "$TMP/srv-key.pem" -out "$TMP/srv-cert.pem" 2>/dev/null
+SA_TOKEN="test-token-$(openssl rand -hex 8)"
+printf '%s' "$SA_TOKEN" >"$TMP/sa-token"
+# in_cluster NAME [fake-api flags] -- [renderer flags]: runs the renderer against a fresh fake API.
+in_cluster() {
+  local name=$1 dev=$TMP/device.json
+  shift
+  local fake=() extra=()
+  while [[ $# -gt 0 && $1 != -- ]]; do
+    case "$1" in
+      --device-json) dev=$2; shift 2 ;;
+      *) fake+=("$1"); shift ;;
+    esac
+  done
+  [[ ${1:-} == -- ]] && shift
+  extra=("$@")
+  rm -f "$TMP/ic-$name.port" "$TMP/ic-$name.rec" "$TMP/ic-$name.rec.post"
+  python3 -I "${HERE}/fake_api.py" "$TMP/srv-cert.pem" "$TMP/srv-key.pem" "$TMP/ic-$name.port" "$TMP/ic-$name.rec" "$dev" "$SA_TOKEN" "${fake[@]}" &
+  local pid=$! i
+  for i in $(seq 50); do [[ -s $TMP/ic-$name.port ]] && break; sleep 0.1; done
+  set +e
+  "$RENDERER" -in-cluster -api-url "https://127.0.0.1:$(cat "$TMP/ic-$name.port")" \
+    -token-file "$TMP/sa-token" -ca-file "$TMP/srv-cert.pem" \
+    -device vd-s1-fixture -namespace teknoir-demo -vdev-namespace teknoir-demo-vdev -domain teknoir.cloud \
+    -k3s-version "${K3S_V:-${VDS_K3S_VERSION}}" -cluster-cidr "$VDS_CLUSTER_CIDR" -service-cidr "$VDS_SERVICE_CIDR" \
+    -cluster-dns "$VDS_CLUSTER_DNS" -cli-ref "$VDS_CLI_REF" "${extra[@]}" >"$TMP/ic-$name.out" 2>&1
+  IC_RC=$?
+  set -e
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  no_secrets_in "$TMP/ic-$name.out" "in-cluster output ($name)"
+}
+in_cluster fresh
+[[ $IC_RC == 0 ]] && ok "fresh: exit 0" || { bad "fresh: exit $IC_RC"; cat "$TMP/ic-fresh.out"; }
+[[ $(cut -d' ' -f1,3 "$TMP/ic-fresh.rec" | tr '\n' ',') == "GET 404,GET 200,POST 201," ]] && ok "fresh: GET secret (404), GET device, POST secret (201), nothing else" ||
+  bad "fresh: requests were $(tr '\n' ',' <"$TMP/ic-fresh.rec")"
+python3 -I - "$TMP/ic-fresh.rec.post" "$TMP/key.pem" "$PASSWORD" <<'PY' && ok "fresh: the Secret is cloud-init user data with the rendered bootstrap, 0 other keys" || bad "fresh: Secret content"
+import base64, json, sys, yaml
+s = json.load(open(sys.argv[1]))
+assert s["kind"] == "Secret" and s["metadata"]["name"] == "vd-s1-fixture-cloudinit" and s["metadata"]["namespace"] == "teknoir-demo-vdev", s["metadata"]
+assert s["metadata"]["labels"]["teknoir.org/device"] == "vd-s1-fixture" and s["metadata"]["labels"]["teknoir.org/teamspace"] == "teknoir-demo"
+assert list(s["data"]) == ["userdata"] and s["type"] == "Opaque"
+ud = yaml.safe_load(base64.b64decode(s["data"]["userdata"]))
+assert ud["hostname"] == "vd-s1-fixture"
+script = base64.b64decode(ud["write_files"][0]["content"]).decode()
+assert script.startswith("#!/bin/sh\n") and '_DEVICE_ID="vd-s1-fixture"' in script and '_NAMESPACE="teknoir-demo"' in script
+assert "'v1.34.11+k3s1'" in ud["write_files"][1]["content"]
+assert sys.argv[3] in script, "device user password missing from the bootstrap"
+PY
+in_cluster exists --secret-exists
+[[ $IC_RC == 0 && $(cut -d' ' -f1,3 "$TMP/ic-exists.rec" | tr '\n' ',') == "GET 200," ]] && ok "existing Secret: exit 0 after one GET, no Device read, no POST (k3s token stays stable)" || bad "existing Secret: rc=$IC_RC requests $(tr '\n' ',' <"$TMP/ic-exists.rec")"
+in_cluster nodevice --no-device
+[[ $IC_RC != 0 && ! -e $TMP/ic-nodevice.rec.post ]] && grep -q 'create it in Backstage first' "$TMP/ic-nodevice.out" && ok "missing Device: fails and creates nothing" || bad "missing Device: rc=$IC_RC"
+K3S_V=v1.34.12+k3s1 in_cluster newk3s
+[[ $IC_RC != 0 && ! -e $TMP/ic-newk3s.rec.post ]] && grep -q keyCertSign "$TMP/ic-newk3s.out" && ok "k3s v1.34.12 with a certificate without keyCertSign: refused, nothing created" || bad "k3s v1.34.12: rc=$IC_RC"
+K3S_V=v1.36.5+k3s1 in_cluster newk3s-ok --device-json "$TMP/device-certsign.json"
+[[ $IC_RC == 0 && -e $TMP/ic-newk3s-ok.rec.post ]] && ok "k3s v1.36.5 with a keyCertSign certificate: accepted" || bad "k3s v1.36.5 with keyCertSign: rc=$IC_RC"
+fixture "$TMP/nokey-ic.json" 'del(.spec.keys.data.rsa_private)'
+in_cluster nokey --device-json "$TMP/nokey-ic.json"
+[[ $IC_RC != 0 && ! -e $TMP/ic-nokey.rec.post ]] && ok "Device without rsa_private: fails and creates nothing" || bad "Device without rsa_private: rc=$IC_RC"
+if "$RENDERER" -in-cluster -api-url https://127.0.0.1:1 -token-file "$TMP/sa-token" -ca-file "$TMP/srv-cert.pem" -device 'Bad_Name' \
+  -namespace teknoir-demo -vdev-namespace teknoir-demo-vdev -domain teknoir.cloud -k3s-version "$VDS_K3S_VERSION" -cluster-cidr "$VDS_CLUSTER_CIDR" \
+  -service-cidr "$VDS_SERVICE_CIDR" -cluster-dns "$VDS_CLUSTER_DNS" -cli-ref "$VDS_CLI_REF" >/dev/null 2>&1; then bad "invalid device name accepted"; else ok "invalid device name refused before any request"; fi
+
+step "charts/virtual-device-spike"
+if helm template s "$CHART" >/dev/null 2>"$TMP/helm-nodigest.err"; then bad "chart rendered without renderer.digest"; else
+  grep -q 'renderer.digest must be pinned' "$TMP/helm-nodigest.err" && ok "renderer.digest has no default: rendering without it fails" || bad "unexpected error without digest"; fi
+helm template s "$CHART" --set renderer.digest="sha256:$(printf 'a%.0s' $(seq 64))" --set device.name=vd-s1-fixture >"$TMP/chart.yaml" && ok "helm template" || bad "helm template"
+if kubeconform -strict -summary -kubernetes-version 1.34.0 -cache "$CACHE" \
+  -schema-location default -schema-location "${CRDS_CATALOG}/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" "$TMP/chart.yaml"; then ok "kubeconform -strict on the rendered chart"; else bad "kubeconform on the chart"; fi
+python3 -I - "$TMP/chart.yaml" "$TMP/out/00-namespace.yaml" "$TMP/out/20-vm.yaml" <<'PY' && ok "chart = render.sh namespace and VM; Job, RBAC and render namespace as designed" || bad "chart assertions"
+import sys, yaml
+docs = [d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+key = lambda d: (d["kind"], d["metadata"]["name"])
+by = {key(d): d for d in docs}
+want = [d for f in sys.argv[2:4] for d in yaml.safe_load_all(open(f)) if d]
+for w in want:
+    c = yaml.safe_load(yaml.dump(by[key(w)]))
+    ann = c["metadata"].get("annotations", {})
+    ann.pop("argocd.argoproj.io/sync-wave", None)
+    if w["kind"] == "VirtualMachine":
+        ann.pop("teknoir.org/bootstrap"); w["metadata"]["annotations"].pop("teknoir.org/bootstrap")
+    if not ann:
+        c["metadata"].pop("annotations", None)
+    assert c == w, f"{key(w)} differs from render.sh output"
+assert by[("VirtualMachine", "vd-s1-fixture")]["metadata"]["annotations"]["argocd.argoproj.io/sync-wave"] == "2"
+job = by[("Job", "vd-spike-render")]
+a = job["metadata"]["annotations"]
+assert a["argocd.argoproj.io/hook"] == "Sync" and a["argocd.argoproj.io/hook-delete-policy"] == "BeforeHookCreation" and a["argocd.argoproj.io/sync-wave"] == "1"
+assert job["metadata"]["namespace"] == "teknoir-vdev-spike"
+assert job["spec"]["backoffLimit"] == 3 and job["spec"]["activeDeadlineSeconds"] == 300
+pod = job["spec"]["template"]["spec"]
+c = pod["containers"][0]
+assert c["securityContext"] == {"allowPrivilegeEscalation": False, "readOnlyRootFilesystem": True, "capabilities": {"drop": ["ALL"]}}
+assert pod["securityContext"]["runAsNonRoot"] is True and pod["securityContext"]["seccompProfile"] == {"type": "RuntimeDefault"}
+assert c["image"].startswith("ghcr.io/teknoir/vdev-spike-render@sha256:") and c["resources"]["requests"] == {"cpu": "50m", "memory": "64Mi"}
+assert "-in-cluster" in c["args"] and "-device=vd-s1-fixture" in c["args"]
+ns = by[("Namespace", "teknoir-vdev-spike")]
+assert ns["metadata"]["labels"]["pod-security.kubernetes.io/enforce"] == "restricted" and ns["metadata"]["labels"]["istio-injection"] == "disabled"
+assert not [d for d in docs if d["kind"] == "NetworkPolicy" and d["metadata"].get("namespace") == "teknoir-vdev-spike"]
+# No hole for the API server in the vdev egress policies: only DNS, MQTT/WSS/deadend and the internet profile.
+ports = {p["port"] for d in docs if d["kind"] == "NetworkPolicy" for e in d["spec"].get("egress", []) for p in e.get("ports", [])}
+assert ports == {53, 8883, 8084, 2222}, ports
+rules = {(d["metadata"]["namespace"], d["metadata"]["name"]): d["rules"] for d in docs if d["kind"] == "Role"}
+assert rules == {
+    ("teknoir-demo", "vd-spike-render-device"): [{"apiGroups": ["teknoir.org"], "resources": ["devices"], "resourceNames": ["vd-s1-fixture"], "verbs": ["get"]}],
+    ("teknoir-demo-vdev", "vd-spike-render-secret"): [
+        {"apiGroups": [""], "resources": ["secrets"], "verbs": ["create"]},
+        {"apiGroups": [""], "resources": ["secrets"], "resourceNames": ["vd-s1-fixture-cloudinit"], "verbs": ["get"]}],
+}, rules
+assert not [d for d in docs if d["kind"] in ("ClusterRole", "ClusterRoleBinding")]
+PY
 
 step "kc wrapper allows only read-only kubectl verbs"
 FAKE_LOG="$TMP/kc.log"

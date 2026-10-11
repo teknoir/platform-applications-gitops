@@ -1,0 +1,70 @@
+#cloud-config
+# S1 spike: Teknoir virtual device {{ .Device }} (teamspace {{ .Namespace }}).
+# Rendered by vdev-spike-render (hack/virtual-device-spike/renderer) at {{ .RenderedAt }}.
+hostname: {{ .Device }}
+preserve_hostname: false
+manage_etc_hosts: true
+ssh_pwauth: false
+disable_root: true
+{{- if .DebugPubkey }}
+# --debug-user: break-glass access while the bootstrap runs (device SSH key, sudo).
+users:
+  - name: vdspike
+    shell: /bin/bash
+    lock_passwd: true
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - {{ .DebugPubkey }}
+{{- end }}
+package_update: true
+packages:
+  - qemu-guest-agent
+  - curl
+  - openssl
+  - ca-certificates
+write_files:
+  # The tnctl server bootstrap, unmodified (contains the device key, the device
+  # user's password and the k3s token).
+  - path: /usr/local/lib/teknoir/bootstrap.sh
+    owner: root:root
+    permissions: "0700"
+    encoding: b64
+    content: {{ .ScriptB64 }}
+  # Runs it the way a person runs it on a real device, plus the three inputs a
+  # virtual device needs: non-interactive user creation, a pinned k3s version and
+  # inner k3s CIDRs that do not overlap the platform cluster.
+  - path: /usr/local/lib/teknoir/spike-run.sh
+    owner: root:root
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      set -u
+      state=/var/lib/teknoir-spike
+      mkdir -p "$state"
+      date -u +%Y-%m-%dT%H:%M:%SZ > "$state/bootstrap-started"
+      rc=0
+      CREATE_USER=true \
+      INSTALL_K3S_VERSION='{{ .K3SVersion }}' \
+      INSTALL_K3S_EXEC='{{ .K3SExec }}' \
+        /bin/sh /usr/local/lib/teknoir/bootstrap.sh > "$state/bootstrap.log" 2>&1 || rc=$?
+      echo "$rc" > "$state/bootstrap-exit"
+      date -u +%Y-%m-%dT%H:%M:%SZ > "$state/bootstrap-finished"
+      exit "$rc"
+  # Non-secret parameters, read by check.sh inside the guest.
+  - path: /etc/teknoir-spike/spike.env
+    owner: root:root
+    permissions: "0644"
+    content: |
+      DEVICE={{ .Device }}
+      NAMESPACE={{ .Namespace }}
+      DOMAIN={{ .Domain }}
+      K3S_VERSION={{ .K3SVersion }}
+      CLUSTER_CIDR={{ .ClusterCIDR }}
+      SERVICE_CIDR={{ .ServiceCIDR }}
+      CLUSTER_DNS={{ .ClusterDNS }}
+      CLI_REF={{ .CLIRef }}
+      RENDERED_AT={{ .RenderedAt }}
+runcmd:
+  - [sh, -c, "mkdir -p /var/lib/teknoir-spike && chmod 700 /var/lib/teknoir-spike && date -u +%Y-%m-%dT%H:%M:%SZ > /var/lib/teknoir-spike/runcmd-started"]
+  - [systemctl, enable, --now, qemu-guest-agent]
+  - [/usr/local/lib/teknoir/spike-run.sh]
