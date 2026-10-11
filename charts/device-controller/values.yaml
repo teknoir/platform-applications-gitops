@@ -4,10 +4,10 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/teknoir/device-controller
-  # Pinned: '<immutable tag>@sha256:<linux/amd64 manifest digest>', the image
-  # staging ran as :applicationset on 2026-10-09 (device-controller 9780e40).
+  # Pinned: '<immutable tag>@sha256:<linux/amd64 manifest digest>',
+  # device-controller b23700b (applicationset, includes vd0-safety #37).
   # Change it only by promoting a new sha-<commit> through this branch.
-  tag: "sha-9780e409@sha256:764377e6053f3a4c1d92c94d14ff73f493edda5df2f415c6dc68489795622d84"
+  tag: "sha-b23700ba@sha256:1b96d735b10e4e0cb80e29cfe9e3a46a93e5efde01f7b4b1973db81e3ad82de4"
   pullPolicy: IfNotPresent
 
 imagePullSecrets:
