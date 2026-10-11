@@ -1,0 +1,46 @@
+# Values for the S1 spike VM (teknoir-cloud, r415). The chart is only deployed when
+# charts/app-of-apps sets virtualDevices.spike.enabled. See README.md for the order.
+
+# The test Device. It must already exist (created in Backstage: Generic PC, user mode
+# "create", Backstage-generated keys, no device-group: test label, not Virtual).
+device:
+  name: vd-spike-1
+  teamspace: teknoir-demo
+
+# Platform domain the device connects to (mqtt-/deadend-<teamspace>.<domain>).
+domain: teknoir.cloud
+
+vm:
+  cpu: 2
+  memoryGi: 4
+  diskGi: 20
+  # cpu request = cpu / cpuOvercommit; memory is never overcommitted.
+  cpuOvercommit: 2
+  # Empty: the cluster default (host-model). Set to a model name for the S1 CPU check.
+  cpuModel: ""
+  storageClassName: local-path
+  # Debian 13 genericcloud containerdisk (hack/virtual-device-spike/lib/pins.sh), by
+  # digest. CDI pulls it with pullMethod: node.
+  containerDisk:
+    tag: quay.io/containerdisks/debian:13-2610020212
+    digest: sha256:6b992c4a8a62ca57858cbbf60110e673928d27b2885ea2a106660bc26b112b5b
+
+# Inner k3s. v1.34.11 is the last release before k3s requires keyCertSign on the root
+# CA (the Backstage device certificate has none). The CIDRs must not overlap the outer
+# cluster's 10.42/16 and 10.43/16. Keep in step with lib/pins.sh.
+k3s:
+  version: v1.34.11+k3s1
+  clusterCIDR: 10.52.0.0/16
+  serviceCIDR: 10.53.0.0/16
+  clusterDNS: 10.53.0.10
+
+# One-shot Job that renders the cloud-init Secret in the cluster (the device keys never
+# leave it). Image: .github/workflows/vdev-spike-render.yaml, built from
+# hack/virtual-device-spike/renderer/Dockerfile. The digest has no default on purpose:
+# pin the digest of a build before enabling the spike.
+renderer:
+  image: ghcr.io/teknoir/vdev-spike-render
+  digest: ""
+  # Commit of github.com/teknoir/cli whose templates the image was built with
+  # (VDS_CLI_REF in hack/virtual-device-spike/lib/pins.sh); it is recorded in the guest.
+  cliRef: 7bb1beaa53069ef20cf9edfa300c1d9560429f0a

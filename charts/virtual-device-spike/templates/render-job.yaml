@@ -1,0 +1,64 @@
+# Renders Secret <device>-cloudinit (the tnctl server bootstrap inside cloud-init user
+# data) inside the cluster, from the Device's keys, so the keys never reach git or a
+# workstation. Idempotent: an existing Secret is left alone, which keeps the k3s token
+# of a running VM stable across syncs. Runs on every sync, before the VM (wave 2).
+# Fails (and stops the sync before the VM) when the Device does not exist.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: vd-spike-render
+  namespace: {{ include "vds.renderNamespace" . }}
+  labels:
+    {{- include "vds.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        {{- include "vds.labels" . | nindent 8 }}
+        app.kubernetes.io/name: vd-spike-render
+      annotations:
+        sidecar.istio.io/inject: "false"
+    spec:
+      serviceAccountName: vd-spike-render
+      automountServiceAccountToken: true
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: render
+          image: {{ .Values.renderer.image }}@{{ required "renderer.digest must be pinned (digest of a vdev-spike-render build)" .Values.renderer.digest }}
+          imagePullPolicy: IfNotPresent
+          command: [/vdev-spike-render]
+          args:
+            - -in-cluster
+            - -device={{ .Values.device.name }}
+            - -namespace={{ .Values.device.teamspace }}
+            - -vdev-namespace={{ include "vds.vdevNamespace" . }}
+            - -domain={{ .Values.domain }}
+            - -k3s-version={{ .Values.k3s.version }}
+            - -cluster-cidr={{ .Values.k3s.clusterCIDR }}
+            - -service-cidr={{ .Values.k3s.serviceCIDR }}
+            - -cluster-dns={{ .Values.k3s.clusterDNS }}
+            - -cli-ref={{ .Values.renderer.cliRef }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi

@@ -92,6 +92,53 @@ k3s_prunes_noncertsign_roots() {
   return 1
 }
 
+# build_renderer: build renderer/ (vdev-spike-render) inside the pinned cli commit and
+# print the path of the binary; cached by commit and source hash. Uses CLI_SRC (a local
+# clone containing VDS_CLI_REF) if set, else ~/git/ai/cli, else a fresh clone.
+resolve_cli_src() {
+  local c
+  for c in "${CLI_SRC:-}" "${HOME}/git/ai/cli"; do
+    [[ -n $c && -d $c ]] || continue
+    if git -C "$c" cat-file -e "${VDS_CLI_REF}^{commit}" 2>/dev/null; then
+      printf '%s\n' "$c"
+      return 0
+    fi
+    [[ $c == "${CLI_SRC:-}" ]] && die "--cli-src $c does not contain commit ${VDS_CLI_REF}"
+  done
+  return 1
+}
+
+build_renderer() {
+  need go git tar
+  local main="${VDS_DIR}/renderer/main.go" tmpl="${VDS_DIR}/renderer/userdata.tmpl"
+  local key
+  key="$(printf '%s %s %s' "$VDS_CLI_REF" "$(sha256_of "$main")" "$(sha256_of "$tmpl")" | (sha256sum 2>/dev/null || shasum -a 256) | cut -c1-16)"
+  local cache="${XDG_CACHE_HOME:-${HOME}/.cache}/teknoir-vd-spike/renderer-${key}"
+  if [[ -x ${cache}/vdev-spike-render ]]; then
+    printf '%s\n' "${cache}/vdev-spike-render"
+    return 0
+  fi
+  local build src
+  build=$(mktemp -d "${TMPDIR:-/tmp}/vd-spike-build.XXXXXX")
+  if src=$(resolve_cli_src); then
+    log "renderer: using templates from ${src} at ${VDS_CLI_REF:0:12}"
+  else
+    log "renderer: cloning ${VDS_CLI_REPO_URL} for ${VDS_CLI_REF:0:12}"
+    src="${build}/cli.git"
+    git clone --quiet --bare --filter=blob:none "$VDS_CLI_REPO_URL" "$src" >&2
+    git -C "$src" cat-file -e "${VDS_CLI_REF}^{commit}" || die "commit ${VDS_CLI_REF} not found in ${VDS_CLI_REPO_URL}"
+  fi
+  mkdir -p "${build}/mod/cmd/vdev-spike-render"
+  git -C "$src" archive "$VDS_CLI_REF" go.mod go.sum pkg/templates | tar -x -C "${build}/mod"
+  grep -qx 'module teknoir/cli' "${build}/mod/go.mod" || die "unexpected module path in cli go.mod at ${VDS_CLI_REF}"
+  cp "$main" "$tmpl" "${build}/mod/cmd/vdev-spike-render/"
+  mkdir -p "$cache"
+  (cd "${build}/mod" && GOWORK=off GOFLAGS=-mod=mod CGO_ENABLED=0 go build -trimpath -o "${cache}/vdev-spike-render" ./cmd/vdev-spike-render) >&2 ||
+    die "building the renderer failed"
+  rm -rf "$build"
+  printf '%s\n' "${cache}/vdev-spike-render"
+}
+
 # Probe result printing for check.sh.
 PASS_COUNT=0
 FAIL_COUNT=0

@@ -1,0 +1,56 @@
+{{- /*
+S1 spike VM (charts/virtual-device-spike): one test virtual Device in
+<teamspace>-vdev, with its cloud-init Secret rendered in the cluster by a Job.
+
+Gates, all required:
+  1. virtualDevices.enabled and virtualDevices.spike.enabled: true in this
+     environment's values (a missing key is off; the spike is off by default);
+  2. the environment (.Values.project) is in the allowlist below (teknoir-cloud only;
+     see templates/virtual-devices.yaml for why the list lives in the template).
+
+Unlike the runtime Application, this one HAS the resources-finalizer: turning the flag
+off deletes the Application and, with it, the VM (and its VMI, DataVolume and PVC),
+both namespaces (with the Job and the cloud-init Secret) and the Role/RoleBinding in
+the teamspace. The KubeVirt/CDI runtime stays. Delete the Device in Backstage
+afterwards (its finalizer revokes the JWKS and deadend keys). Order and checks:
+hack/virtual-device-spike/README.md, "S1 delivered by GitOps".
+*/ -}}
+{{- $allowedProjects := list "teknoir-cloud" }}
+{{- if and (.Values.virtualDevices).enabled (((.Values.virtualDevices).spike).enabled) (has .Values.project $allowedProjects) }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: virtual-device-spike
+  annotations:
+    # Server-side dry-run diff, matching ServerSideApply: fields KubeVirt's and CDI's
+    # webhooks default on the VirtualMachine are not reported as drift.
+    argocd.argoproj.io/compare-options: ServerSideDiff=true
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  destination:
+    namespace: teknoir-vdev-spike
+    server: https://kubernetes.default.svc
+  source:
+    path: charts/virtual-device-spike
+    repoURL: https://github.com/teknoir/platform-applications-gitops
+    targetRevision: {{ .Values.project }}
+  sources: [ ]
+  project: {{ .Values.project }}
+  syncPolicy:
+    syncOptions:
+      - ServerSideApply=true
+    automated:
+      prune: true
+      selfHeal: true
+      enabled: true
+    # The render Job fails while the Device does not exist yet or the image is not
+    # pullable; retry with backoff instead of waiting for the next commit.
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
+{{- end }}
