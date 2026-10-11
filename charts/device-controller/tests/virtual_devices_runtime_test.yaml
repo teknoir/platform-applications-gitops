@@ -81,6 +81,28 @@ tests:
           path: metadata.annotations["argocd.argoproj.io/sync-options"]
           value: Prune=false,Delete=false
 
+  - it: keeps the isolation objects when the allowance or the block goes away (Prune=false), but leaves the internet policy prunable
+    asserts:
+      - equal:
+          path: metadata.annotations["argocd.argoproj.io/sync-options"]
+          value: Prune=false
+        documentIndex: 1
+      - equal:
+          path: metadata.annotations["argocd.argoproj.io/sync-options"]
+          value: Prune=false
+        documentIndex: 5
+      - equal:
+          path: metadata.annotations["argocd.argoproj.io/sync-options"]
+          value: Prune=false
+        documentIndex: 6
+      - notExists:
+          path: metadata.annotations["argocd.argoproj.io/sync-options"]
+        documentIndex: 4
+      - equal:
+          path: metadata.annotations["teknoir.org/allowance"]
+          value: '{"devices":2,"cpu":"4","memory":"8Gi","disk":"60Gi"}'
+        documentIndex: 5
+
   - it: sets the allowance annotation and the exact teknoir-demo quota (devices 2, 4 vCPU, 8Gi, 60Gi, overcommit 2)
     documentSelector:
       path: kind
@@ -365,3 +387,11 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "virtualDevices.maxPerDevice.memory"
+
+  - it: fails the render for a missing cpuOvercommit even without allowances
+    set:
+      virtualDevices.allowances.teknoir-demo: null
+      virtualDevices.cpuOvercommit: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "virtualDevices.cpuOvercommit must be a whole number"

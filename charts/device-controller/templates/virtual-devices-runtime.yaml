@@ -12,6 +12,7 @@ RoleBindings here.
 {{- fail (printf "virtualDevices.egress must be internet or platform-only (got %q)" $egress) }}
 {{- end }}
 {{- $mp := $vd.maxPerDevice | default dict -}}
+{{- $_ := include "device-controller.vdev.whole" (dict "value" $vd.cpuOvercommit "unit" "" "what" "virtualDevices.cpuOvercommit") -}}
 {{- $maxCPU := atoi (include "device-controller.vdev.whole" (dict "value" $mp.cpu "unit" "" "what" "virtualDevices.maxPerDevice.cpu")) -}}
 {{- $maxMem := atoi (include "device-controller.vdev.whole" (dict "value" $mp.memory "unit" "Gi" "what" "virtualDevices.maxPerDevice.memory")) -}}
 {{- $maxDisk := atoi (include "device-controller.vdev.whole" (dict "value" $mp.disk "unit" "Gi" "what" "virtualDevices.maxPerDevice.disk")) -}}
@@ -42,6 +43,8 @@ metadata:
     pod-security.kubernetes.io/audit: restricted
     pod-security.kubernetes.io/audit-version: latest
 ---
+# Kept (Prune=false) even when the allowance is removed: vdev-egress-internet is the
+# only policy that stays prunable, so switching to platform-only removes it.
 # Default deny in both directions for every pod in the namespace (virt-launcher, CDI
 # importer). Operators reach the device only through its reverse tunnel to deadend.
 apiVersion: networking.k8s.io/v1
@@ -49,6 +52,10 @@ kind: NetworkPolicy
 metadata:
   name: vdev-default-deny
   namespace: {{ $ns }}
+  annotations:
+    # Kept when the allowance or virtualDevices goes away, or this change is reverted:
+    # running guests must never lose their isolation or their server-side quota.
+    argocd.argoproj.io/sync-options: Prune=false
   labels:
     {{- toYaml $labels | nindent 4 }}
 spec:
@@ -153,6 +160,9 @@ metadata:
   name: vdev-quota
   namespace: {{ $ns }}
   annotations:
+    # Kept when the allowance or virtualDevices goes away, or this change is reverted:
+    # running guests must never lose their isolation or their server-side quota.
+    argocd.argoproj.io/sync-options: Prune=false
     teknoir.org/allowance: {{ include "device-controller.vdev.allowanceJSON" (dict "ns" $ts "allowance" $allowance) | quote }}
   labels:
     {{- toYaml $labels | nindent 4 }}
@@ -160,6 +170,7 @@ spec:
   hard:
     {{- include "device-controller.vdev.hard" (dict "ns" $ts "allowance" $allowance "overcommit" $vd.cpuOvercommit) | nindent 4 }}
 ---
+# Kept like the quota (Prune=false): the LimitRange is part of the guests' isolation.
 # Defaults for containers that set no resources (the quota requires them) and per-object
 # maximums: the largest preset plus KubeVirt memory overhead and CDI filesystem overhead.
 apiVersion: v1
@@ -167,6 +178,10 @@ kind: LimitRange
 metadata:
   name: vdev-limits
   namespace: {{ $ns }}
+  annotations:
+    # Kept when the allowance or virtualDevices goes away, or this change is reverted:
+    # running guests must never lose their isolation or their server-side quota.
+    argocd.argoproj.io/sync-options: Prune=false
   labels:
     {{- toYaml $labels | nindent 4 }}
 spec:

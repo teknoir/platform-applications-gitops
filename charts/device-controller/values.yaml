@@ -68,7 +68,8 @@ affinity: {}
 
 # Virtual devices (KubeVirt VMs that run the real Robot bootstrap). Everything in
 # this block is inert when enabled is false or the block is absent: no runtime
-# namespaces are rendered and the controller gets VIRTUAL_DEVICES={"enabled":false}.
+# namespaces are rendered and the VIRTUAL_DEVICES key is left out of the controller
+# ConfigMap (the controller treats a missing key as disabled).
 # Needs KubeVirt + CDI (charts/virtual-devices) on the cluster. Plan:
 # virtual-device-phase1-plan.md section 3.4 / 3.7.
 virtualDevices:
@@ -85,6 +86,10 @@ virtualDevices:
   egress: internet
   # One runtime namespace <teamspace>-vdev per entry, with the quota derived from
   # the allowance (devices, whole vCPUs, whole Gi). Teamspace name: at most 58 chars.
-  # Removing an entry never deletes the namespace (Prune=false,Delete=false).
+  # Removing an entry (or disabling the block, or reverting it) keeps the namespace
+  # (Prune=false,Delete=false) and its default-deny NetworkPolicy, ResourceQuota and
+  # LimitRange (Prune=false), so running VMs stay isolated and capped. Only
+  # vdev-egress-internet (and the DNS/gateway policies) are pruned; clean up the rest by hand.
+
   allowances:
     teknoir-demo: {devices: 2, cpu: "4", memory: 8Gi, disk: 60Gi}

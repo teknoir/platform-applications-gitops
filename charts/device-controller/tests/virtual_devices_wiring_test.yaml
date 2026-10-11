@@ -17,6 +17,33 @@ tests:
           path: data.DOMAIN
           value: teknoir.cloud
 
+  - it: emits maxPerDevice as strings even when the values are unquoted numbers
+    template: templates/configmap.yaml
+    set:
+      virtualDevices.maxPerDevice: {cpu: 4, memory: 8Gi, disk: 40Gi}
+    asserts:
+      - matchRegex:
+          path: data.VIRTUAL_DEVICES
+          pattern: '"maxPerDevice":\{"cpu":"4","disk":"40Gi","memory":"8Gi"\}'
+
+  - it: fails the render for a missing cpuOvercommit without allowances
+    template: templates/deployment.yaml
+    set:
+      virtualDevices.allowances.teknoir-demo: null
+      virtualDevices.cpuOvercommit: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "virtualDevices.cpuOvercommit must be a whole number"
+
+  - it: fails the render for a malformed maxPerDevice.disk without allowances
+    template: templates/deployment.yaml
+    set:
+      virtualDevices.allowances.teknoir-demo: null
+      virtualDevices.maxPerDevice.disk: 40
+    asserts:
+      - failedTemplate:
+          errorPattern: "virtualDevices.maxPerDevice.disk"
+
   - it: leaves VIRTUAL_DEVICES out when virtualDevices.enabled is false
     template: templates/configmap.yaml
     set:
