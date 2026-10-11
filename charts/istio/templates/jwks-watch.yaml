@@ -1,0 +1,198 @@
+{{- $w := .Values.jwksWatch | default dict }}
+{{- if $w.enabled }}
+{{- /* See the jwksWatch comment in values.yaml: istiod does not retry a JWKS
+fetch that failed while Keycloak was starting, so every JWT is rejected until
+something else triggers a full push. This watcher recreates istiod once the
+JWKS answers again. */}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: jwks-watch
+  namespace: istio-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: jwks-watch
+  namespace: istio-system
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: jwks-watch
+  namespace: istio-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: jwks-watch
+subjects:
+  - kind: ServiceAccount
+    name: jwks-watch
+    namespace: istio-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: jwks-watch
+rules:
+  - apiGroups: ["security.istio.io"]
+    resources: ["requestauthentications"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: jwks-watch
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: jwks-watch
+subjects:
+  - kind: ServiceAccount
+    name: jwks-watch
+    namespace: istio-system
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jwks-watch
+  namespace: istio-system
+data:
+  jwks-watch.sh: |
+    #!/bin/sh
+    # Recreate istiod once when a JWKS fetch failed and every jwksUri answers now.
+    set -u
+    INTERVAL="${INTERVAL:-20}"
+    MIN_AGE="${MIN_AGE:-120}"
+    CA="${CA_FILE:-/ca/ca.crt}"
+    METRICS="http://istiod.istio-system.svc:15014/metrics"
+    log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) jwks-watch: $*"; }
+
+    metric() { # metric <name>: the sum of the samples, empty when istiod does not answer
+      curl -sf -m 5 "${METRICS}" | awk -v m="$1" '$1 == m { s += $2; n++ } END { if (NR > 0) print s + 0 }'
+    }
+    uris() {
+      kubectl get requestauthentications.security.istio.io -A -o json 2>/dev/null \
+        | jq -r '[.items[].spec.jwtRules[]? | .jwksUri // empty] | unique | .[]'
+    }
+    reachable() { # every jwksUri answers 2xx now (and there is at least one)
+      u="$(uris)"
+      [ -n "${u}" ] || return 1
+      for x in ${u}; do
+        if [ -s "${CA}" ]; then curl -sf -m 10 --cacert "${CA}" -o /dev/null "${x}" || return 1
+        else curl -sf -m 10 -o /dev/null "${x}" || return 1; fi
+      done
+    }
+    istiod_age() { # seconds since the istiod pod started
+      st="$(kubectl -n istio-system get pod -l app=istiod -o json 2>/dev/null | jq -r '[.items[].status.startTime // empty] | max // empty')"
+      [ -n "${st}" ] || return 1
+      echo $(( $(date +%s) - $(echo "${st}" | jq -R 'fromdateiso8601') ))
+    }
+
+    prev_f=-1 prev_s=0 stale=0
+    log "watching istiod's JWKS fetches every ${INTERVAL}s"
+    while :; do
+      f="$(metric pilot_jwks_resolver_network_fetch_fail_total)"
+      s="$(metric pilot_jwks_resolver_network_fetch_success_total)"
+      if [ -z "${f}" ] || [ -z "${s}" ]; then sleep "${INTERVAL}"; continue; fi
+      if [ "${prev_f}" -lt 0 ] || [ "${f}" -lt "${prev_f}" ]; then
+        # first reading, or istiod restarted (the counters began again)
+        if [ "${f}" -gt 0 ] && [ "${s}" -eq 0 ]; then stale=1; else stale=0; fi
+      elif [ "${f}" -gt "${prev_f}" ]; then
+        stale=1
+      elif [ "${s}" -gt "${prev_s}" ]; then
+        stale=0
+      fi
+      if [ "${stale}" -eq 1 ] && [ "${f}" -ne "${prev_f}" ]; then
+        log "istiod: ${f} JWKS fetches failed, ${s} succeeded"
+      fi
+      prev_f="${f}" prev_s="${s}"
+      if [ "${stale}" -eq 1 ] && reachable; then
+        age="$(istiod_age || echo 0)"
+        if [ "${age}" -ge "${MIN_AGE}" ]; then
+          log "every jwksUri answers again and istiod (${age}s old) has no key for it: recreating istiod"
+          kubectl -n istio-system delete pod -l app=istiod --wait=false || true
+          stale=0 prev_f=-1
+          sleep 60
+        else
+          log "every jwksUri answers; istiod is only ${age}s old, waiting for ${MIN_AGE}s"
+        fi
+      fi
+      sleep "${INTERVAL}"
+    done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jwks-watch
+  namespace: istio-system
+  labels:
+    app: jwks-watch
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: jwks-watch
+  template:
+    metadata:
+      labels:
+        app: jwks-watch
+      annotations:
+        sidecar.istio.io/inject: "false"
+    spec:
+      serviceAccountName: jwks-watch
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: jwks-watch
+          image: {{ $w.image }}
+          imagePullPolicy: {{ $w.imagePullPolicy | default "IfNotPresent" }}
+          command: ["/bin/sh", "/scripts/jwks-watch.sh"]
+          env:
+            - name: INTERVAL
+              value: {{ $w.intervalSeconds | default 20 | quote }}
+            - name: MIN_AGE
+              value: {{ $w.minAgeSeconds | default 120 | quote }}
+            - name: HOME
+              value: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml $w.resources | nindent 12 }}
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+            - name: ca
+              mountPath: /ca
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: scripts
+          configMap:
+            name: jwks-watch
+        - name: ca
+          secret:
+            secretName: {{ $w.caSecret }}
+            optional: true
+            items:
+              - key: ca.crt
+                path: ca.crt
+        - name: tmp
+          emptyDir: {}
+{{- end }}

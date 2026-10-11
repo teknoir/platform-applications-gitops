@@ -51,16 +51,6 @@ istiod:
         requests:
           cpu: 10m
           memory: 50Mi
-  pilot:
-    env:
-      # istiod fetches the Keycloak JWKS of every RequestAuthentication. When a
-      # fetch fails because Keycloak is still starting (every boot of a node),
-      # istiod retries a handful of times within about 30 s and then only at the
-      # next refresh, 20 min by default: until then every JWT is rejected
-      # ("Jwt verification fails", 401 for every sign-in). A short interval
-      # bounds that window to about a minute. One small GET per minute per
-      # jwksUri (found in the r5 VM e2e, E12/E13).
-      PILOT_JWT_PUB_KEY_REFRESH_INTERVAL: 1m
   # istiod fetches the JWKS of every RequestAuthentication (Backstage, httpbin)
   # from https://auth.<domain>, whose certificate the Teknoir Root CA signs.
   # istiod adds /cacerts/extra.pem to its JWKS trust, reading it once when the
@@ -138,3 +128,32 @@ istio-egressgateway:
     istio: egressgateway
   service:
     type: ClusterIP
+
+# jwks-watch: istiod resolves the Keycloak JWKS of every RequestAuthentication
+# (jwksUri) while it builds the proxy configuration. A fetch that fails because
+# Keycloak is still starting (every node boot) is dropped from istiod's cache
+# after a few quick retries and is NOT tried again until the next full push of
+# that configuration (a changed Service/Gateway/RequestAuthentication), which
+# can be much later or never. Until then istiod serves a fail-closed JWKS and
+# every JWT is rejected ("Jwt verification fails", 401 for every sign-in) while
+# all pods are Ready. PILOT_JWT_PUB_KEY_REFRESH_INTERVAL does not help: the
+# failed entry is deleted, the refresher has nothing left to retry.
+# This small Deployment watches istiod's pilot_jwks_resolver_network_fetch_*
+# counters. When a fetch failed and every jwksUri answers now, it deletes the
+# istiod pod once (the Deployment recreates it; proxies keep their config
+# meanwhile), so the new istiod resolves the JWKS with Keycloak up. At most one
+# deletion per minAgeSeconds of istiod's age.
+jwksWatch:
+  enabled: true
+  image: docker.io/alpine/k8s:1.34.11
+  imagePullPolicy: IfNotPresent
+  intervalSeconds: 20
+  minAgeSeconds: 120
+  # The CA that signs the jwksUri host (the same Secret istiod mounts above).
+  caSecret: teknoir-airgapped-wildcard-tls
+  resources:
+    requests:
+      cpu: 5m
+      memory: 32Mi
+    limits:
+      memory: 128Mi

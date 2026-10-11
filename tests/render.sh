@@ -510,22 +510,17 @@ policy_checks() {
     fi
   done
 
-  # --- istiod JWKS refresh (reboot 401s) -----------------------------------------------
-  # istiod fetches the Keycloak JWKS of every RequestAuthentication. A fetch that
-  # fails while Keycloak is still starting at a boot is retried a few times in
-  # about half a minute and then not again until the refresh interval (default
-  # 20 min): every sign-in gets 401 "Jwt verification fails" meanwhile. The
-  # istio chart must shorten PILOT_JWT_PUB_KEY_REFRESH_INTERVAL (found in the
-  # r5 VM e2e: E12/E13).
+  # --- istiod JWKS watch (reboot 401s) --------------------------------------------------
+  # istiod drops a JWKS fetch that failed while Keycloak was still starting and
+  # does not retry it before the next full push: every sign-in is a 401 "Jwt
+  # verification fails" after a reboot. The istio chart ships jwks-watch, which
+  # recreates istiod once the JWKS answers (found in the r5 VM e2e, E12/E13).
   if [[ -f "${dir}/istio.json" ]]; then
-    local jwks_iv
-    jwks_iv="$(jq -r '[.[] | select(.kind == "Deployment" and .metadata.name == "istiod")
-        | .spec.template.spec.containers[].env[]? | select(.name == "PILOT_JWT_PUB_KEY_REFRESH_INTERVAL") | .value][0] // ""' "${dir}/istio.json")"
-    if [[ "${jwks_iv}" =~ ^([0-9]+m|[0-9]+s)$ ]] && { [[ "${jwks_iv}" == *s ]] || (( ${jwks_iv%m} <= 5 )); }; then
-      pass istiod-jwks "istio: istiod PILOT_JWT_PUB_KEY_REFRESH_INTERVAL=${jwks_iv} (<= 5m)"
-    else
-      fail istiod-jwks "istio: istiod PILOT_JWT_PUB_KEY_REFRESH_INTERVAL is '${jwks_iv:-unset}' (want <= 5m; default 20m leaves sign-in at 401 for up to 20 min after a reboot)"
-    fi
+    local jw
+    jw="$(jq -r '[.[] | select(.kind == "Deployment" and .metadata.name == "jwks-watch" and .metadata.namespace == "istio-system")
+        | .spec.template.spec.containers[0] | select(.command[0] == "/bin/sh" and ((.securityContext.readOnlyRootFilesystem // false) == true))] | length' "${dir}/istio.json")"
+    if [[ "${jw}" == 1 ]]; then pass istiod-jwks "istio: jwks-watch Deployment (read-only root, recreates istiod when its JWKS fetch stays failed)"
+    else fail istiod-jwks "istio: no jwks-watch Deployment in istio-system (a reboot can leave every sign-in at 401 until a full push)"; fi
   fi
 
   # --- monitoring-authz (SEC-C5) ---------------------------------------------------------

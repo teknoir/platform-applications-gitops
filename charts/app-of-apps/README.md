@@ -51,9 +51,10 @@ version is released once; Harbor keeps the first push.
 | device-, devstudio-, notebook-controller | 0.0.83 | 0.0.84 |
 | istio | 0.0.3 | 0.0.4 |
 
-istio 0.0.4 sets istiod `PILOT_JWT_PUB_KEY_REFRESH_INTERVAL=1m`: a JWKS fetch that
-failed while Keycloak was still starting at a boot was not retried for 20 min
-(every sign-in 401, "Jwt verification fails"). cert-manager 0.0.2 and platform-secrets 0.0.1 are unchanged. The
+istio 0.0.4 adds `jwks-watch` (istio-system): istiod drops a JWKS fetch that failed while
+Keycloak was still starting at a boot and does not retry it before the next full push, so
+every sign-in was a 401 ("Jwt verification fails") with all pods Ready; jwks-watch recreates
+istiod once the jwksUri answers again. cert-manager 0.0.2 and platform-secrets 0.0.1 are unchanged. The
 monitoring ignoreDifferences now name the admission webhooks
 `monitoring-admission`, the name the chart renders (the old
 `monitoring-kube-prome-admission` matched nothing, so the in-cluster caBundle
