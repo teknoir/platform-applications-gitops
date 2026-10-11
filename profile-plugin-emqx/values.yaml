@@ -37,13 +37,13 @@ emqx:
     EMQX_AUTHENTICATION__2__ACL_CLAIM_NAME: "acl"
     #verify_claims = {aud = "{{.projectId}}"}
     EMQX_AUTHENTICATION__2__VERIFY_CLAIMS: '{aud= \"teknoir\"}'
-    EMQX_MAX_PACKET_SIZE: "3M"
-    EMQX_LISTENER__SSL__KEYFILE: "/certs/tls.key"
-    EMQX_LISTENER__SSL__CERTFILE: "/certs/tls.crt"
-#    EMQX_LISTENER__SSL__EXTERNAL__KEYFILE: "/certs/tls.key"
-#    EMQX_LISTENER__SSL__EXTERNAL__CERTFILE: "/certs/tls.crt"
-#    EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__KEYFILE: "/certs/tls.key"
-#    EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__CERTFILE: "/certs/tls.crt"
+    # EMQX 5 name of the intended 3 MB limit (the former EMQX_MAX_PACKET_SIZE is not an
+    # EMQX 5 setting: the effective mqtt.max_packet_size stayed at the 1MB default)
+    EMQX_MQTT__MAX_PACKET_SIZE: "3MB"
+    # EMQX 5 names (the EMQX_LISTENER__SSL__* names are EMQX 4's and are ignored: the
+    # 8883 listener then serves EMQX's built-in self-signed "EMQ RootCA" certificate)
+    EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__KEYFILE: "/certs/tls.key"
+    EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__CERTFILE: "/certs/tls.crt"
   pdb:
     enabled: false
     maxUnavailable: 1
