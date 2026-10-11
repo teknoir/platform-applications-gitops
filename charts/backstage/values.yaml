@@ -63,6 +63,12 @@ backstage:
   image: ghcr.io/teknoir/backstage-app:sha-9491c6d8@sha256:149fd1228af160b3fc029460822ebfd78481fd6b6c9654c70203cf4bea9bf35a
   imagePullPolicy: IfNotPresent
   imagePullSecrets: []
+  # The image's APP_CONFIG_* injection never reaches the frontend (index.html's
+  # config script tag wins), so a chart script adds teknoir.* to index.html as
+  # window.__APP_CONFIG__ (only with config.oidc.realm). enabled: false removes
+  # it, for an image that does this itself.
+  indexRuntimeConfig:
+    enabled: true
 
 # Backstage API deployment
 backstageApi:

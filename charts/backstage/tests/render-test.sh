@@ -27,6 +27,11 @@
 #   L8 backstage-api has initContainer wait-for-postgres (the postgres pin,
 #      pg_isready against backstage-postgres:5432, bounded loop, exit 0 after
 #      it); waitForDb.enabled=false removes it
+#   L9 the frontend mounts a chart script as /docker-entrypoint.d/45-inject-index-config.sh
+#      (the image's own APP_CONFIG_* injection never reaches the loader: index.html's
+#      config script tag wins); run against a fixture it adds only teknoir.* to <head>
+#      as window.__APP_CONFIG__, idempotent, no-op without APP_CONFIG_teknoir_*; off
+#      with indexRuntimeConfig.enabled=false or without config.oidc.realm
 #   L7 helm lint; kubeconform -strict (when installed)
 #   D1 schedules {} and no config.oidc.realm (chart defaults): no catalog
 #      override, no APP_CONFIG_teknoir_auth_*
@@ -186,6 +191,40 @@ if render "$dir" "$WORK/staging.yaml"; then
 else
 	bad "D3 render failed"
 fi
+
+echo "== frontend index.html runtime config (the image's own injection never reaches the loader)"
+# L9: a chart script adds teknoir.* to index.html (window.__APP_CONFIG__); the
+# frontend mounts it where nginx runs it after the image's 40-inject-config.sh
+mnt=$(q "$WORK/local.yaml" "$FE | .volumeMounts[] | select(.name == \"frontend-inject\") | [.mountPath, .subPath] | join(\" \")")
+vol=$(q "$WORK/local.yaml" 'select(.kind == "Deployment" and .metadata.name == "backstage") | .spec.template.spec.volumes[] | select(.name == "frontend-inject") | [.configMap.name, .configMap.defaultMode] | join(" ")')
+q "$WORK/local.yaml" 'select(.kind == "ConfigMap" and .metadata.name == "backstage-frontend-inject") | .data["45-inject-index-config.sh"]' >"$WORK/inject.sh"
+[ "$mnt" = "/docker-entrypoint.d/45-inject-index-config.sh 45-inject-index-config.sh" ] && [ "$vol" = "backstage-frontend-inject 493" ] &&
+	ok "L9 frontend mounts the inject script as /docker-entrypoint.d/45-inject-index-config.sh, mode 0755 (493)" ||
+	bad "L9 mount '$mnt' volume '$vol'"
+# run the rendered script against a fixture
+printf '<html><head><title>x</title></head><body>a|b&c</body></html>\n' >"$WORK/index.html"
+cp "$WORK/index.html" "$WORK/index.orig"
+env -i PATH="$PATH" INDEX_HTML="$WORK/index.html" APP_CONFIG_app_baseUrl=https://x \
+	APP_CONFIG_teknoir_auth_issuer="$issuer" APP_CONFIG_teknoir_auth_clientId=teknoir sh "$WORK/inject.sh" >/dev/null 2>&1
+cfg=$(sed -n 's/.*<script data-teknoir-runtime-config>window.__APP_CONFIG__=\(.*\);<\/script><\/head>.*/\1/p' "$WORK/index.html")
+got=$(jq -r '[.teknoir.auth.issuer, .teknoir.auth.clientId, (keys | join(","))] | join(" ")' <<<"$cfg" 2>/dev/null || true)
+cp "$WORK/index.html" "$WORK/index.once"
+env -i PATH="$PATH" INDEX_HTML="$WORK/index.html" APP_CONFIG_teknoir_auth_issuer=other sh "$WORK/inject.sh" >/dev/null 2>&1
+cp "$WORK/index.orig" "$WORK/index2.html"
+env -i PATH="$PATH" INDEX_HTML="$WORK/index2.html" APP_CONFIG_app_baseUrl=https://x sh "$WORK/inject.sh" >/dev/null 2>&1
+[ "$got" = "$issuer teknoir teknoir" ] && grep -q 'a|b&c' "$WORK/index.html" && cmp -s "$WORK/index.html" "$WORK/index.once" && cmp -s "$WORK/index.orig" "$WORK/index2.html" &&
+	ok "L9b script writes only teknoir.* (issuer, clientId) into <head>, is idempotent, no-op without APP_CONFIG_teknoir_*" ||
+	bad "L9b script result '$got', idempotent=$(cmp -s "$WORK/index.html" "$WORK/index.once" && echo y || echo n), noop=$(cmp -s "$WORK/index.orig" "$WORK/index2.html" && echo y || echo n)"
+render "$CHART" "$WORK/l9off.yaml" --set backstage.indexRuntimeConfig.enabled=false
+n_off=$(q "$WORK/l9off.yaml" 'select(.metadata.name == "backstage-frontend-inject") | .metadata.name' | wc -l)
+v_off=$(q "$WORK/l9off.yaml" "$FE | .volumeMounts // [] | length")
+dir=$(variant norealm 'del(.config.oidc.realm)')
+render "$dir" "$WORK/l9nr.yaml"
+n_nr=$(q "$WORK/l9nr.yaml" 'select(.metadata.name == "backstage-frontend-inject") | .metadata.name' | wc -l)
+v_nr=$(q "$WORK/l9nr.yaml" 'select(.kind == "Deployment" and .metadata.name == "backstage") | .spec.template.spec.volumes // [] | length')
+[ "$n_off" = 0 ] && [ "$v_off" = 0 ] && [ "$n_nr" = 0 ] && [ "$v_nr" = 0 ] &&
+	ok "L9c indexRuntimeConfig.enabled=false and no config.oidc.realm render no ConfigMap, mount or volume" ||
+	bad "L9c off: cm=$n_off mounts=$v_off; no realm: cm=$n_nr volumes=$v_nr"
 
 echo "== clientId"
 render "$CHART" "$WORK/c1.yaml" --set config.oidc.clientId=other

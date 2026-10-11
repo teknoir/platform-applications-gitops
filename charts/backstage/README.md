@@ -36,6 +36,17 @@ The chart creates no credentials. They come from the platform-secrets chart:
   variable is rendered and the frontend keeps its legacy logout URL. Needs a
   backstage-app image with `teknoir.auth` support (`buildLogoutUrl`, backstage
   r5, newer than robot 9f15dacf); older images ignore the variables.
+  The image's own injection (`docker/inject-config.sh`, into the main chunk)
+  never reaches the frontend: the config loader ignores that value whenever
+  `index.html` carries a `<script type="backstage.io/config">` tag, which the
+  image's always does, so "Log out" went to Keycloak realm `master` and left
+  the oauth2-proxy and realm sessions alive (found in the r5 VM browser check).
+  The chart therefore mounts `45-inject-index-config.sh` (ConfigMap
+  `backstage-frontend-inject`) into `/docker-entrypoint.d/`; it runs after the
+  image's script and adds the `teknoir.*` part of the same `APP_CONFIG_*` env
+  to `index.html` as `window.__APP_CONFIG__` (the loader merges that last).
+  `backstage.indexRuntimeConfig.enabled: false` removes it, for an image that
+  does this itself. VM e2e E14 checks that the served page carries it.
 
 ## Catalog ingestion
 

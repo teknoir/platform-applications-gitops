@@ -1,0 +1,55 @@
+{{- /*
+The frontend image's runtime config injection (docker/inject-config.sh) writes
+APP_CONFIG_* into the main chunk, but the Backstage config loader ignores that
+value whenever index.html carries a <script type="backstage.io/config"> tag, and
+the image's index.html always does (the build-time app-config). The frontend
+therefore never sees teknoir.auth.* and "Log out" falls back to the pre-r5
+URL: Keycloak realm master, no oauth2-proxy sign-out, so the user stays signed
+in (found in the VM browser check, r5 stage 14).
+
+This script runs after the image's own 40-inject-config.sh (nginx runs
+/docker-entrypoint.d/*.sh in version order) and adds the teknoir.* part of the
+same APP_CONFIG_* env as window.__APP_CONFIG__ in index.html's head, which the
+loader merges on top of the script-tag config. It touches nothing else, does
+nothing without APP_CONFIG_teknoir_*, and is idempotent (marker attribute).
+An image that injects into index.html itself makes it a no-op for the marker
+check only, so remove it then (backstage.indexRuntimeConfig: false).
+*/ -}}
+{{- $oidc := .Values.config.oidc | default dict }}
+{{- $idx := .Values.backstage.indexRuntimeConfig | default dict }}
+{{- if and $oidc.realm (ne (toString $idx.enabled) "false") }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backstage-frontend-inject
+  namespace: {{ .Release.Namespace }}
+data:
+  45-inject-index-config.sh: |
+    #!/bin/sh
+    # Adds the teknoir.* frontend config (APP_CONFIG_teknoir_*) to index.html as
+    # window.__APP_CONFIG__ (see the backstage chart, configmap-frontend-inject.yaml).
+    # INDEX_HTML is only overridden by the chart's render test.
+    set -eu
+    html="${INDEX_HTML:-/usr/share/nginx/html/index.html}"
+    if [ ! -f "$html" ]; then
+      echo "45-inject-index-config: $html not found, skipping"
+      exit 0
+    fi
+    if grep -q 'data-teknoir-runtime-config' "$html"; then
+      echo "45-inject-index-config: already injected"
+      exit 0
+    fi
+    config="$(jq -cn 'env
+      | with_entries(select(.key | startswith("APP_CONFIG_teknoir_")) | .key |= sub("APP_CONFIG_"; ""))
+      | to_entries
+      | reduce .[] as $item ({}; setpath($item.key | split("_"); $item.value | try fromjson catch $item.value))')"
+    if [ "$config" = "{}" ]; then
+      echo "45-inject-index-config: no APP_CONFIG_teknoir_* in the environment, skipping"
+      exit 0
+    fi
+    # escape \ & and the sed delimiter |; JSON from jq -c has no newline
+    esc="$(printf '%s' "$config" | sed -e 's/[\\&|]/\\&/g')"
+    sed -i -e "s|</head>|<script data-teknoir-runtime-config>window.__APP_CONFIG__=${esc};</script></head>|" "$html"
+    grep -q 'data-teknoir-runtime-config' "$html" || { echo "45-inject-index-config: no </head> in $html" >&2; exit 1; }
+    echo "45-inject-index-config: wrote $config into $html"
+{{- end }}

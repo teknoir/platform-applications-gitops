@@ -44,6 +44,22 @@ spec:
             - name: APP_CONFIG_teknoir_auth_clientId
               value: {{ $oidc.clientId | default "teknoir" | quote }}
             {{- end }}
+          {{- $idx := .Values.backstage.indexRuntimeConfig | default dict }}
+          {{- if and $oidc.realm (ne (toString $idx.enabled) "false") }}
+          volumeMounts:
+            # teknoir.auth.* into index.html: see configmap-frontend-inject.yaml
+            - name: frontend-inject
+              mountPath: /docker-entrypoint.d/45-inject-index-config.sh
+              subPath: 45-inject-index-config.sh
+              readOnly: true
+          {{- end }}
+      {{- if and $oidc.realm (ne (toString $idx.enabled) "false") }}
+      volumes:
+        - name: frontend-inject
+          configMap:
+            name: backstage-frontend-inject
+            defaultMode: 493
+      {{- end }}
 
 ---
 apiVersion: apps/v1
