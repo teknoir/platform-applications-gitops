@@ -12,6 +12,8 @@ spec:
       {{- include "profile-controller.selectorLabels" . | nindent 6 }}
   template:
     metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
       labels:
         sidecar.istio.io/inject: "false"
         {{- include "profile-controller.selectorLabels" . | nindent 8 }}
