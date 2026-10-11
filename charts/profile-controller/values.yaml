@@ -48,7 +48,7 @@ config:
   # render and carries the 9 profile-plugin charts and their images.
   # Empty: the controller's compiled defaults (teknoir.github.io, 0.0.99).
   pluginChartRepo: "harbor.teknoir.airgapped/teknoir"
-  pluginChartVersion: "0.0.99"
+  pluginChartVersion: "0.0.100"
   # Issuer of the RequestAuthentication jwt-policy the controller writes into
   # every teamspace (env OIDC_ISSUER). Empty: the compiled default
   # (auth.teknoir.online, realm master).
