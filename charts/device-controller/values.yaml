@@ -92,7 +92,13 @@ virtualDevices:
   # Removing an entry (or disabling the block, or reverting it) keeps the namespace
   # (Prune=false,Delete=false) and its default-deny NetworkPolicy, ResourceQuota and
   # LimitRange (Prune=false), so running VMs stay isolated and capped. Only
-  # vdev-egress-internet (and the DNS/gateway policies) are pruned; clean up the rest by hand.
+  # vdev-egress-internet (and the DNS/gateway policies) are pruned.
+  # To revoke a teamspace's allowance through GitOps, set devices: 0 and keep cpu, memory
+  # and disk (any valid value): the namespace, default-deny, quota and LimitRange keep
+  # rendering, the allowance annotation says devices 0 (the controller admits nothing),
+  # and the quota's VM/VMI/DataVolume counts are 0. Running guests keep running; pods,
+  # PVCs and Secrets keep the headroom of one device so they can restart. Deleting the
+  # entry instead only stops managing the objects, and the old allowance stays in force.
 
   allowances:
     teknoir-demo: {devices: 2, cpu: "4", memory: 8Gi, disk: 60Gi}

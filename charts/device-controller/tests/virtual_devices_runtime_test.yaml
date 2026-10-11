@@ -360,12 +360,94 @@ tests:
       - failedTemplate:
           errorPattern: "virtualDevices.allowances.teknoir-demo.memory must be a whole number followed by Gi"
 
-  - it: fails the render for a zero device count
+  - it: fails the render for a negative or fractional device count
+    set:
+      virtualDevices.allowances.teknoir-demo.devices: -1
+    asserts:
+      - failedTemplate:
+          errorPattern: "virtualDevices.allowances.teknoir-demo.devices must be a whole number, 0 or greater"
+
+  - it: fails the render for a fractional device count
+    set:
+      virtualDevices.allowances.teknoir-demo.devices: 1.5
+    asserts:
+      - failedTemplate:
+          errorPattern: "virtualDevices.allowances.teknoir-demo.devices must be a whole number, 0 or greater"
+
+  # Revoke path (plan 3.3): devices: 0 keeps rendering the Namespace, default-deny,
+  # quota and LimitRange, with an allowance that admits nothing.
+  - it: revokes with devices 0 and still renders the isolation objects
     set:
       virtualDevices.allowances.teknoir-demo.devices: 0
     asserts:
-      - failedTemplate:
-          errorPattern: "virtualDevices.allowances.teknoir-demo.devices"
+      - hasDocuments:
+          count: 7
+      - isKind:
+          of: Namespace
+        documentIndex: 0
+      - equal:
+          path: metadata.name
+          value: teknoir-demo-vdev
+        documentIndex: 0
+      - equal:
+          path: metadata.name
+          value: vdev-default-deny
+        documentIndex: 1
+      - equal:
+          path: metadata.annotations["teknoir.org/allowance"]
+          value: '{"devices":0,"cpu":"4","memory":"8Gi","disk":"60Gi"}'
+        documentSelector:
+          path: metadata.name
+          value: vdev-quota
+      - equal:
+          path: spec.hard["count/virtualmachines.kubevirt.io"]
+          value: "0"
+        documentSelector:
+          path: metadata.name
+          value: vdev-quota
+      - equal:
+          path: spec.hard["count/virtualmachineinstances.kubevirt.io"]
+          value: "0"
+        documentSelector:
+          path: metadata.name
+          value: vdev-quota
+      - equal:
+          path: spec.hard["count/datavolumes.cdi.kubevirt.io"]
+          value: "0"
+        documentSelector:
+          path: metadata.name
+          value: vdev-quota
+      # existing guests can still restart or reschedule: headroom of one device
+      - equal:
+          path: spec.hard.pods
+          value: "3"
+        documentSelector:
+          path: metadata.name
+          value: vdev-quota
+      - equal:
+          path: metadata.name
+          value: vdev-limits
+        documentSelector:
+          path: kind
+          value: LimitRange
+      - equal:
+          path: metadata.annotations["argocd.argoproj.io/sync-options"]
+          value: Prune=false,Delete=false
+        documentIndex: 0
+
+  - it: keeps the other allowances untouched when one is revoked
+    set:
+      virtualDevices.allowances.other-ts: {devices: 1, cpu: "2", memory: 4Gi, disk: 20Gi}
+      virtualDevices.allowances.teknoir-demo.devices: 0
+    asserts:
+      - equal:
+          path: metadata.annotations["teknoir.org/allowance"]
+          value: '{"devices":1,"cpu":"2","memory":"4Gi","disk":"20Gi"}'
+        documentIndex: 5   # other-ts-vdev sorts first: Namespace, 4 NetworkPolicies, then the quota
+      - equal:
+          path: metadata.annotations["teknoir.org/allowance"]
+          value: '{"devices":0,"cpu":"4","memory":"8Gi","disk":"60Gi"}'
+        documentIndex: 12
 
   - it: fails the render for a missing disk allowance
     set:

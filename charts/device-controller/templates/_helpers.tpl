@@ -75,28 +75,45 @@ Returns the digits as a string; fails the render, naming the field, if malformed
 {{- end }}
 
 {{/*
+Virtual devices: the device count of an allowance. Like "whole" but 0 is allowed: an
+entry with devices: 0 is the GitOps revoke form (the isolation objects keep rendering,
+the allowance admits nothing). Called with a dict: value, what.
+*/}}
+{{- define "device-controller.vdev.devices" -}}
+{{- $s := toString .value -}}
+{{- if not (regexMatch "^(0|[1-9][0-9]{0,5})$" $s) -}}
+{{- fail (printf "virtualDevices: %s must be a whole number, 0 or greater (0 revokes the allowance) (got %q)" .what $s) -}}
+{{- end -}}
+{{- $s -}}
+{{- end }}
+
+{{/*
 Virtual devices: the ResourceQuota hard limits for one allowance. Integer math only
 (2.2*S would round wrongly in floating point). Called with a dict: ns, allowance,
 overcommit. Renders the YAML map entries of spec.hard.
   requests.cpu = ceil(C*1000/O)+1000m   limits.cpu = C+1
   requests.memory = (M+D)Gi            limits.memory = (M+D+1)Gi
   requests.storage = ceil(2.2*S)Gi
+With devices: 0 (revoked) the VM/VMI/DataVolume counts are 0, so nothing new can be
+created; pods, PVCs and Secrets keep the headroom of one device so existing guests can
+still restart or reschedule.
 */}}
 {{- define "device-controller.vdev.hard" -}}
 {{- $w := printf "virtualDevices.allowances.%s" .ns -}}
-{{- $d := atoi (include "device-controller.vdev.whole" (dict "value" .allowance.devices "unit" "" "what" (printf "%s.devices" $w))) -}}
+{{- $d := atoi (include "device-controller.vdev.devices" (dict "value" .allowance.devices "what" (printf "%s.devices" $w))) -}}
 {{- $c := atoi (include "device-controller.vdev.whole" (dict "value" .allowance.cpu "unit" "" "what" (printf "%s.cpu" $w))) -}}
 {{- $m := atoi (include "device-controller.vdev.whole" (dict "value" .allowance.memory "unit" "Gi" "what" (printf "%s.memory" $w))) -}}
 {{- $s := atoi (include "device-controller.vdev.whole" (dict "value" .allowance.disk "unit" "Gi" "what" (printf "%s.disk" $w))) -}}
 {{- $o := atoi (include "device-controller.vdev.whole" (dict "value" .overcommit "unit" "" "what" "virtualDevices.cpuOvercommit")) -}}
 requests.cpu: {{ printf "%dm" (add (div (add (mul $c 1000) (sub $o 1)) $o) 1000) | quote }}
 limits.cpu: {{ add $c 1 | toString | quote }}
-requests.memory: {{ printf "%dGi" (add $m $d) | quote }}
-limits.memory: {{ printf "%dGi" (add $m $d 1) | quote }}
+{{- $h := max $d 1 }}
+requests.memory: {{ printf "%dGi" (add $m $h) | quote }}
+limits.memory: {{ printf "%dGi" (add $m $h 1) | quote }}
 requests.storage: {{ printf "%dGi" (div (add (mul 22 $s) 9) 10) | quote }}
-persistentvolumeclaims: {{ mul 3 $d | toString | quote }}
-pods: {{ mul 3 $d | toString | quote }}
-count/secrets: {{ add (mul 2 $d) 2 | toString | quote }}
+persistentvolumeclaims: {{ mul 3 $h | toString | quote }}
+pods: {{ mul 3 $h | toString | quote }}
+count/secrets: {{ add (mul 2 $h) 2 | toString | quote }}
 count/virtualmachines.kubevirt.io: {{ $d | toString | quote }}
 count/virtualmachineinstances.kubevirt.io: {{ $d | toString | quote }}
 count/datavolumes.cdi.kubevirt.io: {{ $d | toString | quote }}
@@ -113,7 +130,7 @@ Called with a dict: ns, allowance.
 */}}
 {{- define "device-controller.vdev.allowanceJSON" -}}
 {{- $w := printf "virtualDevices.allowances.%s" .ns -}}
-{{- $d := atoi (include "device-controller.vdev.whole" (dict "value" .allowance.devices "unit" "" "what" (printf "%s.devices" $w))) -}}
+{{- $d := atoi (include "device-controller.vdev.devices" (dict "value" .allowance.devices "what" (printf "%s.devices" $w))) -}}
 {{- $c := atoi (include "device-controller.vdev.whole" (dict "value" .allowance.cpu "unit" "" "what" (printf "%s.cpu" $w))) -}}
 {{- $m := atoi (include "device-controller.vdev.whole" (dict "value" .allowance.memory "unit" "Gi" "what" (printf "%s.memory" $w))) -}}
 {{- $s := atoi (include "device-controller.vdev.whole" (dict "value" .allowance.disk "unit" "Gi" "what" (printf "%s.disk" $w))) -}}

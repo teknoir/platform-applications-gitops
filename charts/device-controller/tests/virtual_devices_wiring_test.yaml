@@ -73,12 +73,12 @@ tests:
           path: spec.template.metadata.annotations["kubectl.kubernetes.io/default-container"]
           value: manager
 
-  - it: leaves the image block alone
+  - it: runs the pinned immutable image (promoted only through the pin in values.yaml)
     template: templates/deployment.yaml
     asserts:
-      - equal:
+      - matchRegex:
           path: spec.template.spec.containers[0].image
-          value: ghcr.io/teknoir/device-controller:applicationset
+          pattern: "^ghcr\\.io/teknoir/device-controller:sha-[0-9a-f]{8}@sha256:[0-9a-f]{64}$"
 
   - it: grants the manager role what the virtual device runtime needs
     template: templates/rbac.yaml
