@@ -665,13 +665,17 @@ self_test() {
   local dir="$1" apps="$2" fx="${tmp}/fixture" out="${tmp}/selftest.out" n=0 bad=0
   local z64 a64 b64
   z64="$(printf '0%.0s' {1..64})"; a64="$(printf 'a%.0s' {1..64})"; b64="$(printf 'b%.0s' {1..64})"
-  run_case() { # run_case <label> <strict> <file> <jq> <expected verdict> <check> <fragment>
-    local label="$1" strict="$2" file="$3" prog="$4" verdict="$5" check="$6" frag="$7"
+  run_case() { # run_case <label> <strict> <file> <jq> <expected verdict> <check> <fragment> [pending pin]
+    local label="$1" strict="$2" file="$3" prog="$4" verdict="$5" check="$6" frag="$7" pend="${8:-}"
     rm -rf "${fx}" && mkdir -p "${fx}" && cp "${dir}"/*.json "${fx}/" && cp "${apps}" "${fx}/apps.json"
     if [[ -n "${file}" ]]; then
       jq "${prog}" "${fx}/${file}" > "${fx}/${file}.new" && mv "${fx}/${file}.new" "${fx}/${file}"
     fi
-    ( fails=0 warns=0 strict_pins="${strict}"; policy_checks "${fx}" "${fx}/apps.json" ) > "${out}" 2>&1 || true
+    # PENDING_IMAGE_PINS is empty in a release tree: the cases that test the
+    # allowance list their own placeholder (in the subshell only).
+    ( fails=0 warns=0 strict_pins="${strict}"
+      if [[ -n "${pend}" ]]; then PENDING_IMAGE_PINS=("${pend}"); fi
+      policy_checks "${fx}" "${fx}/apps.json" ) > "${out}" 2>&1 || true
     n=$((n + 1))
     if grep -qE 'jq: error|^Error: ' "${out}"; then
       bad=$((bad + 1)); fail self-test "${label}: a check errored: $(grep -E 'jq: error|^Error: ' "${out}" | head -2 | tr '\n' ' ')"
@@ -707,11 +711,17 @@ self_test() {
   run_case "images: imagePullPolicy Always warns" false monitoring.json \
     'walk(if type == "object" and ((.image? // null) | type) == "string" and (.image | startswith("quay.io/prometheus/node-exporter:")) then .imagePullPolicy = "Always" else . end)' \
     WARN images "imagePullPolicy Always"
+  local ph="ghcr.io/teknoir/user-controller:sha-PLACEHOLDER-WP-UC@sha256:${z64}"
+  local ph_prog="walk(if type == \"object\" and ((.image? // null) | type) == \"string\" and (.image | test(\"teknoir/user-controller\")) then .image = \"${ph}\" else . end)"
   run_case "images: a pending placeholder that is no longer rendered" false user-controller.json \
     "walk(if type == \"object\" and ((.image? // null) | type) == \"string\" and (.image | test(\"teknoir/user-controller\")) then .image = \"ghcr.io/teknoir/user-controller:sha-0123abcd@sha256:${b64}\" else . end)" \
-    FAIL images "no chart renders any more"
-  run_case "images: --strict-pins rejects the placeholders" true "" "" \
+    FAIL images "no chart renders any more" "${ph}"
+  run_case "images: a listed placeholder is accepted with a WARN" false user-controller.json "${ph_prog}" \
+    WARN images "placeholder accepted by PENDING_IMAGE_PINS" "${ph}"
+  run_case "images: an unlisted placeholder fails" false user-controller.json "${ph_prog}" \
     FAIL images "sha-PLACEHOLDER-WP-UC@sha256:${z64}: not a K5 pin"
+  run_case "images: --strict-pins rejects the placeholders" true user-controller.json "${ph_prog}" \
+    FAIL images "sha-PLACEHOLDER-WP-UC@sha256:${z64}: not a K5 pin" "${ph}"
   run_case "rbac: a binding to cluster-admin" false user-controller.json \
     'map(if .kind == "ClusterRoleBinding" then .roleRef.name = "cluster-admin" else . end)' \
     FAIL rbac "binds cluster-admin"
