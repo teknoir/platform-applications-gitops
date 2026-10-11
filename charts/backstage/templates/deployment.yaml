@@ -91,6 +91,41 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- $wait := .Values.backstageApi.waitForDb | default dict }}
+      {{- if $wait.enabled }}
+      {{- /* backstage-api gives up on its first database connect (ECONNRESET,
+      no retry) and then stays unready until the startupProbe restarts it
+      (~10 min). After a node reboot it can start before backstage-postgres,
+      so wait here. Runs after the native istio-proxy sidecar (injected
+      first), so the mTLS the postgres AuthorizationPolicy requires works.
+      Bounded: on timeout the app starts anyway and behaves as before. The
+      image defaults to the postgres image (pg_isready), already mirrored. */}}
+      initContainers:
+        - name: wait-for-postgres
+          image: {{ $wait.image | default .Values.postgres.image }}
+          imagePullPolicy: {{ $wait.imagePullPolicy | default .Values.postgres.imagePullPolicy }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          command:
+            - /bin/sh
+            - -c
+            - |
+              i=0
+              while [ "$i" -lt {{ $wait.attempts | default 120 }} ]; do
+                if pg_isready -q -h backstage-postgres -p 5432; then
+                  echo "backstage-postgres accepts connections"
+                  exit 0
+                fi
+                i=$((i + 1))
+                sleep {{ $wait.intervalSeconds | default 5 }}
+              done
+              echo "backstage-postgres not ready after {{ mul ($wait.attempts | default 120) ($wait.intervalSeconds | default 5) }}s; starting anyway"
+              exit 0
+      {{- end }}
       containers:
         - name: backstage-api
           {{- with .Values.backstageApi.containerSecurityContext }}

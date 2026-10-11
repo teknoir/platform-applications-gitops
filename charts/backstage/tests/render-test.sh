@@ -24,6 +24,9 @@
 #      sha-PENDING-WP-BS placeholder fails unless ALLOW_PLACEHOLDER_PINS=1
 #   L6 backstage-postgres postgres:17.11-alpine@sha256:aa90e97e...; no
 #      container pulls Always
+#   L8 backstage-api has initContainer wait-for-postgres (the postgres pin,
+#      pg_isready against backstage-postgres:5432, bounded loop, exit 0 after
+#      it); waitForDb.enabled=false removes it
 #   L7 helm lint; kubeconform -strict (when installed)
 #   D1 schedules {} and no config.oidc.realm (chart defaults): no catalog
 #      override, no APP_CONFIG_teknoir_auth_*
@@ -133,6 +136,15 @@ always=$(q "$WORK/local.yaml" '.spec.template.spec | select(.) | (.initContainer
 [ "$pg" = "postgres:17.11-alpine@sha256:aa90e97ee862e558111d34cfb8b2c4bec768c2b039fb791341686928560263b3 IfNotPresent" ] && [ -z "$always" ] &&
 	ok "L6 backstage-postgres pinned ($pg); every container IfNotPresent" ||
 	bad "L6 backstage-postgres '$pg'; not IfNotPresent: ${always//$'\n'/ }"
+
+wi=$(q "$WORK/local.yaml" 'select(.kind == "Deployment" and .metadata.name == "backstage-api") | .spec.template.spec.initContainers[] | select(.name == "wait-for-postgres") | .image + " " + .command[2]')
+wi_img=${wi%% *}
+[ "$wi_img" = "${pg%% *}" ] && [[ "$wi" == *"pg_isready -q -h backstage-postgres -p 5432"* ]] && [[ "$wi" == *"exit 0"* ]] &&
+	ok "L8 backstage-api waits for postgres with the pinned postgres image" ||
+	bad "L8 wait-for-postgres initContainer missing or wrong ('$wi_img')"
+render "$CHART" "$WORK/nowait.yaml" --set backstageApi.waitForDb.enabled=false
+nw=$(q "$WORK/nowait.yaml" 'select(.kind == "Deployment" and .metadata.name == "backstage-api") | .spec.template.spec.initContainers // [] | length')
+[ "$nw" = 0 ] && ok "L8b waitForDb.enabled=false renders no initContainer" || bad "L8b initContainers with waitForDb disabled: $nw"
 
 lint=$(cd "$WORK" && "$HELM" lint "$CHART" --namespace "$NS" --kube-version "$KUBE_VERSION" 2>&1) &&
 	ok "L7 helm lint" || { bad "L7 helm lint"; echo "$lint"; }

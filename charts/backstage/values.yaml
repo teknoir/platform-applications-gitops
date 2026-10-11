@@ -97,6 +97,13 @@ backstageApi:
       periodSeconds: 20
       timeoutSeconds: 5
       failureThreshold: 6
+  # initContainer that waits (pg_isready, bounded: attempts x intervalSeconds,
+  # then starts anyway) for backstage-postgres, so a node reboot does not leave
+  # backstage-api unready for ~10 min. Image defaults to postgres.image.
+  waitForDb:
+    enabled: true
+    attempts: 120
+    intervalSeconds: 5
   nodeOptions: '--max-old-space-size=8192'
   podSecurityContext:
     fsGroup: 1000
