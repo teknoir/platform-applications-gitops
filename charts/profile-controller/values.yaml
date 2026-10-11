@@ -4,7 +4,8 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/teknoir/profile-controller
-  tag: latest
+  # Pinned by tag@digest: profile-controller teknoir-cloud (59523f59), r5 release line.
+  tag: "sha-59523f59@sha256:6d67f83d05da3f043f4a1382798830773d72fe721addef5919fd4d1c393b0fcf"
   pullPolicy: Always
 
 imagePullSecrets:
