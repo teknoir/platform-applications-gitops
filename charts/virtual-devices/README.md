@@ -42,8 +42,10 @@ feature gates: `featureGates` is `omitempty` in the KubeVirt API types, so any t
 by the operator drops an empty list, which Argo CD would see as drift. `tests/assertions.py`
 rejects empty structs and an empty `featureGates`. A single partial selfHeal of the KubeVirt
 and CDI CRs in the same second as the first sync is not a fight: Argo CD acts on the
-comparison from before its last wave created them, and re-applies them unchanged (the e2e's
-timelines show it before either operator has written them).
+refresh right after its last wave created them, before its cluster cache has the watch
+events of the two new objects, so they read as missing; it re-applies them unchanged (the
+e2e's timelines and the controller log show it before either operator has written them,
+and a server-side dry-run diff of the CRs finds no drifting field).
 
 ## Replicas
 

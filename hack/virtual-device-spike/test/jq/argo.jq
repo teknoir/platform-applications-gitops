@@ -119,3 +119,19 @@ def sync_patch($user; $revision):
      sync: {revision: $revision, prune: (.spec.syncPolicy.automated.prune // false),
             syncOptions: (.spec.syncPolicy.syncOptions // [])}},
    status: {operationState: null}};
+
+# What Argo CD's diff of a KubeVirt or CDI CR covers: labels, annotations (without the
+# client-side apply annotation) and spec.
+def compared: {labels: (.metadata.labels // {}),
+               annotations: (.metadata.annotations // {} | del(.["kubectl.kubernetes.io/last-applied-configuration"])),
+               spec};
+# The rendered manifest (input) as Argo CD applies it: with the tracking annotation it
+# adds, copied from the live object $live. Without it, a server-side apply by the
+# argocd-controller field manager would drop that annotation, which Argo CD owns.
+def as_argocd_applies($live):
+  .metadata.annotations = ((.metadata.annotations // {})
+    + ($live.metadata.annotations // {} | with_entries(select(.key == "argocd.argoproj.io/tracking-id"))));
+# Server-side diff: the fields that differ between the live object $live and the result
+# of a server-side dry-run apply of the rendered manifest ($dry), as {"path": [live, dry]}.
+# Empty means Argo CD's server-side diff finds the object in sync.
+def ssa_drift($live; $dry): changes($live | compared; $dry | compared);

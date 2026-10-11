@@ -144,4 +144,20 @@ resumed_old = controller_runs(merge_patch(app, old_patch))
 check(len(resumed_old["sync"].get("resources", [])) == 2 and resumed_old["initiatedBy"].get("automated") is True,
       "negative control: the earlier patch (.operation only) resumes as the selfHeal's partial sync of KubeVirt and CDI")
 
+# ------------------------------------------------------------------ ssa_drift
+live_kv = {"metadata": {"name": "kubevirt", "labels": {"a": "1"},
+                        "annotations": {"argocd.argoproj.io/tracking-id": "virtual-devices:kubevirt.io/KubeVirt:kubevirt/kubevirt",
+                                        "argocd.argoproj.io/sync-wave": "1"}},
+           "spec": {"imagePullPolicy": "IfNotPresent", "customizeComponents": {}}, "status": {"phase": "Deployed"}}
+rendered = {"metadata": {"name": "kubevirt", "labels": {"a": "1"}, "annotations": {"argocd.argoproj.io/sync-wave": "1"}},
+            "spec": {"imagePullPolicy": "IfNotPresent"}}
+(applied,) = jq("as_argocd_applies($live)", rendered, "--argjson", "live", json.dumps(live_kv))
+check(applied["metadata"]["annotations"] == live_kv["metadata"]["annotations"], f"as_argocd_applies: carries Argo CD's tracking annotation: {applied['metadata']}")
+dry_same = merge_patch(live_kv, {"status": None})
+(none,) = jq("ssa_drift($live; $dry)", None, "--argjson", "live", json.dumps(live_kv), "--argjson", "dry", json.dumps(dry_same))
+check(none == {}, f"ssa_drift: an operator-only field kept by the dry-run and status are no drift: {none}")
+dry_diff = merge_patch(dry_same, {"spec": {"imagePullPolicy": "Always"}, "metadata": {"labels": {"b": "2"}}})
+(some,) = jq("ssa_drift($live; $dry)", None, "--argjson", "live", json.dumps(live_kv), "--argjson", "dry", json.dumps(dry_diff))
+check(some == {".spec.imagePullPolicy": ["IfNotPresent", "Always"], ".labels.b": ["<absent>", "2"]}, f"ssa_drift: spec and label changes as path: [live, dry-run]: {some}")
+
 sys.exit(1 if failed else 0)

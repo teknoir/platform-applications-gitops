@@ -237,6 +237,11 @@ yaml.safe_dump_all([proj, app], open(dst, "w"))
 print("syncPolicy:", app["spec"]["syncPolicy"], "annotations:", app["metadata"].get("annotations"), file=sys.stderr)
 PY
 N_RENDERED=$(helm template virtual-devices "${REPO}/charts/virtual-devices" --namespace kubevirt | grep -c '^kind:')
+# The KubeVirt and CDI CRs as Argo CD renders them, one JSON file each, for ssa_drift.
+for cr in kubevirt cdi; do
+  helm template virtual-devices "${REPO}/charts/virtual-devices" --namespace kubevirt --show-only "templates/${cr}.yaml" |
+    python3 -I -c 'import json, sys, yaml; json.dump(yaml.safe_load(sys.stdin), sys.stdout)' >"${TMP}/cr-${cr}.json"
+done
 
 # Watches from before the first sync: the Application and the KubeVirt and CDI CRs, as
 # compact timelines (jq/argo.jq). The CR watches retry until Argo CD has created the CRDs.
@@ -280,6 +285,22 @@ T_SYNC=$(date +%s)
 k apply -f "${TMP}/argo-app.yaml" >/dev/null
 
 app_json() { k -n "$ARGO_NS" get application virtual-devices -o json; }
+# Argo CD's server-side diff of the KubeVirt and CDI CRs, replayed: a server-side dry-run
+# apply of the rendered CR by Argo CD's field manager, compared with the live object.
+# Any field listed here is one that makes the CR OutOfSync for Argo CD (ServerSideDiff);
+# "{}" means in sync. Dry-run only: nothing is written.
+ssa_drift() { # ssa_drift LABEL
+  local cr live dry
+  for cr in kubevirt cdi; do
+    live=$(k get -f "${TMP}/cr-${cr}.json" -o json 2>/dev/null) || { log "$1: server-side diff ${cr}: no live object"; continue; }
+    if dry=$(jq -L "$JQ_LIB" -c --argjson live "$live" 'include "argo"; as_argocd_applies($live)' "${TMP}/cr-${cr}.json" |
+      k apply --server-side --dry-run=server --field-manager=argocd-controller --force-conflicts -o json -f - 2>&1); then
+      log "$1: server-side diff ${cr} (path: [live, dry-run apply]): $(jq -n -L "$JQ_LIB" -c --argjson a "$live" --argjson b "$dry" 'include "argo"; ssa_drift($a; $b)')"
+    else
+      log "$1: server-side dry-run apply of ${cr} failed: ${dry}"
+    fi
+  done
+}
 app_state() { app_json | jq -r '"\(.status.sync.status) \(.status.health.status) \(.status.operationState.phase)"'; }
 if ! wait_for 1800 '^Synced Healthy Succeeded$' "Argo CD application virtual-devices (sync/health/operation)" app_state; then
   app_json | jq '{conditions: .status.conditions, operation: .status.operationState | {phase, message, retryCount}, notSynced: [.status.resources[]? | select(.status != "Synced")]}'
@@ -289,6 +310,7 @@ log "first sync took $(($(date +%s) - T_SYNC))s: $(app_json | jq -c '.status.his
 OP=$(app_json | jq -L "$JQ_LIB" -c 'include "argo"; .status.operationState | {phase, by: (.operation | initiator), resources: (.operation | op_resources),
   retryCount: (.retryCount // 0), message, started: .startedAt, finished: .finishedAt}')
 log "latest operation: ${OP}"
+ssa_drift "first sync done"
 not_synced=$(app_json | jq -r '[.status.operationState.syncResult.resources[] | select(.status != "Synced") | "\(.kind)/\(.name): \(.message)"] | join("; ")')
 [[ -z $not_synced ]] && pass "every resource of the latest sync applied" || flunk "resources not applied by the latest sync: $not_synced"
 
@@ -358,13 +380,18 @@ O0=$(n_ops)
 log "operations until KubeVirt and CDI were Deployed:"
 argo_ops | sed 's/^/[e2e]   /' >&2
 # A partial selfHeal of the CRs right after the first sync is Argo CD's own race, not a
-# fight: the sync ends as soon as its last wave has applied the KubeVirt and CDI CRs,
-# while the status still holds the comparison from before they existed; auto-sync reads
-# that status within milliseconds and re-applies the two unchanged CRs. The timelines
-# show it for each such selfHeal: requested after the CRs were created and before any
-# operator had written them, so no operator-owned field can be the cause.
+# fight: the sync ends as soon as its last wave has applied the KubeVirt and CDI CRs, and
+# the refresh that follows compares against Argo CD's cluster cache before the cache has
+# the watch events of the two new CRs. They read as missing, hence OutOfSync, and
+# auto-sync re-applies the two unchanged CRs. The controller log shows the order (run
+# 2026-10-11): CRs applied at .579/.585, auto-sync requested at .639, and only at
+# .649/.650 "Requesting app refresh caused by object update" for CDI and KubeVirt. The
+# timelines show it for each such selfHeal: requested after the CRs were created and
+# before any operator had written them, so no operator-owned field can be the cause and
+# ignoreDifferences cannot help (ssa_drift below also finds no field drift).
 jq -L "$JQ_LIB" -n -c --slurpfile app "${ART}/application.jsonl" --slurpfile crs <(cat "${ART}/kubevirt.jsonl" "${ART}/cdi.jsonl") \
   'include "argo"; selfheal_report($app; $crs)[]' | while read -r line; do log "INFO startup selfHeal: ${line}"; done
+ssa_drift "operators Deployed"
 S0=$(argo_snapshot)
 G0=$(generations)
 log "stability window: ${STABILITY_SECONDS}s"
@@ -380,16 +407,31 @@ log "forcing a full re-sync with the same manifests (what the next commit does)"
 # that selfHeal's resource list and ran as a partial sync of KubeVirt and CDI. A conflict
 # means the controller wrote the Application in between: read it again and retry.
 op_idle() { app_json | jq -r 'if .operation == null then "idle" else "busy" end'; }
+# .operation and the KubeVirt/CDI entries of .status.resources, raw, for the log.
+op_raw() { jq -c '{operation, operationState: (.status.operationState | if . == null then null else {phase, operation} end),
+  resources: [.status.resources[]? | select(.kind == "KubeVirt" or .kind == "CDI") | {kind, status, health: .health.status}]}'; }
 force_sync() {
-  local attempt app out
+  local attempt app out after
+  # The precondition must hold on this API server: a merge patch carrying a resourceVersion
+  # that is not the current one is refused with 409 Conflict (and writes nothing).
+  if out=$(k -n "$ARGO_NS" patch application virtual-devices --type merge -p '{"metadata":{"resourceVersion":"1"}}' 2>&1); then
+    flunk "a merge patch with a stale resourceVersion was accepted (${out}): the re-sync patch would not be race-free"
+  elif [[ $out == *Conflict* || $out == *"has been modified"* ]]; then
+    pass "a merge patch with a stale resourceVersion gets 409 Conflict"
+  else
+    flunk "stale-resourceVersion probe failed in an unexpected way: ${out}"
+  fi
   for attempt in 1 2 3 4 5; do
     wait_for 300 '^idle$' "no Argo CD operation in flight" op_idle || return 1
     app=$(app_json)
     [[ $(jq -r '.operation == null' <<<"$app") == true ]] || continue
-    log "before the patch (attempt ${attempt}): $(jq -L "$JQ_LIB" -c 'include "argo"; app_detail' <<<"$app")"
+    log "before the patch (attempt ${attempt}, rv $(jq -r .metadata.resourceVersion <<<"$app")): $(jq -L "$JQ_LIB" -c 'include "argo"; app_detail' <<<"$app")"
+    log "before the patch, raw: $(op_raw <<<"$app")"
     if out=$(k -n "$ARGO_NS" patch application virtual-devices --type merge \
       -p "$(jq -L "$JQ_LIB" -c --arg rev "$CHART_VERSION" 'include "argo"; sync_patch("vd-e2e"; $rev)' <<<"$app")" 2>&1); then
-      log "right after the patch: $(app_json | jq -L "$JQ_LIB" -c 'include "argo"; app_detail')"
+      after=$(app_json)
+      log "right after the patch: $(jq -L "$JQ_LIB" -c 'include "argo"; app_detail' <<<"$after")"
+      log "right after the patch, raw: $(op_raw <<<"$after")"
       return 0
     fi
     [[ $out == *"has been modified"* || $out == *Conflict* ]] || { log "patch failed: ${out}"; return 1; }
@@ -406,12 +448,17 @@ elif wait_for 600 '^Succeeded Synced$' "re-sync" resync_state; then
   RESYNC=$(app_json | jq -c '(.status.operationState.operation | {by: .initiatedBy.username, automated: (.initiatedBy.automated // false),
     resources: (.sync.resources // [])}) + {syncs: (.status.history | length)}')
   [[ $(jq -c '{by, automated, resources}' <<<"$RESYNC") == '{"by":"vd-e2e","automated":false,"resources":[]}' && $(jq -r .syncs <<<"$RESYNC") == $((SYNCS0 + 1)) ]] &&
-    pass "forced full re-sync succeeded (one more history entry)" || flunk "the re-sync was not the forced full sync: ${RESYNC}"
+    pass "forced full re-sync succeeded (one more history entry)" || {
+    flunk "the re-sync was not the forced full sync: ${RESYNC}"
+    log "after the re-sync, raw: $(app_json | op_raw)"
+    log "operations since the first sync: $(argo_ops | tr '\n' ';')"
+  }
   S1=$(argo_snapshot)
   O1=$(n_ops)
   log "stability window after the re-sync: ${STABILITY2_SECONDS}s"
   sleep "$STABILITY2_SECONDS"
   assert_steady "${STABILITY2_SECONDS}s after the re-sync" "$S1" "$G0" "$O1"
+  ssa_drift "${STABILITY2_SECONDS}s after the re-sync"
   [[ $(k get crd cdis.cdi.kubevirt.io -o jsonpath='{.spec.versions[*].name}') == v1beta1 ]] &&
     pass "re-sync kept the operator's cdis.cdi.kubevirt.io versions (RespectIgnoreDifferences)" ||
     flunk "re-sync re-applied the deprecated CDI CRD version: $(k get crd cdis.cdi.kubevirt.io -o jsonpath='{.spec.versions[*].name}')"
