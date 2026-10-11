@@ -153,6 +153,47 @@ rules:
   - update
   - patch
   - delete
+# Virtual devices (device-controller vd1-runtime): admission reads, the VM and its disk.
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  - persistentvolumeclaims
+  - resourcequotas
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - kubevirt.io
+  resources:
+  - virtualmachines
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - kubevirt.io
+  resources:
+  - virtualmachineinstances
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - cdi.kubevirt.io
+  resources:
+  - datavolumes
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - delete
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1

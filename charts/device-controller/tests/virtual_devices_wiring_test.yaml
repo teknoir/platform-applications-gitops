@@ -1,0 +1,85 @@
+suite: virtual devices controller wiring
+templates:
+  - templates/configmap.yaml
+  - templates/deployment.yaml
+  - templates/rbac.yaml
+tests:
+  - it: puts VIRTUAL_DEVICES (without allowances) in the controller ConfigMap
+    template: templates/configmap.yaml
+    asserts:
+      - equal:
+          path: data.VIRTUAL_DEVICES
+          value: '{"cpuOvercommit":2,"enabled":true,"innerCIDRs":{"cluster":"10.52.0.0/16","dns":"10.53.0.10","service":"10.53.0.0/16"},"k3sVersion":"v1.34.11+k3s1","maxPerDevice":{"cpu":"4","disk":"40Gi","memory":"8Gi"},"osImage":"docker://quay.io/containerdisks/debian@sha256:6b992c4a8a62ca57858cbbf60110e673928d27b2885ea2a106660bc26b112b5b","priorityClassName":"teknoir-virtual-device","storageClassName":"local-path"}'
+      - notMatchRegex:
+          path: data.VIRTUAL_DEVICES
+          pattern: "allowance|teknoir-demo"
+      - equal:
+          path: data.DOMAIN
+          value: teknoir.cloud
+
+  - it: leaves VIRTUAL_DEVICES out when virtualDevices.enabled is false
+    template: templates/configmap.yaml
+    set:
+      virtualDevices.enabled: false
+    asserts:
+      - notExists:
+          path: data.VIRTUAL_DEVICES
+
+  - it: leaves VIRTUAL_DEVICES out when the block is absent
+    template: templates/configmap.yaml
+    set:
+      virtualDevices: null
+    asserts:
+      - notExists:
+          path: data.VIRTUAL_DEVICES
+
+  - it: puts a checksum of the ConfigMap on the pod and keeps the other pod annotations
+    template: templates/deployment.yaml
+    asserts:
+      - matchRegex:
+          path: spec.template.metadata.annotations["checksum/config"]
+          pattern: "^[0-9a-f]{64}$"
+      - equal:
+          path: spec.template.metadata.annotations["prometheus.io/scrape"]
+          value: "true"
+      - equal:
+          path: spec.template.metadata.annotations["kubectl.kubernetes.io/default-container"]
+          value: manager
+
+  - it: leaves the image block alone
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/teknoir/device-controller:applicationset
+
+  - it: grants the manager role what the virtual device runtime needs
+    template: templates/rbac.yaml
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-device-controller-manager-role
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [namespaces, persistentvolumeclaims, resourcequotas]
+            verbs: [get, list, watch]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [kubevirt.io]
+            resources: [virtualmachines]
+            verbs: [get, list, watch, create, update, patch, delete]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [kubevirt.io]
+            resources: [virtualmachineinstances]
+            verbs: [get, list, watch]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [cdi.kubevirt.io]
+            resources: [datavolumes]
+            verbs: [get, list, watch, create, delete]

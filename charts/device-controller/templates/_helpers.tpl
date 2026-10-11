@@ -60,3 +60,71 @@ Create the name of the service account to use
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{/*
+Virtual devices: whole-number parsing for the allowance and maxPerDevice values.
+Called with a dict: value (the raw value), unit ("" or "Gi"), what (for the error).
+Returns the digits as a string; fails the render, naming the field, if malformed.
+*/}}
+{{- define "device-controller.vdev.whole" -}}
+{{- $s := toString .value -}}
+{{- if not (regexMatch (printf "^[1-9][0-9]{0,5}%s$" .unit) $s) -}}
+{{- fail (printf "virtualDevices: %s must be a whole number%s greater than zero (got %q)" .what (ternary " followed by Gi" "" (eq .unit "Gi")) $s) -}}
+{{- end -}}
+{{- trimSuffix .unit $s -}}
+{{- end }}
+
+{{/*
+Virtual devices: the ResourceQuota hard limits for one allowance. Integer math only
+(2.2*S would round wrongly in floating point). Called with a dict: ns, allowance,
+overcommit. Renders the YAML map entries of spec.hard.
+  requests.cpu = ceil(C*1000/O)+1000m   limits.cpu = C+1
+  requests.memory = (M+D)Gi            limits.memory = (M+D+1)Gi
+  requests.storage = ceil(2.2*S)Gi
+*/}}
+{{- define "device-controller.vdev.hard" -}}
+{{- $w := printf "virtualDevices.allowances.%s" .ns -}}
+{{- $d := atoi (include "device-controller.vdev.whole" (dict "value" .allowance.devices "unit" "" "what" (printf "%s.devices" $w))) -}}
+{{- $c := atoi (include "device-controller.vdev.whole" (dict "value" .allowance.cpu "unit" "" "what" (printf "%s.cpu" $w))) -}}
+{{- $m := atoi (include "device-controller.vdev.whole" (dict "value" .allowance.memory "unit" "Gi" "what" (printf "%s.memory" $w))) -}}
+{{- $s := atoi (include "device-controller.vdev.whole" (dict "value" .allowance.disk "unit" "Gi" "what" (printf "%s.disk" $w))) -}}
+{{- $o := atoi (include "device-controller.vdev.whole" (dict "value" .overcommit "unit" "" "what" "virtualDevices.cpuOvercommit")) -}}
+requests.cpu: {{ printf "%dm" (add (div (add (mul $c 1000) (sub $o 1)) $o) 1000) | quote }}
+limits.cpu: {{ add $c 1 | toString | quote }}
+requests.memory: {{ printf "%dGi" (add $m $d) | quote }}
+limits.memory: {{ printf "%dGi" (add $m $d 1) | quote }}
+requests.storage: {{ printf "%dGi" (div (add (mul 22 $s) 9) 10) | quote }}
+persistentvolumeclaims: {{ mul 3 $d | toString | quote }}
+pods: {{ mul 3 $d | toString | quote }}
+count/secrets: {{ add (mul 2 $d) 2 | toString | quote }}
+count/virtualmachines.kubevirt.io: {{ $d | toString | quote }}
+count/virtualmachineinstances.kubevirt.io: {{ $d | toString | quote }}
+count/datavolumes.cdi.kubevirt.io: {{ $d | toString | quote }}
+services: "0"
+services.loadbalancers: "0"
+services.nodeports: "0"
+requests.nvidia.com/gpu: "0"
+{{- end }}
+
+{{/*
+Virtual devices: the allowance annotation the controller and Backstage read
+(teknoir.org/allowance), compact JSON in a fixed key order from the validated values.
+Called with a dict: ns, allowance.
+*/}}
+{{- define "device-controller.vdev.allowanceJSON" -}}
+{{- $w := printf "virtualDevices.allowances.%s" .ns -}}
+{{- $d := atoi (include "device-controller.vdev.whole" (dict "value" .allowance.devices "unit" "" "what" (printf "%s.devices" $w))) -}}
+{{- $c := atoi (include "device-controller.vdev.whole" (dict "value" .allowance.cpu "unit" "" "what" (printf "%s.cpu" $w))) -}}
+{{- $m := atoi (include "device-controller.vdev.whole" (dict "value" .allowance.memory "unit" "Gi" "what" (printf "%s.memory" $w))) -}}
+{{- $s := atoi (include "device-controller.vdev.whole" (dict "value" .allowance.disk "unit" "Gi" "what" (printf "%s.disk" $w))) -}}
+{{- printf "{\"devices\":%d,\"cpu\":\"%d\",\"memory\":\"%dGi\",\"disk\":\"%dGi\"}" $d $c $m $s -}}
+{{- end }}
+
+{{/*
+Virtual devices: the VIRTUAL_DEVICES JSON for the controller (no allowances: those live
+on the quota annotation). Only included in the ConfigMap when virtualDevices.enabled.
+*/}}
+{{- define "device-controller.vdev.configJSON" -}}
+{{- $v := .Values.virtualDevices -}}
+{{- dict "enabled" true "osImage" $v.osImage "k3sVersion" $v.k3sVersion "innerCIDRs" $v.innerCIDRs "cpuOvercommit" (int $v.cpuOvercommit) "maxPerDevice" $v.maxPerDevice "storageClassName" $v.storageClassName "priorityClassName" $v.priorityClassName | toJson -}}
+{{- end }}

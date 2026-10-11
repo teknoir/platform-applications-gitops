@@ -1,0 +1,188 @@
+{{- /*
+Runtime namespace <teamspace>-vdev for virtual devices, one set per
+virtualDevices.allowances entry (plan section 3.4). Rendered only when
+virtualDevices.enabled. The controller reads the labels on the Namespace and the
+teknoir.org/allowance annotation on the ResourceQuota (admission); users get no
+RoleBindings here.
+*/ -}}
+{{- $vd := .Values.virtualDevices | default dict -}}
+{{- if $vd.enabled }}
+{{- $egress := $vd.egress | default "internet" -}}
+{{- if not (has $egress (list "internet" "platform-only")) }}
+{{- fail (printf "virtualDevices.egress must be internet or platform-only (got %q)" $egress) }}
+{{- end }}
+{{- $mp := $vd.maxPerDevice | default dict -}}
+{{- $maxCPU := atoi (include "device-controller.vdev.whole" (dict "value" $mp.cpu "unit" "" "what" "virtualDevices.maxPerDevice.cpu")) -}}
+{{- $maxMem := atoi (include "device-controller.vdev.whole" (dict "value" $mp.memory "unit" "Gi" "what" "virtualDevices.maxPerDevice.memory")) -}}
+{{- $maxDisk := atoi (include "device-controller.vdev.whole" (dict "value" $mp.disk "unit" "Gi" "what" "virtualDevices.maxPerDevice.disk")) -}}
+{{- range $ts, $allowance := ($vd.allowances | default dict) }}
+{{- if or (gt (len $ts) 58) (not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" $ts)) }}
+{{- fail (printf "virtualDevices.allowances: teamspace %q must be a DNS label of at most 58 characters (the runtime namespace is <teamspace>-vdev)" $ts) }}
+{{- end }}
+{{- $ns := printf "%s-vdev" $ts }}
+{{- $labels := dict "teknoir.org/teamspace" $ts "teknoir.org/component" "virtual-device-runtime" }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $ns }}
+  annotations:
+    # Removing an allowance (or the whole block) must never delete VMs or disks.
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+  labels:
+    teknoir.org/vdev-for: {{ $ts }}
+    teknoir.org/teamspace: {{ $ts }}
+    teknoir.org/component: virtual-device-runtime
+    # No sidecars: the device reaches the platform like an external device.
+    istio-injection: disabled
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
+---
+# Default deny in both directions for every pod in the namespace (virt-launcher, CDI
+# importer). Operators reach the device only through its reverse tunnel to deadend.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vdev-default-deny
+  namespace: {{ $ns }}
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# DNS: the guest's resolver is the outer kube-dns (handed out by the masquerade DHCP).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vdev-egress-dns
+  namespace: {{ $ns }}
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# Platform endpoints exactly as an external device uses them: MQTT over TLS (8883),
+# MQTT over WSS (8084) and the deadend reverse tunnel (2222), on the public ingress
+# gateway pods (kube-proxy DNATs the gateway's ClusterIP to them).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vdev-egress-gateway
+  namespace: {{ $ns }}
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: istio-system
+          podSelector:
+            matchLabels:
+              istio: ingressgateway-public
+      ports:
+        - protocol: TCP
+          port: 8883
+        - protocol: TCP
+          port: 8084
+        - protocol: TCP
+          port: 2222
+{{- if eq $egress "internet" }}
+---
+# Internet egress like a real device: everything except private, carrier-grade NAT,
+# link-local (cloud metadata), loopback, "this network", multicast and reserved
+# ranges. Keeps the outer pod and service networks, the node (kubelet, API server)
+# and other teamspaces out of reach.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vdev-egress-internet
+  namespace: {{ $ns }}
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 0.0.0.0/8
+              - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+              - 169.254.0.0/16
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 224.0.0.0/4
+              - 240.0.0.0/4
+{{- end }}
+---
+# The allowance annotation is the source of truth for admission (controller and
+# Backstage); the hard limits are derived from it (_helpers.tpl).
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: vdev-quota
+  namespace: {{ $ns }}
+  annotations:
+    teknoir.org/allowance: {{ include "device-controller.vdev.allowanceJSON" (dict "ns" $ts "allowance" $allowance) | quote }}
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+spec:
+  hard:
+    {{- include "device-controller.vdev.hard" (dict "ns" $ts "allowance" $allowance "overcommit" $vd.cpuOvercommit) | nindent 4 }}
+---
+# Defaults for containers that set no resources (the quota requires them) and per-object
+# maximums: the largest preset plus KubeVirt memory overhead and CDI filesystem overhead.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: vdev-limits
+  namespace: {{ $ns }}
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: 500m
+        memory: 256Mi
+      defaultRequest:
+        cpu: 50m
+        memory: 64Mi
+      max:
+        cpu: {{ $maxCPU | toString | quote }}
+        memory: {{ printf "%dGi" (add $maxMem 1) | quote }}
+    - type: PersistentVolumeClaim
+      max:
+        storage: {{ printf "%dGi" (add (div (add (mul 11 $maxDisk) 9) 10) 1) | quote }}
+{{- end }}
+{{- end }}

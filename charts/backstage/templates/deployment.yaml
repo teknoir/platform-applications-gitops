@@ -28,6 +28,10 @@ spec:
               value: "https://{{ .Values.config.domain }}"
             - name: APP_CONFIG_backend_baseUrl
               value: "https://{{ .Values.config.domain }}"
+            {{- if (.Values.virtualDevices).enabled }}
+            - name: APP_CONFIG_teknoir_virtualDevices_enabled
+              value: "true"
+            {{- end }}
             - name: LOG_LEVEL
               value: {{ .Values.config.logLevel | quote }}
             - name: PROMETHEUS_URL
