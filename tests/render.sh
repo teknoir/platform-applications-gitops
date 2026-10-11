@@ -366,8 +366,6 @@ K5_TAG_RE='^(sha-[0-9a-f]{7,}|.+-[0-9]{8}-[0-9]{6}|v?[0-9]+\.[0-9]+\.[0-9]+([-+]
 # and empties this list. An entry that is no longer rendered FAILs, so the
 # list cannot outlive the pins. --strict-pins ignores the list (bundle build).
 PENDING_IMAGE_PINS=(
-  ghcr.io/teknoir/backstage-app:sha-PENDING-WP-BS@sha256:0000000000000000000000000000000000000000000000000000000000000000
-  ghcr.io/teknoir/backstage:sha-PENDING-WP-BS@sha256:0000000000000000000000000000000000000000000000000000000000000000
 )
 
 # Roles allowed a '*' in apiGroups, resources, verbs or nonResourceURLs

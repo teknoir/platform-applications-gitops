@@ -53,25 +53,21 @@ catalog:
 # Images: <repo>:<immutable tag>@sha256:<linux/amd64 manifest digest>
 # (`crane digest --platform linux/amd64 <repo>:<tag>`; never the index digest:
 # the airgap bundle pushes only the amd64 manifest to Harbor), IfNotPresent.
-# PIN(WP-BS): the two sha-PENDING-WP-BS placeholders below are replaced by the
-# r5-backstage builds (SIGN-C4 logout, TS-C7 create-teamspace, SEC-C11
-# Kubernetes plugin for platform admins only, provider-managed sign-in: build
-# r5-backstage only after backstage r5-backstage-perm is merged into it) in
-# one commit, which also drops them from PENDING_IMAGE_PINS in tests/render.sh;
-# until then the chart must not be released (the placeholder digest does not
-# exist and the tag is not immutable).
+# PIN(WP-BS): both images are the CI build of backstage branch r5-backstage at
+# 9491c6d8 (SIGN-C4 logout, TS-C7 create-teamspace, SEC-C11 Kubernetes plugin
+# for platform admins only, provider-managed sign-in, Debian 12 base).
 
 # Backstage frontend deployment
 backstage:
   replicas: 1
-  image: ghcr.io/teknoir/backstage-app:sha-PENDING-WP-BS@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  image: ghcr.io/teknoir/backstage-app:sha-9491c6d8@sha256:149fd1228af160b3fc029460822ebfd78481fd6b6c9654c70203cf4bea9bf35a
   imagePullPolicy: IfNotPresent
   imagePullSecrets: []
 
 # Backstage API deployment
 backstageApi:
   replicas: 1
-  image: ghcr.io/teknoir/backstage:sha-PENDING-WP-BS@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  image: ghcr.io/teknoir/backstage:sha-9491c6d8@sha256:834574074c2c49c85fc6ffc66aa914fe98bf544a2a6a29c6911fad349459eee9
   imagePullPolicy: IfNotPresent
   imagePullSecrets: []
   # Root health endpoints of @backstage/backend-defaults: readiness answers
