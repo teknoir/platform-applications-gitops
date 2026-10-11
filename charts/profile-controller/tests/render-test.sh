@@ -129,7 +129,7 @@ cm() { jq -r --arg k "$2" '.[] | select(.kind == "ConfigMap" and .metadata.name 
 aoa_repo=$(yq -r .repoURL "$AOA_VALUES")
 repo=$(cm "$WORK/r.json" PLUGIN_CHART_REPO)
 [ "$repo" = "$aoa_repo" ] && ok "P3 PLUGIN_CHART_REPO=$repo (= app-of-apps repoURL)" || bad "P3 PLUGIN_CHART_REPO=$repo, app-of-apps repoURL=$aoa_repo"
-for kv in PLUGIN_CHART_VERSION=0.0.100 \
+for kv in PLUGIN_CHART_VERSION=0.0.101 \
 	OIDC_ISSUER=https://auth.teknoir.airgapped/auth/realms/teknoir \
 	OIDC_JWKS_URI='<unset>' \
 	ADMIN=anders.aslund@teknoir.ai DOMAIN=teknoir.airgapped; do
