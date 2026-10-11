@@ -21,7 +21,16 @@ For requests by the controller's own ServiceAccount only:
 - RoleBindings only to teknoir-admin, -edit or -view, for users (not
   system:); AuthorizationPolicies only ALLOW.
 Not covered: the Secret access in the credentials namespace (a Role there,
-by name) and reads. Break-glass: admissionPolicies.enabled=false.
+by name) and reads.
+The binding has the name of the policy. A denial reaches the controller log
+as "... is forbidden: ValidatingAdmissionPolicy '<policy>' with binding
+'<binding>' denied request: <message>".
+Off switch: admissionPolicies.enabled=false removes it (ArgoCD prunes it),
+but only with a new chart version and app-of-apps bump (the Applications pass
+no Helm values): a change for a later release, not a break-glass. On a live
+cluster: stop the auto-sync of the root app-of-apps and of the
+user-controller Application, delete the binding, and revert later (infra
+docs/airgap/OPERATE.md, r5).
 */}}
 {{- if .Values.admissionPolicies.enabled }}
 {{- $name := include "user-controller.fullname" . }}

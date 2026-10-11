@@ -82,7 +82,15 @@ profiles:
 # namespaced writes only in namespaces its Profile owns, RoleBindings only to
 # teknoir-admin/-edit/-view, and Applications/AppProjects only when a
 # teamspace Profile owns them and only in the narrowed teamspace shape. They
-# never touch requests by anyone else. false is the break-glass.
+# never touch requests by anyone else (people, ArgoCD, other controllers).
+# false is the permanent off switch, for a later release: it takes a new chart
+# version, an app-of-apps bump and a new bundle (the app-of-apps Applications
+# pass no Helm values, and Harbor takes each chart version once). It is not
+# the break-glass on a live cluster; that is in infra docs/airgap/OPERATE.md
+# (r5, "Controller RBAC and admission policies"): stop the auto-sync of the
+# root app-of-apps and of this Application, then delete the
+# ValidatingAdmissionPolicyBinding that denies (profile-controller-teamspaces
+# or profile-controller-argocd).
 admissionPolicies:
   enabled: true
 

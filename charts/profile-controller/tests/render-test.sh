@@ -32,7 +32,8 @@
 #      CRD (unknown fields rejected; a bad Profile is caught); SKIP without
 #      kubeconform
 #   P10 admission policies: profile-controller-teamspaces and -argocd, each
-#      bound with Deny, failurePolicy Fail, matched only on the controller's
+#      bound with Deny by exactly one binding of the same name (the name the
+#      OPERATE break-glass deletes), failurePolicy Fail, matched only on the controller's
 #      ServiceAccount; every kind the RBAC lets it write (except events and
 #      its Profiles) is matched by one of them; the AppProject/Application
 #      repository is PLUGIN_CHART_REPO (the compiled default when empty);
@@ -289,6 +290,8 @@ for n in profile-controller-teamspaces profile-controller-argocd; do
 	[ "$b" = "Fail request.userInfo.username == \"$SA_USER\"" ] && ok "P10 $n: failurePolicy Fail, only requests by $SA_USER" || bad "P10 $n: $b"
 	b=$(jq -r --arg n "$n" '[.[] | select(.kind == "ValidatingAdmissionPolicyBinding" and .spec.policyName == $n) | .spec.validationActions | join(",")] | join(" ")' "$WORK/r.json")
 	[ "$b" = Deny ] && ok "P10 $n: bound with validationActions [Deny]" || bad "P10 $n bindings: '$b'"
+	b=$(jq -r --arg n "$n" '[.[] | select(.kind == "ValidatingAdmissionPolicyBinding" and .spec.policyName == $n) | .metadata.name] | join(" ")' "$WORK/r.json")
+	[ "$b" = "$n" ] && ok "P10 $n: its one binding is named $n (OPERATE break-glass)" || bad "P10 $n: binding names '$b', the break-glass deletes '$n'"
 	b=$(jq -r '[.spec.validations[] | select(.reason != "Forbidden" or (.message // "") == "")] | length' <<<"$v")
 	[ "$b" = 0 ] && ok "P10 $n: every validation has a message and reason Forbidden" || bad "P10 $n: $b validations without message/Forbidden"
 done

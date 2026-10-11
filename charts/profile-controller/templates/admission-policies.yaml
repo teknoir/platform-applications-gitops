@@ -36,7 +36,15 @@ Secrets cluster-wide (SEC-C7, until it uses an API reader). An ownerReference
 can name a Profile that does not exist, so a compromised controller can still
 make an AppProject for any non-reserved name and deploy plugin charts into
 that namespace; every existing platform namespace is reserved.
-Break-glass: admissionPolicies.enabled=false removes both (ArgoCD prunes them).
+Each binding has the name of its policy. A denial reaches the controller log
+as "... is forbidden: ValidatingAdmissionPolicy '<policy>' with binding
+'<binding>' denied request: <message>".
+Off switch: admissionPolicies.enabled=false removes both (ArgoCD prunes them),
+but only with a new chart version and app-of-apps bump (the Applications pass
+no Helm values): a change for a later release, not a break-glass. On a live
+cluster: stop the auto-sync of the root app-of-apps and of the
+profile-controller Application, delete the binding named in the denial, and
+revert later (infra docs/airgap/OPERATE.md, r5).
 */}}
 {{- if .Values.admissionPolicies.enabled }}
 {{- $name := include "profile-controller.fullname" . }}
