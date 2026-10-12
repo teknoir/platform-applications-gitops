@@ -7,8 +7,7 @@ project: teknoir-cloud
 # nothing if it is cherry-picked onto another environment branch.
 virtualDevices:
   enabled: true
-  # S1 spike VM (charts/virtual-device-spike), teknoir-cloud only. ON for the S1 run: the test
-  # Device vd-spike-1 exists and renderer.digest is pinned. Set back to false to clean up; see
-  # hack/virtual-device-spike/README.md, "S1 delivered by GitOps".
+  # S1 spike VM (charts/virtual-device-spike), teknoir-cloud only. Retired: the spike is done and
+  # Phase 1 virtual devices (device-controller) replace it. Chart code kept for reference.
   spike:
-    enabled: true
+    enabled: false
