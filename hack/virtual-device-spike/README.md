@@ -114,10 +114,11 @@ Order (the flag is off until step 3):
    Why not a Device in git: the controller fallback generates only the RSA pair, no
    password, and the bootstrap's `chpasswd` and `check.sh`'s sudo need it.
 4. A PR sets `virtualDevices.spike.enabled: true` in `charts/app-of-apps/values.yaml`.
-   Argo CD creates Application `virtual-device-spike`; wave 0 creates the namespaces
-   and RBAC, wave 1 runs the Job, wave 2 creates the VM. Then continue with step 6.
+   Argo CD creates Application `virtual-device-spike`; wave 0 creates the render namespace
+   and RBAC (the `<teamspace>-vdev` namespace with its policies, quota and limits is owned by
+   the device-controller Application, which must be synced first), wave 1 runs the Job, wave 2 creates the VM. Then continue with step 6.
 5. Cleanup: a PR sets `spike.enabled: false`. The Application's finalizer deletes the
-   VM (with its VMI and DataVolume/PVC), both namespaces (with the Job and the Secret)
+   VM (with its VMI and DataVolume/PVC), the render namespace (with the Job) and the cloud-init Secret
    and the Role/RoleBinding in the teamspace. Then delete the Device in Backstage so its
    finalizer revokes the JWKS and deadend keys. KubeVirt and CDI stay.
 
