@@ -5,9 +5,9 @@ replicaCount: 1
 image:
   repository: ghcr.io/teknoir/device-controller
   # Pinned: '<immutable tag>@sha256:<linux/amd64 manifest digest>',
-  # device-controller b23700b (applicationset, includes vd0-safety #37).
+  # device-controller 87b8ebf = applicationset-20261012-112318, index sha256:14bbc608e32007d9c294705f0b6aecb5bcab0e7ba66ebdc88b89d5e92c1573e5 (virtual devices Phase 1 runtime). Previous pin: sha-b23700ba@sha256:1b96d735b10e4e0cb80e29cfe9e3a46a93e5efde01f7b4b1973db81e3ad82de4.
   # Change it only by promoting a new sha-<commit> through this branch.
-  tag: "sha-b23700ba@sha256:1b96d735b10e4e0cb80e29cfe9e3a46a93e5efde01f7b4b1973db81e3ad82de4"
+  tag: "sha-87b8ebfb@sha256:d9cc97729ba89b9a4671dca463f772ec48767a3d7acca194de94aae2d10d7034"
   pullPolicy: IfNotPresent
 
 imagePullSecrets:
