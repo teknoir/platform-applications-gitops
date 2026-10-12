@@ -242,12 +242,12 @@ if helm template s "$CHART" --set renderer.digest= >/dev/null 2>"$TMP/helm-nodig
 helm template s "$CHART" --set renderer.digest="sha256:$(printf 'a%.0s' $(seq 64))" --set device.name=vd-s1-fixture >"$TMP/chart.yaml" && ok "helm template" || bad "helm template"
 if kubeconform -strict -summary -kubernetes-version 1.34.0 -cache "$CACHE" \
   -schema-location default -schema-location "${CRDS_CATALOG}/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" "$TMP/chart.yaml"; then ok "kubeconform -strict on the rendered chart"; else bad "kubeconform on the chart"; fi
-python3 -I - "$TMP/chart.yaml" "$TMP/out/00-namespace.yaml" "$TMP/out/20-vm.yaml" <<'PY' && ok "chart = render.sh namespace and VM; Job, RBAC and render namespace as designed" || bad "chart assertions"
+python3 -I - "$TMP/chart.yaml" "$TMP/out/20-vm.yaml" <<'PY' && ok "chart = render.sh VM; Job, RBAC and render namespace as designed; no vdev namespace objects" || bad "chart assertions"
 import sys, yaml
 docs = [d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
 key = lambda d: (d["kind"], d["metadata"]["name"])
 by = {key(d): d for d in docs}
-want = [d for f in sys.argv[2:4] for d in yaml.safe_load_all(open(f)) if d]
+want = [d for f in sys.argv[2:3] for d in yaml.safe_load_all(open(f)) if d]
 for w in want:
     c = yaml.safe_load(yaml.dump(by[key(w)]))
     ann = c["metadata"].get("annotations", {})
@@ -272,9 +272,11 @@ assert "-in-cluster" in c["args"] and "-device=vd-s1-fixture" in c["args"]
 ns = by[("Namespace", "teknoir-vdev-spike")]
 assert ns["metadata"]["labels"]["pod-security.kubernetes.io/enforce"] == "restricted" and ns["metadata"]["labels"]["istio-injection"] == "disabled"
 assert not [d for d in docs if d["kind"] == "NetworkPolicy" and d["metadata"].get("namespace") == "teknoir-vdev-spike"]
-# No hole for the API server in the vdev egress policies: only DNS, MQTT/WSS/deadend and the internet profile.
-ports = {p["port"] for d in docs if d["kind"] == "NetworkPolicy" for e in d["spec"].get("egress", []) for p in e.get("ports", [])}
-assert ports == {53, 8883, 8084, 2222}, ports
+# The vdev namespace, NetworkPolicies, ResourceQuota and LimitRange are owned by the
+# device-controller Application (charts/device-controller virtual-devices-runtime.yaml),
+# never by this chart: two owners made both Applications flap.
+assert not [d for d in docs if d["kind"] in ("NetworkPolicy", "ResourceQuota", "LimitRange")], "vdev runtime objects must not be in this chart"
+assert ("Namespace", "teknoir-demo-vdev") not in by, "vdev Namespace must not be in this chart"
 rules = {(d["metadata"]["namespace"], d["metadata"]["name"]): d["rules"] for d in docs if d["kind"] == "Role"}
 assert rules == {
     ("teknoir-demo", "vd-spike-render-device"): [{"apiGroups": ["teknoir.org"], "resources": ["devices"], "resourceNames": ["vd-s1-fixture"], "verbs": ["get"]}],

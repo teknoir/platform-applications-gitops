@@ -13,7 +13,6 @@ environment is `teknoir-cloud`. The default is off. It needs the runtime of
 
 | Template | Wave | What |
 |---|---|---|
-| `namespace.yaml` | 0 | `<teamspace>-vdev`: PSA baseline, default-deny NetworkPolicies with minimal egress, ResourceQuota, LimitRange. Identical to `hack/virtual-device-spike/manifests/teknoir-demo-vdev.yaml` (checked by `test/run.sh`). |
 | `render-namespace.yaml` | 0 | `teknoir-vdev-spike`: where the Job runs (PSA restricted, no Istio injection). A separate namespace, so the -vdev egress policy needs no API-server rule. |
 | `render-rbac.yaml` | 0 | ServiceAccount `vd-spike-render`. Get the one Device; get and create Secrets in the vdev namespace. No list, watch, update, patch or delete. |
 | `render-job.yaml` | 1 (Sync hook) | `vdev-spike-render -in-cluster`: if Secret `<device>-cloudinit` exists, do nothing (the k3s token of a running VM stays stable); otherwise render the bootstrap and the cloud-init in memory and create the Secret. Fails, and stops the sync before the VM, when the Device is missing. |
