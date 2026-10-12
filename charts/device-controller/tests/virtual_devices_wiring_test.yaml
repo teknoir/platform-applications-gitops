@@ -9,7 +9,7 @@ tests:
     asserts:
       - equal:
           path: data.VIRTUAL_DEVICES
-          value: '{"cpuOvercommit":2,"enabled":true,"innerCIDRs":{"cluster":"10.52.0.0/16","dns":"10.53.0.10","service":"10.53.0.0/16"},"k3sVersion":"v1.34.11+k3s1","maxPerDevice":{"cpu":"4","disk":"40Gi","memory":"8Gi"},"osImage":"docker://ghcr.io/teknoir/vdevice-os@sha256:019d2d2c4bfa042c79d5f61fb5708fbb41721f56307ec7be73b00e8a74d12c10","priorityClassName":"teknoir-virtual-device","storageClassName":"local-path"}'
+          value: '{"cpuOvercommit":2,"enabled":true,"innerCIDRs":{"cluster":"10.52.0.0/16","dns":"10.53.0.10","service":"10.53.0.0/16"},"k3sVersion":"v1.34.11+k3s1","maxPerDevice":{"cpu":"4","disk":"40Gi","memory":"8Gi"},"osImage":"docker://quay.io/containerdisks/debian@sha256:6b992c4a8a62ca57858cbbf60110e673928d27b2885ea2a106660bc26b112b5b","priorityClassName":"teknoir-virtual-device","storageClassName":"local-path"}'
       - notMatchRegex:
           path: data.VIRTUAL_DEVICES
           pattern: "allowance|teknoir-demo"
