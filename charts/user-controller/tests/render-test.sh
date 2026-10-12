@@ -15,7 +15,8 @@
 #   U4 Role leases in teknoir-system; Secret Role in the credentials
 #      namespace only, get/create/update/delete (no list/watch); every
 #      binding's subject is the controller's ServiceAccount
-#   U5 Namespace teknoir-user-credentials, Prune=false,Delete=false
+#   U5 Namespace teknoir-user-credentials, Prune=false,Delete=false and
+#      compare-options IgnoreExtraneous (a rollback to a pre-r5 chart leaves it behind)
 #   U6 ConfigMap USER_CREDENTIALS_NAMESPACE and INITIAL_PASSWORD_TTL (K1);
 #      a credentials.namespace override reaches the Namespace, the Role,
 #      its binding and the ConfigMap
@@ -121,6 +122,8 @@ b=$(jq -r '[.[] | select(.kind == "RoleBinding") | "\(.metadata.namespace)/\(.me
 # --- U5 -----------------------------------------------------------------------
 b=$(jq -r '.[] | select(.kind == "Namespace" and .metadata.name == "teknoir-user-credentials") | .metadata.annotations["argocd.argoproj.io/sync-options"] // "none"' "$WORK/r.json")
 [ "$b" = "Prune=false,Delete=false" ] && ok "U5 Namespace teknoir-user-credentials with Prune=false,Delete=false" || bad "U5 credentials Namespace: '${b:-missing}'"
+b=$(jq -r '.[] | select(.kind == "Namespace" and .metadata.name == "teknoir-user-credentials") | .metadata.annotations["argocd.argoproj.io/compare-options"] // "none"' "$WORK/r.json")
+[ "$b" = "IgnoreExtraneous" ] && ok "U5b Namespace teknoir-user-credentials is IgnoreExtraneous (a pre-r5 chart after a rollback stays Synced)" || bad "U5b credentials Namespace compare-options: '${b:-missing}'"
 
 # --- U6 -----------------------------------------------------------------------
 cm() { jq -r --arg k "$2" '.[] | select(.kind == "ConfigMap" and .metadata.name == "user-controller-config") | .data[$k] // "unset"' "$1"; }
