@@ -3,6 +3,10 @@ domainPrefix:
 
 emqx:
   replicaCount: 1
+  # Adds a checksum/config annotation (sha of the upstream configmap, which holds
+  # emqxConfig) to the StatefulSet pod template, so a config change rolls EMQX.
+  # Certificate renewal does not need this: see README.
+  recreatePods: true
   image:
     registry: emqx/emqx
     version: 5.8.9
