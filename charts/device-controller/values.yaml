@@ -77,7 +77,8 @@ affinity: {}
 # virtual-device-phase1-plan.md section 3.4 / 3.7.
 virtualDevices:
   enabled: true                # teknoir-cloud (staging) only
-  osImage: docker://quay.io/containerdisks/debian@sha256:6b992c4a8a62ca57858cbbf60110e673928d27b2885ea2a106660bc26b112b5b
+  # TRIAL (boot check of vdevice-os). Previous default: docker://quay.io/containerdisks/debian@sha256:6b992c4a8a62ca57858cbbf60110e673928d27b2885ea2a106660bc26b112b5b
+  osImage: docker://ghcr.io/teknoir/vdevice-os@sha256:019d2d2c4bfa042c79d5f61fb5708fbb41721f56307ec7be73b00e8a74d12c10
   k3sVersion: v1.34.11+k3s1
   innerCIDRs: {cluster: 10.52.0.0/16, service: 10.53.0.0/16, dns: 10.53.0.10}
   cpuOvercommit: 2
