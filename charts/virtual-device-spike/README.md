@@ -19,6 +19,6 @@ environment is `teknoir-cloud`. The default is off. It needs the runtime of
 | `render-job.yaml` | 1 (Sync hook) | `vdev-spike-render -in-cluster`: if Secret `<device>-cloudinit` exists, do nothing (the k3s token of a running VM stays stable); otherwise render the bootstrap and the cloud-init in memory and create the Secret. Fails, and stops the sync before the VM, when the Device is missing. |
 | `vm.yaml` | 2 | The `VirtualMachine` and its DataVolume (same as `render.sh`'s `20-vm.yaml`). |
 
-`renderer.digest` has no default: pin the digest of a `vdev-spike-render` build
+`renderer.digest` is pinned to a `vdev-spike-render` build; an empty value fails the render
 (`.github/workflows/vdev-spike-render.yaml`) before enabling the spike. Rendering
 without it fails.

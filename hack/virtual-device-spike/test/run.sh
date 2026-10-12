@@ -237,8 +237,8 @@ if "$RENDERER" -in-cluster -api-url https://127.0.0.1:1 -token-file "$TMP/sa-tok
   -service-cidr "$VDS_SERVICE_CIDR" -cluster-dns "$VDS_CLUSTER_DNS" -cli-ref "$VDS_CLI_REF" >/dev/null 2>&1; then bad "invalid device name accepted"; else ok "invalid device name refused before any request"; fi
 
 step "charts/virtual-device-spike"
-if helm template s "$CHART" >/dev/null 2>"$TMP/helm-nodigest.err"; then bad "chart rendered without renderer.digest"; else
-  grep -q 'renderer.digest must be pinned' "$TMP/helm-nodigest.err" && ok "renderer.digest has no default: rendering without it fails" || bad "unexpected error without digest"; fi
+if helm template s "$CHART" --set renderer.digest= >/dev/null 2>"$TMP/helm-nodigest.err"; then bad "chart rendered without renderer.digest"; else
+  grep -q 'renderer.digest must be pinned' "$TMP/helm-nodigest.err" && ok "an empty renderer.digest fails the render" || bad "unexpected error without digest"; fi
 helm template s "$CHART" --set renderer.digest="sha256:$(printf 'a%.0s' $(seq 64))" --set device.name=vd-s1-fixture >"$TMP/chart.yaml" && ok "helm template" || bad "helm template"
 if kubeconform -strict -summary -kubernetes-version 1.34.0 -cache "$CACHE" \
   -schema-location default -schema-location "${CRDS_CATALOG}/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" "$TMP/chart.yaml"; then ok "kubeconform -strict on the rendered chart"; else bad "kubeconform on the chart"; fi
