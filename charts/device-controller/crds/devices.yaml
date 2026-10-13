@@ -523,6 +523,15 @@ spec:
                   WireGuard is set by the WireGuard (ZTNA) plugin while WireGuard is enabled
                   for the device by its ztna.teknoir.org/wireguard annotation.
                 properties:
+                  approvedEpoch:
+                    description: |-
+                      ApprovedEpoch is the enrollment epoch in which the controller copied an
+                      admin approval into the policy. The policy's approved fingerprint is set
+                      only while this equals the policy's epoch, and the approval annotation is
+                      removed whenever a new enrollment window opens, so an approval can never
+                      carry over from an earlier window to an identity that enrolls in a later
+                      one.
+                    type: string
                   approvedFingerprint:
                     description: |-
                       ApprovedFingerprint is the identity fingerprint an admin approved (annotation

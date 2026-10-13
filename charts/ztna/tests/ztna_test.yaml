@@ -122,6 +122,16 @@ tests:
               fieldRef:
                 fieldPath: metadata.namespace
 
+  - it: does not trust a client address header (servicelb hides client addresses)
+    template: templates/hub.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: {name: CLIENT_IP_HEADER, value: X-Envoy-External-Address}
+
   - it: follows the domain
     template: templates/hub.yaml
     set:

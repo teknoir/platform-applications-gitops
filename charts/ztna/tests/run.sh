@@ -254,6 +254,8 @@ assert spec["securityContext"]["runAsNonRoot"] is True and c["securityContext"][
 assert c["securityContext"]["capabilities"] == {"drop": ["ALL"]} and c["securityContext"]["allowPrivilegeEscalation"] is False
 assert "hostNetwork" not in spec and not spec.get("hostPID")
 assert [(p["name"], p["containerPort"]) for p in c["ports"]] == [("http", 8080), ("http-internal", 8081), ("metrics", 9090), ("wg", 51820)], c["ports"]
+# k3s servicelb SNATs client addresses: no client address header may be trusted until real client IPs are verified
+assert "CLIENT_IP_HEADER" not in [e["name"] for e in c.get("env", [])], "CLIENT_IP_HEADER must not be set on the hub (see charts/ztna/README.md, Client IP)"
 # --- flags watcher: same image, own SA, no ports, hardened
 fdep = deps["wg-flags"]
 fs = fdep["spec"]["template"]["spec"]
@@ -326,7 +328,7 @@ assert names(on) - names(off) == {("Role", "device-controller-ztna"), ("RoleBind
 assert not names(off) - names(on)
 print("ok   STUNner Gateway/GatewayClass/GatewayConfig/UDPRoute (port 51820, no endPort, cross-namespace backend), hub Deployment hardening, Roles, no Secrets in Git, device-controller ZTNA key and Role")
 PY
-python3 -I - "${CHARTS}/device-controller/crds/devices.yaml" <<'PY' && ok "Device CRD: status.wireguard next to status.virtual_device with the 17 fields" || bad "Device CRD status.wireguard"
+python3 -I - "${CHARTS}/device-controller/crds/devices.yaml" <<'PY' && ok "Device CRD: status.wireguard next to status.virtual_device with the 18 fields" || bad "Device CRD status.wireguard"
 import sys, yaml
 crd = yaml.safe_load(open(sys.argv[1]))
 st = crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["status"]["properties"]
@@ -335,7 +337,7 @@ w = st["wireguard"]["properties"]
 want = {"enabled": "boolean", "state": "string", "reasons": "array", "note": "string", "enrollmentGeneration": "integer",
         "enrollUntil": "string", "lastReenrollRequest": "string", "lastFlagsSet": "boolean", "identityFingerprint": "string",
         "enrolledAt": "string", "enrollmentConflicts": "integer", "webTerminalURL": "string", "policyUpdatedAt": "string", "message": "string",
-        "approvedFingerprint": "string", "identityApproved": "boolean", "identityVoided": "boolean"}
+        "approvedFingerprint": "string", "approvedEpoch": "string", "identityApproved": "boolean", "identityVoided": "boolean"}
 assert {k: v["type"] for k, v in w.items()} == want, {k: v["type"] for k, v in w.items()}
 assert w["enrollmentGeneration"]["format"] == "int64" and w["reasons"]["items"]["type"] == "string"
 assert "required" not in st["wireguard"], "all fields optional"

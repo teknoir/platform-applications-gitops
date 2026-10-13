@@ -109,14 +109,19 @@ Backstage's service account has cluster-wide `teknoir-admin`, so RBAC alone does
 
 ## Client IP and rate limits
 
-The hub sets `CLIENT_IP_HEADER=X-Envoy-External-Address` for per-IP rate limiting. **Caveat (k3s servicelb / klipper)**: on r415
-both ingress gateway Services are `LoadBalancer` with `externalTrafficPolicy: Cluster` behind klipper-lb, which masquerades the
-traffic, so Envoy sees the svclb/node address for every client and the header is the same for everybody. The per-IP limit then
-degrades to one shared limit (the hub keeps a global backstop and a per-subject cap, but a flood on the public
-`wg-device.<domain>:8084` can still starve everyone). The chart sets **no** trusted-proxy option (`numTrustedProxies` /
-`xff`): it has not been verified on r415 that the hub then logs distinct client addresses. Before gate 8, check the hub's
-logs for distinct addresses; the fix is `externalTrafficPolicy: Local` on `istio-ingressgateway` and
-`istio-ingressgateway-public` (charts/istio, an infra decision), not anything in this chart.
+The hub does **not** set `CLIENT_IP_HEADER`, so it applies no per-IP rate limit; only the global backstop per endpoint and the
+per-subject caps limit requests. Reason (k3s servicelb / klipper): on r415 both ingress gateway Services are `LoadBalancer`
+with `externalTrafficPolicy: Cluster` behind klipper-lb, which masquerades the traffic, so Envoy sees the svclb/node address
+for every client and `X-Envoy-External-Address` would be the same private address for everybody. (The hub also ignores a
+header value that is loopback, private, CGNAT, link-local or unspecified, so setting it there would not make things worse,
+but it would not help either.) A flood on the public `wg-device.<domain>:8084` can therefore still use up the global
+backstop.
+
+To switch per-IP limiting on: make real client addresses reach Envoy (`externalTrafficPolicy: Local` on
+`istio-ingressgateway` and `istio-ingressgateway-public`, an infra decision in charts/istio, plus the trusted-proxy setting
+if a proxy sits in front), verify in the hub logs that distinct public addresses show up, and only then add
+`CLIENT_IP_HEADER=X-Envoy-External-Address` to the hub Deployment. `charts/ztna/tests/run.sh` fails while the variable is
+present, so removing that check is part of the change.
 
 ## Image pull secret
 
