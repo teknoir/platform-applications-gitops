@@ -28,4 +28,4 @@ virtualDevices:
 # templates/_helpers.tpl (teknoir-cloud only), so this flag does nothing if it is
 # cherry-picked onto another environment branch.
 ztna:
-  enabled: false
+  enabled: true

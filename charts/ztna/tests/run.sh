@@ -156,10 +156,18 @@ if git -C "$REPO" rev-parse --verify -q "$BASE_REF" >/dev/null; then
       args=()
       [[ $n == app-of-apps ]] && args=(--set project="$proj")
       helm template "$n" "$TMP/base/charts/$n" --namespace x "${args[@]}" >"$TMP/base-$n.yaml" 2>"$TMP/base-$n.err" || { echo "skip $n (base render failed: $(head -c 150 "$TMP/base-$n.err"))"; continue 2; }
-      helm template "$n" "$TMP/head/charts/$n" --namespace x "${args[@]}" >"$TMP/head-$n.yaml" 2>"$TMP/head-$n.err" || { cat "$TMP/head-$n.err"; bad "$n does not render"; continue 2; }
+      # Force the switch off on the head render (the branch may ship it on), so this compares
+      # only what the off state would change.
+      hargs=("${args[@]}")
+      [[ $n == app-of-apps ]] && hargs+=(--set ztna.enabled=false)
+      helm template "$n" "$TMP/head/charts/$n" --namespace x "${hargs[@]}" >"$TMP/head-$n.yaml" 2>"$TMP/head-$n.err" || { cat "$TMP/head-$n.err"; bad "$n does not render"; continue 2; }
       # charts that generate random values (harbor passwords) cannot be compared byte for byte
       helm template "$n" "$TMP/base/charts/$n" --namespace x "${args[@]}" 2>/dev/null | cmp -s - "$TMP/base-$n.yaml" || { echo "skip $n (the base render is not deterministic)"; continue 2; }
-      cmp -s "$TMP/base-$n.yaml" "$TMP/head-$n.yaml" || { diff "$TMP/base-$n.yaml" "$TMP/head-$n.yaml" | head -10 || true; bad "$n ($proj): render with the flag off differs from $BASE_REF"; continue 2; }
+      # An image promotion (a changed '<repo>:<tag>' or 'tag:' line) is an expected difference
+      # with the flag off; everything else must be byte-identical.
+      grep -v -E '^\s*image: |^\s*tag: ' "$TMP/base-$n.yaml" >"$TMP/base-$n.cmp"
+      grep -v -E '^\s*image: |^\s*tag: ' "$TMP/head-$n.yaml" >"$TMP/head-$n.cmp"
+      cmp -s "$TMP/base-$n.cmp" "$TMP/head-$n.cmp" || { diff "$TMP/base-$n.yaml" "$TMP/head-$n.yaml" | head -10 || true; bad "$n ($proj): render with the flag off differs from $BASE_REF"; continue 2; }
       [[ $n == app-of-apps ]] || break   # only app-of-apps depends on the project
     done
     ok "$n: byte-identical to $BASE_REF with ztna off"
