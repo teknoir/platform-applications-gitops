@@ -10,6 +10,15 @@ app.kubernetes.io/name: wg-hub
 app.kubernetes.io/part-of: teknoir-ztna
 {{- end -}}
 
+{{/* Labels and selector of the flags watcher. */}}
+{{- define "ztna.flagsLabels" -}}
+app.kubernetes.io/name: wg-flags
+app.kubernetes.io/part-of: teknoir-ztna
+{{- end -}}
+{{- define "ztna.flagsSelector" -}}
+app.kubernetes.io/name: wg-flags
+{{- end -}}
+
 {{/* Selector of the hub pods (fixed: the Service, AuthorizationPolicy and NetworkPolicies use it). */}}
 {{- define "ztna.hubSelector" -}}
 app.kubernetes.io/name: wg-hub
@@ -21,4 +30,7 @@ system:serviceaccount:{{ .Release.Namespace }}:wg-hub
 {{- end -}}
 {{- define "ztna.controllerUser" -}}
 system:serviceaccount:{{ .Values.deviceController.namespace }}:{{ .Values.deviceController.serviceAccount }}
+{{- end -}}
+{{- define "ztna.flagsUser" -}}
+system:serviceaccount:{{ .Release.Namespace }}:wg-flags
 {{- end -}}

@@ -4,6 +4,7 @@ release:
   namespace: teknoir-ztna
 templates:
   - templates/hub.yaml
+  - templates/flags.yaml
   - templates/rbac.yaml
   - templates/routing.yaml
   - templates/namespace.yaml
@@ -152,6 +153,7 @@ tests:
           path: spec.ports
           value:
             - {name: http, port: 8080, targetPort: http, protocol: TCP}
+            - {name: http-internal, port: 8081, targetPort: http-internal, protocol: TCP}
             - {name: http-metrics, port: 9090, targetPort: metrics, protocol: TCP}
             - {name: wg, port: 51820, targetPort: wg, protocol: UDP}
 
@@ -176,11 +178,8 @@ tests:
       - hasDocuments:
           count: 3
 
-  - it: gives the hub least-privilege cluster rights
+  - it: gives the hub least-privilege cluster rights and no access to Devices
     template: templates/rbac.yaml
-    documentSelector:
-      path: kind
-      value: ClusterRole
     asserts:
       - equal:
           path: rules
@@ -191,15 +190,80 @@ tests:
             - apiGroups: [authentication.k8s.io]
               resources: [tokenreviews]
               verbs: [create]
+        documentIndex: 0
+      - notMatchRegex:
+          path: rules[0].resources[0]
+          pattern: devices
+        documentIndex: 0
+
+  - it: gives only the flags watcher read access to Devices
+    template: templates/rbac.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: wg-flags
+        documentIndex: 6
+      - equal:
+          path: rules
+          value:
             - apiGroups: [teknoir.org]
               resources: [devices]
               verbs: [get, list, watch]
+        documentIndex: 6
+      - equal:
+          path: subjects
+          value: [{kind: ServiceAccount, name: wg-flags, namespace: teknoir-ztna}]
+        documentIndex: 7
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [""]
+              resources: [configmaps]
+              verbs: [get, list, watch, create, update, patch, delete]
+        documentIndex: 8
+      - equal:
+          path: metadata.namespace
+          value: teknoir-ztna
+        documentIndex: 8
+
+  - it: runs the flags watcher from the hub image with the flags-watcher command, no ports
+    template: templates/flags.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: wg-flags
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: "ghcr.io/teknoir/wg-hub:sha-0123abcd@sha256:3333333333333333333333333333333333333333333333333333333333333333"
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value: [flags-watcher]
+      - notExists:
+          path: spec.template.spec.containers[0].ports
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+
+  - it: denies all mesh traffic to the flags watcher
+    template: templates/flags.yaml
+    documentSelector:
+      path: kind
+      value: AuthorizationPolicy
+    asserts:
+      - equal:
+          path: spec.action
+          value: ALLOW
+      - notExists:
+          path: spec.rules
 
   - it: lets the hub read the TURN secret by name only, in the STUNner namespace
     template: templates/rbac.yaml
     asserts:
       - hasDocuments:
-          count: 6
+          count: 10
       - equal:
           path: metadata.namespace
           value: stunner-system
@@ -278,7 +342,7 @@ tests:
           value:
             - port: 8084
 
-  - it: admits the ingress gateways, the namespace and Prometheus to the hub, nothing else
+  - it: admits the ingress gateways to 8080, the namespace to 8081 and Prometheus to 9090, nothing else
     template: templates/routing.yaml
     documentSelector:
       path: kind
@@ -303,7 +367,7 @@ tests:
                     namespaces: [teknoir-ztna]
               to:
                 - operation:
-                    ports: ["8080"]
+                    ports: ["8081"]
             - from:
                 - source:
                     principals: [cluster.local/ns/teknoir-system/sa/monitoring-prometheus]
@@ -375,6 +439,25 @@ tests:
           path: spec.template.spec.securityContext.runAsNonRoot
           value: true
 
+  - it: repeats the copy hourly with a CronJob so a rotated token needs no sync
+    template: templates/pull-secret.yaml
+    documentSelector:
+      path: kind
+      value: CronJob
+    asserts:
+      - equal:
+          path: spec.schedule
+          value: "17 * * * *"
+      - equal:
+          path: spec.concurrencyPolicy
+          value: Forbid
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.serviceAccountName
+          value: ztna-pull-secret
+      - equal:
+          path: spec.jobTemplate.spec.template.metadata.annotations["sidecar.istio.io/inject"]
+          value: "false"
+
   - it: renders no pull secret copy when the image is public
     template: templates/pull-secret.yaml
     set:
@@ -382,3 +465,64 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: names the flags watcher as the only writer of flags ConfigMaps
+    template: templates/admission.yaml
+    documentSelector:
+      path: metadata.name
+      value: ztna-policy-store
+    asserts:
+      - matchRegex:
+          path: spec.validations[2].expression
+          pattern: "username == 'system:serviceaccount:teknoir-ztna:wg-flags'"
+      - matchRegex:
+          path: spec.variables[2].expression
+          pattern: "ztna-flags-"
+      - matchRegex:
+          path: spec.validations[4].expression
+          pattern: "wg-flags.*variables.isFlags"
+
+  - it: limits who may create or update pods and workloads in the ZTNA namespaces
+    template: templates/admission.yaml
+    documentSelector:
+      path: metadata.name
+      value: ztna-workloads
+    asserts:
+      - equal:
+          path: spec.matchConstraints.resourceRules[1].resources
+          value: [deployments, replicasets, statefulsets, daemonsets]
+      - equal:
+          path: spec.matchConstraints.resourceRules[2].resources
+          value: [jobs, cronjobs]
+      - equal:
+          path: spec.matchConstraints.resourceRules[0].operations
+          value: [CREATE, UPDATE]
+      - matchRegex:
+          path: spec.variables[1].expression
+          pattern: "device-controller-service-account.*argocd-application-controller.*stunner-gateway-operator-controller-manager"
+      - matchRegex:
+          path: spec.validations[0].expression
+          pattern: "system:serviceaccount:kube-system:.*system:kube-controller-manager"
+
+  - it: binds the workload policy to the hub and STUNner namespaces
+    template: templates/admission.yaml
+    documentSelector:
+      path: metadata.name
+      value: ztna-workloads-binding
+    asserts:
+      - equal:
+          path: spec.matchResources.namespaceSelector.matchExpressions[0].values
+          value: [teknoir-ztna, stunner-system]
+
+  - it: reserves TokenRequest for the ZTNA service accounts to the kubelet and kube-system
+    template: templates/admission.yaml
+    documentSelector:
+      path: metadata.name
+      value: ztna-no-token-mint
+    asserts:
+      - equal:
+          path: spec.matchConstraints.resourceRules[0].resources
+          value: [serviceaccounts/token]
+      - matchRegex:
+          path: spec.validations[0].expression
+          pattern: "'wg-hub', 'wg-flags'.*startsWith\\('wgt-'\\).*system:node:.*system:serviceaccount:kube-system:"

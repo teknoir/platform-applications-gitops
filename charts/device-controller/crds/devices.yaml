@@ -523,6 +523,12 @@ spec:
                   WireGuard is set by the WireGuard (ZTNA) plugin while WireGuard is enabled
                   for the device by its ztna.teknoir.org/wireguard annotation.
                 properties:
+                  approvedFingerprint:
+                    description: |-
+                      ApprovedFingerprint is the identity fingerprint an admin approved (annotation
+                      ztna.teknoir.org/approved-identity); a pinned identity gets sessions only
+                      when it matches.
+                    type: string
                   enabled:
                     description: Enabled is true while the device has the WireGuard
                       annotation set to "enabled".
@@ -548,6 +554,15 @@ spec:
                       IdentityFingerprint is the fingerprint of the device agent identity key
                       pinned by the hub for the current enrollment generation.
                     type: string
+                  identityApproved:
+                    description: IdentityApproved is true when the pinned identity matches
+                      the fingerprint an admin approved.
+                    type: boolean
+                  identityVoided:
+                    description: IdentityVoided is true when the hub voided the pinned
+                      identity (compromised or health-check-failed flag); re-admission needs
+                      a new identity.
+                    type: boolean
                   lastFlagsSet:
                     description: |-
                       LastFlagsSet records that a compromised or health-check-failed flag was

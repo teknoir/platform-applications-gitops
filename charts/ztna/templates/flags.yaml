@@ -1,0 +1,89 @@
+{{- /*
+The flags watcher: `wg-hub flags-watcher`, the same image as the hub with a different command.
+It watches Devices (the only ZTNA component allowed to) and mirrors the security annotations
+(wireguard, compromised, health-check-failed) into ztna-flags-<teamspace>.<device> ConfigMaps.
+The internet-facing hub reads those ConfigMaps and has no Device access, so it can never read a
+device's spec.keys. No Service, no ports, no ingress: an empty AuthorizationPolicy below denies
+all mesh traffic to it.
+*/ -}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: wg-flags
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ztna.flagsLabels" . | nindent 4 }}
+automountServiceAccountToken: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wg-flags
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ztna.flagsLabels" . | nindent 4 }}
+spec:
+  # One writer: two watchers would only race on the same ConfigMaps.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "ztna.flagsSelector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ztna.flagsLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: wg-flags
+      {{- with .Values.hub.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 15
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: wg-flags
+          image: {{ include "ztna.hubImage" . | quote }}
+          imagePullPolicy: {{ .Values.hub.image.pullPolicy }}
+          args: ["flags-watcher"]
+          env:
+            - name: HUB_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            {{- toYaml .Values.flags.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 16Mi
+---
+# Nothing calls the watcher: an ALLOW policy without rules denies every request to its pods.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: wg-flags-deny-all
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ztna.flagsLabels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "ztna.flagsSelector" . | nindent 6 }}
+  action: ALLOW

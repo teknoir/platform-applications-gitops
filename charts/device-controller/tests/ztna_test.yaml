@@ -26,10 +26,20 @@ tests:
     asserts:
       - equal:
           path: data.ZTNA
-          value: '{"agentImage":"ghcr.io/teknoir/wg-agent:sha-0000000a@sha256:1111111111111111111111111111111111111111111111111111111111111111","allowedPorts":[22],"enabled":true,"enrollWindowMinutes":15,"hubNamespace":"teknoir-ztna","terminalImage":"ghcr.io/teknoir/web-terminal:sha-0000000b@sha256:2222222222222222222222222222222222222222222222222222222222222222","terminalRunAsUser":65532}'
+          value: '{"agentImage":"ghcr.io/teknoir/wg-agent:sha-0000000a@sha256:1111111111111111111111111111111111111111111111111111111111111111","allowedPorts":[22],"enabled":true,"enrollWindowMinutes":15,"hubNamespace":"teknoir-ztna","ingressPrincipals":["cluster.local/ns/istio-system/sa/istio-ingressgateway","cluster.local/ns/istio-system/sa/istio-ingressgateway-public"],"terminalImage":"ghcr.io/teknoir/web-terminal:sha-0000000b@sha256:2222222222222222222222222222222222222222222222222222222222222222","terminalRunAsUser":65532}'
       - equal:
           path: data.DOMAIN
           value: teknoir.cloud
+
+  - it: passes the ingress principals of both gateways to the controller, and omits the key when the list is empty
+    template: templates/configmap.yaml
+    set:
+      ztna.enabled: true
+      ztna.ingressPrincipals: []
+    asserts:
+      - notMatchRegex:
+          path: data.ZTNA
+          pattern: "ingressPrincipals"
 
   - it: terminalRunAsUser defaults to 65532 and can be set to 0
     template: templates/configmap.yaml

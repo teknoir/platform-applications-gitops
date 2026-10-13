@@ -32,6 +32,10 @@ spec:
             - name: APP_CONFIG_teknoir_virtualDevices_enabled
               value: "true"
             {{- end }}
+            {{- if (.Values.ztna).enabled }}
+            - name: APP_CONFIG_teknoir_ztna_enabled
+              value: "true"
+            {{- end }}
             - name: LOG_LEVEL
               value: {{ .Values.config.logLevel | quote }}
             - name: PROMETHEUS_URL

@@ -63,7 +63,8 @@ spec:
       {{- include "ztna.hubSelector" . | nindent 6 }}
   action: ALLOW
   rules:
-    # The two ingress gateways (users on wg.<domain>, devices on wg-device.<domain>).
+    # The two ingress gateways (users on wg.<domain>, devices on wg-device.<domain>): the public
+    # API on 8080 only. Delegation and direct sessions are not reachable from the internet.
     - from:
         - source:
             principals:
@@ -71,13 +72,14 @@ spec:
       to:
         - operation:
             ports: ["8080"]
-    # In-cluster clients: every service account in this namespace (the web terminals).
+    # The internal port 8081 (service account delegation by the web terminals, direct sessions):
+    # workloads in this namespace only, and no VirtualService routes to it.
     - from:
         - source:
             namespaces: [{{ .Release.Namespace | quote }}]
       to:
         - operation:
-            ports: ["8080"]
+            ports: ["8081"]
     # Prometheus.
     - from:
         - source:

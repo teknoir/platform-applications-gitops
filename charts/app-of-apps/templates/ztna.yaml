@@ -3,11 +3,16 @@ ZTNA (WireGuard over STUNner): Gateway API CRDs, the STUNner gateway operator an
 wg-hub. Gated by app-of-apps.ztnaEnabled (see _helpers.tpl): values flag AND project
 allowlist, so nothing renders on any other environment.
 
-Order (app-of-apps sync waves; each wave waits for the previous one to be Healthy):
-  -1  gateway-api-crds  the Gateway API CRDs (standard channel), server-side applied
-   0  stunner           operator + GatewayClass, GatewayConfig, Gateway, UDPRoute
-   1  ztna              namespace teknoir-ztna, wg-hub, RBAC, admission policy, routing
-   2  device-controller (controllers.yaml) gets its Role in teknoir-ztna
+  gateway-api-crds  the Gateway API CRDs (standard channel), server-side applied
+  stunner           operator + GatewayClass, GatewayConfig, Gateway, UDPRoute
+  ztna              namespace teknoir-ztna, wg-hub, wg-flags, RBAC, admission policy, routing
+  device-controller (controllers.yaml) gets its Role in teknoir-ztna
+
+No sync waves on purpose: a wave makes the whole ROOT app-of-apps wait for the previous wave to
+be Healthy, so one failing ZTNA Application (CRD error, image pull, unreachable chart repo) would
+stall every other Application of the environment. The order is covered by retry (10 attempts,
+30s backoff up to 5m) and by SkipDryRunOnMissingResource on the objects whose CRDs arrive in the
+same run.
 
 No resources-finalizer on any of them: turning the flag off removes the Applications
 but leaves everything in the cluster (CRDs, the stunner and teknoir-ztna namespaces with
@@ -21,7 +26,6 @@ kind: Application
 metadata:
   name: gateway-api-crds
   annotations:
-    argocd.argoproj.io/sync-wave: "-1"
     argocd.argoproj.io/compare-options: ServerSideDiff=true
 spec:
   destination:
@@ -56,7 +60,6 @@ kind: Application
 metadata:
   name: stunner
   annotations:
-    argocd.argoproj.io/sync-wave: "0"
     argocd.argoproj.io/compare-options: ServerSideDiff=true
 spec:
   destination:
@@ -95,8 +98,6 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: ztna
-  annotations:
-    argocd.argoproj.io/sync-wave: "1"
 spec:
   destination:
     namespace: teknoir-ztna

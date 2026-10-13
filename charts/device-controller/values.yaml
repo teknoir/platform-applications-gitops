@@ -127,3 +127,10 @@ ztna:
   enrollWindowMinutes: 15
   # Non-root user and group of the web terminal (readOnlyRootFilesystem, /tmp emptyDir); 0 leaves it to the image.
   terminalRunAsUser: 65532
+  # Istio principals of the ingress gateways that may reach a device's web terminal (its
+  # AuthorizationPolicy). Keep in step with ingressPrincipals in charts/ztna/values.yaml (two
+  # charts cannot share a value); leaving it empty makes the controller default to the user
+  # gateway only (istio-ingressgateway).
+  ingressPrincipals:
+    - cluster.local/ns/istio-system/sa/istio-ingressgateway
+    - cluster.local/ns/istio-system/sa/istio-ingressgateway-public

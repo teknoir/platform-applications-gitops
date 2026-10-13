@@ -160,6 +160,7 @@ ztna.enabled. The images are required: the controller refuses an enabled config 
 {{- define "device-controller.ztna.configJSON" -}}
 {{- $z := .Values.ztna -}}
 {{- $c := dict "enabled" true "hubNamespace" $z.hubNamespace "agentImage" (required "ztna.agentImage is required when ztna.enabled (the wg-agent image, '<tag>@sha256:<digest>')" $z.agentImage) "terminalImage" (required "ztna.terminalImage is required when ztna.enabled (the WireGuard web terminal image)" $z.terminalImage) "allowedPorts" $z.allowedPorts "enrollWindowMinutes" (int $z.enrollWindowMinutes) -}}
+{{- if $z.ingressPrincipals }}{{- $_ := set $c "ingressPrincipals" $z.ingressPrincipals -}}{{- end -}}
 {{- if $z.terminalRunAsUser }}{{- $_ := set $c "terminalRunAsUser" (int64 $z.terminalRunAsUser) -}}{{- end -}}
 {{- toJson $c -}}
 {{- end }}

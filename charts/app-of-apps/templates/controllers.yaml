@@ -103,12 +103,6 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: device-controller
-{{- if include "app-of-apps.ztnaEnabled" . }}
-  annotations:
-    # After the ztna Application (wave 1) created teknoir-ztna: the chart renders a Role
-    # there for the WireGuard (ZTNA) plugin.
-    argocd.argoproj.io/sync-wave: "2"
-{{- end }}
 spec:
   destination:
     namespace: teknoir-system
@@ -140,4 +134,4 @@ spec:
         duration: 30s
         factor: 2
         maxDuration: 5m
-{{- end }}
+{{- end -}}

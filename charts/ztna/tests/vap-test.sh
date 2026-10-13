@@ -54,7 +54,15 @@ for _ in $(seq 1 60); do "${KC[@]}" get --raw /readyz >/dev/null 2>&1 && break; 
 
 HUB=system:serviceaccount:teknoir-ztna:wg-hub
 DC=system:serviceaccount:teknoir-system:device-controller-service-account
+FLAGS=system:serviceaccount:teknoir-ztna:wg-flags
 BACKSTAGE=system:serviceaccount:teknoir-system:backstage
+# Backstage's real service account (cluster-wide teknoir-admin): the one a compromised UI uses.
+BACKSTAGE_API=system:serviceaccount:teknoir-system:backstage-api
+ARGO=system:serviceaccount:teknoir-system:argocd-application-controller
+STUNNER_OP=system:serviceaccount:stunner-system:stunner-gateway-operator-controller-manager
+RS_CTRL=system:serviceaccount:kube-system:replicaset-controller
+JOB_CTRL=system:serviceaccount:kube-system:job-controller
+KUBELET=system:node:node1
 as() { local u=$1; shift; "${KC[@]}" --as "$u" --as-group system:authenticated "$@"; }
 
 "${KC[@]}" create namespace teknoir-ztna >/dev/null
@@ -132,19 +140,97 @@ denied "hub creates an unrelated ConfigMap" "${HUB}" "${TMP}/other.yaml"
 allowed "device-controller creates an unrelated ConfigMap" "${DC}" "${TMP}/other.yaml"
 allowed "backstage creates an unrelated ConfigMap" "${BACKSTAGE}" "${TMP}/gen.yaml"
 
+# --- flags ConfigMaps (written by the flags watcher only)
+cm ztna-flags-ts.dev1 ztna.teknoir.org/flags > "${TMP}/flags.yaml"
+cm ztna-flags-ts.dev2 > "${TMP}/flags-nolabel.yaml"
+cm innocent-flags ztna.teknoir.org/flags > "${TMP}/flags-labelonly.yaml"
+denied "hub creates a flags ConfigMap" "${HUB}" "${TMP}/flags.yaml"
+denied "device-controller creates a flags ConfigMap" "${DC}" "${TMP}/flags.yaml"
+denied "backstage creates a flags ConfigMap" "${BACKSTAGE}" "${TMP}/flags.yaml"
+denied "backstage-api creates ztna-flags-* without the label" "${BACKSTAGE_API}" "${TMP}/flags-nolabel.yaml"
+denied "backstage creates a flags-labelled ConfigMap with another name" "${BACKSTAGE}" "${TMP}/flags-labelonly.yaml"
+denied "cluster admin creates a flags ConfigMap" admin "${TMP}/flags.yaml"
+allowed "wg-flags creates a flags ConfigMap" "${FLAGS}" "${TMP}/flags.yaml"
+sed 's/k: v/k: changed/' "${TMP}/flags.yaml" > "${TMP}/flags-update.yaml"
+allowed "wg-flags updates its flags ConfigMap" "${FLAGS}" "${TMP}/flags-update.yaml" apply
+sed 's/k: changed/k: tampered/' "${TMP}/flags-update.yaml" > "${TMP}/flags-tamper.yaml"
+denied "hub updates a flags ConfigMap" "${HUB}" "${TMP}/flags-tamper.yaml" apply
+denied "backstage updates a flags ConfigMap" "${BACKSTAGE}" "${TMP}/flags-tamper.yaml" apply
+cm ztna-flags-ts.dev1 > "${TMP}/flags-stripped.yaml"
+denied "backstage strips the label from a flags ConfigMap" "${BACKSTAGE}" "${TMP}/flags-stripped.yaml" replace
+if as "${BACKSTAGE}" delete configmap ztna-flags-ts.dev1 -n teknoir-ztna >/dev/null 2>&1; then bad "should be denied: backstage deletes a flags ConfigMap"; else ok "denied: backstage deletes a flags ConfigMap"; fi
+denied "wg-flags creates a policy ConfigMap" "${FLAGS}" "${TMP}/policy.yaml"
+denied "wg-flags creates an identity ConfigMap" "${FLAGS}" "${TMP}/identity.yaml"
+denied "wg-flags creates an unrelated ConfigMap" "${FLAGS}" "${TMP}/other.yaml"
+if as "${FLAGS}" delete configmap ztna-flags-ts.dev1 -n teknoir-ztna >/dev/null 2>&1; then ok "allowed: wg-flags deletes its flags ConfigMap"; else bad "wg-flags delete denied"; fi
+
+# --- pods and workloads (only ArgoCD, device-controller, the stunner operator, kube-system)
+wl() { # kind name -> manifest
+  case $1 in
+    pod) printf 'apiVersion: v1\nkind: Pod\nmetadata: {name: %s}\nspec:\n  containers: [{name: c, image: example.invalid/x}]\n' "$2" ;;
+    deployment) printf 'apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: %s}\nspec:\n  selector: {matchLabels: {a: b}}\n  template:\n    metadata: {labels: {a: b}}\n    spec:\n      containers: [{name: c, image: example.invalid/x}]\n' "$2" ;;
+    replicaset) printf 'apiVersion: apps/v1\nkind: ReplicaSet\nmetadata: {name: %s}\nspec:\n  selector: {matchLabels: {a: b}}\n  template:\n    metadata: {labels: {a: b}}\n    spec:\n      containers: [{name: c, image: example.invalid/x}]\n' "$2" ;;
+    statefulset) printf 'apiVersion: apps/v1\nkind: StatefulSet\nmetadata: {name: %s}\nspec:\n  serviceName: x\n  selector: {matchLabels: {a: b}}\n  template:\n    metadata: {labels: {a: b}}\n    spec:\n      containers: [{name: c, image: example.invalid/x}]\n' "$2" ;;
+    daemonset) printf 'apiVersion: apps/v1\nkind: DaemonSet\nmetadata: {name: %s}\nspec:\n  selector: {matchLabels: {a: b}}\n  template:\n    metadata: {labels: {a: b}}\n    spec:\n      containers: [{name: c, image: example.invalid/x}]\n' "$2" ;;
+    job) printf 'apiVersion: batch/v1\nkind: Job\nmetadata: {name: %s}\nspec:\n  template:\n    spec:\n      restartPolicy: Never\n      containers: [{name: c, image: example.invalid/x}]\n' "$2" ;;
+    cronjob) printf 'apiVersion: batch/v1\nkind: CronJob\nmetadata: {name: %s}\nspec:\n  schedule: "0 0 * * *"\n  jobTemplate:\n    spec:\n      template:\n        spec:\n          restartPolicy: Never\n          containers: [{name: c, image: example.invalid/x}]\n' "$2" ;;
+  esac
+}
+for kind in pod deployment replicaset statefulset daemonset job cronjob; do
+  wl $kind rogue > "${TMP}/wl-$kind.yaml"
+  for who in "${BACKSTAGE_API}" "${BACKSTAGE}" "${HUB}" "${FLAGS}" admin; do
+    denied "$who creates a $kind in teknoir-ztna" "$who" "${TMP}/wl-$kind.yaml"
+  done
+  if out=$(as "${BACKSTAGE_API}" create -n stunner-system -f "${TMP}/wl-$kind.yaml" 2>&1); then bad "should be denied: backstage-api creates a $kind in stunner-system"; else
+    grep -q "ValidatingAdmissionPolicy 'ztna-workloads'" <<<"$out" && ok "denied: backstage-api creates a $kind in stunner-system" || bad "denied, but not by the policy: $kind in stunner-system: $out"; fi
+  if as "${BACKSTAGE_API}" create -n other -f "${TMP}/wl-$kind.yaml" >/dev/null 2>&1; then ok "allowed: backstage-api creates a $kind in an unrelated namespace"; else bad "workload policy leaked into namespace 'other' ($kind)"; fi
+  allowed "ArgoCD creates a $kind" "${ARGO}" "${TMP}/wl-$kind.yaml"
+  wl $kind dc-made > "${TMP}/wl-$kind-dc.yaml"
+  allowed "device-controller creates a $kind" "${DC}" "${TMP}/wl-$kind-dc.yaml"
+done
+wl pod by-rs > "${TMP}/wl-pod-rs.yaml"; allowed "the replicaset controller creates a pod" "${RS_CTRL}" "${TMP}/wl-pod-rs.yaml"
+wl pod by-job > "${TMP}/wl-pod-job.yaml"; allowed "the job controller creates a pod" "${JOB_CTRL}" "${TMP}/wl-pod-job.yaml"
+wl pod by-kcm > "${TMP}/wl-pod-kcm.yaml"; allowed "kube-controller-manager creates a pod" system:kube-controller-manager "${TMP}/wl-pod-kcm.yaml"
+if as "${STUNNER_OP}" create -n stunner-system -f "${TMP}/wl-deployment-dc.yaml" >/dev/null 2>&1; then ok "allowed: the stunner operator creates a Deployment in stunner-system"; else bad "stunner operator denied"; fi
+# changing the image of a running pod, or of the hub Deployment, is the other route
+sed 's#example.invalid/x#example.invalid/evil#' "${TMP}/wl-pod-rs.yaml" > "${TMP}/wl-pod-rs-evil.yaml"
+denied "backstage-api replaces the image of a pod" "${BACKSTAGE_API}" "${TMP}/wl-pod-rs-evil.yaml" replace
+sed 's#example.invalid/x#example.invalid/evil#' "${TMP}/wl-deployment-dc.yaml" > "${TMP}/wl-deployment-evil.yaml"
+denied "backstage-api patches the image of a Deployment" "${BACKSTAGE_API}" "${TMP}/wl-deployment-evil.yaml" apply
+if out=$(as "${BACKSTAGE_API}" patch deployment dc-made -n teknoir-ztna --type=json -p '[{"op":"replace","path":"/spec/template/spec/containers/0/image","value":"example.invalid/evil"}]' 2>&1); then bad "should be denied: backstage-api json-patches a Deployment"; else grep -q "ValidatingAdmissionPolicy" <<<"$out" && ok "denied: backstage-api json-patches a Deployment" || bad "patch denied, but not by the policy: $out"; fi
+allowed "ArgoCD updates the Deployment" "${ARGO}" "${TMP}/wl-deployment-evil.yaml" apply
+
+# --- TokenRequest for the ZTNA service accounts
+for sa in wg-hub wg-flags wgt-0123456789 plain-sa; do "${KC[@]}" create serviceaccount "$sa" -n teknoir-ztna >/dev/null 2>&1 || true; done
+tok() { # description user sa want(deny|pass)
+  local d=$1 u=$2 sa=$3 want=$4 out got
+  out=$(as "$u" create token "$sa" -n teknoir-ztna 2>&1 || true)
+  if grep -q "ValidatingAdmissionPolicy 'ztna-no-token-mint'" <<<"$out"; then got=deny; elif grep -qi "forbidden\|denied" <<<"$out"; then got="other: $out"; else got=pass; fi
+  if [[ $got == "$want" ]]; then ok "$d ($want)"; else bad "$d: want $want, got $got"; fi
+}
+for sa in wg-hub wg-flags wgt-0123456789; do
+  tok "backstage-api mints a token for $sa" "${BACKSTAGE_API}" $sa deny
+  tok "cluster admin mints a token for $sa" admin $sa deny
+  tok "device-controller mints a token for $sa" "${DC}" $sa deny
+  tok "the hub mints a token for $sa" "${HUB}" $sa deny
+  tok "the kubelet mints a token for $sa" "${KUBELET}" $sa pass
+  tok "a kube-system controller mints a token for $sa" "${RS_CTRL}" $sa pass
+done
+tok "backstage-api mints a token for an unrelated service account" "${BACKSTAGE_API}" plain-sa pass
+
 # --- other namespaces are not touched by the policy
 cm ztna-policy-ts.dev9 ztna.teknoir.org/policy > "${TMP}/policy-other.yaml"
 if as "${BACKSTAGE}" create -n other -f "${TMP}/policy-other.yaml" >/dev/null 2>&1; then ok "allowed: the same ConfigMap in another namespace is not affected"; else bad "policy leaked into namespace 'other'"; fi
 
 # --- exec / attach / port-forward / ephemeral containers
-"${KC[@]}" apply -n teknoir-ztna -f - >/dev/null <<'YAML'
+as "${ARGO}" apply -n teknoir-ztna -f - >/dev/null <<'YAML'
 apiVersion: v1
 kind: Pod
 metadata: {name: victim}
 spec:
   containers: [{name: c, image: example.invalid/x}]
 YAML
-"${KC[@]}" apply -n stunner-system -f - >/dev/null <<'YAML'
+as "${ARGO}" apply -n stunner-system -f - >/dev/null <<'YAML'
 apiVersion: v1
 kind: Pod
 metadata: {name: victim}

@@ -68,8 +68,13 @@ spec:
               value: {{ printf "https://auth.%s/auth/realms/%s" $domain .Values.hub.keycloak.realm | quote }}
             - name: KEYCLOAK_JWKS_URL
               value: {{ printf "https://auth.%s/auth/realms/%s/protocol/openid-connect/certs" $domain .Values.hub.keycloak.realm | quote }}
-            # Real client address for per-IP rate limiting, set by the Istio ingress gateway
-            # (Envoy, use_remote_address). The hub falls back to the peer address if it is absent.
+            # Client address for per-IP rate limiting, set by the Istio ingress gateway (Envoy,
+            # use_remote_address). CAVEAT: on k3s servicelb (klipper) with externalTrafficPolicy
+            # Cluster the client address is SNATed to the svclb/node address before it reaches
+            # Envoy, so this header is the same for every client and the per-IP limit degrades
+            # to one shared limit (the hub also keeps a global backstop and a per-subject cap).
+            # No trusted-proxy setting (numTrustedProxies / xff) is set: it was not verified on
+            # r415 (README, "Client IP"). The hub falls back to the peer address if absent.
             - name: CLIENT_IP_HEADER
               value: X-Envoy-External-Address
             - name: ALLOWED_AZP
@@ -77,6 +82,11 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+              protocol: TCP
+            # Internal API (service account delegation, direct sessions). No VirtualService routes
+            # it; the AuthorizationPolicy admits workloads in this namespace only.
+            - name: http-internal
+              containerPort: 8081
               protocol: TCP
             - name: metrics
               containerPort: 9090
@@ -130,6 +140,10 @@ spec:
     - name: http
       port: 8080
       targetPort: http
+      protocol: TCP
+    - name: http-internal
+      port: 8081
+      targetPort: http-internal
       protocol: TCP
     - name: http-metrics
       port: 9090

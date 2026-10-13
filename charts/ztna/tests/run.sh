@@ -76,14 +76,14 @@ load = lambda p: {d["metadata"]["name"]: d for d in yaml.safe_load_all(open(p)) 
 on, off = load(sys.argv[1]), load(sys.argv[2])
 assert set(on) - set(off) == {"gateway-api-crds", "stunner", "ztna"}, set(on) ^ set(off)
 repo = "https://github.com/teknoir/platform-applications-gitops"
-for name, path, ns, wave in (("gateway-api-crds", "charts/gateway-api-crds", "kube-system", "-1"),
-                             ("stunner", "charts/stunner", "stunner-system", "0"),
-                             ("ztna", "charts/ztna", "teknoir-ztna", "1")):
+for name, path, ns in (("gateway-api-crds", "charts/gateway-api-crds", "kube-system"),
+                       ("stunner", "charts/stunner", "stunner-system"),
+                       ("ztna", "charts/ztna", "teknoir-ztna")):
     a = on[name]
     assert a["spec"]["source"] == {"path": path, "repoURL": repo, "targetRevision": "teknoir-cloud"}, a["spec"]["source"]
     assert a["spec"]["destination"] == {"namespace": ns, "server": "https://kubernetes.default.svc"}
     assert a["spec"]["project"] == "teknoir-cloud"
-    assert a["metadata"]["annotations"]["argocd.argoproj.io/sync-wave"] == wave
+    assert "sync-wave" not in str(a["metadata"]), "no sync waves: a failing ZTNA Application must not stall the root app-of-apps"
     assert "finalizers" not in a["metadata"], "no cascading delete when the flag is turned off"
     sp = a["spec"]["syncPolicy"]
     assert "ServerSideApply=true" in sp["syncOptions"], sp
@@ -94,15 +94,16 @@ st = on["stunner"]["spec"]["syncPolicy"]
 assert "CreateNamespace=true" in st["syncOptions"] and "SkipDryRunOnMissingResource=true" in st["syncOptions"], st
 assert st["managedNamespaceMetadata"]["labels"] == {"istio-injection": "disabled"}, st
 # the switch reaches the two charts that need it, and only them
-dc, vd = on["device-controller"], on["virtual-devices"]
-assert dc["spec"]["source"]["helm"] == {"parameters": [{"name": "ztna.enabled", "value": "true"}]}, dc["spec"]["source"]
-assert vd["spec"]["source"]["helm"] == {"parameters": [{"name": "ztna.enabled", "value": "true"}]}, vd["spec"]["source"]
-assert dc["metadata"]["annotations"]["argocd.argoproj.io/sync-wave"] == "2", "device-controller after the ztna namespace exists"
-assert "helm" not in off["device-controller"]["spec"]["source"] and "helm" not in off["virtual-devices"]["spec"]["source"]
+SWITCHED = ("device-controller", "virtual-devices", "auth", "backstage")
+for n in SWITCHED:
+    assert on[n]["spec"]["source"]["helm"] == {"parameters": [{"name": "ztna.enabled", "value": "true"}]}, (n, on[n]["spec"]["source"])
+    assert "helm" not in off[n]["spec"]["source"], n
+assert "sync-wave" not in str(on["device-controller"]["metadata"]), "device-controller has no wave (retry covers the missing namespace)"
+assert on["device-controller"]["spec"]["syncPolicy"]["retry"]["limit"] == 10
 for n in on:
-    if n not in ("gateway-api-crds", "stunner", "ztna", "device-controller", "virtual-devices"):
+    if n not in ("gateway-api-crds", "stunner", "ztna") + SWITCHED:
         assert on[n] == off[n], n
-print("ok   waves -1/0/1/2, server-side apply, no finalizers, CRDs not pruned, namespace labels, switch passed to device-controller and virtual-devices only")
+print("ok   no sync waves, server-side apply, no finalizers, CRDs not pruned, namespace labels, switch passed to device-controller, virtual-devices, auth and backstage only")
 PY
 
 # ---------------------------------------------------------------- charts
@@ -135,6 +136,37 @@ for d in yaml.safe_load_all(open(sys.argv[1])):
 for (k, ns, n), _ in sorted(c.items()): print(f"    {k:34} {ns:16} {n}")' "$TMP/$f.yaml" | grep -v -E "CustomResourceDefinition" || true
   printf '    CustomResourceDefinition x %s\n' "$(grep -c '^kind: CustomResourceDefinition$' "$TMP/$f.yaml" || true)"
 done
+
+step "ztna.enabled=false renders byte-identical to the base branch for every chart"
+BASE_REF="${ZTNA_BASE_REF:-origin/teknoir-cloud}"
+if git -C "$REPO" rev-parse --verify -q "$BASE_REF" >/dev/null; then
+  mkdir -p "$TMP/base" "$TMP/head"
+  git -C "$REPO" archive "$BASE_REF" charts | tar -x -C "$TMP/base"
+  cp -r "$CHARTS" "$TMP/head/charts"
+  for c in "$TMP"/head/charts/*/; do
+    n=$(basename "$c")
+    [[ -d $TMP/base/charts/$n ]] || continue   # charts that do not exist on the base (ztna, stunner, gateway-api-crds)
+    for root in base head; do
+      if grep -q '^dependencies:' "$TMP/$root/charts/$n/Chart.yaml"; then
+        # stunner is not on the base; the others are rendered without their lock file (it is not in Git)
+        ( cd "$TMP/$root/charts/$n" && helm dependency build >/dev/null 2>&1 ) || echo "WARN: helm dependency build failed for $root/$n"
+      fi
+    done
+    for proj in teknoir-cloud teknoir-online teknoir-local; do
+      args=()
+      [[ $n == app-of-apps ]] && args=(--set project="$proj")
+      helm template "$n" "$TMP/base/charts/$n" --namespace x "${args[@]}" >"$TMP/base-$n.yaml" 2>"$TMP/base-$n.err" || { echo "skip $n (base render failed: $(head -c 150 "$TMP/base-$n.err"))"; continue 2; }
+      helm template "$n" "$TMP/head/charts/$n" --namespace x "${args[@]}" >"$TMP/head-$n.yaml" 2>"$TMP/head-$n.err" || { cat "$TMP/head-$n.err"; bad "$n does not render"; continue 2; }
+      # charts that generate random values (harbor passwords) cannot be compared byte for byte
+      helm template "$n" "$TMP/base/charts/$n" --namespace x "${args[@]}" 2>/dev/null | cmp -s - "$TMP/base-$n.yaml" || { echo "skip $n (the base render is not deterministic)"; continue 2; }
+      cmp -s "$TMP/base-$n.yaml" "$TMP/head-$n.yaml" || { diff "$TMP/base-$n.yaml" "$TMP/head-$n.yaml" | head -10 || true; bad "$n ($proj): render with the flag off differs from $BASE_REF"; continue 2; }
+      [[ $n == app-of-apps ]] || break   # only app-of-apps depends on the project
+    done
+    ok "$n: byte-identical to $BASE_REF with ztna off"
+  done
+else
+  echo "SKIP: $BASE_REF not available"
+fi
 
 step "each CRD set exactly once (gateway-api-crds vs stunner)"
 crd_names() { python3 -I -c 'import sys, yaml; print("\n".join(sorted(d["metadata"]["name"] for d in yaml.safe_load_all(open(sys.argv[1])) if d and d["kind"] == "CustomResourceDefinition")))' "$1"; }
@@ -211,7 +243,9 @@ for d in st:  # every namespaced object lands in stunner-system
 # --- ztna objects
 z = load("ztna")
 assert not by(z, "Secret") and not by(z, "ConfigMap"), "no Secrets or ConfigMaps in Git (policy and identity ConfigMaps are written at runtime)"
-dep, = by(z, "Deployment")
+deps = {d["metadata"]["name"]: d for d in by(z, "Deployment")}
+assert set(deps) == {"wg-hub", "wg-flags"}, set(deps)
+dep = deps["wg-hub"]
 spec = dep["spec"]["template"]["spec"]
 c, = spec["containers"]
 assert c["image"].startswith("ghcr.io/teknoir/wg-hub:") and "@sha256:" in c["image"]
@@ -219,6 +253,38 @@ assert dep["spec"]["replicas"] == 1 and dep["spec"]["strategy"]["type"] == "Recr
 assert spec["securityContext"]["runAsNonRoot"] is True and c["securityContext"]["readOnlyRootFilesystem"] is True
 assert c["securityContext"]["capabilities"] == {"drop": ["ALL"]} and c["securityContext"]["allowPrivilegeEscalation"] is False
 assert "hostNetwork" not in spec and not spec.get("hostPID")
+assert [(p["name"], p["containerPort"]) for p in c["ports"]] == [("http", 8080), ("http-internal", 8081), ("metrics", 9090), ("wg", 51820)], c["ports"]
+# --- flags watcher: same image, own SA, no ports, hardened
+fdep = deps["wg-flags"]
+fs = fdep["spec"]["template"]["spec"]
+fc, = fs["containers"]
+assert fc["image"] == c["image"] and fc["args"] == ["flags-watcher"] and "command" not in fc, fc
+assert fs["serviceAccountName"] == "wg-flags" and "ports" not in fc
+assert fc["securityContext"]["readOnlyRootFilesystem"] is True and fc["securityContext"]["capabilities"] == {"drop": ["ALL"]}
+assert not [s_ for s_ in by(z, "Service") if s_["metadata"]["name"] == "wg-flags"], "no Service for the flags watcher"
+svc, = by(z, "Service", "wg-hub")
+assert [(p["name"], p["port"]) for p in svc["spec"]["ports"]] == [("http", 8080), ("http-internal", 8081), ("http-metrics", 9090), ("wg", 51820)]
+# --- VirtualServices route to 8080 only (8081 is internal)
+for v in by(z, "VirtualService"):
+    for h in v["spec"]["http"]:
+        for r in h["route"]:
+            assert r["destination"]["port"]["number"] == 8080, v["metadata"]["name"]
+# --- AuthorizationPolicy: 8080 from the two ingress gateways, 8081 from the namespace, 9090 from prometheus
+ap, = by(z, "AuthorizationPolicy", "wg-hub")
+rules = [(r["from"][0]["source"], r["to"][0]["operation"]["ports"]) for r in ap["spec"]["rules"]]
+assert rules[0] == ({"principals": ["cluster.local/ns/istio-system/sa/istio-ingressgateway", "cluster.local/ns/istio-system/sa/istio-ingressgateway-public"]}, ["8080"]), rules
+assert rules[1] == ({"namespaces": ["teknoir-ztna"]}, ["8081"]), rules
+assert rules[2][1] == ["9090"] and len(rules) == 3, rules
+# --- RBAC: only the flags watcher reads Devices; the hub never can
+for d in by(z, "ClusterRole") + by(z, "Role"):
+    reads_devices = any("devices" in rule["resources"] for rule in d["rules"])
+    assert reads_devices == (d["metadata"]["name"] == "wg-flags" and d["kind"] == "ClusterRole"), d["metadata"]["name"]
+fl, = by(z, "Role", "wg-flags")
+assert fl["rules"] == [{"apiGroups": [""], "resources": ["configmaps"], "verbs": ["get", "list", "watch", "create", "update", "patch", "delete"]}]
+fcr, = by(z, "ClusterRole", "wg-flags")
+assert fcr["rules"] == [{"apiGroups": ["teknoir.org"], "resources": ["devices"], "verbs": ["get", "list", "watch"]}]
+for b in by(z, "ClusterRoleBinding", "wg-flags") + by(z, "RoleBinding", "wg-flags"):
+    assert b["subjects"] == [{"kind": "ServiceAccount", "name": "wg-flags", "namespace": "teknoir-ztna"}]
 vs = by(z, "VirtualService")
 assert {v["metadata"]["name"]: (v["spec"]["hosts"], v["spec"]["gateways"]) for v in vs} == {
     "wg": (["wg.teknoir.cloud"], ["istio-system/teknoir-gateway"]),
@@ -238,7 +304,7 @@ assert r["rules"] == [{"apiGroups": [""], "resources": ["secrets"], "resourceNam
 # --- the hub never gets Secret rights anywhere else, nor delete anywhere
 for d in by(z, "Role") + by(z, "ClusterRole"):
     for rule in d["rules"]:
-        if d["metadata"]["name"] in ("ztna-pull-secret-source", "ztna-pull-secret-target"):
+        if d["metadata"]["name"] in ("ztna-pull-secret-source", "ztna-pull-secret-target", "wg-flags"):
             continue
         assert "delete" not in rule["verbs"], d["metadata"]["name"]
         if "secrets" in rule["resources"]:
@@ -260,7 +326,7 @@ assert names(on) - names(off) == {("Role", "device-controller-ztna"), ("RoleBind
 assert not names(off) - names(on)
 print("ok   STUNner Gateway/GatewayClass/GatewayConfig/UDPRoute (port 51820, no endPort, cross-namespace backend), hub Deployment hardening, Roles, no Secrets in Git, device-controller ZTNA key and Role")
 PY
-python3 -I - "${CHARTS}/device-controller/crds/devices.yaml" <<'PY' && ok "Device CRD: status.wireguard next to status.virtual_device with the 14 fields" || bad "Device CRD status.wireguard"
+python3 -I - "${CHARTS}/device-controller/crds/devices.yaml" <<'PY' && ok "Device CRD: status.wireguard next to status.virtual_device with the 17 fields" || bad "Device CRD status.wireguard"
 import sys, yaml
 crd = yaml.safe_load(open(sys.argv[1]))
 st = crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["status"]["properties"]
@@ -268,7 +334,8 @@ assert "virtual_device" in st and "wireguard" in st
 w = st["wireguard"]["properties"]
 want = {"enabled": "boolean", "state": "string", "reasons": "array", "note": "string", "enrollmentGeneration": "integer",
         "enrollUntil": "string", "lastReenrollRequest": "string", "lastFlagsSet": "boolean", "identityFingerprint": "string",
-        "enrolledAt": "string", "enrollmentConflicts": "integer", "webTerminalURL": "string", "policyUpdatedAt": "string", "message": "string"}
+        "enrolledAt": "string", "enrollmentConflicts": "integer", "webTerminalURL": "string", "policyUpdatedAt": "string", "message": "string",
+        "approvedFingerprint": "string", "identityApproved": "boolean", "identityVoided": "boolean"}
 assert {k: v["type"] for k, v in w.items()} == want, {k: v["type"] for k, v in w.items()}
 assert w["enrollmentGeneration"]["format"] == "int64" and w["reasons"]["items"]["type"] == "string"
 assert "required" not in st["wireguard"], "all fields optional"

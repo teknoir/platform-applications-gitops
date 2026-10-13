@@ -231,6 +231,29 @@ spec:
               "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.LuaPerRoute
               disabled: true
 {{- end }}
+{{- if (.Values.ztna).enabled }}
+    # wg.<domain> (charts/ztna, the WireGuard ZTNA hub) authenticates its callers itself: the hub
+    # verifies the Keycloak bearer token (JWKS, azp, exp). The Lua login redirect would turn the
+    # hub's JSON 401/403 (device_revoked, forbidden, posture, ...) into a 302 to /oauth2/start,
+    # which tnctl cannot interpret, so both the ext_authz check and the redirect are disabled here.
+    - applyTo: VIRTUAL_HOST
+      match:
+        context: GATEWAY
+        routeConfiguration:
+          gateway: "{{ .Values.istio.gateway.namespace }}/{{ .Values.istio.gateway.name }}"
+          vhost:
+            name: {{ printf "wg.%s:443" $domain | quote }}
+      patch:
+        operation: MERGE
+        value:
+          typed_per_filter_config:
+            envoy.filters.http.ext_authz:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute
+              disabled: true
+            envoy.filters.http.lua:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.LuaPerRoute
+              disabled: true
+{{- end }}
 
 ---
 apiVersion: security.istio.io/v1beta1

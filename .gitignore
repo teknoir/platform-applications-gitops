@@ -1,4 +1,9 @@
 .idea
 Chart.lock
-/*/**/charts/# helm dependency build output (ArgoCD builds dependencies itself)
-/charts/*/charts/*.tgz
+/*/**/charts/*
+# helm dependency build output (ArgoCD builds dependencies itself). The STUNner wrapper chart
+# is the exception: its Chart.lock and dependency archive are committed so the chart contents
+# are pinned and a render does not depend on l7mp.io being reachable.
+!/charts/stunner/Chart.lock
+!/charts/stunner/charts/
+!/charts/stunner/charts/stunner-1.2.1.tgz
