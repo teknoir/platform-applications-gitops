@@ -41,6 +41,13 @@ spec:
     path: charts/virtual-devices
     repoURL: https://github.com/teknoir/platform-applications-gitops
     targetRevision: {{ .Values.project }}
+{{- if include "app-of-apps.ztnaEnabled" . }}
+    helm:
+      parameters:
+        # CoreDNS rewrites for wg-device.<domain> and turn.<domain> (ZTNA).
+        - name: ztna.enabled
+          value: "true"
+{{- end }}
   sources: [ ]
   project: {{ .Values.project }}
   syncPolicy:

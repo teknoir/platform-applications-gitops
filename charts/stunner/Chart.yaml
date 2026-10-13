@@ -1,0 +1,13 @@
+---
+apiVersion: v2
+name: stunner
+description: STUNner Kubernetes gateway operator and the TURN gateway for WireGuard (ZTNA) tunnels
+type: application
+version: 0.0.1
+appVersion: "1.2.1"
+dependencies:
+  # Exact pin. The chart ships the STUNner CRDs (crds/) and, optionally, the Gateway API
+  # CRDs; the latter are disabled below (charts/gateway-api-crds installs them once).
+  - name: stunner
+    version: 1.2.1
+    repository: https://l7mp.io/stunner

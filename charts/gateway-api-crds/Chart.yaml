@@ -1,0 +1,8 @@
+---
+apiVersion: v2
+name: gateway-api-crds
+description: Kubernetes Gateway API CRDs (standard channel) for the STUNner gateway operator
+type: application
+version: 0.0.1
+# Gateway API release the vendored CRDs come from.
+appVersion: "1.4.1"

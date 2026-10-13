@@ -1,0 +1,18 @@
+---
+# Hub, policy and identity ConfigMaps, and the per-device web terminals live here. In the mesh (the
+# hub is reached from ingress and from the terminals over mTLS; UDP is not captured by the
+# sidecar). Users get no RBAC in this namespace.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Release.Namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-5"
+    # Removing the Application must never delete the namespace: it holds the pinned device identities
+    # (ConfigMaps written by the hub, not by Git) and the web terminals device-controller created.
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+  labels:
+    istio-injection: enabled
+    app.kubernetes.io/part-of: teknoir-ztna
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest

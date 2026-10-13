@@ -518,6 +518,96 @@ spec:
                       VM, <namespace>-vdev.
                     type: string
                 type: object
+              wireguard:
+                description: |-
+                  WireGuard is set by the WireGuard (ZTNA) plugin while WireGuard is enabled
+                  for the device by its ztna.teknoir.org/wireguard annotation.
+                properties:
+                  approvedEpoch:
+                    description: |-
+                      ApprovedEpoch is the enrollment epoch in which the controller copied an
+                      admin approval into the policy. The policy's approved fingerprint is set
+                      only while this equals the policy's epoch, and the approval annotation is
+                      removed whenever a new enrollment window opens, so an approval can never
+                      carry over from an earlier window to an identity that enrolls in a later
+                      one.
+                    type: string
+                  approvedFingerprint:
+                    description: |-
+                      ApprovedFingerprint is the identity fingerprint an admin approved (annotation
+                      ztna.teknoir.org/approved-identity); a pinned identity gets sessions only
+                      when it matches.
+                    type: string
+                  enabled:
+                    description: Enabled is true while the device has the WireGuard
+                      annotation set to "enabled".
+                    type: boolean
+                  enrolledAt:
+                    description: EnrolledAt (RFC3339) is when that identity was pinned.
+                    type: string
+                  enrollmentConflicts:
+                    description: EnrollmentConflicts counts rejected enrollments with
+                      a different key.
+                    type: integer
+                  enrollmentGeneration:
+                    description: EnrollmentGeneration increases whenever enrollment
+                      is reset.
+                    format: int64
+                    type: integer
+                  enrollUntil:
+                    description: EnrollUntil (RFC3339) closes the enrollment window
+                      of this generation.
+                    type: string
+                  identityFingerprint:
+                    description: |-
+                      IdentityFingerprint is the fingerprint of the device agent identity key
+                      pinned by the hub for the current enrollment generation.
+                    type: string
+                  identityApproved:
+                    description: IdentityApproved is true when the pinned identity matches
+                      the fingerprint an admin approved.
+                    type: boolean
+                  identityVoided:
+                    description: IdentityVoided is true when the hub voided the pinned
+                      identity (compromised or health-check-failed flag); re-admission needs
+                      a new identity.
+                    type: boolean
+                  lastFlagsSet:
+                    description: |-
+                      LastFlagsSet records that a compromised or health-check-failed flag was
+                      set when the controller last looked; clearing it resets enrollment.
+                    type: boolean
+                  lastReenrollRequest:
+                    description: LastReenrollRequest is the value of the reenroll
+                      annotation that was last acted on.
+                    type: string
+                  message:
+                    description: Message says what is wrong, if anything.
+                    type: string
+                  note:
+                    description: Note is the free-text reason an operator entered
+                      with the flag.
+                    type: string
+                  policyUpdatedAt:
+                    description: PolicyUpdatedAt (RFC3339) is when the controller
+                      last changed the hub's policy entry.
+                    type: string
+                  reasons:
+                    description: |-
+                      Reasons are the revocation reasons while State is revoked: compromised
+                      and/or health_check_failed.
+                    items:
+                      type: string
+                    type: array
+                  state:
+                    description: 'State is the access policy state: active, revoked
+                      or disabled.'
+                    type: string
+                  webTerminalURL:
+                    description: WebTerminalURL is the WireGuard web terminal of the
+                      device, while enabled.
+                    type: string
+                type: object
             type: object
         type: object
         x-kubernetes-preserve-unknown-fields: true

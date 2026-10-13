@@ -11,3 +11,21 @@ virtualDevices:
   # Phase 1 virtual devices (device-controller) replace it. Chart code kept for reference.
   spike:
     enabled: false
+
+# ZTNA: WireGuard over STUNner as an alternative to the SSH reverse tunnels (plan:
+# plans/wireguard-ztna-tunnel.md). One switch for the whole feature:
+#   - Applications gateway-api-crds, stunner and ztna (no sync waves: a failing
+#     ZTNA Application must not stall the root; retry covers the order)
+#     (templates/ztna.yaml);
+#   - ztna.enabled=true is passed to the device-controller Application, the virtual-devices
+#     Application (CoreDNS rewrites for wg-device and turn, NetworkPolicy egress to the TURN
+#     server), the auth Application (wg.<domain> bypasses the edge login redirect; the hub
+#     validates the Keycloak tokens itself) and the backstage Application (UI flag teknoir.ztna).
+# The images are NOT set here: before flipping this, set charts/ztna image.tag and
+# charts/device-controller ztna.agentImage / ztna.terminalImage (a missing value fails
+# the render of that chart, so nothing half-configured is ever applied). Like
+# virtualDevices, the Applications also need the project in the allowlist in
+# templates/_helpers.tpl (teknoir-cloud only), so this flag does nothing if it is
+# cherry-picked onto another environment branch.
+ztna:
+  enabled: true

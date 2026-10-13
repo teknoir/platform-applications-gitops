@@ -119,6 +119,38 @@ spec:
           port: 8084
         - protocol: TCP
           port: 2222
+{{- if ($.Values.ztna).enabled }}
+---
+# WireGuard (ZTNA) tunnels: the device's wg-agent reaches the TURN server exactly as an external
+# device does, over UDP 3478 to turn.<domain>. Inside the cluster that name is rewritten by
+# CoreDNS (charts/virtual-devices) to the Service of the Gateway teknoir-turn, whose pods are the
+# STUNner dataplane (stunnerd: label app=stunner, set by the gateway operator). Policies are
+# evaluated after the Service's DNAT, so the pod selector is what matters. The hub itself is
+# not reachable from here: the TURN server admits a client only to the hub's WireGuard port.
+# The HTTPS leg (wg-device.<domain>:8084) is covered by vdev-egress-gateway above.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vdev-egress-turn
+  namespace: {{ $ns }}
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: stunner-system
+          podSelector:
+            matchLabels:
+              app: stunner
+      ports:
+        - protocol: UDP
+          port: 3478
+{{- end }}
 {{- if eq $egress "internet" }}
 ---
 # Internet egress like a real device: everything except private, carrier-grade NAT,

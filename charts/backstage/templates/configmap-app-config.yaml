@@ -42,6 +42,11 @@ data:
           {{- toYaml . | nindent 10 }}
         {{- end }}
 {{- end }}
+{{- if (.Values.ztna).enabled }}
+      # WireGuard (ZTNA) tunnels: charts/app-of-apps passes ztna.enabled to this Application.
+      ztna:
+        enabled: true
+{{- end }}
 
     integrations:
       github:

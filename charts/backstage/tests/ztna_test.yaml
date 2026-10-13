@@ -1,0 +1,46 @@
+suite: backstage ztna flag
+templates:
+  - templates/configmap-app-config.yaml
+  - templates/deployment.yaml
+tests:
+  - it: puts teknoir.ztna.enabled in the backend app-config when the switch is on
+    template: templates/configmap-app-config.yaml
+    set:
+      ztna.enabled: true
+    asserts:
+      - matchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: "\\n  ztna:\\n    enabled: true\\n"
+
+  - it: sets the frontend runtime env flag when the switch is on
+    template: templates/deployment.yaml
+    set:
+      ztna.enabled: true
+    documentSelector:
+      path: metadata.name
+      value: backstage
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: APP_CONFIG_teknoir_ztna_enabled
+            value: "true"
+
+  - it: renders nothing of ztna by default
+    template: templates/configmap-app-config.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: "ztna"
+
+  - it: leaves the frontend env flag out by default
+    template: templates/deployment.yaml
+    documentSelector:
+      path: metadata.name
+      value: backstage
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: APP_CONFIG_teknoir_ztna_enabled
+            value: "true"

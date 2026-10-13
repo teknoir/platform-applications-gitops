@@ -1,0 +1,89 @@
+{{- $domain := required "domain is required" .Values.domain }}
+---
+# Users: https://wg.<domain> on the 443 gateway. ext_authz (oauth2-proxy) runs there and lets
+# bearer tokens of the teknoir-cli client through; the hub then verifies the token itself
+# (JWKS, azp, exp) and authorizes the user with a SubjectAccessReview.
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: wg
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+spec:
+  hosts:
+    - {{ printf "wg.%s" $domain | quote }}
+  gateways:
+    - istio-system/teknoir-gateway
+  http:
+    - route:
+        - destination:
+            host: wg-hub.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: 8080
+---
+# Devices: https://wg-device.<domain>:8084 on the public gateway. There is no edge
+# authentication on that gateway; the hub authenticates every request (device JWT).
+# The public gateway's 8084 server (HTTPS, wildcard certificate) already admits
+# *.<domain>.
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: wg-device
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+spec:
+  hosts:
+    - {{ printf "wg-device.%s" $domain | quote }}
+  gateways:
+    - istio-system/teknoir-gateway-public
+  http:
+    - match:
+        - port: 8084
+      route:
+        - destination:
+            host: wg-hub.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: 8080
+---
+# Who may reach the hub's TCP ports (Istio does not see UDP; the WireGuard socket is protected by
+# the cryptokey routing and by STUNner admitting TURN clients only to that port). Once an ALLOW
+# policy selects the hub pods, everything it does not allow is denied.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: wg-hub
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "ztna.hubSelector" . | nindent 6 }}
+  action: ALLOW
+  rules:
+    # The two ingress gateways (users on wg.<domain>, devices on wg-device.<domain>): the public
+    # API on 8080 only. Delegation and direct sessions are not reachable from the internet.
+    - from:
+        - source:
+            principals:
+              {{- toYaml .Values.ingressPrincipals | nindent 14 }}
+      to:
+        - operation:
+            ports: ["8080"]
+    # The internal port 8081 (service account delegation by the web terminals, direct sessions):
+    # workloads in this namespace only, and no VirtualService routes to it.
+    - from:
+        - source:
+            namespaces: [{{ .Release.Namespace | quote }}]
+      to:
+        - operation:
+            ports: ["8081"]
+    # Prometheus.
+    - from:
+        - source:
+            principals: [{{ .Values.metrics.principal | quote }}]
+      to:
+        - operation:
+            ports: ["9090"]

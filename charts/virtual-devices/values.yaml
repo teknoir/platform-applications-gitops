@@ -70,3 +70,12 @@ coreDNS:
     - mqtt
     - deadend
   target: istio-ingressgateway-public.istio-system.svc.cluster.local
+
+# WireGuard (ZTNA) tunnels: two more CoreDNS rewrites (wg-device.<domain> to the public ingress
+# gateway above, turn.<domain> to the STUNner gateway Service). enabled is passed by
+# charts/app-of-apps (ztna.enabled) to this Application; off renders nothing extra.
+ztna:
+  enabled: false
+  # Service the STUNner operator creates for Gateway teknoir-turn (named after the Gateway, in its
+  # namespace; charts/stunner values gateway.name).
+  turnTarget: teknoir-turn.stunner-system.svc.cluster.local

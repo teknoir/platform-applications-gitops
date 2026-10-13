@@ -14,3 +14,6 @@ data:
   {{- if (.Values.virtualDevices).enabled }}
   VIRTUAL_DEVICES: {{ include "device-controller.vdev.configJSON" . | quote }}
   {{- end }}
+  {{- if (.Values.ztna).enabled }}
+  ZTNA: {{ include "device-controller.ztna.configJSON" . | quote }}
+  {{- end }}

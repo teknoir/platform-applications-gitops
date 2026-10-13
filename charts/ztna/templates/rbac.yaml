@@ -1,0 +1,164 @@
+{{- /*
+Least privilege for the hub (plan "Hardening / RBAC"). Writes to ConfigMaps are further limited
+by the admission policy (templates/admission.yaml): the hub may only write identity ConfigMaps.
+device-controller's Role in this namespace is in charts/device-controller.
+*/ -}}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: wg-hub
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+rules:
+  # Authorize users and delegating service accounts: SubjectAccessReview (create pods/exec in the
+  # teamspace) and TokenReview (web terminal service account tokens).
+  - apiGroups: ["authorization.k8s.io"]
+    resources: ["subjectaccessreviews"]
+    verbs: ["create"]
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]
+  # No Device access: RBAC cannot restrict a read to metadata, and a Device carries the legacy
+  # RSA private key in spec.keys. The flags watcher (wg-flags, below) is the only component that
+  # reads Devices; it mirrors the security annotations into ztna-flags-* ConfigMaps.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: wg-hub
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: wg-hub
+subjects:
+  - kind: ServiceAccount
+    name: wg-hub
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: wg-hub
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+rules:
+  # Policy ConfigMaps (written by device-controller), flags ConfigMaps (written by the flags
+  # watcher) and identity ConfigMaps (written by the hub: only these, see the admission policy).
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create", "update", "patch"]
+  # The annotations of a web terminal service account bind it to one device.
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: wg-hub
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: wg-hub
+subjects:
+  - kind: ServiceAccount
+    name: wg-hub
+    namespace: {{ .Release.Namespace }}
+---
+# The TURN shared secret, by name only. The hub never creates Secrets.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: wg-hub-turn-secret
+  namespace: {{ .Values.turn.secretNamespace }}
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: [{{ .Values.turn.secretName | quote }}]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: wg-hub-turn-secret
+  namespace: {{ .Values.turn.secretNamespace }}
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: wg-hub-turn-secret
+subjects:
+  - kind: ServiceAccount
+    name: wg-hub
+    namespace: {{ .Release.Namespace }}
+---
+# The flags watcher (templates/flags.yaml). The ONLY identity with access to Device objects, so
+# the internet-facing hub never can read spec.keys. It has no ingress. Its ConfigMap writes are
+# limited to ztna-flags-* by the admission policy.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: wg-flags
+  labels:
+    {{- include "ztna.flagsLabels" . | nindent 4 }}
+rules:
+  - apiGroups: ["teknoir.org"]
+    resources: ["devices"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: wg-flags
+  labels:
+    {{- include "ztna.flagsLabels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: wg-flags
+subjects:
+  - kind: ServiceAccount
+    name: wg-flags
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: wg-flags
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ztna.flagsLabels" . | nindent 4 }}
+rules:
+  # The flags ConfigMaps (ztna-flags-<teamspace>.<device>); delete when a Device goes away.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: wg-flags
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ztna.flagsLabels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: wg-flags
+subjects:
+  - kind: ServiceAccount
+    name: wg-flags
+    namespace: {{ .Release.Namespace }}

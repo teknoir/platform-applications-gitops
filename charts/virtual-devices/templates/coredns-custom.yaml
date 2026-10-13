@@ -22,4 +22,13 @@ data:
     # so virtual devices reach EMQX and deadend through the public gateway (same SNI
     # routing as an external device). "answer auto" restores the queried name in the reply.
     rewrite stop name regex ^({{ $prefixes }})-[a-z0-9]([-a-z0-9]*[a-z0-9])?\.{{ $domain }}\.$ {{ .Values.coreDNS.target }}. answer auto
+{{- if (.Values.ztna).enabled }}
+    # WireGuard (ZTNA, charts/ztna + charts/stunner): the hub's device endpoint
+    # wg-device.{{ .Values.coreDNS.domain }} (HTTPS 8084, public gateway) and the TURN server
+    # turn.{{ .Values.coreDNS.domain }} (UDP 3478) resolve to the in-cluster addresses, so a virtual
+    # device reaches them without router hairpin NAT, like mqtt and deadend above. Exact names, no
+    # teamspace suffix.
+    rewrite stop name exact wg-device.{{ .Values.coreDNS.domain }}. {{ .Values.coreDNS.target }}. answer auto
+    rewrite stop name exact turn.{{ .Values.coreDNS.domain }}. {{ .Values.ztna.turnTarget }}. answer auto
+{{- end }}
 {{- end }}
