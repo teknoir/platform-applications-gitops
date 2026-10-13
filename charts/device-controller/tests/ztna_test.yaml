@@ -26,20 +26,20 @@ tests:
     asserts:
       - equal:
           path: data.ZTNA
-          value: '{"agentImage":"ghcr.io/teknoir/wg-agent:sha-0000000a@sha256:1111111111111111111111111111111111111111111111111111111111111111","allowedPorts":[22],"enabled":true,"enrollWindowMinutes":15,"hubNamespace":"teknoir-ztna","terminalImage":"ghcr.io/teknoir/web-terminal:sha-0000000b@sha256:2222222222222222222222222222222222222222222222222222222222222222"}'
+          value: '{"agentImage":"ghcr.io/teknoir/wg-agent:sha-0000000a@sha256:1111111111111111111111111111111111111111111111111111111111111111","allowedPorts":[22],"enabled":true,"enrollWindowMinutes":15,"hubNamespace":"teknoir-ztna","terminalImage":"ghcr.io/teknoir/web-terminal:sha-0000000b@sha256:2222222222222222222222222222222222222222222222222222222222222222","terminalRunAsUser":65532}'
       - equal:
           path: data.DOMAIN
           value: teknoir.cloud
 
-  - it: adds terminalRunAsUser only when set
+  - it: terminalRunAsUser defaults to 65532 and can be set to 0
     template: templates/configmap.yaml
     set:
       ztna.enabled: true
-      ztna.terminalRunAsUser: 65532
+      ztna.terminalRunAsUser: 0
     asserts:
-      - matchRegex:
+      - notMatchRegex:
           path: data.ZTNA
-          pattern: '"terminalRunAsUser":65532'
+          pattern: terminalRunAsUser
 
   - it: leaves ZTNA out when the block is absent
     template: templates/configmap.yaml

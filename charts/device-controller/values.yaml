@@ -125,5 +125,5 @@ ztna:
   allowedPorts: [22]
   # How long the enrollment window stays open after enabling WireGuard or resetting enrollment.
   enrollWindowMinutes: 15
-  # Non-root user and group of the web terminal; 0 leaves it to the image.
-  terminalRunAsUser: 0
+  # Non-root user and group of the web terminal (readOnlyRootFilesystem, /tmp emptyDir); 0 leaves it to the image.
+  terminalRunAsUser: 65532

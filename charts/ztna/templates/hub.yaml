@@ -68,6 +68,10 @@ spec:
               value: {{ printf "https://auth.%s/auth/realms/%s" $domain .Values.hub.keycloak.realm | quote }}
             - name: KEYCLOAK_JWKS_URL
               value: {{ printf "https://auth.%s/auth/realms/%s/protocol/openid-connect/certs" $domain .Values.hub.keycloak.realm | quote }}
+            # Real client address for per-IP rate limiting, set by the Istio ingress gateway
+            # (Envoy, use_remote_address). The hub falls back to the peer address if it is absent.
+            - name: CLIENT_IP_HEADER
+              value: X-Envoy-External-Address
             - name: ALLOWED_AZP
               value: {{ .Values.hub.allowedAZP | quote }}
           ports:
