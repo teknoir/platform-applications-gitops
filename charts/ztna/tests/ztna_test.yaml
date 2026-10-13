@@ -1,0 +1,384 @@
+suite: ztna hub
+release:
+  name: ztna
+  namespace: teknoir-ztna
+templates:
+  - templates/hub.yaml
+  - templates/rbac.yaml
+  - templates/routing.yaml
+  - templates/namespace.yaml
+  - templates/admission.yaml
+  - templates/pull-secret.yaml
+set:
+  hub.image.tag: "sha-0123abcd@sha256:3333333333333333333333333333333333333333333333333333333333333333"
+tests:
+  - it: fails the render without an image tag
+    template: templates/hub.yaml
+    set:
+      hub.image.tag: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "hub.image.tag is required"
+
+  - it: labels the namespace for the mesh and keeps it on removal
+    template: templates/namespace.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: teknoir-ztna
+      - equal:
+          path: metadata.labels["istio-injection"]
+          value: enabled
+      - equal:
+          path: metadata.annotations["argocd.argoproj.io/sync-options"]
+          value: Prune=false,Delete=false
+
+  - it: runs one hub pod, never two at once, hardened and non-root
+    template: templates/hub.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 1
+      - equal:
+          path: spec.strategy.type
+          value: Recreate
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: "ghcr.io/teknoir/wg-hub:sha-0123abcd@sha256:3333333333333333333333333333333333333333333333333333333333333333"
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: wg-hub
+      - equal:
+          path: spec.template.spec.imagePullSecrets
+          value:
+            - name: ghcr-token
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /healthz
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /readyz
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content: {name: wg, containerPort: 51820, protocol: UDP}
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content: {name: http, containerPort: 8080, protocol: TCP}
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content: {name: metrics, containerPort: 9090, protocol: TCP}
+
+  - it: configures the hub through the contract's environment
+    template: templates/hub.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: DOMAIN, value: teknoir.cloud}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: TURN_URLS, value: "turn:turn.teknoir.cloud:3478?transport=udp"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: TURN_SECRET_REF, value: stunner-system/stunner-auth-secret}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: KEYCLOAK_ISSUER, value: "https://auth.teknoir.cloud/auth/realms/master"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: KEYCLOAK_JWKS_URL, value: "https://auth.teknoir.cloud/auth/realms/master/protocol/openid-connect/certs"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: ALLOWED_AZP, value: teknoir-cli}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POD_IP
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: HUB_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+
+  - it: follows the domain
+    template: templates/hub.yaml
+    set:
+      domain: example.test
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: TURN_URLS, value: "turn:turn.example.test:3478?transport=udp"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: KEYCLOAK_ISSUER, value: "https://auth.example.test/auth/realms/master"}
+
+  - it: has a headless Service with the HTTP, metrics and WireGuard UDP ports
+    template: templates/hub.yaml
+    documentSelector:
+      path: kind
+      value: Service
+    asserts:
+      - equal:
+          path: metadata.name
+          value: wg-hub
+      - equal:
+          path: spec.clusterIP
+          value: None
+      - equal:
+          path: spec.ports
+          value:
+            - {name: http, port: 8080, targetPort: http, protocol: TCP}
+            - {name: http-metrics, port: 9090, targetPort: metrics, protocol: TCP}
+            - {name: wg, port: 51820, targetPort: wg, protocol: UDP}
+
+  - it: scrapes the metrics port with a ServiceMonitor that Prometheus selects
+    template: templates/hub.yaml
+    documentSelector:
+      path: kind
+      value: ServiceMonitor
+    asserts:
+      - equal:
+          path: metadata.labels.release
+          value: monitoring
+      - equal:
+          path: spec.endpoints[0].port
+          value: http-metrics
+
+  - it: renders no ServiceMonitor when switched off
+    template: templates/hub.yaml
+    set:
+      metrics.serviceMonitor.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 3
+
+  - it: gives the hub least-privilege cluster rights
+    template: templates/rbac.yaml
+    documentSelector:
+      path: kind
+      value: ClusterRole
+    asserts:
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [authorization.k8s.io]
+              resources: [subjectaccessreviews]
+              verbs: [create]
+            - apiGroups: [authentication.k8s.io]
+              resources: [tokenreviews]
+              verbs: [create]
+            - apiGroups: [teknoir.org]
+              resources: [devices]
+              verbs: [get, list, watch]
+
+  - it: lets the hub read the TURN secret by name only, in the STUNner namespace
+    template: templates/rbac.yaml
+    asserts:
+      - hasDocuments:
+          count: 6
+      - equal:
+          path: metadata.namespace
+          value: stunner-system
+        documentIndex: 4
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [""]
+              resources: [secrets]
+              resourceNames: [stunner-auth-secret]
+              verbs: [get]
+        documentIndex: 4
+      - equal:
+          path: subjects[0]
+          value: {kind: ServiceAccount, name: wg-hub, namespace: teknoir-ztna}
+        documentIndex: 5
+
+  - it: has a Role in teknoir-ztna for ConfigMaps and ServiceAccounts, with no delete
+    template: templates/rbac.yaml
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: teknoir-ztna
+        documentIndex: 2
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [""]
+              resources: [configmaps]
+              verbs: [get, list, watch]
+            - apiGroups: [""]
+              resources: [configmaps]
+              verbs: [create, update, patch]
+            - apiGroups: [""]
+              resources: [serviceaccounts]
+              verbs: [get]
+        documentIndex: 2
+
+  - it: routes wg.<domain> on the 443 gateway to the hub
+    template: templates/routing.yaml
+    documentSelector:
+      path: metadata.name
+      value: wg
+      matchMany: true
+    asserts:
+      - equal:
+          path: spec.hosts
+          value: [wg.teknoir.cloud]
+        documentIndex: 0
+      - equal:
+          path: spec.gateways
+          value: [istio-system/teknoir-gateway]
+        documentIndex: 0
+      - equal:
+          path: spec.http[0].route[0].destination
+          value:
+            host: wg-hub.teknoir-ztna.svc.cluster.local
+            port:
+              number: 8080
+        documentIndex: 0
+
+  - it: routes wg-device.<domain>:8084 on the public gateway to the hub
+    template: templates/routing.yaml
+    documentSelector:
+      path: metadata.name
+      value: wg-device
+    asserts:
+      - equal:
+          path: spec.hosts
+          value: [wg-device.teknoir.cloud]
+      - equal:
+          path: spec.gateways
+          value: [istio-system/teknoir-gateway-public]
+      - equal:
+          path: spec.http[0].match
+          value:
+            - port: 8084
+
+  - it: admits the ingress gateways, the namespace and Prometheus to the hub, nothing else
+    template: templates/routing.yaml
+    documentSelector:
+      path: kind
+      value: AuthorizationPolicy
+    asserts:
+      - equal:
+          path: spec.action
+          value: ALLOW
+      - equal:
+          path: spec.rules
+          value:
+            - from:
+                - source:
+                    principals:
+                      - cluster.local/ns/istio-system/sa/istio-ingressgateway
+                      - cluster.local/ns/istio-system/sa/istio-ingressgateway-public
+              to:
+                - operation:
+                    ports: ["8080"]
+            - from:
+                - source:
+                    namespaces: [teknoir-ztna]
+              to:
+                - operation:
+                    ports: ["8080"]
+            - from:
+                - source:
+                    principals: [cluster.local/ns/teknoir-system/sa/monitoring-prometheus]
+              to:
+                - operation:
+                    ports: ["9090"]
+
+  - it: names the writers in the admission policy
+    template: templates/admission.yaml
+    documentSelector:
+      path: metadata.name
+      value: ztna-policy-store
+    asserts:
+      - matchRegex:
+          path: spec.validations[0].expression
+          pattern: "username == 'system:serviceaccount:teknoir-system:device-controller-service-account'"
+        documentIndex: 0
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "username == 'system:serviceaccount:teknoir-ztna:wg-hub'"
+        documentIndex: 0
+      - equal:
+          path: spec.failurePolicy
+          value: Fail
+        documentIndex: 0
+
+  - it: binds the config store policy to the hub namespace
+    template: templates/admission.yaml
+    documentSelector:
+      path: metadata.name
+      value: ztna-policy-store-binding
+    asserts:
+      - equal:
+          path: spec.policyName
+          value: ztna-policy-store
+      - equal:
+          path: spec.matchResources.namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
+          value: teknoir-ztna
+      - equal:
+          path: spec.validationActions
+          value: [Deny, Audit]
+
+  - it: denies exec in the hub and the STUNner namespaces
+    template: templates/admission.yaml
+    documentSelector:
+      path: metadata.name
+      value: ztna-no-exec-binding
+    asserts:
+      - equal:
+          path: spec.policyName
+          value: ztna-no-exec
+      - equal:
+          path: spec.matchResources.namespaceSelector.matchExpressions[0].values
+          value: [teknoir-ztna, stunner-system]
+
+  - it: copies the pull secret with a hook Job that has no sidecar
+    template: templates/pull-secret.yaml
+    documentSelector:
+      path: kind
+      value: Job
+    asserts:
+      - equal:
+          path: metadata.annotations["argocd.argoproj.io/hook"]
+          value: Sync
+      - equal:
+          path: spec.template.metadata.annotations["sidecar.istio.io/inject"]
+          value: "false"
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+
+  - it: renders no pull secret copy when the image is public
+    template: templates/pull-secret.yaml
+    set:
+      pullSecretCopy.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0

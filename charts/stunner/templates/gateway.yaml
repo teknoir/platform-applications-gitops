@@ -1,0 +1,86 @@
+{{- /*
+GatewayClass, GatewayConfig, Gateway and UDPRoute of the WireGuard TURN gateway.
+
+Order: the STUNner CRDs come with the subchart in the same sync, the Gateway API CRDs from the
+gateway-api-crds Application (wave -1). Wave 1 puts these objects after the CRDs and the operator
+Deployment; SkipDryRunOnMissingResource lets the first sync dry-run past a CRD that does not
+exist yet.
+*/ -}}
+{{- $ns := .Release.Namespace }}
+{{- $gw := .Values.gateway }}
+{{- $hub := .Values.hub }}
+{{- $ra := dict "argocd.argoproj.io/sync-wave" "1" "argocd.argoproj.io/sync-options" "SkipDryRunOnMissingResource=true" }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: stunner-gatewayclass
+  annotations:
+    {{- toYaml $ra | nindent 4 }}
+spec:
+  controllerName: stunner.l7mp.io/gateway-operator
+  parametersRef:
+    group: stunner.l7mp.io
+    kind: GatewayConfig
+    name: stunner-gatewayconfig
+    namespace: {{ $ns }}
+  description: STUNner TURN gateway for WireGuard (ZTNA) tunnels
+---
+apiVersion: stunner.l7mp.io/v1
+kind: GatewayConfig
+metadata:
+  name: stunner-gatewayconfig
+  namespace: {{ $ns }}
+  annotations:
+    {{- toYaml $ra | nindent 4 }}
+spec:
+  realm: {{ $gw.realm }}
+  logLevel: {{ $gw.logLevel | quote }}
+  # Ephemeral (TURN-REST) credentials: username "<unix-expiry>:<id>", password
+  # base64(HMAC-SHA1(secret, username)). The Secret holds type=ephemeral and secret=<random>.
+  authRef:
+    name: {{ $gw.authSecret }}
+    namespace: {{ $ns }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: {{ $gw.name }}
+  namespace: {{ $ns }}
+  annotations:
+    {{- toYaml $ra | nindent 4 }}
+    # The health-check port would otherwise be added to the LoadBalancer Service, which
+    # publishes it. k3s servicelb needs no health check.
+    stunner.l7mp.io/disable-health-check-expose: "true"
+    # The operator names the dataplane Deployment and the LoadBalancer Service after the
+    # Gateway (teknoir-turn.stunner-system); a Service type of LoadBalancer is its default.
+    stunner.l7mp.io/service-type: LoadBalancer
+spec:
+  gatewayClassName: stunner-gatewayclass
+  listeners:
+    - name: turn-udp
+      port: {{ $gw.port }}
+      protocol: TURN-UDP
+      # Routes attach from this namespace only (the default, spelled out).
+      allowedRoutes:
+        namespaces:
+          from: Same
+---
+# The only thing a TURN client can reach: the hub's WireGuard UDP port. The backend is in another
+# namespace; STUNner's own UDPRoute allows that without a ReferenceGrant (its backendRefs take a
+# namespace). No endPort: the singleton port range [port, port].
+apiVersion: stunner.l7mp.io/v1
+kind: UDPRoute
+metadata:
+  name: wg-hub
+  namespace: {{ $ns }}
+  annotations:
+    {{- toYaml $ra | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ $gw.name }}
+  rules:
+    - backendRefs:
+        - name: {{ $hub.service }}
+          namespace: {{ $hub.namespace }}
+          port: {{ $hub.wgPort }}

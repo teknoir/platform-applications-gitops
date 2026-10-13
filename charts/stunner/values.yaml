@@ -1,0 +1,98 @@
+# Values for the STUNner wrapper chart on teknoir-cloud (staging, r415). The chart is only
+# deployed when charts/app-of-apps sets ztna.enabled (Application stunner, namespace
+# stunner-system).
+
+# The TURN gateway (templates/). TURN-UDP 3478 on a LoadBalancer Service (k3s servicelb on
+# r415) with TURN-REST ephemeral credentials; the UDPRoute lets an authenticated TURN client
+# reach exactly one backend: the wg-hub WireGuard port.
+gateway:
+  name: teknoir-turn
+  port: 3478
+  realm: stunner.l7mp.io
+  # Secret with the TURN shared secret (type: ephemeral, secret: <random>). It is NOT in
+  # Git: infra/scripts/gen-stunner-auth-secret.sh creates it. Rotating it resets every tunnel.
+  authSecret: stunner-auth-secret
+  logLevel: "all:INFO"
+
+hub:
+  # The UDPRoute backend: the headless Service of charts/ztna.
+  namespace: teknoir-ztna
+  service: wg-hub
+  wgPort: 51820
+
+# Values of the STUNner chart 1.2.1 (dependency alias "stunner").
+stunner:
+  # Gateway API CRDs come from charts/gateway-api-crds (installed once, wave -1).
+  standardCrds:
+    enabled: false
+  experimentalCrds:
+    enabled: false
+
+  logging:
+    operator:
+      format: json
+      level: info
+    dataplane:
+      format: json
+    authService:
+      format: json
+
+  stunnerGatewayOperator:
+    deployment:
+      replicas: 1
+      container:
+        manager:
+          image:
+            name: docker.io/l7mp/stunner-gateway-operator
+            # Pinned: '<tag>@<image index digest>' (crane digest, multi-arch).
+            tag: "1.2.1@sha256:0ea40a1d42d50a382803a6f182994e61ce6027673133bdeee970874610558516"
+            pullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+    dataplane:
+      mode: managed
+      spec:
+        replicas: 1
+        image:
+          name: docker.io/l7mp/stunnerd
+          tag: "1.2.1@sha256:a9a06157564d0630a8a95b9eab1307340bc1e710c53c890daff5fd0dfee50617"
+          pullPolicy: IfNotPresent
+        command:
+          - stunnerd
+        args:
+          - -w
+          - --udp-thread-num=4
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: "1"
+            memory: 256Mi
+        # A stunnerd pod stays up while it has TURN allocations (graceful scale-down); keep
+        # a rollout from waiting an hour for a tunnel that never closes.
+        terminationGracePeriodSeconds: 300
+        enableMetricsEndpoint: false
+        hostNetwork: false
+        # The image sets no user (root). The dataplane needs no privilege: UDP 3478 is
+        # unprivileged and the config comes from the operator over a websocket.
+        containerSecurityContext:
+          runAsNonRoot: true
+          runAsUser: 65532
+          runAsGroup: 65532
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [ALL]
+          seccompProfile:
+            type: RuntimeDefault
+
+  # The REST auth service mints TURN credentials for clients; the wg-hub mints its own
+  # (TURN-REST, shared secret from stunner-auth-secret), so the service is not deployed.
+  stunnerAuthService:
+    enabled: false

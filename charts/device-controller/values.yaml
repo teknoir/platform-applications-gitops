@@ -104,3 +104,26 @@ virtualDevices:
 
   allowances:
     teknoir-demo: {devices: 2, cpu: "4", memory: 8Gi, disk: 60Gi}
+
+# WireGuard (ZTNA) tunnels, an alternative to the SSH reverse tunnels (plan:
+# plans/wireguard-ztna-tunnel.md). Everything in this block is inert while enabled is false:
+# the ZTNA key is left out of the controller ConfigMap (the controller treats a missing key as
+# disabled) and no Role is rendered in teknoir-ztna. teknoir-cloud (staging) only.
+# enabled is NOT set here: charts/app-of-apps passes ztna.enabled=true to this Application when
+# its own ztna.enabled flag (and the project allowlist) says so. Needs charts/ztna (the hub and
+# the teknoir-ztna namespace), charts/stunner and charts/gateway-api-crds.
+ztna:
+  enabled: false
+  # REQUIRED once enabled (the render fails without them): the wg-agent image that the controller
+  # injects into a device, and the per-device WireGuard web terminal image
+  # (SSH_PROXY_MODE=wireguard). '<immutable tag>@sha256:<digest>'.
+  agentImage: ""
+  terminalImage: ""
+  # Namespace of the hub, the policy ConfigMaps and the web terminals (charts/ztna).
+  hubNamespace: teknoir-ztna
+  # Device ports a client may reach.
+  allowedPorts: [22]
+  # How long the enrollment window stays open after enabling WireGuard or resetting enrollment.
+  enrollWindowMinutes: 15
+  # Non-root user and group of the web terminal; 0 leaves it to the image.
+  terminalRunAsUser: 0

@@ -1,0 +1,172 @@
+suite: ztna (WireGuard) wiring
+templates:
+  - templates/configmap.yaml
+  - templates/rbac.yaml
+  - templates/virtual-devices-runtime.yaml
+set:
+  ztna.agentImage: "ghcr.io/teknoir/wg-agent:sha-0000000a@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  ztna.terminalImage: "ghcr.io/teknoir/web-terminal:sha-0000000b@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+tests:
+  - it: is off by default, no ZTNA key, no Role and no TURN policy
+    template: templates/configmap.yaml
+    asserts:
+      - notExists:
+          path: data.ZTNA
+
+  - it: has no Role in teknoir-ztna while disabled (six documents as before)
+    template: templates/rbac.yaml
+    asserts:
+      - hasDocuments:
+          count: 6
+
+  - it: puts ZTNA in the controller ConfigMap when enabled
+    template: templates/configmap.yaml
+    set:
+      ztna.enabled: true
+    asserts:
+      - equal:
+          path: data.ZTNA
+          value: '{"agentImage":"ghcr.io/teknoir/wg-agent:sha-0000000a@sha256:1111111111111111111111111111111111111111111111111111111111111111","allowedPorts":[22],"enabled":true,"enrollWindowMinutes":15,"hubNamespace":"teknoir-ztna","terminalImage":"ghcr.io/teknoir/web-terminal:sha-0000000b@sha256:2222222222222222222222222222222222222222222222222222222222222222"}'
+      - equal:
+          path: data.DOMAIN
+          value: teknoir.cloud
+
+  - it: adds terminalRunAsUser only when set
+    template: templates/configmap.yaml
+    set:
+      ztna.enabled: true
+      ztna.terminalRunAsUser: 65532
+    asserts:
+      - matchRegex:
+          path: data.ZTNA
+          pattern: '"terminalRunAsUser":65532'
+
+  - it: leaves ZTNA out when the block is absent
+    template: templates/configmap.yaml
+    set:
+      ztna: null
+    asserts:
+      - notExists:
+          path: data.ZTNA
+
+  - it: fails the render without the agent image
+    template: templates/configmap.yaml
+    set:
+      ztna.enabled: true
+      ztna.agentImage: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "ztna.agentImage is required"
+
+  - it: fails the render without the terminal image
+    template: templates/configmap.yaml
+    set:
+      ztna.enabled: true
+      ztna.terminalImage: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "ztna.terminalImage is required"
+
+  - it: grants the controller a namespaced Role in teknoir-ztna
+    template: templates/rbac.yaml
+    set:
+      ztna.enabled: true
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-device-controller-ztna
+    asserts:
+      - isKind:
+          of: Role
+      - equal:
+          path: metadata.namespace
+          value: teknoir-ztna
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [configmaps, serviceaccounts, secrets, services]
+            verbs: [get, list, watch, create, update, patch, delete]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [apps]
+            resources: [deployments]
+            verbs: [get, list, watch, create, update, patch, delete]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [networking.istio.io]
+            resources: [virtualservices]
+            verbs: [get, list, watch, create, update, patch, delete]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [security.istio.io]
+            resources: [authorizationpolicies]
+            verbs: [get, list, watch, create, update, patch, delete]
+
+  - it: binds the Role to the controller service account
+    template: templates/rbac.yaml
+    set:
+      ztna.enabled: true
+    documentSelector:
+      path: metadata.name
+      value: RELEASE-NAME-device-controller-ztna-rolebinding
+    asserts:
+      - isKind:
+          of: RoleBinding
+      - equal:
+          path: metadata.namespace
+          value: teknoir-ztna
+      - equal:
+          path: roleRef.name
+          value: RELEASE-NAME-device-controller-ztna
+      - equal:
+          path: subjects[0].name
+          value: device-controller-service-account
+      - equal:
+          path: subjects[0].namespace
+          value: NAMESPACE
+
+  - it: renders no TURN policy while disabled
+    template: templates/virtual-devices-runtime.yaml
+    asserts:
+      - hasDocuments:
+          count: 7
+
+  - it: allows virtual devices egress UDP 3478 to the STUNner dataplane when enabled
+    template: templates/virtual-devices-runtime.yaml
+    set:
+      ztna.enabled: true
+    documentSelector:
+      path: metadata.name
+      value: vdev-egress-turn
+    asserts:
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: metadata.namespace
+          value: teknoir-demo-vdev
+      - equal:
+          path: spec.policyTypes
+          value: [Egress]
+      - equal:
+          path: spec.egress[0].to[0].namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
+          value: stunner-system
+      - equal:
+          path: spec.egress[0].to[0].podSelector.matchLabels.app
+          value: stunner
+      - equal:
+          path: spec.egress[0].ports
+          value:
+            - protocol: UDP
+              port: 3478
+
+  - it: adds exactly one policy per allowance when enabled
+    template: templates/virtual-devices-runtime.yaml
+    set:
+      ztna.enabled: true
+      virtualDevices.allowances.second: {devices: 1, cpu: "2", memory: 4Gi, disk: 20Gi}
+    asserts:
+      - hasDocuments:
+          count: 16

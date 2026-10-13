@@ -1,0 +1,158 @@
+{{- $domain := required "domain is required" .Values.domain }}
+{{- $turn := .Values.turn }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: wg-hub
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+automountServiceAccountToken: true
+---
+# One replica: sessions, IP allocation and the WireGuard socket are in memory. Recreate (not a
+# rolling update) so two hubs never run at once: STUNner routes to every endpoint of the headless
+# Service, and a second hub would receive handshakes for sessions it does not know.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wg-hub
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "ztna.hubSelector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ztna.hubLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: wg-hub
+      {{- with .Values.hub.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: wg-hub
+          image: {{ include "ztna.hubImage" . | quote }}
+          imagePullPolicy: {{ .Values.hub.image.pullPolicy }}
+          env:
+            - name: DOMAIN
+              value: {{ $domain | quote }}
+            - name: HUB_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            # The TURN peer address the STUNner dataplane relays to (headless Service: pod IP).
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: TURN_URLS
+              value: {{ printf "turn:turn.%s:%d?transport=udp" $domain (int $turn.port) | quote }}
+            - name: TURN_SECRET_REF
+              value: {{ printf "%s/%s" $turn.secretNamespace $turn.secretName | quote }}
+            - name: KEYCLOAK_ISSUER
+              value: {{ printf "https://auth.%s/auth/realms/%s" $domain .Values.hub.keycloak.realm | quote }}
+            - name: KEYCLOAK_JWKS_URL
+              value: {{ printf "https://auth.%s/auth/realms/%s/protocol/openid-connect/certs" $domain .Values.hub.keycloak.realm | quote }}
+            - name: ALLOWED_AZP
+              value: {{ .Values.hub.allowedAZP | quote }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+            - name: wg
+              containerPort: 51820
+              protocol: UDP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.hub.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 16Mi
+---
+# Headless: the endpoints are the pod IPs. STUNner's UDPRoute backend and the hub's own
+# endpoint (POD_IP:51820) avoid ClusterIP NAT and conntrack on the TURN leg. UDP is not
+# captured by the Istio sidecar; the TCP ports are.
+apiVersion: v1
+kind: Service
+metadata:
+  name: wg-hub
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  selector:
+    {{- include "ztna.hubSelector" . | nindent 4 }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+    - name: http-metrics
+      port: 9090
+      targetPort: metrics
+      protocol: TCP
+    - name: wg
+      port: 51820
+      targetPort: wg
+      protocol: UDP
+{{- if .Values.metrics.serviceMonitor.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: wg-hub
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+    {{- toYaml .Values.metrics.serviceMonitor.labels | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  selector:
+    matchLabels:
+      {{- include "ztna.hubSelector" . | nindent 6 }}
+  endpoints:
+    - port: http-metrics
+      path: /metrics
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+{{- end }}

@@ -1,0 +1,107 @@
+{{- /*
+Least privilege for the hub (plan "Hardening / RBAC"). Writes to ConfigMaps are further limited
+by the admission policy (templates/admission.yaml): the hub may only write identity ConfigMaps.
+device-controller's Role in this namespace is in charts/device-controller.
+*/ -}}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: wg-hub
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+rules:
+  # Authorize users and delegating service accounts: SubjectAccessReview (create pods/exec in the
+  # teamspace) and TokenReview (web terminal service account tokens).
+  - apiGroups: ["authorization.k8s.io"]
+    resources: ["subjectaccessreviews"]
+    verbs: ["create"]
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]
+  # Device annotations (compromised, health-check-failed, ...) through a metadata-only informer,
+  # so revocation does not depend on device-controller.
+  - apiGroups: ["teknoir.org"]
+    resources: ["devices"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: wg-hub
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: wg-hub
+subjects:
+  - kind: ServiceAccount
+    name: wg-hub
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: wg-hub
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+rules:
+  # Policy ConfigMaps (written by device-controller) and identity ConfigMaps (written by the hub).
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create", "update", "patch"]
+  # The annotations of a web terminal service account bind it to one device.
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: wg-hub
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: wg-hub
+subjects:
+  - kind: ServiceAccount
+    name: wg-hub
+    namespace: {{ .Release.Namespace }}
+---
+# The TURN shared secret, by name only. The hub never creates Secrets.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: wg-hub-turn-secret
+  namespace: {{ .Values.turn.secretNamespace }}
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: [{{ .Values.turn.secretName | quote }}]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: wg-hub-turn-secret
+  namespace: {{ .Values.turn.secretNamespace }}
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: wg-hub-turn-secret
+subjects:
+  - kind: ServiceAccount
+    name: wg-hub
+    namespace: {{ .Release.Namespace }}

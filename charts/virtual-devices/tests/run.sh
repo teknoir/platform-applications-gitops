@@ -102,6 +102,19 @@ python3 -I "${HERE}/assertions.py" "${CHART}/vendor/upstream.lock.yaml" "$TMP/em
   bad "an empty workloadUpdateStrategy: {} passed the assertions" || ok "an empty workloadUpdateStrategy: {} is rejected"
 
 # ---------------------------------------------------------------- app-of-apps
+# These checks are about the virtual-devices gate. The ZTNA switch (ztna.enabled, its own gate and
+# tests in charts/ztna/tests/run.sh) is pinned off in a copy of the chart, so flipping it in
+# values.yaml does not change what is compared here.
+AOA_REAL="$AOA"
+AOA="$TMP/aoa-ztna-pinned"
+cp -r "$AOA_REAL" "$AOA"
+python3 -I - "$AOA/values.yaml" <<'PY'
+import re, sys
+p = sys.argv[1]
+s = open(p).read()
+s = re.sub(r"(?m)^ztna:\n  enabled: \w+", "ztna:\n  enabled: false", s)
+open(p, "w").write(s)
+PY
 # The Application must render only where both gates hold: virtualDevices.enabled and an
 # allowlisted environment (teknoir-cloud). The env branches are kept in step by
 # cherry-pick, so the guard is tested against every other environment's project name.
@@ -120,7 +133,10 @@ docs = [d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
 apps = {d["metadata"]["name"]: d for d in docs if d["kind"] == "Application"}
 app = apps["virtual-devices"]
 spec = app["spec"]
-src = spec["source"]
+src = dict(spec["source"])
+# With ztna.enabled the Application passes ztna.enabled=true to the chart (CoreDNS rewrites for
+# wg-device and turn); everything else about the source is the same.
+assert src.pop("helm", None) in (None, {"parameters": [{"name": "ztna.enabled", "value": "true"}]}), spec["source"]
 assert src == {"path": "charts/virtual-devices", "repoURL": "https://github.com/teknoir/platform-applications-gitops", "targetRevision": "teknoir-cloud"}, src
 assert spec["project"] == "teknoir-cloud"
 assert spec["destination"] == {"namespace": "kubevirt", "server": "https://kubernetes.default.svc"}, spec["destination"]
@@ -185,7 +201,7 @@ assert all(before[k] == after[k] for k in before), [k for k in before if before[
 PY
 # Informational: what this checkout's values.yaml deploys. The teknoir-cloud opt-in is a
 # separate last commit, so the chart commits can be cherry-picked without enabling it.
-python3 -I - "${AOA}/values.yaml" "$(aoa_vd "$TMP/aoa-head.yaml")" <<'PY'
+python3 -I - "${AOA_REAL}/values.yaml" "$(AOA="$AOA_REAL" aoa_vd "$TMP/aoa-head.yaml")" <<'PY'
 import sys, yaml
 v = yaml.safe_load(open(sys.argv[1])) or {}
 print(f"info charts/app-of-apps/values.yaml: project={v.get('project')}, "

@@ -103,6 +103,12 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: device-controller
+{{- if include "app-of-apps.ztnaEnabled" . }}
+  annotations:
+    # After the ztna Application (wave 1) created teknoir-ztna: the chart renders a Role
+    # there for the WireGuard (ZTNA) plugin.
+    argocd.argoproj.io/sync-wave: "2"
+{{- end }}
 spec:
   destination:
     namespace: teknoir-system
@@ -111,6 +117,14 @@ spec:
     path: charts/device-controller
     repoURL: https://github.com/teknoir/platform-applications-gitops
     targetRevision: {{ .Values.project }}
+{{- if include "app-of-apps.ztnaEnabled" . }}
+    helm:
+      parameters:
+        # One switch (app-of-apps values ztna.enabled) for the whole feature. The images
+        # (ztna.agentImage, ztna.terminalImage) are in charts/device-controller/values.yaml.
+        - name: ztna.enabled
+          value: "true"
+{{- end }}
   sources: [ ]
   project: {{ .Values.project }}
   syncPolicy:
@@ -118,3 +132,12 @@ spec:
       prune: true
       selfHeal: true
       enabled: true
+{{- if include "app-of-apps.ztnaEnabled" . }}
+    # The Role in teknoir-ztna needs the namespace; retry until the ztna Application made it.
+    retry:
+      limit: 10
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
+{{- end }}

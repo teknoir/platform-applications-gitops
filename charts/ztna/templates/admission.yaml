@@ -1,0 +1,127 @@
+{{- /*
+ValidatingAdmissionPolicies (Kubernetes 1.30+, r415 runs 1.34) that protect the policy store and
+the hub. Backstage's service account has cluster-wide teknoir-admin (ConfigMaps, Secrets, exec),
+so RBAC alone does not keep a compromised UI out of the access policy.
+
+  ztna-policy-store:  - ConfigMaps labelled ztna.teknoir.org/policy (or named ztna-policy-*):
+                        only device-controller's service account may create, update or delete them;
+                      - ConfigMaps labelled ztna.teknoir.org/identity (or named ztna-identity-*):
+                        only the hub's service account;
+                      - the hub's service account may write no other ConfigMap.
+  ztna-no-exec:       nobody may exec into, attach to, port-forward to or add ephemeral
+                      containers to pods in teknoir-ztna and stunner-system (the hub holds the
+                      session keys in memory, stunnerd the TURN secret).
+
+ArgoCD is not affected: the policy and identity ConfigMaps are not in Git, so ArgoCD never writes
+them, and Argo's own resources here are no ConfigMaps at all. Namespace teardown is: the namespace
+controller deletes the ConfigMaps as itself, so DELETE is allowed while the namespace is Terminating
+(nobody can start that without deleting the namespace, which is cluster-admin anyway).
+
+Break-glass: a cluster-admin (system:masters is NOT exempt) removes the binding, acts, and puts it back.
+*/ -}}
+{{- $label := "ztna.teknoir.org" }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: ztna-policy-store
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["configmaps"]
+  variables:
+    # object is null on DELETE, oldObject on CREATE; a label or name prefix on either side counts, so
+    # relabelling a policy ConfigMap does not escape the rule.
+    - name: isPolicy
+      expression: >-
+        (object != null && ((has(object.metadata.name) && object.metadata.name.startsWith('ztna-policy-')) ||
+          (has(object.metadata.labels) && '{{ $label }}/policy' in object.metadata.labels))) ||
+        (oldObject != null && ((has(oldObject.metadata.name) && oldObject.metadata.name.startsWith('ztna-policy-')) ||
+          (has(oldObject.metadata.labels) && '{{ $label }}/policy' in oldObject.metadata.labels)))
+    - name: isIdentity
+      expression: >-
+        (object != null && ((has(object.metadata.name) && object.metadata.name.startsWith('ztna-identity-')) ||
+          (has(object.metadata.labels) && '{{ $label }}/identity' in object.metadata.labels))) ||
+        (oldObject != null && ((has(oldObject.metadata.name) && oldObject.metadata.name.startsWith('ztna-identity-')) ||
+          (has(oldObject.metadata.labels) && '{{ $label }}/identity' in oldObject.metadata.labels)))
+    - name: teardown
+      expression: >-
+        request.operation == 'DELETE' && namespaceObject != null &&
+        has(namespaceObject.status) && has(namespaceObject.status.phase) &&
+        namespaceObject.status.phase == 'Terminating'
+  validations:
+    - expression: >-
+        !variables.isPolicy || variables.teardown ||
+        request.userInfo.username == '{{ include "ztna.controllerUser" . }}'
+      message: "ztna policy ConfigMaps are written by device-controller only"
+      reason: Forbidden
+    - expression: >-
+        !variables.isIdentity || variables.teardown ||
+        request.userInfo.username == '{{ include "ztna.hubUser" . }}'
+      message: "ztna identity ConfigMaps are written by the wg-hub only"
+      reason: Forbidden
+    - expression: >-
+        request.userInfo.username != '{{ include "ztna.hubUser" . }}' || variables.isIdentity
+      message: "the wg-hub may only write ztna identity ConfigMaps"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: ztna-policy-store-binding
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+spec:
+  policyName: ztna-policy-store
+  validationActions: ["Deny", "Audit"]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: {{ .Release.Namespace }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: ztna-no-exec
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CONNECT"]
+        resources: ["pods/exec", "pods/attach", "pods/portforward"]
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["UPDATE"]
+        resources: ["pods/ephemeralcontainers"]
+  validations:
+    - expression: "false"
+      message: "exec, attach, port-forward and ephemeral containers are denied for everyone in the ZTNA namespaces"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: ztna-no-exec-binding
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+spec:
+  policyName: ztna-no-exec
+  validationActions: ["Deny", "Audit"]
+  matchResources:
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values:
+            - {{ .Release.Namespace }}
+            - {{ .Values.turn.secretNamespace }}
