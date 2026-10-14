@@ -80,6 +80,13 @@ spec:
       to:
         - operation:
             ports: ["8081"]
+    # The live status port 8082: the Backstage backend's service account only (mTLS principal).
+    - from:
+        - source:
+            principals: [{{ .Values.hub.statusPrincipal | quote }}]
+      to:
+        - operation:
+            ports: ["8082"]
     # Prometheus.
     - from:
         - source:

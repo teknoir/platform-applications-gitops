@@ -258,6 +258,57 @@ check_connect "attach in teknoir-ztna" teknoir-ztna attach deny
 check_connect "portforward in teknoir-ztna" teknoir-ztna portforward deny
 check_connect "exec in an unrelated namespace" other exec pass
 
+# --- Device annotations (ztna.teknoir.org/*): Backstage backend, device-controller, system:masters only
+"${KC[@]}" apply -f "${CHART}/../device-controller/crds/devices.yaml" >/dev/null
+"${KC[@]}" wait --for=condition=Established crd/devices.teknoir.org --timeout=30s >/dev/null
+"${KC[@]}" create namespace devns >/dev/null
+EDITOR_SA=system:serviceaccount:devns:default-editor
+dev() { # name [annotations as key=value ...] -> manifest
+  local name=$1; shift
+  printf 'apiVersion: teknoir.org/v1\nkind: Device\nmetadata:\n  name: %s\n' "$name"
+  if [[ $# -gt 0 ]]; then printf '  annotations:\n'; for kv in "$@"; do printf '    %s: "%s"\n' "${kv%%=*}" "${kv#*=}"; done; fi
+  printf 'spec:\n  keys: {}\n  manifest: {}\n'
+}
+dverdict() { # description want(allow|deny) user verb manifest
+  local d=$1 want=$2 u=$3 v=$4 f=$5 out got
+  out=$(as "$u" "$v" -n devns -f "$f" 2>&1) && got=allow || { grep -q "ValidatingAdmissionPolicy 'ztna-device-annotations'" <<<"$out" && got=deny || got="other: $out"; }
+  if [[ $got == "$want" ]]; then ok "$d ($want)"; else bad "$d: want $want, got $got"; fi
+}
+Z=ztna.teknoir.org
+dev dev1 "$Z/wireguard=enabled" other.io/x=1 > "${TMP}/d-base.yaml"
+dverdict "editor creates a Device with a ztna annotation" deny "${EDITOR_SA}" create "${TMP}/d-base.yaml"
+dev dev0 other.io/x=1 > "${TMP}/d-plain.yaml"
+dverdict "editor creates a Device without ztna annotations" allow "${EDITOR_SA}" create "${TMP}/d-plain.yaml"
+dverdict "backstage-api creates a Device with a ztna annotation" allow "${BACKSTAGE_API}" create "${TMP}/d-base.yaml"
+dev dev2 "$Z/wireguard=enabled" > "${TMP}/d-dc.yaml"
+dverdict "device-controller creates a Device with a ztna annotation" allow "${DC}" create "${TMP}/d-dc.yaml"
+dev dev3 "$Z/wireguard=enabled" > "${TMP}/d-m.yaml"
+if "${KC[@]}" create -n devns -f "${TMP}/d-m.yaml" >/dev/null 2>&1; then ok "allowed: system:masters creates a Device with a ztna annotation"; else bad "system:masters denied"; fi
+# UPDATE: modify, add, remove
+dev dev1 "$Z/wireguard=enabled" "$Z/compromised=true" other.io/x=1 > "${TMP}/d-add.yaml"
+dverdict "editor adds ztna/compromised" deny "${EDITOR_SA}" replace "${TMP}/d-add.yaml"
+dev dev1 "$Z/wireguard=disabled" other.io/x=1 > "${TMP}/d-mod.yaml"
+dverdict "editor modifies ztna/wireguard" deny "${EDITOR_SA}" replace "${TMP}/d-mod.yaml"
+dev dev1 other.io/x=1 > "${TMP}/d-rm.yaml"
+dverdict "editor removes ztna/wireguard" deny "${EDITOR_SA}" replace "${TMP}/d-rm.yaml"
+dverdict "backstage-api sets ztna/compromised" allow "${BACKSTAGE_API}" replace "${TMP}/d-add.yaml"
+dev dev1 "$Z/wireguard=enabled" "$Z/compromised=true" "$Z/trusted-host-key=SHA256:abc" other.io/x=1 > "${TMP}/d-dcset.yaml"
+dverdict "device-controller adds a ztna annotation" allow "${DC}" replace "${TMP}/d-dcset.yaml"
+dev dev1 "$Z/wireguard=enabled" "$Z/compromised=true" "$Z/trusted-host-key=SHA256:abc" other.io/x=2 other.io/y=3 > "${TMP}/d-other.yaml"
+dverdict "editor changes other annotations only (ztna ones kept)" allow "${EDITOR_SA}" replace "${TMP}/d-other.yaml"
+dev dev1 "$Z/wireguard=enabled" "$Z/compromised=true" "$Z/trusted-host-key=SHA256:abc" > "${TMP}/d-dropother.yaml"
+dverdict "editor removes a non-ztna annotation" allow "${EDITOR_SA}" replace "${TMP}/d-dropother.yaml"
+dev dev1 > "${TMP}/d-none.yaml"
+dverdict "editor strips every annotation of a Device that has ztna ones" deny "${EDITOR_SA}" replace "${TMP}/d-none.yaml"
+if "${KC[@]}" replace -n devns -f "${TMP}/d-none.yaml" >/dev/null 2>&1; then ok "allowed: system:masters removes the ztna annotations"; else bad "system:masters replace denied"; fi
+dverdict "editor adds a ztna annotation to a Device with no annotations" deny "${EDITOR_SA}" replace "${TMP}/d-mod.yaml"
+# DELETE is not matched
+"${KC[@]}" apply -n devns -f "${TMP}/d-base.yaml" >/dev/null 2>&1 || true
+if as "${EDITOR_SA}" delete device dev1 -n devns >/dev/null 2>&1; then ok "allowed: editor deletes a Device carrying ztna annotations"; else bad "DELETE of a Device was denied"; fi
+# status subresource is not matched (the controller writes status; annotations cannot change there)
+"${KC[@]}" apply -n devns -f "${TMP}/d-base.yaml" >/dev/null 2>&1 || true
+if as "${EDITOR_SA}" patch device dev1 -n devns --subresource=status --type=merge -p '{"status":{"x":1}}' 2>&1 | grep -q "ztna-device-annotations"; then bad "status update was denied by the annotation policy"; else ok "status subresource is not subject to the annotation policy"; fi
+
 # --- namespace teardown: DELETE of a policy ConfigMap by anyone while the namespace is Terminating
 as "${DC}" create -n teknoir-ztna -f "${TMP}/policy.yaml" >/dev/null
 if as "${BACKSTAGE}" delete configmap ztna-policy-ts.dev1 -n teknoir-ztna >/dev/null 2>&1; then bad "pre-teardown delete should be denied"; else ok "denied: delete before teardown"; fi

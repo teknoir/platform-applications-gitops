@@ -122,6 +122,11 @@ ztna:
   terminalImage: "ghcr.io/teknoir/web-terminal:sha-159c404c@sha256:953c9157ad9b2f42672d88e6be0a915e6cbe143b329ec542c9b8cbe0260bfa7e"
   # Namespace of the hub, the policy ConfigMaps and the web terminals (charts/ztna).
   hubNamespace: teknoir-ztna
+  # Phase 2: inject the host-key attestor sidecar into the wg-agent pod (default off) and the
+  # web gateway image (second container in the per-device wgt- pod; empty = no web gateway).
+  # Both reach the controller's ZTNA JSON only when set.
+  attestorEnabled: false
+  gatewayImage: ""
   # Device ports a client may reach.
   allowedPorts: [22]
   # How long the enrollment window stays open after enabling WireGuard or resetting enrollment.

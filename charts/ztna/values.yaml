@@ -26,6 +26,11 @@ hub:
   # Keycloak tokens are accepted only for this client (azp). Browser tokens (azp teknoir)
   # are forwarded to every upstream behind oauth2-proxy and must never be accepted.
   allowedAZP: teknoir-cli
+  # Live status port 8082 (Backstage backend only). backstageSA is the exact username the hub
+  # checks on the TokenReview; statusPrincipal is the Istio mTLS principal the AuthorizationPolicy
+  # admits (the pods app=backstage-api carry an istio-proxy sidecar and run as this SA).
+  backstageSA: system:serviceaccount:teknoir-system:backstage-api
+  statusPrincipal: cluster.local/ns/teknoir-system/sa/backstage-api
   keycloak:
     realm: master
 
@@ -51,6 +56,12 @@ turn:
 deviceController:
   namespace: teknoir-system
   serviceAccount: device-controller-service-account
+
+# Backstage backend service account (charts/backstage serviceaccount.yaml): the only other
+# identity besides device-controller that may change ztna.teknoir.org/* annotations on Devices
+# (admission policy ztna-device-annotations).
+backstage:
+  serviceAccount: system:serviceaccount:teknoir-system:backstage-api
 
 # Identities (besides device-controller, the ArgoCD application controller and anything in
 # kube-system, i.e. the replicaset/job controllers) that may create or update pods and workloads

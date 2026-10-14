@@ -164,6 +164,7 @@ tests:
           value:
             - {name: http, port: 8080, targetPort: http, protocol: TCP}
             - {name: http-internal, port: 8081, targetPort: http-internal, protocol: TCP}
+            - {name: http-status, port: 8082, targetPort: http-status, protocol: TCP}
             - {name: http-metrics, port: 9090, targetPort: metrics, protocol: TCP}
             - {name: wg, port: 51820, targetPort: wg, protocol: UDP}
 
@@ -352,7 +353,7 @@ tests:
           value:
             - port: 8084
 
-  - it: admits the ingress gateways to 8080, the namespace to 8081 and Prometheus to 9090, nothing else
+  - it: admits the ingress gateways to 8080, the namespace to 8081, Backstage to 8082 and Prometheus to 9090, nothing else
     template: templates/routing.yaml
     documentSelector:
       path: kind
@@ -378,6 +379,12 @@ tests:
               to:
                 - operation:
                     ports: ["8081"]
+            - from:
+                - source:
+                    principals: [cluster.local/ns/teknoir-system/sa/backstage-api]
+              to:
+                - operation:
+                    ports: ["8082"]
             - from:
                 - source:
                     principals: [cluster.local/ns/teknoir-system/sa/monitoring-prometheus]
@@ -536,3 +543,35 @@ tests:
       - matchRegex:
           path: spec.validations[0].expression
           pattern: "'wg-hub', 'wg-flags'.*startsWith\\('wgt-'\\).*system:node:.*system:serviceaccount:kube-system:"
+
+  - it: serves the live status on 8082 for the Backstage service account
+    template: templates/hub.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: STATUS_ADDR, value: ":8082"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: BACKSTAGE_SA, value: "system:serviceaccount:teknoir-system:backstage-api"}
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content: {name: http-status, containerPort: 8082, protocol: TCP}
+
+  - it: guards ztna annotations on Devices
+    template: templates/admission.yaml
+    documentSelector:
+      path: metadata.name
+      value: ztna-device-annotations
+    asserts:
+      - equal:
+          path: spec.matchConstraints.resourceRules[0].operations
+          value: ["CREATE", "UPDATE"]
+      - matchRegex:
+          path: spec.variables[3].expression
+          pattern: "system:serviceaccount:teknoir-system:backstage-api"
+      - matchRegex:
+          path: spec.variables[3].expression
+          pattern: "device-controller-service-account"

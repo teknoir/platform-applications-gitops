@@ -145,6 +145,9 @@ if git -C "$REPO" rev-parse --verify -q "$BASE_REF" >/dev/null; then
   cp -r "$CHARTS" "$TMP/head/charts"
   for c in "$TMP"/head/charts/*/; do
     n=$(basename "$c")
+    # ztna and stunner are the feature's own charts (they exist on the base since phase 1 and
+    # change with every phase): the guard is about every OTHER chart rendering the same with the switch off.
+    [[ $n == ztna || $n == stunner ]] && continue
     [[ -d $TMP/base/charts/$n ]] || continue   # charts that do not exist on the base (ztna, stunner, gateway-api-crds)
     for root in base head; do
       if grep -q '^dependencies:' "$TMP/$root/charts/$n/Chart.yaml"; then
@@ -263,7 +266,7 @@ assert dep["spec"]["replicas"] == 1 and dep["spec"]["strategy"]["type"] == "Recr
 assert spec["securityContext"]["runAsNonRoot"] is True and c["securityContext"]["readOnlyRootFilesystem"] is True
 assert c["securityContext"]["capabilities"] == {"drop": ["ALL"]} and c["securityContext"]["allowPrivilegeEscalation"] is False
 assert "hostNetwork" not in spec and not spec.get("hostPID")
-assert [(p["name"], p["containerPort"]) for p in c["ports"]] == [("http", 8080), ("http-internal", 8081), ("metrics", 9090), ("wg", 51820)], c["ports"]
+assert [(p["name"], p["containerPort"]) for p in c["ports"]] == [("http", 8080), ("http-internal", 8081), ("http-status", 8082), ("metrics", 9090), ("wg", 51820)], c["ports"]
 # k3s servicelb SNATs client addresses: no client address header may be trusted until real client IPs are verified
 assert "CLIENT_IP_HEADER" not in [e["name"] for e in c.get("env", [])], "CLIENT_IP_HEADER must not be set on the hub (see charts/ztna/README.md, Client IP)"
 # --- flags watcher: same image, own SA, no ports, hardened
@@ -275,7 +278,7 @@ assert fs["serviceAccountName"] == "wg-flags" and "ports" not in fc
 assert fc["securityContext"]["readOnlyRootFilesystem"] is True and fc["securityContext"]["capabilities"] == {"drop": ["ALL"]}
 assert not [s_ for s_ in by(z, "Service") if s_["metadata"]["name"] == "wg-flags"], "no Service for the flags watcher"
 svc, = by(z, "Service", "wg-hub")
-assert [(p["name"], p["port"]) for p in svc["spec"]["ports"]] == [("http", 8080), ("http-internal", 8081), ("http-metrics", 9090), ("wg", 51820)]
+assert [(p["name"], p["port"]) for p in svc["spec"]["ports"]] == [("http", 8080), ("http-internal", 8081), ("http-status", 8082), ("http-metrics", 9090), ("wg", 51820)]
 # --- VirtualServices route to 8080 only (8081 is internal)
 for v in by(z, "VirtualService"):
     for h in v["spec"]["http"]:
@@ -286,7 +289,8 @@ ap, = by(z, "AuthorizationPolicy", "wg-hub")
 rules = [(r["from"][0]["source"], r["to"][0]["operation"]["ports"]) for r in ap["spec"]["rules"]]
 assert rules[0] == ({"principals": ["cluster.local/ns/istio-system/sa/istio-ingressgateway", "cluster.local/ns/istio-system/sa/istio-ingressgateway-public"]}, ["8080"]), rules
 assert rules[1] == ({"namespaces": ["teknoir-ztna"]}, ["8081"]), rules
-assert rules[2][1] == ["9090"] and len(rules) == 3, rules
+assert rules[2] == ({"principals": ["cluster.local/ns/teknoir-system/sa/backstage-api"]}, ["8082"]), rules
+assert rules[3][1] == ["9090"] and len(rules) == 4, rules
 # --- RBAC: only the flags watcher reads Devices; the hub never can
 for d in by(z, "ClusterRole") + by(z, "Role"):
     reads_devices = any("devices" in rule["resources"] for rule in d["rules"])
@@ -338,7 +342,7 @@ assert names(on) - names(off) == {("Role", "device-controller-ztna"), ("RoleBind
 assert not names(off) - names(on)
 print("ok   STUNner Gateway/GatewayClass/GatewayConfig/UDPRoute (port 51820, no endPort, cross-namespace backend), hub Deployment hardening, Roles, no Secrets in Git, device-controller ZTNA key and Role")
 PY
-python3 -I - "${CHARTS}/device-controller/crds/devices.yaml" <<'PY' && ok "Device CRD: status.wireguard next to status.virtual_device with the 18 fields" || bad "Device CRD status.wireguard"
+python3 -I - "${CHARTS}/device-controller/crds/devices.yaml" <<'PY' && ok "Device CRD: status.wireguard next to status.virtual_device with the phase-2 fields" || bad "Device CRD status.wireguard"
 import sys, yaml
 crd = yaml.safe_load(open(sys.argv[1]))
 st = crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["status"]["properties"]
@@ -347,7 +351,10 @@ w = st["wireguard"]["properties"]
 want = {"enabled": "boolean", "state": "string", "reasons": "array", "note": "string", "enrollmentGeneration": "integer",
         "enrollUntil": "string", "lastReenrollRequest": "string", "lastFlagsSet": "boolean", "identityFingerprint": "string",
         "enrolledAt": "string", "enrollmentConflicts": "integer", "webTerminalURL": "string", "policyUpdatedAt": "string", "message": "string",
-        "approvedFingerprint": "string", "approvedEpoch": "string", "identityApproved": "boolean", "identityVoided": "boolean"}
+        "approvedFingerprint": "string", "approvedEpoch": "string", "identityApproved": "boolean", "identityVoided": "boolean",
+        "services": "array", "activation": "object", "p2p": "boolean", "agentCapabilities": "array"}
+assert set(w["activation"]["properties"]) == {"mode", "verifiedBy", "trustedHostKey", "attestedHostKey", "attestedHostKeyType", "at", "forcedManual", "duplicateHostKey"}
+assert set(w["services"]["items"]["properties"]) == {"id", "kind", "url"}
 assert {k: v["type"] for k, v in w.items()} == want, {k: v["type"] for k, v in w.items()}
 assert w["enrollmentGeneration"]["format"] == "int64" and w["reasons"]["items"]["type"] == "string"
 assert "required" not in st["wireguard"], "all fields optional"
