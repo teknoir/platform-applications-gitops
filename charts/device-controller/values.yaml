@@ -7,9 +7,9 @@ image:
   # Pinned: '<immutable tag>@sha256:<linux/amd64 manifest digest>',
   # device-controller 7c2a852 (applicationset, F3: quota refusal in status + backoff; index sha256:8807375c31dfb7cb4227f4c26361957cf86a6b280fd864486a778c7eee8561fd). Previous pin: sha-87b8ebfb@sha256:d9cc97729ba89b9a4671dca463f772ec48767a3d7acca194de94aae2d10d7034
   # device-controller 87b8ebf = applicationset-20261012-112318, index sha256:14bbc608e32007d9c294705f0b6aecb5bcab0e7ba66ebdc88b89d5e92c1573e5 (virtual devices Phase 1 runtime). Previous pin: sha-b23700ba@sha256:1b96d735b10e4e0cb80e29cfe9e3a46a93e5efde01f7b4b1973db81e3ad82de4.
-  # device-controller c6a6f6b (ztna-wireguard, PR #44 into applicationset: WireGuard ZTNA plugin, no-op without ZTNA config), index digest. Previous pin: sha-7c2a852b@sha256:41b10284cf2fd3fea2606ccaf99186105614e9cf7f8a99521786ffe7a20a683e
+  # device-controller 608381e (PR #45: keep wg-agent through the GitOps prune; previous pin sha-c6a6f6b1). Before that: c6a6f6b (ztna-wireguard, PR #44 into applicationset: WireGuard ZTNA plugin, no-op without ZTNA config), index digest. Previous pin: sha-7c2a852b@sha256:41b10284cf2fd3fea2606ccaf99186105614e9cf7f8a99521786ffe7a20a683e
   # Change it only by promoting a new sha-<commit> through this branch.
-  tag: "sha-c6a6f6b1@sha256:aaf091c5a2d6b65c5742794636438f1957d19f36bb1079898cef723a660e0664"
+  tag: "sha-608381ea@sha256:89014cca93bf73b468519383ae789440977f52657955dd62fd92cbc898f5e8f7"
   pullPolicy: IfNotPresent
 
 imagePullSecrets:
@@ -119,7 +119,7 @@ ztna:
   # injects into a device, and the per-device WireGuard web terminal image
   # (SSH_PROXY_MODE=wireguard). '<immutable tag>@sha256:<digest>'.
   agentImage: "ghcr.io/teknoir/wg-agent:sha-6c22125@sha256:e73ad3a5d7ebf86426d0c9777d6482ec5e4b7bbb6499052c7ec8b93b852e88f5"
-  terminalImage: "ghcr.io/teknoir/web-terminal:sha-994f943a@sha256:fef5d480b0e74680fc4dd29ce32265f9244b970d3afb171d2d1feef2399b0570"
+  terminalImage: "ghcr.io/teknoir/web-terminal:sha-5e8f8a50@sha256:6bd28f15f34b666b79f2880ee8015e01e804eb6a99a300382ef55c5514d56877"
   # Namespace of the hub, the policy ConfigMaps and the web terminals (charts/ztna).
   hubNamespace: teknoir-ztna
   # Device ports a client may reach.
