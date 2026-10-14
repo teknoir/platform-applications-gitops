@@ -12,8 +12,8 @@ hub:
     # REQUIRED, no default: '<immutable tag>@sha256:<manifest digest>' of the wg-hub image
     # (CI pushes sha-<commit>). Set it before flipping ztna.enabled in charts/app-of-apps;
     # an empty tag fails the render of this chart (nothing half-configured is applied).
-    # wg-tunnel 6c22125 (main): hub + flags watcher, index digest.
-    tag: "sha-6c22125@sha256:ad4322a947338f71672cc14d772bac373788fea9c5bc59e12525e8a912058acc"
+    # wg-tunnel 5772c6f (main, phase 2): hub + flags watcher, index digest.
+    tag: "sha-5772c6f@sha256:a8a56f79dbcd4fd4a232a2a74ff1edc5532262c0a10c741e9a7f72ac942914aa"
     pullPolicy: IfNotPresent
   imagePullSecrets:
     - name: ghcr-token

@@ -73,6 +73,17 @@ spec:
         - name: backstage-app-config
           configMap:
             name: backstage-app-config
+        {{- if (.Values.ztna).enabled }}
+        # Token for the ZTNA hub's live status port only: its own audience, so the hub never
+        # holds a token the API server accepts.
+        - name: ztna-status-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: teknoir-ztna-status
+                  expirationSeconds: 3600
+                  path: token
+        {{- end }}
       serviceAccountName: backstage-api
       imagePullSecrets:
         {{- toYaml .Values.backstageApi.imagePullSecrets | nindent 8 }}
@@ -124,6 +135,11 @@ spec:
             - name: backstage-app-config
               mountPath: /app/app-config.prod-env.yaml
               subPath: app-config.prod-env.yaml
+            {{- if (.Values.ztna).enabled }}
+            - name: ztna-status-token
+              readOnly: true
+              mountPath: /var/run/secrets/ztna-status
+            {{- end }}
           readinessProbe:
             initialDelaySeconds: 60
             httpGet:
