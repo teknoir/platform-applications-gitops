@@ -9,7 +9,7 @@ image:
   # device-controller 87b8ebf = applicationset-20261012-112318, index sha256:14bbc608e32007d9c294705f0b6aecb5bcab0e7ba66ebdc88b89d5e92c1573e5 (virtual devices Phase 1 runtime). Previous pin: sha-b23700ba@sha256:1b96d735b10e4e0cb80e29cfe9e3a46a93e5efde01f7b4b1973db81e3ad82de4.
   # device-controller 608381e (PR #45: keep wg-agent through the GitOps prune; previous pin sha-c6a6f6b1). Before that: c6a6f6b (ztna-wireguard, PR #44 into applicationset: WireGuard ZTNA plugin, no-op without ZTNA config), index digest. Previous pin: sha-7c2a852b@sha256:41b10284cf2fd3fea2606ccaf99186105614e9cf7f8a99521786ffe7a20a683e
   # Change it only by promoting a new sha-<commit> through this branch.
-  tag: "sha-608381ea@sha256:89014cca93bf73b468519383ae789440977f52657955dd62fd92cbc898f5e8f7"
+  tag: "sha-d4f26866@sha256:b8f3b4296638e4484fb93c7a8e5a8ddbca49ce2d2b753da42727341755f4afad"
   pullPolicy: IfNotPresent
 
 imagePullSecrets:
@@ -118,15 +118,15 @@ ztna:
   # REQUIRED once enabled (the render fails without them): the wg-agent image that the controller
   # injects into a device, and the per-device WireGuard web terminal image
   # (SSH_PROXY_MODE=wireguard). '<immutable tag>@sha256:<digest>'.
-  agentImage: "ghcr.io/teknoir/wg-agent:sha-580310f@sha256:54d151809d537832235ad91df97eed45045de2a681ecf2f0e2978d1da167c635"
+  agentImage: "ghcr.io/teknoir/wg-agent:sha-5772c6f@sha256:f7d72dc32cedbe9c79593e7816eb1b32e92c08149fb593eb8526c675d3eeb81b"
   terminalImage: "ghcr.io/teknoir/web-terminal:sha-159c404c@sha256:953c9157ad9b2f42672d88e6be0a915e6cbe143b329ec542c9b8cbe0260bfa7e"
   # Namespace of the hub, the policy ConfigMaps and the web terminals (charts/ztna).
   hubNamespace: teknoir-ztna
   # Phase 2: inject the host-key attestor sidecar into the wg-agent pod (default off) and the
   # web gateway image (second container in the per-device wgt- pod; empty = no web gateway).
   # Both reach the controller's ZTNA JSON only when set.
-  attestorEnabled: false
-  gatewayImage: ""
+  attestorEnabled: true
+  gatewayImage: "ghcr.io/teknoir/wg-gateway:sha-5772c6f@sha256:dd3c87fa1aa2a9c42656793e5ac957315f05ec02acce0382964f57d818521049"
   # Device ports a client may reach.
   allowedPorts: [22]
   # How long the enrollment window stays open after enabling WireGuard or resetting enrollment.

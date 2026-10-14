@@ -23,6 +23,8 @@ tests:
     template: templates/configmap.yaml
     set:
       ztna.enabled: true
+      ztna.attestorEnabled: false
+      ztna.gatewayImage: ""
     asserts:
       - equal:
           path: data.ZTNA
@@ -204,10 +206,12 @@ tests:
           path: data.ZTNA
           pattern: '"gatewayImage":"ghcr.io/teknoir/wg-gateway:sha-0000000c@sha256:4444'
 
-  - it: leaves attestorEnabled and gatewayImage out by default
+  - it: leaves attestorEnabled and gatewayImage out when off
     template: templates/configmap.yaml
     set:
       ztna.enabled: true
+      ztna.attestorEnabled: false
+      ztna.gatewayImage: ""
     asserts:
       - notMatchRegex:
           path: data.ZTNA
