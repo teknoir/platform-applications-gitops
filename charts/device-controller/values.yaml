@@ -119,7 +119,7 @@ ztna:
   # injects into a device, and the per-device WireGuard web terminal image
   # (SSH_PROXY_MODE=wireguard). '<immutable tag>@sha256:<digest>'.
   agentImage: "ghcr.io/teknoir/wg-agent:sha-580310f@sha256:54d151809d537832235ad91df97eed45045de2a681ecf2f0e2978d1da167c635"
-  terminalImage: "ghcr.io/teknoir/web-terminal:sha-5e8f8a50@sha256:6bd28f15f34b666b79f2880ee8015e01e804eb6a99a300382ef55c5514d56877"
+  terminalImage: "ghcr.io/teknoir/web-terminal:sha-159c404c@sha256:953c9157ad9b2f42672d88e6be0a915e6cbe143b329ec542c9b8cbe0260bfa7e"
   # Namespace of the hub, the policy ConfigMaps and the web terminals (charts/ztna).
   hubNamespace: teknoir-ztna
   # Device ports a client may reach.
