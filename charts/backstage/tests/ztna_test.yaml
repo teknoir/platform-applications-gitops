@@ -44,3 +44,48 @@ tests:
           content:
             name: APP_CONFIG_teknoir_ztna_enabled
             value: "true"
+
+  - it: mounts a projected token with the ztna-status audience when the switch is on
+    template: templates/deployment.yaml
+    set:
+      ztna.enabled: true
+    documentSelector:
+      path: metadata.name
+      value: backstage-api
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: ztna-status-token
+            projected:
+              sources:
+                - serviceAccountToken:
+                    audience: teknoir-ztna-status
+                    expirationSeconds: 3600
+                    path: token
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: ztna-status-token
+            readOnly: true
+            mountPath: /var/run/secrets/ztna-status
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: backstage-api
+
+  - it: has no ztna-status token volume by default
+    template: templates/deployment.yaml
+    documentSelector:
+      path: metadata.name
+      value: backstage-api
+    asserts:
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: ztna-status-token
+            projected:
+              sources:
+                - serviceAccountToken:
+                    audience: teknoir-ztna-status
+                    expirationSeconds: 3600
+                    path: token

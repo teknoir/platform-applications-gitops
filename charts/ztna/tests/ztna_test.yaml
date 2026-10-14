@@ -557,6 +557,9 @@ tests:
           path: spec.template.spec.containers[0].env
           content: {name: BACKSTAGE_SA, value: "system:serviceaccount:teknoir-system:backstage-api"}
       - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: STATUS_AUDIENCE, value: "teknoir-ztna-status"}
+      - contains:
           path: spec.template.spec.containers[0].ports
           content: {name: http-status, containerPort: 8082, protocol: TCP}
 

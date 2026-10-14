@@ -83,6 +83,9 @@ spec:
               value: ":8082"
             - name: BACKSTAGE_SA
               value: {{ .Values.hub.backstageSA | quote }}
+            # Audience of the projected token Backstage sends to the status port (TokenReview).
+            - name: STATUS_AUDIENCE
+              value: "teknoir-ztna-status"
           ports:
             - name: http
               containerPort: 8080
