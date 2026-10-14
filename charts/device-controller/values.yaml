@@ -118,7 +118,7 @@ ztna:
   # REQUIRED once enabled (the render fails without them): the wg-agent image that the controller
   # injects into a device, and the per-device WireGuard web terminal image
   # (SSH_PROXY_MODE=wireguard). '<immutable tag>@sha256:<digest>'.
-  agentImage: "ghcr.io/teknoir/wg-agent:sha-6c22125@sha256:e73ad3a5d7ebf86426d0c9777d6482ec5e4b7bbb6499052c7ec8b93b852e88f5"
+  agentImage: "ghcr.io/teknoir/wg-agent:sha-580310f@sha256:54d151809d537832235ad91df97eed45045de2a681ecf2f0e2978d1da167c635"
   terminalImage: "ghcr.io/teknoir/web-terminal:sha-5e8f8a50@sha256:6bd28f15f34b666b79f2880ee8015e01e804eb6a99a300382ef55c5514d56877"
   # Namespace of the hub, the policy ConfigMaps and the web terminals (charts/ztna).
   hubNamespace: teknoir-ztna
