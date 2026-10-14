@@ -78,6 +78,12 @@ Backstage's service account has cluster-wide `teknoir-admin`, so RBAC alone does
   hub image.
 - `ztna-no-token-mint`: TokenRequest (`serviceaccounts/token`) for `wg-hub`, `wg-flags` and the terminal accounts `wgt-*`
   only by `system:node:*` (the kubelet's projected tokens) and kube-system identities.
+- `ztna-device-annotations` (phase 2): on `devices.teknoir.org` CREATE and UPDATE, any add, change or removal of a
+  `ztna.teknoir.org/*` annotation (wireguard enable, approved identity, trusted host key, compromised and health flags,
+  reenroll) is denied unless the user is the Backstage backend (`system:serviceaccount:teknoir-system:backstage-api`,
+  `backstage.serviceAccount` in values), device-controller, or in the group `system:masters`. Notebook pods run as
+  `default-editor`, which can edit Devices and would otherwise bypass the Backstage admin gate. Other annotations and
+  DELETE are unaffected, and so is the status subresource. Unlike the other policies, `system:masters` is exempt here.
 - `ztna-no-exec`: no `pods/exec`, `pods/attach`, `pods/portforward` CONNECT and no `pods/ephemeralcontainers`
   update in `teknoir-ztna` and `stunner-system`, for anyone (system:masters included; the hub holds session keys in
   memory and stunnerd the TURN secret).
@@ -102,10 +108,26 @@ Backstage's service account has cluster-wide `teknoir-admin`, so RBAC alone does
   Both hosts are covered by the gateways' `*.<domain>` wildcard hosts and certificate.
 - AuthorizationPolicy `wg-hub` (ALLOW): TCP **8080** (the public API) from the two ingress gateway principals only; TCP
   **8081** (`http-internal`: service account delegation `onBehalfOf` and direct sessions) from workloads in `teknoir-ztna`
-  only, and no VirtualService routes to it; TCP 9090 from the Prometheus service account. Istio does not see UDP: the WireGuard
+  only, and no VirtualService routes to it; TCP **8082** (`http-status`, live status for the Backstage console; env `STATUS_ADDR=:8082`, `BACKSTAGE_SA`) only from the
+  mTLS principal `cluster.local/ns/teknoir-system/sa/backstage-api` (the hub also checks the exact TokenReview username; the
+  `app=backstage-api` pods carry an `istio-proxy` sidecar in the injected namespace `teknoir-system`, verified on r415); TCP 9090 from the Prometheus service account. Istio does not see UDP: the WireGuard
   socket (51820/UDP) is reachable only through STUNner, whose UDPRoute admits an authenticated TURN client to exactly that port.
 - `wg-hub` is the **headless** Service: its endpoints are pod IPs (`POD_IP:51820` is the hub endpoint and the TURN peer),
   so there is no ClusterIP NAT or conntrack on the TURN leg.
+
+## STUN source IP (acceptance probe)
+
+The Gateway `teknoir-turn` carries `stunner.l7mp.io/external-traffic-policy: "local"`, so the LoadBalancer Service keeps the
+client source address. Without it kube-proxy SNATs to the node and a STUN binding response would report the node, not the
+client's server-reflexive address, which breaks candidate exchange for the direct (P2P) path. Probe after a sync, from a
+host that is not on the node network (the response must show your public address, not an address of r415):
+
+    stunner-probe: turnutils_stunclient -p 3478 turn.<domain>      # coturn-utils; or: stunclient turn.<domain> 3478
+    # expect: "Mapped address" / "XOR-MAPPED-ADDRESS" == the probing host's public IP
+    kubectl --context r415 -n stunner-system get svc teknoir-turn -o jsonpath='{.spec.externalTrafficPolicy}'   # Local
+
+With `Local` only nodes that run a dataplane pod answer on the LoadBalancer address; the replica count of the dataplane
+(GatewayConfig) must cover the node that servicelb advertises. On the single-node r415 that is automatic.
 
 ## Client IP and rate limits
 

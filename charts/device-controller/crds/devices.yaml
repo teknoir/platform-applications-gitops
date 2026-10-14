@@ -523,6 +523,47 @@ spec:
                   WireGuard is set by the WireGuard (ZTNA) plugin while WireGuard is enabled
                   for the device by its ztna.teknoir.org/wireguard annotation.
                 properties:
+                  activation:
+                    description: |-
+                      Activation says how the current identity was (or is to be) activated:
+                      by the trusted host key (automatic) or by an admin (manual).
+                    properties:
+                      at:
+                        description: At (RFC3339) is when the activation was decided.
+                        type: string
+                      attestedHostKey:
+                        description: AttestedHostKey is the SHA256 fingerprint of the
+                          ed25519 host key that signed the enrollment attestation.
+                        type: string
+                      attestedHostKeyType:
+                        description: AttestedHostKeyType is the type of that host key.
+                        type: string
+                      duplicateHostKey:
+                        description: DuplicateHostKey is true when the host key is
+                          trusted for more than one device; auto-activation is refused.
+                        type: boolean
+                      forcedManual:
+                        description: ForcedManual is true when activation is forced
+                          manual for this generation (after a compromised or health flag
+                          was cleared).
+                        type: boolean
+                      mode:
+                        description: Mode is auto or manual.
+                        type: string
+                      trustedHostKey:
+                        description: TrustedHostKey is the admin-trusted host key
+                          fingerprint (annotation ztna.teknoir.org/trusted-host-key).
+                        type: string
+                      verifiedBy:
+                        description: VerifiedBy names what verified the activation.
+                        type: string
+                    type: object
+                  agentCapabilities:
+                    description: AgentCapabilities are the capabilities the enrolled
+                      agent advertises (for example attest-v1, services-v1).
+                    items:
+                      type: string
+                    type: array
                   approvedEpoch:
                     description: |-
                       ApprovedEpoch is the enrollment epoch in which the controller copied an
@@ -588,6 +629,10 @@ spec:
                     description: Note is the free-text reason an operator entered
                       with the flag.
                     type: string
+                  p2p:
+                    description: P2P is true when the direct peer-to-peer path is
+                      offered for the device.
+                    type: boolean
                   policyUpdatedAt:
                     description: PolicyUpdatedAt (RFC3339) is when the controller
                       last changed the hub's policy entry.
@@ -598,6 +643,19 @@ spec:
                       and/or health_check_failed.
                     items:
                       type: string
+                    type: array
+                  services:
+                    description: Services are the web/UI services published for the
+                      device through the WireGuard web gateway.
+                    items:
+                      properties:
+                        id:
+                          type: string
+                        kind:
+                          type: string
+                        url:
+                          type: string
+                      type: object
                     type: array
                   state:
                     description: 'State is the access policy state: active, revoked

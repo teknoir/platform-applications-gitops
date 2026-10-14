@@ -180,3 +180,26 @@ tests:
     asserts:
       - hasDocuments:
           count: 16
+
+  - it: emits attestorEnabled and gatewayImage into the ZTNA JSON only when set
+    template: templates/configmap.yaml
+    set:
+      ztna.enabled: true
+      ztna.attestorEnabled: true
+      ztna.gatewayImage: "ghcr.io/teknoir/wg-gateway:sha-0000000c@sha256:4444444444444444444444444444444444444444444444444444444444444444"
+    asserts:
+      - matchRegex:
+          path: data.ZTNA
+          pattern: '"attestorEnabled":true'
+      - matchRegex:
+          path: data.ZTNA
+          pattern: '"gatewayImage":"ghcr.io/teknoir/wg-gateway:sha-0000000c@sha256:4444'
+
+  - it: leaves attestorEnabled and gatewayImage out by default
+    template: templates/configmap.yaml
+    set:
+      ztna.enabled: true
+    asserts:
+      - notMatchRegex:
+          path: data.ZTNA
+          pattern: 'attestorEnabled|gatewayImage'

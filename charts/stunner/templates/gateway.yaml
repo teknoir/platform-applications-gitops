@@ -55,6 +55,9 @@ metadata:
     # The operator names the dataplane Deployment and the LoadBalancer Service after the
     # Gateway (teknoir-turn.stunner-system); a Service type of LoadBalancer is its default.
     stunner.l7mp.io/service-type: LoadBalancer
+    # Keep the client source IP: with Cluster policy kube-proxy SNATs TURN allocations to the
+    # node address, which hides the server-reflexive address STUN reports. Verified on k3d 1.34.5.
+    stunner.l7mp.io/external-traffic-policy: "local"
 spec:
   gatewayClassName: stunner-gatewayclass
   listeners:

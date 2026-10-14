@@ -250,3 +250,55 @@ spec:
     namespaceSelector:
       matchLabels:
         kubernetes.io/metadata.name: {{ .Release.Namespace }}
+---
+{{- /*
+ztna-device-annotations: every ztna.teknoir.org/* annotation on a Device (wireguard enable, approved
+identity, trusted host key, compromised/health flags, reenroll) is a security decision. Notebook
+pods run as the default-editor service account and can edit Devices, which would bypass the
+Backstage admin gate. Only the Backstage backend, device-controller and system:masters may add,
+change or remove such an annotation; any other Device edit is unaffected, and DELETE is not matched.
+*/}}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: ztna-device-annotations
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["teknoir.org"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["devices"]
+  variables:
+    - name: prefix
+      expression: "'ztna.teknoir.org/'"
+    - name: oldA
+      expression: >-
+        (oldObject != null && has(oldObject.metadata.annotations)) ? oldObject.metadata.annotations : {}
+    - name: newA
+      expression: >-
+        has(object.metadata.annotations) ? object.metadata.annotations : {}
+    - name: privileged
+      expression: >-
+        request.userInfo.username in ['{{ include "ztna.controllerUser" . }}', '{{ .Values.backstage.serviceAccount }}'] ||
+        'system:masters' in request.userInfo.groups
+  validations:
+    - expression: >-
+        variables.privileged ||
+        (variables.newA.all(k, !k.startsWith(variables.prefix) || (k in variables.oldA && variables.oldA[k] == variables.newA[k])) &&
+         variables.oldA.all(k, !k.startsWith(variables.prefix) || k in variables.newA))
+      message: "ztna.teknoir.org/* annotations on a Device are changed only by the Backstage backend, device-controller or system:masters"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: ztna-device-annotations-binding
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+spec:
+  policyName: ztna-device-annotations
+  validationActions: ["Deny", "Audit"]
