@@ -154,7 +154,9 @@ if git -C "$REPO" rev-parse --verify -q "$BASE_REF" >/dev/null; then
     done
     for proj in teknoir-cloud teknoir-online teknoir-local; do
       args=()
-      [[ $n == app-of-apps ]] && args=(--set project="$proj")
+      # The switch is forced off on BOTH sides: once the base branch ships it on,
+      # this still checks that the off state renders like the base's off state.
+      [[ $n == app-of-apps ]] && args=(--set project="$proj" --set ztna.enabled=false)
       helm template "$n" "$TMP/base/charts/$n" --namespace x "${args[@]}" >"$TMP/base-$n.yaml" 2>"$TMP/base-$n.err" || { echo "skip $n (base render failed: $(head -c 150 "$TMP/base-$n.err"))"; continue 2; }
       # Force the switch off on the head render (the branch may ship it on), so this compares
       # only what the off state would change.
