@@ -8,9 +8,9 @@ image:
   # device-controller 7c2a852 (applicationset, F3: quota refusal in status + backoff; index sha256:8807375c31dfb7cb4227f4c26361957cf86a6b280fd864486a778c7eee8561fd). Previous pin: sha-87b8ebfb@sha256:d9cc97729ba89b9a4671dca463f772ec48767a3d7acca194de94aae2d10d7034
   # device-controller 87b8ebf = applicationset-20261012-112318, index sha256:14bbc608e32007d9c294705f0b6aecb5bcab0e7ba66ebdc88b89d5e92c1573e5 (virtual devices Phase 1 runtime). Previous pin: sha-b23700ba@sha256:1b96d735b10e4e0cb80e29cfe9e3a46a93e5efde01f7b4b1973db81e3ad82de4.
   # device-controller 608381e (PR #45: keep wg-agent through the GitOps prune; previous pin sha-c6a6f6b1). Before that: c6a6f6b (ztna-wireguard, PR #44 into applicationset: WireGuard ZTNA plugin, no-op without ZTNA config), index digest. Previous pin: sha-7c2a852b@sha256:41b10284cf2fd3fea2606ccaf99186105614e9cf7f8a99521786ffe7a20a683e
-  # device-controller 7af35b4e (applicationset: #49 read-only ServiceAccount + RBAC for the agent's k3s Service discovery; built by local CI on the dev host, GitHub Actions billing-blocked). Previous pin: sha-bbb984b3@sha256:f492317ef0f1b33535164dbe3ee42aebd03d146a1b016d3a6f80dc8b8236a3fb
+  # device-controller 1e3f76f8 (applicationset: #50 web gateway VirtualService without the "0s" timeout Istio 1.29 refuses; #49 agent ServiceAccount/RBAC for k3s Service discovery; built by local CI on the dev host, GitHub Actions billing-blocked). Previous pin: sha-7af35b4e@sha256:7eeba2706977ce358b11c04d80c7f901bcc81390dea97b995688b63ff26e7b38
   # Change it only by promoting a new sha-<commit> through this branch.
-  tag: "sha-7af35b4e@sha256:7eeba2706977ce358b11c04d80c7f901bcc81390dea97b995688b63ff26e7b38"
+  tag: "sha-1e3f76f8@sha256:52c2a4a800919a65cb6b887bff9f3baf9d4036a366b7b2259745ce7d19e9c406"
   pullPolicy: IfNotPresent
 
 imagePullSecrets:
