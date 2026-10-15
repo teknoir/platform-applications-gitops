@@ -8,9 +8,9 @@ image:
   # device-controller 7c2a852 (applicationset, F3: quota refusal in status + backoff; index sha256:8807375c31dfb7cb4227f4c26361957cf86a6b280fd864486a778c7eee8561fd). Previous pin: sha-87b8ebfb@sha256:d9cc97729ba89b9a4671dca463f772ec48767a3d7acca194de94aae2d10d7034
   # device-controller 87b8ebf = applicationset-20261012-112318, index sha256:14bbc608e32007d9c294705f0b6aecb5bcab0e7ba66ebdc88b89d5e92c1573e5 (virtual devices Phase 1 runtime). Previous pin: sha-b23700ba@sha256:1b96d735b10e4e0cb80e29cfe9e3a46a93e5efde01f7b4b1973db81e3ad82de4.
   # device-controller 608381e (PR #45: keep wg-agent through the GitOps prune; previous pin sha-c6a6f6b1). Before that: c6a6f6b (ztna-wireguard, PR #44 into applicationset: WireGuard ZTNA plugin, no-op without ZTNA config), index digest. Previous pin: sha-7c2a852b@sha256:41b10284cf2fd3fea2606ccaf99186105614e9cf7f8a99521786ffe7a20a683e
-  # device-controller aae24592 (applicationset: #52 agent RBAC as a k3s HelmChart with inline chartContent, hold back items TOE v4 cannot apply; #51 no RBAC as plain config items; built by local CI on the dev host, GitHub Actions billing-blocked). Previous pin: sha-c3645a17@sha256:ac157620876a710e2d5e13785cd8992ac74c467ec591c9235e0e2a4e671e2a77
+  # device-controller cff556b5 (applicationset: #53 agent gets a virtual device's k3s networks; #52 agent RBAC as HelmChart; built by local CI on the dev host, GitHub Actions billing-blocked). Previous pin: sha-aae24592@sha256:60d2dc3f5df7e1407a634fbbc1f04590f27d4836912084d6c6ba10de1cc08391
   # Change it only by promoting a new sha-<commit> through this branch.
-  tag: "sha-aae24592@sha256:60d2dc3f5df7e1407a634fbbc1f04590f27d4836912084d6c6ba10de1cc08391"
+  tag: "sha-cff556b5@sha256:4e741505e7292af530aabd11faa14c4f23c9ba9eabbd1baee771053d77485002"
   pullPolicy: IfNotPresent
 
 imagePullSecrets:
