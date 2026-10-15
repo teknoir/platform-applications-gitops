@@ -1,4 +1,13 @@
 ---
+# jwks-server has no authentication of its own, so this policy is the only thing
+# that decides who may register or delete a device key.
+#   - GET (EMQX fetching /api/v1/keys, device-controller reading it): any source.
+#     The response only holds public keys.
+#   - POST/PUT/DELETE (device key registration and revocation): only the
+#     workload identities in .Values.authorization.writers. Istio takes the
+#     principal from the caller's mTLS certificate, so a pod without a sidecar
+#     (plaintext, no principal) or in another ServiceAccount cannot match.
+# No rule matches anything else, so every other request is denied.
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
@@ -15,8 +24,15 @@ spec:
   rules:
     - to:
       - operation:
-          methods: ["GET", "POST", "PUT", "DELETE"]
+          methods: ["GET"]
+    {{- with .Values.authorization.writers }}
     - from:
         - source:
-            namespaces:
-              - "teknoir-system"
+            principals:
+              {{- range . }}
+              - {{ printf "%s/ns/%s/sa/%s" $.Values.authorization.trustDomain .namespace .serviceAccount | quote }}
+              {{- end }}
+      to:
+        - operation:
+            methods: ["POST", "PUT", "DELETE"]
+    {{- end }}

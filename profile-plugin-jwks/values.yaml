@@ -3,6 +3,15 @@ imagePullSecrets:
 
 persistentVolumeClaimSize: 10Gi
 
+# Who may register, replace and delete device keys (POST/PUT/DELETE). GET is open.
+# Matched on the mTLS identity of the caller, so each writer needs an Istio
+# sidecar. Only device-controller writes keys; an empty list makes jwks read-only.
+authorization:
+  trustDomain: cluster.local
+  writers:
+    - namespace: teknoir-system
+      serviceAccount: device-controller-service-account
+
 jwks:
   image:
     registry: ghcr.io/teknoir/jwks-server
