@@ -1,13 +1,40 @@
 ---
-# jwks-server has no authentication of its own, so this policy is the only thing
-# that decides who may register or delete a device key.
+# jwks-server has no authentication of its own, so these policies decide who
+# may register or delete a device key.
 #   - GET (EMQX fetching /api/v1/keys, device-controller reading it): any source.
 #     The response only holds public keys.
 #   - POST/PUT/DELETE (device key registration and revocation): only the
-#     workload identities in .Values.authorization.writers. Istio takes the
-#     principal from the caller's mTLS certificate, so a pod without a sidecar
-#     (plaintext, no principal) or in another ServiceAccount cannot match.
-# No rule matches anything else, so every other request is denied.
+#     workload identities in .Values.authorization.writers, matched on the
+#     caller's mTLS principal.
+# Other ALLOW policies in the teamspace (namespace owner, per-user policies)
+# select every workload, this one included, and ALLOW policies are OR'ed. The
+# DENY below is evaluated before any ALLOW, so it is what limits writes.
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  labels:
+    app: jwks
+    teknoir.org/plugin: jwks
+  name: jwks-deny-writes
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    matchLabels:
+      app: jwks
+  action: DENY
+  rules:
+    - to:
+        - operation:
+            notMethods: ["GET"]
+      {{- with .Values.authorization.writers }}
+      from:
+        - source:
+            notPrincipals:
+              {{- range . }}
+              - {{ printf "%s/ns/%s/sa/%s" $.Values.authorization.trustDomain .namespace .serviceAccount | quote }}
+              {{- end }}
+      {{- end }}
+---
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
