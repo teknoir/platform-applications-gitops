@@ -8,9 +8,9 @@ image:
   # device-controller 7c2a852 (applicationset, F3: quota refusal in status + backoff; index sha256:8807375c31dfb7cb4227f4c26361957cf86a6b280fd864486a778c7eee8561fd). Previous pin: sha-87b8ebfb@sha256:d9cc97729ba89b9a4671dca463f772ec48767a3d7acca194de94aae2d10d7034
   # device-controller 87b8ebf = applicationset-20261012-112318, index sha256:14bbc608e32007d9c294705f0b6aecb5bcab0e7ba66ebdc88b89d5e92c1573e5 (virtual devices Phase 1 runtime). Previous pin: sha-b23700ba@sha256:1b96d735b10e4e0cb80e29cfe9e3a46a93e5efde01f7b4b1973db81e3ad82de4.
   # device-controller 608381e (PR #45: keep wg-agent through the GitOps prune; previous pin sha-c6a6f6b1). Before that: c6a6f6b (ztna-wireguard, PR #44 into applicationset: WireGuard ZTNA plugin, no-op without ZTNA config), index digest. Previous pin: sha-7c2a852b@sha256:41b10284cf2fd3fea2606ccaf99186105614e9cf7f8a99521786ffe7a20a683e
-  # device-controller bbb984b3 (applicationset: #48 zero-touch device key over MQTT, #47 jwks status check; built by local CI on the dev host, GitHub Actions billing-blocked). Previous pin: sha-d4f26866@sha256:b8f3b4296638e4484fb93c7a8e5a8ddbca49ce2d2b753da42727341755f4afad
+  # device-controller 7af35b4e (applicationset: #49 read-only ServiceAccount + RBAC for the agent's k3s Service discovery; built by local CI on the dev host, GitHub Actions billing-blocked). Previous pin: sha-bbb984b3@sha256:f492317ef0f1b33535164dbe3ee42aebd03d146a1b016d3a6f80dc8b8236a3fb
   # Change it only by promoting a new sha-<commit> through this branch.
-  tag: "sha-bbb984b3@sha256:f492317ef0f1b33535164dbe3ee42aebd03d146a1b016d3a6f80dc8b8236a3fb"
+  tag: "sha-7af35b4e@sha256:7eeba2706977ce358b11c04d80c7f901bcc81390dea97b995688b63ff26e7b38"
   pullPolicy: IfNotPresent
 
 imagePullSecrets:
@@ -119,7 +119,7 @@ ztna:
   # REQUIRED once enabled (the render fails without them): the wg-agent image that the controller
   # injects into a device, and the per-device WireGuard web terminal image
   # (SSH_PROXY_MODE=wireguard). '<immutable tag>@sha256:<digest>'.
-  agentImage: "ghcr.io/teknoir/wg-agent:sha-6da242d@sha256:4079d3a11c85cd2281db49550139e34fe4984de99f52b9812bbf787e98f996d1"
+  agentImage: "ghcr.io/teknoir/wg-agent:sha-37fe475@sha256:b47dc7cec5af3e75258a7f76a56aeb6125514e3e0f6313e708f16eb62e2d512c"
   terminalImage: "ghcr.io/teknoir/web-terminal:sha-159c404c@sha256:953c9157ad9b2f42672d88e6be0a915e6cbe143b329ec542c9b8cbe0260bfa7e"
   # Namespace of the hub, the policy ConfigMaps and the web terminals (charts/ztna).
   hubNamespace: teknoir-ztna
@@ -128,7 +128,7 @@ ztna:
   # second container in the per-device wgt- pod (empty = no web gateway). Both reach the
   # controller's ZTNA JSON only when set.
   attestorEnabled: false
-  gatewayImage: "ghcr.io/teknoir/wg-gateway:sha-6da242d@sha256:2dbbdaafcb1278d872adc1661035eb9c69542cc0b23e91cd6fbc6623a5067a9f"
+  gatewayImage: "ghcr.io/teknoir/wg-gateway:sha-37fe475@sha256:414d936a86f9638bec13d1eb66096e6833c14f79e2c2ef495ba8f15e1fab182a"
   # Device ports a client may reach.
   allowedPorts: [22]
   # How long the enrollment window stays open after enabling WireGuard or resetting enrollment.
