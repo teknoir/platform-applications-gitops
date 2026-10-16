@@ -167,5 +167,9 @@ ztna.enabled. The images are required: the controller refuses an enabled config 
 {{- if $z.attestorEnabled }}{{- $_ := set $c "attestorEnabled" true -}}{{- end -}}
 {{- if $z.gatewayImage }}{{- $_ := set $c "gatewayImage" $z.gatewayImage -}}{{- end -}}
 {{- if $z.terminalRunAsUser }}{{- $_ := set $c "terminalRunAsUser" (int64 $z.terminalRunAsUser) -}}{{- end -}}
+{{- /* Tunneling on by default (device-controller wg-default-on, plans/ssh-tunnel-removal.md): only
+emitted when set, so an older controller image never sees the keys. */ -}}
+{{- if $z.defaultOn }}{{- $_ := set $c "defaultOn" true -}}{{- end -}}
+{{- if $z.deviceKeyWindowMinutes }}{{- $_ := set $c "deviceKeyWindowMinutes" (int $z.deviceKeyWindowMinutes) -}}{{- end -}}
 {{- toJson $c -}}
 {{- end }}
