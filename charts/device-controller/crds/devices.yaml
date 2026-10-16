@@ -647,6 +647,14 @@ spec:
                         description: 'Source says how the key reached the device:
                           bootstrap, vdevice or mqtt.'
                         type: string
+                      unconfirmedDeliveries:
+                        description: |-
+                          UnconfirmedDeliveries counts the deliveries of an mqtt key that were
+                          taken out of the MQTT config again without a confirmation (window over,
+                          or the device went offline). Each one doubles the wait before the next
+                          delivery (10 minutes, up to 24 hours). A confirmation or an admin's
+                          rotation request resets it.
+                        type: integer
                     type: object
                   enabled:
                     description: Enabled is true while the device has the WireGuard

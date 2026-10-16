@@ -118,6 +118,10 @@ spec:
         # (ztna.agentImage, ztna.terminalImage) are in charts/device-controller/values.yaml.
         - name: ztna.enabled
           value: "true"
+        # Tunneling (WireGuard) on for every Device without the annotation; an admin's
+        # "disabled" and revocation tombstones are respected (plans/ssh-tunnel-removal.md).
+        - name: ztna.defaultOn
+          value: "true"
 {{- end }}
   sources: [ ]
   project: {{ .Values.project }}

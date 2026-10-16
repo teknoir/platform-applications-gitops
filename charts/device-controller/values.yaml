@@ -19,7 +19,10 @@ image:
   # sha-e331a18f@sha256:5f1bc52678f04e10e1f5f1a806206654d9a919c5217de30a45e60468fb9b3b42
   # device-controller fec4c04 (nextgen + #57: an existing VM follows the placement config). Previous pin:
   # sha-aa4569f0@sha256:29d33f61c00319e8827f910960ce8d7a506bba6de6e69b1f9808d59155ed05c7
-  tag: "sha-fec4c043@sha256:d6bd44bb03d1f18c532413683b70d931d0fca0c99a74ab4d1823f4245c780699"
+  # device-controller 1c98c64 (applicationset: #56 Tunneling on by default with revocation tombstones and online-only
+  # device keys, plans/ssh-tunnel-removal.md step 4; #58 sync of nextgen #55/#57). Previous pin:
+  # sha-fec4c043@sha256:d6bd44bb03d1f18c532413683b70d931d0fca0c99a74ab4d1823f4245c780699
+  tag: "sha-1c98c648@sha256:f9281e6bb3f95e29e0b0b3d0d9370346039dbee8faef9921cdb560c9657b5c6e"
   pullPolicy: IfNotPresent
 
 imagePullSecrets:
