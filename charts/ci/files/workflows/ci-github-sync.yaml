@@ -9,7 +9,9 @@ spec:
   schedules: ["@@SYNC_SCHEDULE@@"]
   timezone: UTC
   concurrencyPolicy: Forbid
-  suspend: @@SYNC_SUSPEND@@
+  # suspend is rendered only when true: ArgoCD (server-side diff/apply) does not
+  # move a live true back to an explicit false; dropping the field does.
+  @@SYNC_SUSPEND@@
   successfulJobsHistoryLimit: 2
   failedJobsHistoryLimit: 3
   workflowSpec:

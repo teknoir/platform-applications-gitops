@@ -17,9 +17,9 @@ need no Helm escaping; Placeholders (two at-signs around a NAME) are replaced he
   "@@IMAGE_PYTHON@@" .Values.images.python
   "@@IMAGE_HELM@@" .Values.images.helm
   "@@SYNC_SCHEDULE@@" .Values.githubSync.schedule
-  "@@SYNC_SUSPEND@@" (toString .Values.githubSync.suspend)
+  "@@SYNC_SUSPEND@@" (ternary "suspend: true" "" .Values.githubSync.suspend)
   "@@POLL_SCHEDULE@@" .Values.poll.schedule
-  "@@POLL_SUSPEND@@" (toString .Values.poll.suspend)
+  "@@POLL_SUSPEND@@" (ternary "suspend: true" "" .Values.poll.suspend)
   "@@POLL_MAX_SUBMIT@@" (toString .Values.poll.maxSubmit)
 }}
 {{- range $path, $_ := .Files.Glob "files/workflows/*.yaml" }}
