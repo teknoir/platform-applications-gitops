@@ -59,6 +59,13 @@ data:
         enabled: true
 {{- end }}
 
+{{- with (.Values.catalog).orphanStrategy }}
+    catalog:
+      # delete: entities that no provider or location emits any more are removed from the catalog
+      # (Backstage default: keep, which leaves them as orphans).
+      orphanStrategy: {{ . }}
+{{- end }}
+
     integrations:
       github:
         - host: github.com
