@@ -17,7 +17,9 @@ image:
   # source cache, node_role assignment, review fixes). Previous pin: sha-2fbce3be@sha256:de534902eb051196f6cabb6bbd2b29c76bac5d90e2d329b172fe4b12257a03e6
   # device-controller aa4569f (nextgen e331a18 + #55: nodeSelector/tolerations for virtual-device VMs). Previous pin:
   # sha-e331a18f@sha256:5f1bc52678f04e10e1f5f1a806206654d9a919c5217de30a45e60468fb9b3b42
-  tag: "sha-aa4569f0@sha256:29d33f61c00319e8827f910960ce8d7a506bba6de6e69b1f9808d59155ed05c7"
+  # device-controller fec4c04 (nextgen + #57: an existing VM follows the placement config). Previous pin:
+  # sha-aa4569f0@sha256:29d33f61c00319e8827f910960ce8d7a506bba6de6e69b1f9808d59155ed05c7
+  tag: "sha-fec4c043@sha256:d6bd44bb03d1f18c532413683b70d931d0fca0c99a74ab4d1823f4245c780699"
   pullPolicy: IfNotPresent
 
 imagePullSecrets:
