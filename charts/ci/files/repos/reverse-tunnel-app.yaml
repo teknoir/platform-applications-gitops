@@ -1,7 +1,10 @@
 # reverse-tunnel-app (private). Translated from .github/workflows/build.yml on 2026-10-16.
+# NEVER push :latest: it is frozen at sha256:99a68ca1cb6e4f7614351958a45e9e8040809bd17069de3af7a781d860789968
+# because production (teknoir-online) and airgapped still run the legacy SSH tunnel (plans/ssh-tunnel-removal.md).
 branches: ['**']
 images:
 - name: reverse-tunnel-app
+  latest: []
   platforms: [linux/amd64, linux/arm64/v8]
 githubActions: disable
 actionsWorkflows: [build.yml]

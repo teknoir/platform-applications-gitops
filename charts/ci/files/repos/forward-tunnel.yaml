@@ -1,6 +1,8 @@
 # forward-tunnel (public). Translated from .github/workflows/build.yml on 2026-10-16.
+# NEVER push :latest: it is frozen at sha256:ed8caf7bf7f4c714add74cd95365674e8d8d8c514d5fbb1333bffc37c3188481
+# because production (teknoir-online) and airgapped still run the legacy SSH tunnel (plans/ssh-tunnel-removal.md).
 branches: ['**']
 images:
-- {name: forward-tunnel}
+- {name: forward-tunnel, latest: []}
 githubActions: disable
 actionsWorkflows: [build.yml]
