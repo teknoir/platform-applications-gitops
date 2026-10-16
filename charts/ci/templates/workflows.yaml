@@ -7,7 +7,7 @@ need no Helm escaping; Placeholders (two at-signs around a NAME) are replaced he
   "@@NAMESPACE@@" $ns
   "@@GITHUB_ORG@@" .Values.github.org
   "@@GITHUB_SECRET@@" .Values.github.tokenSecret
-  "@@HARBOR_HOST@@" .Values.harbor.host
+  "@@HARBOR_HOST@@" (ternary .Values.harbor.host "" .Values.harbor.enabled)
   "@@HARBOR_PROJECT@@" .Values.harbor.project
   "@@HARBOR_SECRET@@" .Values.harbor.robotSecret
   "@@BUILDERS_JSON@@" (include "ci.buildersJson" .)

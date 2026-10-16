@@ -13,9 +13,14 @@ fi
 
 # Registry credentials for buildctl (sent to the daemon per session).
 mkdir -p /tmp/docker
-h=$(printf '%s:%s' "$(cat /harbor/username)" "$(cat /harbor/password)" | base64 | tr -d '\n')
 g=$(printf '%s:%s' "$(cat /github/username)" "$(cat /github/token)" | base64 | tr -d '\n')
-printf '{"auths":{"%s":{"auth":"%s"},"ghcr.io":{"auth":"%s"}}}\n' "$HARBOR_HOST" "$h" "$g" >/tmp/docker/config.json
+if [ -n "${HARBOR_HOST:-}" ]; then
+	[ -s /harbor/password ] || { echo "build: Harbor robot Secret missing (charts/harbor harbor-config)" >&2; exit 1; }
+	h=$(printf '%s:%s' "$(cat /harbor/username)" "$(cat /harbor/password)" | base64 | tr -d '\n')
+	printf '{"auths":{"%s":{"auth":"%s"},"ghcr.io":{"auth":"%s"}}}\n' "$HARBOR_HOST" "$h" "$g" >/tmp/docker/config.json
+else
+	printf '{"auths":{"ghcr.io":{"auth":"%s"}}}\n' "$g" >/tmp/docker/config.json
+fi
 unset h g
 export DOCKER_CONFIG=/tmp/docker
 

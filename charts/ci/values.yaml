@@ -22,6 +22,9 @@ github:
   tokenSecret: github-ci
 
 harbor:
+  # false: images go to ghcr only, no Harbor mirror for Docker Hub pulls. Turn on together
+  # with app-of-apps harbor.enabled once Harbor is managed by ArgoCD (robot Secret exists).
+  enabled: false
   host: harbor.teknoir.cloud
   project: teknoir
   robotSecret: harbor-ci-robot

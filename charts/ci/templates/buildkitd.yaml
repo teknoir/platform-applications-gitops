@@ -22,10 +22,12 @@ data:
       minFreeSpace = {{ $b.minFreeSpace | quote }}
     [worker.containerd]
       enabled = false
+    {{- if $.Values.harbor.enabled }}
     # Docker Hub pulls go through Harbor's proxy cache (rate limits); BuildKit falls back
     # to Docker Hub when the mirror fails.
     [registry."docker.io"]
       mirrors = ["{{ $.Values.harbor.host }}/dockerhub"]
+    {{- end }}
 ---
 # Privileged BuildKit daemon with a host-path cache on {{ $b.node }} ({{ $b.cachePath }}).
 # Only pipeline build pods may connect (NetworkPolicy below).
@@ -50,17 +52,17 @@ spec:
         app.kubernetes.io/name: buildkitd
         teknoir.org/builder: {{ $name }}
       annotations:
-        checksum/config: {{ print ($b | toJson) $.Values.harbor.host | sha256sum | trunc 16 }}
+        checksum/config: {{ print ($b | toJson) $.Values.harbor.host $.Values.harbor.enabled | sha256sum | trunc 16 }}
     spec:
       nodeSelector:
         kubernetes.io/hostname: {{ $b.node }}
       tolerations:
         - {key: teknoir.org/ci, operator: Exists, effect: NoSchedule}
-      {{- with $.Values.harbor.hostIP }}
+      {{- if $.Values.harbor.enabled }}{{- with $.Values.harbor.hostIP }}
       hostAliases:
         - ip: {{ . | quote }}
           hostnames: [{{ $.Values.harbor.host | quote }}]
-      {{- end }}
+      {{- end }}{{- end }}
       automountServiceAccountToken: false
       enableServiceLinks: false
       terminationGracePeriodSeconds: 120

@@ -30,7 +30,7 @@ REF = os.environ["REF"]
 SHA = os.environ["SHA"]
 BEFORE = os.environ.get("BEFORE", "")
 ORG = os.environ["GITHUB_ORG"]
-HARBOR = os.environ["HARBOR_HOST"]
+HARBOR = os.environ.get("HARBOR_HOST", "")
 HARBOR_PROJECT = os.environ["HARBOR_PROJECT"]
 BUILDERS = json.loads(os.environ["BUILDERS"])  # {"vpro": "tcp://buildkitd-vpro...:1234", ...}
 OUT = os.environ.get("OUT", "/out")
@@ -219,8 +219,8 @@ def main():
         else:
             tags = [fmt(t, extra) for t in img.get("tagTagTemplates", defaults["image"]["tagTags"])]
         tags = list(dict.fromkeys(t for t in tags if t))
-        repos = [f"{HARBOR}/{HARBOR_PROJECT}/{img['name']}"]
-        if img.get("ghcr", cfg.get("ghcr", True)):
+        repos = [f"{HARBOR}/{HARBOR_PROJECT}/{img['name']}"] if HARBOR else []  # HARBOR "" = Harbor off
+        if img.get("ghcr", cfg.get("ghcr", True)) or not HARBOR:
             repos.append(f"ghcr.io/{ORG}/{img['name']}")
         refs = [f"{r}:{t}" for r in repos for t in tags]
         context = img.get("context", ".").strip("/") or "."
