@@ -1,0 +1,22 @@
+{{- /*
+DeviceApplicationSets every install gets (values platformDeviceApplicationSets): GitOps apps
+pushed to the devices that match a label selector, as created in Backstage. Never pruned
+or deleted by ArgoCD (removing an entry leaves the set; delete it by hand to stop it).
+*/ -}}
+{{- range .Values.platformDeviceApplicationSets }}
+---
+apiVersion: teknoir.org/v1
+kind: DeviceApplicationSet
+metadata:
+  name: {{ .name }}
+  namespace: {{ .namespace }}
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+  labels:
+    teknoir.org/managed-by: gitops
+spec:
+  selector:
+    {{- toYaml .selector | nindent 4 }}
+  applications:
+    {{- toYaml .applications | nindent 4 }}
+{{- end }}

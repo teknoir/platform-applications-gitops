@@ -142,3 +142,16 @@ ztna:
   # wg-device route, in charts/ztna/values.yaml). Empty makes the controller use the same default.
   ingressPrincipals:
     - cluster.local/ns/istio-system/sa/istio-ingressgateway
+
+# DeviceApplicationSets every install gets (templates/platform-device-application-sets.yaml).
+# teknoir-demo: the starter apps of teknoir-demo-gitops on the test devices (label
+# device-group=test), as on r415 before the move to vpro (2026-10-16).
+platformDeviceApplicationSets:
+  - name: demo-test
+    namespace: teknoir-demo
+    selector:
+      matchLabels:
+        device-group: test
+    applications:
+      - {repo_url: "https://github.com/teknoir/teknoir-demo-gitops", path: common/devstudio.yaml, revision: main}
+      - {repo_url: "https://github.com/teknoir/teknoir-demo-gitops", path: common/notebook.yaml, revision: main}
