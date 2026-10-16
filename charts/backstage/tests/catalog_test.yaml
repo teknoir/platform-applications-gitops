@@ -1,0 +1,18 @@
+suite: catalog settings
+templates:
+  - templates/configmap-app-config.yaml
+tests:
+  - it: renders catalog.orphanStrategy when set
+    set:
+      catalog.orphanStrategy: delete
+    asserts:
+      - matchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: "orphanStrategy: delete"
+  - it: renders no catalog block when empty
+    set:
+      catalog.orphanStrategy: ""
+    asserts:
+      - notMatchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: "orphanStrategy"
