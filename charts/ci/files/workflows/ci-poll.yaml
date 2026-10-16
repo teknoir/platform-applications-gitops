@@ -10,7 +10,9 @@ spec:
   timezone: UTC
   concurrencyPolicy: Forbid
   startingDeadlineSeconds: 60
-  suspend: @@POLL_SUSPEND@@
+  # suspend is rendered only when true: ArgoCD (server-side diff/apply) does not
+  # move a live true back to an explicit false; dropping the field does.
+  @@POLL_SUSPEND@@
   successfulJobsHistoryLimit: 1
   failedJobsHistoryLimit: 3
   workflowSpec:
