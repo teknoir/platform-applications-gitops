@@ -105,7 +105,8 @@ virtualDevices:
   # entry instead only stops managing the objects, and the old allowance stays in force.
 
   allowances:
-    teknoir-demo: {devices: 2, cpu: "4", memory: 8Gi, disk: 60Gi}
+    # vpro is a single 14 GB host: 4Gi of guest memory in all (one 4Gi or two 2Gi devices).
+    teknoir-demo: {devices: 2, cpu: "4", memory: 4Gi, disk: 60Gi}
 
 # WireGuard (ZTNA) tunnels, an alternative to the SSH reverse tunnels (plan:
 # plans/wireguard-ztna-tunnel.md). Everything in this block is inert while enabled is false:

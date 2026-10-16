@@ -6,8 +6,9 @@ project: teknoir-cloud
 # templates/virtual-devices.yaml, which is teknoir-cloud only, so this flag does
 # nothing if it is cherry-picked onto another environment branch.
 virtualDevices:
-  # Off since staging moved to the single 14 GB vpro host (2026-10-16): KubeVirt VMs do not fit.
-  enabled: false
+  # On for the single vpro host too (14 GB + 16 GB swap, KVM): room for KubeVirt and a small VM
+  # or two; the device-controller allowance caps what a teamspace may run.
+  enabled: true
   # S1 spike VM (charts/virtual-device-spike), teknoir-cloud only. Retired: the spike is done and
   # Phase 1 virtual devices (device-controller) replace it. Chart code kept for reference.
   spike:
