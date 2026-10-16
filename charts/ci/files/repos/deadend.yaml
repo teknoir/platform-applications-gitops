@@ -1,6 +1,8 @@
 # deadend (private). Translated from .github/workflows/build.yml on 2026-10-16.
+# NEVER push :latest: it is frozen at sha256:1b2902ba84e5f4abd33961d04196228af5e0d784cd9a3df489ecec75ba41fb9b
+# because production (teknoir-online) and airgapped still run the legacy SSH tunnel (plans/ssh-tunnel-removal.md).
 branches: ['**']
 images:
-- {name: deadend}
+- {name: deadend, latest: []}
 githubActions: disable
 actionsWorkflows: [build.yml]
