@@ -18,7 +18,7 @@ rules:
   - virtualservices
   - deviceapplicationsets
   - robots
-  - robotmodels
+  - robottypes
   verbs:
   - create
   - delete
@@ -45,7 +45,7 @@ rules:
   - notebooks/status
   - deviceapplicationsets/status
   - robots/status
-  - robotmodels/status
+  - robottypes/status
   verbs:
   - get
 # Next-gen fleet pages: the "needs you" list reads events.

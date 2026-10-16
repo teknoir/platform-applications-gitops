@@ -55,7 +55,7 @@ rules:
   - devices
   - deviceapplicationsets
   - robots
-  - robotmodels
+  - robottypes
   verbs:
   - create
   - delete
@@ -70,7 +70,7 @@ rules:
   - devices/status
   - deviceapplicationsets/status
   - robots/status
-  - robotmodels/status
+  - robottypes/status
   verbs:
   - get
 
@@ -134,6 +134,17 @@ rules:
   - list
   - watch
   - create
+# DeviceConfig plugin: the rendered GitOps sources of a device are cached in the ConfigMap
+# teknoir-config-sources-<device> in the device's teamspace (owned by the Device).
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - create
+  - update
+  - delete
 - apiGroups:
   - teknoir.org
   resources:
@@ -146,9 +157,9 @@ rules:
   - robots
   - robots/status
   - robots/finalizers
-  - robotmodels
-  - robotmodels/status
-  - robotmodels/finalizers
+  - robottypes
+  - robottypes/status
+  - robottypes/finalizers
   verbs:
   - '*'
 - apiGroups:
@@ -220,7 +231,7 @@ rules:
   - devices
   - deviceapplicationsets
   - robots
-  - robotmodels
+  - robottypes
   verbs:
   - get
   - list
@@ -231,7 +242,7 @@ rules:
   - devices/status
   - deviceapplicationsets/status
   - robots/status
-  - robotmodels/status
+  - robottypes/status
   verbs:
   - get
 

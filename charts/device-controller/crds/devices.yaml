@@ -51,6 +51,17 @@ spec:
                     GitOpsApplication describes a set of k8s resources to deploy to the device
                     that are sourced from a Git repository following a GitOps model.
                   properties:
+                    node_role:
+                      description: |-
+                        NodeRole, when set, runs everything this application renders on the
+                        computers of the robot that fill this node role (k3s node label
+                        teknoir.org/node-role=<role>). The device config adds a nodeSelector
+                        (and tolerations for the role's taints) to the HelmChart values and to
+                        the pod templates of the rendered workloads, below the application's own
+                        settings.
+                      maxLength: 63
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
                     path:
                       description: |-
                         Path is the path within the repository to the YAML file (or directory)
@@ -293,8 +304,10 @@ spec:
                   gitops_applications:
                     description: |-
                       GitOpsApplications records, per GitOps application, the short Git commit
-                      hash that was last loaded. It lets subsequent reconciles skip fetching
-                      applications whose commit has not changed, reducing GitHub API usage.
+                      hash and entity tag that were last loaded. The rendered resources of
+                      every application are kept in the ConfigMap teknoir-config-sources-<device>;
+                      the entity tag in it lets subsequent reconciles skip fetching
+                      applications that have not changed, reducing GitHub API usage.
                     items:
                       description: |-
                         GitOpsApplicationConfig records the last-loaded short Git commit hash for a
@@ -308,7 +321,7 @@ spec:
                         etag:
                           description: |-
                             ETag is the HTTP entity tag returned by GitHub for this application's
-                            ListCommits request. It is sent back as an If-None-Match header on the
+                            Contents request. It is sent back as an If-None-Match header on the
                             next reconcile so that an unchanged application yields a 304 Not Modified
                             response, which does not count against the GitHub API rate limit.
                           type: string
@@ -320,15 +333,6 @@ spec:
                           type: string
                       type: object
                     type: array
-                  gitops_layout:
-                    description: |-
-                      GitOpsLayout is a hash of the ordered list of applications, with the
-                      layer of each, that the last GitOps sync rendered. When it changes and
-                      some rendered resource replaced another, the sync re-fetches every
-                      application instead of trusting "not modified" answers, because the
-                      order decides which layer wins a resource that more than one application
-                      provides.
-                    type: string
                   last_config_change:
                     format: date-time
                     type: string

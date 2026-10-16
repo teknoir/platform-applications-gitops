@@ -7,14 +7,14 @@ metadata:
     # Re-add after copying regenerated CRDs from device-controller (tests/crd_guard_test.sh).
     argocd.argoproj.io/sync-options: Prune=false,Delete=false
     controller-gen.kubebuilder.io/version: v0.16.5
-  name: robotmodels.teknoir.org
+  name: robottypes.teknoir.org
 spec:
   group: teknoir.org
   names:
-    kind: RobotModel
-    listKind: RobotModelList
-    plural: robotmodels
-    singular: robotmodel
+    kind: RobotType
+    listKind: RobotTypeList
+    plural: robottypes
+    singular: robottype
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
@@ -31,7 +31,7 @@ spec:
     schema:
       openAPIV3Schema:
         description: |-
-          RobotModel is a kind of robot: its node roles, which one runs the k3s
+          RobotType is a kind of robot: its node roles, which one runs the k3s
           server, and its baseline applications.
         properties:
           apiVersion:
@@ -52,17 +52,28 @@ spec:
           metadata:
             type: object
           spec:
-            description: RobotModelSpec defines the desired state of RobotModel.
+            description: RobotTypeSpec defines the desired state of RobotType.
             properties:
               applications:
                 description: |-
-                  Applications are the baseline applications of the model. They are the
-                  lowest configuration layer of every robot of the model.
+                  Applications are the baseline applications of the type. They are the
+                  lowest configuration layer of every robot of the type.
                 items:
                   description: |-
                     GitOpsApplication describes a set of k8s resources to deploy to the device
                     that are sourced from a Git repository following a GitOps model.
                   properties:
+                    node_role:
+                      description: |-
+                        NodeRole, when set, runs everything this application renders on the
+                        computers of the robot that fill this node role (k3s node label
+                        teknoir.org/node-role=<role>). The device config adds a nodeSelector
+                        (and tolerations for the role's taints) to the HelmChart values and to
+                        the pod templates of the rendered workloads, below the application's own
+                        settings.
+                      maxLength: 63
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
                     path:
                       description: |-
                         Path is the path within the repository to the YAML file (or directory)
@@ -95,11 +106,14 @@ spec:
                   Mk2".
                 type: string
               nodes:
-                description: 'Nodes are the node roles of the model. Exactly one has
+                description: 'Nodes are the node roles of the type. Exactly one has
                   k3s: server.'
                 items:
-                  description: RobotModelNodeRole describes one node role of a robot
-                    model.
+                  description: |-
+                    RobotTypeNodeRole describes one node role of a robot type. A node role is a
+                    named set of k3s node labels (and taints): k3s applies them on every
+                    computer that fills the role (node-label and node-taint in
+                    /etc/rancher/k3s/config.yaml).
                   properties:
                     description:
                       description: Description says what the node does, for people.
@@ -110,7 +124,7 @@ spec:
                       type: string
                     k3s:
                       description: |-
-                        K3s says whether the node runs the k3s server or an agent. A model has
+                        K3s says whether the node runs the k3s server or an agent. A type has
                         exactly one server.
                       enum:
                       - server
@@ -119,10 +133,14 @@ spec:
                     labels:
                       additionalProperties:
                         type: string
-                      description: Labels are extra node labels besides teknoir.org/node-role.
+                      description: |-
+                        Labels are extra k3s node labels besides teknoir.org/node-role and
+                        teknoir.org/robot, for example teknoir.org/gpu: "true". Keys under
+                        kubernetes.io/ and k8s.io/ are refused.
+                      maxProperties: 32
                       type: object
                     optional:
-                      description: Optional marks a role that robots of this model
+                      description: Optional marks a role that robots of this type
                         can do without.
                       type: boolean
                     role:
@@ -133,10 +151,47 @@ spec:
                       minLength: 1
                       pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                       type: string
+                    taints:
+                      description: |-
+                        Taints are k3s node taints for computers dedicated to this role (for
+                        example a real-time or safety node that must only run what is assigned
+                        to it). Applications with node_role set to this role tolerate them.
+                      items:
+                        description: |-
+                          NodeTaint is a k3s node-taint of a node role, for computers dedicated to
+                          the role. Workloads of applications with that node_role get a matching
+                          toleration.
+                        properties:
+                          effect:
+                            description: Effect of the taint.
+                            enum:
+                            - NoSchedule
+                            - PreferNoSchedule
+                            - NoExecute
+                            type: string
+                          key:
+                            description: Key of the taint.
+                            maxLength: 253
+                            minLength: 1
+                            type: string
+                          value:
+                            description: Value of the taint. Empty is allowed.
+                            maxLength: 63
+                            type: string
+                        required:
+                        - effect
+                        - key
+                        type: object
+                      maxItems: 8
+                      type: array
                   required:
                   - k3s
                   - role
                   type: object
+                  x-kubernetes-validations:
+                  - message: 'node label keys under kubernetes.io/ and k8s.io/ are
+                      not allowed: the kubelet may not label itself there'
+                    rule: '!has(self.labels) || self.labels.all(k, !k.matches(''^([^/]*[.])?(kubernetes|k8s)[.]io/''))'
                 maxItems: 32
                 minItems: 1
                 type: array
@@ -144,13 +199,13 @@ spec:
             - nodes
             type: object
             x-kubernetes-validations:
-            - message: 'a model needs exactly one node role with k3s: server'
+            - message: 'a type needs exactly one node role with k3s: server'
               rule: self.nodes.filter(n, n.k3s == 'server').size() == 1
             - message: node role names must be unique
               rule: self.nodes.all(n, self.nodes.filter(m, m.role == n.role).size()
                 == 1)
           status:
-            description: RobotModelStatus defines the observed state of RobotModel.
+            description: RobotTypeStatus defines the observed state of RobotType.
             properties:
               observedGeneration:
                 description: ObservedGeneration is the generation of the spec this
@@ -159,14 +214,14 @@ spec:
                 type: integer
               robots:
                 description: Robots is the number of robots in the namespace that
-                  use this model.
+                  use this type.
                 format: int32
                 type: integer
               robotsWithOverrides:
                 description: |-
                   RobotsWithOverrides is the number of those robots whose device renders at
-                  least one item that replaces a resource of this model's applications. The
-                  count is approximate, see the RobotModel reconciler.
+                  least one item that replaces a resource of this type's applications. The
+                  count is approximate, see the RobotType reconciler.
                 format: int32
                 type: integer
             type: object

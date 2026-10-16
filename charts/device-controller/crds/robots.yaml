@@ -18,8 +18,8 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.model
-      name: Model
+    - jsonPath: .spec.type
+      name: Type
       type: string
     - jsonPath: .status.phase
       name: Phase
@@ -66,6 +66,17 @@ spec:
                     GitOpsApplication describes a set of k8s resources to deploy to the device
                     that are sourced from a Git repository following a GitOps model.
                   properties:
+                    node_role:
+                      description: |-
+                        NodeRole, when set, runs everything this application renders on the
+                        computers of the robot that fill this node role (k3s node label
+                        teknoir.org/node-role=<role>). The device config adds a nodeSelector
+                        (and tolerations for the role's taints) to the HelmChart values and to
+                        the pod templates of the rendered workloads, below the application's own
+                        settings.
+                      maxLength: 63
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
                     path:
                       description: |-
                         Path is the path within the repository to the YAML file (or directory)
@@ -88,12 +99,8 @@ spec:
                   Device is the name of the backing Device. The controller creates it if it
                   is missing. Defaults to the robot's name.
                 type: string
-              model:
-                description: Model is the name of the RobotModel (same namespace).
-                minLength: 1
-                type: string
               nodes:
-                description: Nodes bind the roles of the model to computers.
+                description: Nodes bind the roles of the type to computers.
                 items:
                   description: RobotNodeBinding binds a node role to the computer
                     that fills it.
@@ -105,7 +112,7 @@ spec:
                       pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                       type: string
                     role:
-                      description: Role is a node role of the robot's model.
+                      description: Role is a node role of the robot's type.
                       maxLength: 63
                       minLength: 1
                       pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
@@ -119,14 +126,18 @@ spec:
                 description: ServerAddress is the LAN address of the server node,
                   for agents that join.
                 type: string
+              type:
+                description: Type is the name of the RobotType (same namespace).
+                minLength: 1
+                type: string
             required:
-            - model
+            - type
             type: object
           status:
             description: RobotStatus defines the observed state of Robot.
             properties:
               conditions:
-                description: 'Conditions: DeviceReady, DeviceConflict, ModelFound.'
+                description: 'Conditions: DeviceReady, DeviceConflict, TypeFound.'
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -201,11 +212,11 @@ spec:
                       format: int32
                       type: integer
                     layer:
-                      description: Layer is model, fleet, robot or local.
+                      description: Layer is type, fleet, robot or local.
                       type: string
                     source:
-                      description: Source is the model, DeviceApplicationSet or robot
-                        name, or "local".
+                      description: Source is the robot type, DeviceApplicationSet
+                        or robot name, or "local".
                       type: string
                   required:
                   - applications

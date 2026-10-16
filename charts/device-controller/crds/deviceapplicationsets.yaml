@@ -47,7 +47,7 @@ spec:
                 description: |-
                   Applications lists GitOps applications that are deployed to every
                   matching Device. They are merged into the effective applications list
-                  above the applications of the Device's RobotModel and below the Device's
+                  above the applications of the Device's RobotType and below the Device's
                   own Spec.Applications, so device-level entries win on shared resource
                   identity.
                 items:
@@ -55,6 +55,17 @@ spec:
                     GitOpsApplication describes a set of k8s resources to deploy to the device
                     that are sourced from a Git repository following a GitOps model.
                   properties:
+                    node_role:
+                      description: |-
+                        NodeRole, when set, runs everything this application renders on the
+                        computers of the robot that fill this node role (k3s node label
+                        teknoir.org/node-role=<role>). The device config adds a nodeSelector
+                        (and tolerations for the role's taints) to the HelmChart values and to
+                        the pod templates of the rendered workloads, below the application's own
+                        settings.
+                      maxLength: 63
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
                     path:
                       description: |-
                         Path is the path within the repository to the YAML file (or directory)
