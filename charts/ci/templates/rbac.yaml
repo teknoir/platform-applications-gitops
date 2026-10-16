@@ -17,6 +17,17 @@ metadata:
   namespace: {{ $ns }}
   labels: {{- include "ci.labels" . | nindent 4 }}
 ---
+# The executor (wait container) mounts this token (Argo looks it up by name).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ci-executor.service-account-token
+  namespace: {{ $ns }}
+  labels: {{- include "ci.labels" . | nindent 4 }}
+  annotations:
+    kubernetes.io/service-account.name: ci-executor
+type: kubernetes.io/service-account-token
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
