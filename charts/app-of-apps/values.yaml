@@ -35,6 +35,7 @@ ztna:
 # BuildKit pipelines (ci.teknoir.cloud), with vpro as the k3s build node.
 # Harbor adopts the earlier Harbor objects in teknoir-system (their StatefulSets were
 # deleted by Anders on 2026-10-16) and reuses the data under /opt/teknoir/harbor.
+# charts/ci harbor.enabled pushes CI images there too.
 harbor:
   enabled: true
 ci:
