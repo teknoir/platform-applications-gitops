@@ -64,7 +64,10 @@ oauth2Proxy:
     clientId: teknoir
   cookie:
     domain: ""
-    name: _teknoir_oauth2_proxy
+    # Renamed when staging moved to vpro (2026-10-16): sessions from r415 were signed with
+    # the old cookie secret, and oauth2-proxy answers such a cookie with HTTP 500 instead of
+    # a new login. A new name makes browsers ignore the stale cookie.
+    name: _teknoir_oauth2_proxy_v2
     sameSite: none
     path: /
     csrfPerRequest: false
