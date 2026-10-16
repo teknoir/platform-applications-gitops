@@ -362,7 +362,7 @@ def robots():
 
 
 def main():
-    call("GET", "/systeminfo")  # fail fast when Harbor or the admin password is wrong
+    call("GET", "/users/current")  # fail fast when Harbor is down or the admin password is wrong
     configurations()
     ids = registries() or {}
     projects(ids)
