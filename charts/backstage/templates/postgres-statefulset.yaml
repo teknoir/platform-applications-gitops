@@ -2,20 +2,20 @@
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: backstage-postgres
+  name: {{ .Values.name }}-postgres
   namespace: {{ .Release.Namespace }}
   labels:
-    app: backstage-postgres
+    app: {{ .Values.name }}-postgres
 spec:
-  serviceName: backstage-postgres
+  serviceName: {{ .Values.name }}-postgres
   replicas: {{ .Values.postgres.replicas }}
   selector:
     matchLabels:
-      app: backstage-postgres
+      app: {{ .Values.name }}-postgres
   template:
     metadata:
       labels:
-        app: backstage-postgres
+        app: {{ .Values.name }}-postgres
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/path: "/metrics"
@@ -50,6 +50,10 @@ spec:
               value: /var/lib/postgresql/data/pgdata
             - name: POSTGRES_INITDB_ARGS
               value: --auth-host=scram-sha-256
+          {{- with .Values.postgres.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
         - name: prometheus-exporter
           image: {{ .Values.postgres.exporter.image }}
           args: ["--no-collector.stat_bgwriter"]

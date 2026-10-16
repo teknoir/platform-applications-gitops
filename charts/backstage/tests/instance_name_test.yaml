@@ -1,0 +1,221 @@
+suite: backstage instance name, host split and resources
+templates:
+  - templates/configmap-app-config.yaml
+  - templates/deployment.yaml
+  - templates/istio-virtualservice.yaml
+  - templates/istio-authpolicy.yaml
+  - templates/postgres-authpolicy.yaml
+  - templates/postgres-statefulset.yaml
+  - templates/pvc.yaml
+  - templates/rbac.yaml
+  - templates/secrets.yaml
+  - templates/service.yaml
+  - templates/serviceaccount.yaml
+tests:
+  - it: keeps the classic names by default
+    template: templates/service.yaml
+    asserts:
+      - equal: {path: metadata.name, value: backstage}
+        documentIndex: 0
+      - equal: {path: metadata.name, value: backstage-api}
+        documentIndex: 1
+      - equal: {path: spec.selector.app, value: backstage-api}
+        documentIndex: 1
+
+  - it: prefixes services and selectors with the instance name
+    template: templates/service.yaml
+    set: {name: backstage-next}
+    asserts:
+      - equal: {path: metadata.name, value: backstage-next}
+        documentIndex: 0
+      - equal: {path: spec.selector.app, value: backstage-next}
+        documentIndex: 0
+      - equal: {path: metadata.name, value: backstage-next-api}
+        documentIndex: 1
+      - equal: {path: spec.selector.app, value: backstage-next-api}
+        documentIndex: 1
+
+  - it: prefixes both Deployments, the volume claim, config map and service account
+    template: templates/deployment.yaml
+    set: {name: backstage-next}
+    asserts:
+      - equal: {path: metadata.name, value: backstage-next}
+        documentIndex: 0
+      - equal: {path: spec.selector.matchLabels.app, value: backstage-next}
+        documentIndex: 0
+      - equal: {path: metadata.name, value: backstage-next-api}
+        documentIndex: 1
+      - equal: {path: spec.template.spec.serviceAccountName, value: backstage-next-api}
+        documentIndex: 1
+      - equal: {path: 'spec.template.spec.volumes[1].persistentVolumeClaim.claimName', value: backstage-next-techdocs}
+        documentIndex: 1
+      - equal: {path: 'spec.template.spec.volumes[2].configMap.name', value: backstage-next-app-config}
+        documentIndex: 1
+      - equal:
+          path: 'spec.template.spec.containers[0].env[?(@.name=="SERVICE_ACCOUNT_TOKEN")].valueFrom.secretKeyRef.name'
+          value: backstage-next-k8s-sa-token
+        documentIndex: 1
+
+  - it: prefixes the PVC, token secret and service account
+    set: {name: backstage-next}
+    asserts:
+      - equal: {path: metadata.name, value: backstage-next-techdocs}
+        template: templates/pvc.yaml
+      - equal: {path: metadata.name, value: backstage-next-k8s-sa-token}
+        template: templates/secrets.yaml
+      - equal: {path: 'metadata.annotations["kubernetes.io/service-account.name"]', value: backstage-next-api}
+        template: templates/secrets.yaml
+      - equal: {path: metadata.name, value: backstage-next-api}
+        template: templates/serviceaccount.yaml
+
+  - it: prefixes the ClusterRole and bindings and points them at the renamed service account
+    template: templates/rbac.yaml
+    set: {name: backstage-next}
+    asserts:
+      - equal: {path: metadata.name, value: backstage-next-api-resources-role}
+        documentIndex: 0
+      - equal: {path: metadata.name, value: backstage-next-api-resources-rolebinding}
+        documentIndex: 1
+      - equal: {path: roleRef.name, value: backstage-next-api-resources-role}
+        documentIndex: 1
+      - equal: {path: 'subjects[0].name', value: backstage-next-api}
+        documentIndex: 1
+      - equal: {path: metadata.name, value: backstage-next-api-teknoir-admin-rolebinding}
+        documentIndex: 2
+      - equal: {path: 'subjects[0].name', value: backstage-next-api}
+        documentIndex: 2
+      - equal: {path: roleRef.name, value: teknoir-admin}
+        documentIndex: 2
+
+  - it: lets the API read and write robots, robot models and fleets, and read events
+    template: templates/rbac.yaml
+    documentIndex: 0
+    asserts:
+      - contains: {path: 'rules[0].resources', content: robots}
+      - contains: {path: 'rules[0].resources', content: robotmodels}
+      - contains: {path: 'rules[0].resources', content: deviceapplicationsets}
+      - contains: {path: 'rules[0].verbs', content: patch}
+      - contains: {path: 'rules[0].verbs', content: delete}
+      - contains: {path: 'rules[2].resources', content: robots/status}
+      - contains: {path: 'rules[3].resources', content: events}
+      - notContains: {path: 'rules[3].resources', content: secrets}
+
+  - it: points postgres policies, StatefulSet and the app database at the renamed postgres
+    set: {name: backstage-next}
+    asserts:
+      - equal: {path: metadata.name, value: backstage-next-postgres}
+        template: templates/postgres-statefulset.yaml
+      - equal: {path: spec.serviceName, value: backstage-next-postgres}
+        template: templates/postgres-statefulset.yaml
+      - equal: {path: spec.selector.matchLabels.app, value: backstage-next-postgres}
+        template: templates/postgres-statefulset.yaml
+      - equal: {path: 'spec.rules[0].from[0].source.principals[0]', value: "cluster.local/ns/NAMESPACE/sa/backstage-next-api"}
+        template: templates/postgres-authpolicy.yaml
+      - matchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: "database:\\n    connection:\\n      host: backstage-next-postgres\\n"
+        template: templates/configmap-app-config.yaml
+    release: {namespace: NAMESPACE}
+
+  - it: leaves the database host to the image by default
+    template: templates/configmap-app-config.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: "database:"
+
+  - it: reuses the classic secrets by default
+    template: templates/postgres-statefulset.yaml
+    set: {name: backstage-next}
+    asserts:
+      - equal: {path: 'spec.template.spec.containers[0].envFrom[0].secretRef.name', value: backstage-postgres-secrets}
+
+  - it: serves the VirtualService on config.host and keeps config.domain without it
+    template: templates/istio-virtualservice.yaml
+    asserts:
+      - equal: {path: 'spec.hosts[0]', value: teknoir.cloud}
+      - equal: {path: 'spec.http[0].route[0].destination.host', value: "backstage-api.NAMESPACE.svc.cluster.local"}
+    release: {namespace: NAMESPACE}
+
+  - it: routes the next host to the renamed services
+    template: templates/istio-virtualservice.yaml
+    set: {name: backstage-next, config.host: next.teknoir.cloud}
+    release: {namespace: NAMESPACE}
+    asserts:
+      - equal: {path: 'spec.hosts[0]', value: next.teknoir.cloud}
+      - equal: {path: 'spec.http[0].route[0].destination.host', value: "backstage-next-api.NAMESPACE.svc.cluster.local"}
+      - equal: {path: 'spec.http[1].route[0].destination.host', value: "backstage-next.NAMESPACE.svc.cluster.local"}
+
+  - it: uses config.host for the base URLs but config.domain for issuer and teknoir.domain
+    template: templates/configmap-app-config.yaml
+    set: {config.host: next.teknoir.cloud}
+    asserts:
+      - matchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: "app:\\n  baseUrl: https://next.teknoir.cloud\\n"
+      - matchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: "\\n  baseUrl: https://next.teknoir.cloud\\n"
+      - matchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: "issuer: https://auth.teknoir.cloud/auth"
+      - matchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: "domain: teknoir.cloud\\n"
+
+  - it: sets the frontend base URLs from config.host
+    template: templates/deployment.yaml
+    documentIndex: 0
+    set: {config.host: next.teknoir.cloud}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: APP_CONFIG_app_baseUrl, value: "https://next.teknoir.cloud"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: APP_CONFIG_backend_baseUrl, value: "https://next.teknoir.cloud"}
+
+  - it: sets the classic URL for the fleet nav and the Prometheus template only when given
+    set:
+      fleet.classicUrl: https://teknoir.cloud
+      fleet.prometheusUrlTemplate: "http://prometheus.{namespace}.svc.cluster.local/{namespace}/prometheus"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: APP_CONFIG_teknoir_fleet_classicUrl, value: "https://teknoir.cloud"}
+        template: templates/deployment.yaml
+        documentIndex: 0
+      - matchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: "fleet:\\n    prometheusUrlTemplate: \"http://prometheus.{namespace}.svc.cluster.local/{namespace}/prometheus\""
+        template: templates/configmap-app-config.yaml
+
+  - it: renders no resources by default
+    asserts:
+      - notExists: {path: 'spec.template.spec.containers[0].resources'}
+        template: templates/deployment.yaml
+        documentIndex: 0
+      - notExists: {path: 'spec.template.spec.containers[0].resources'}
+        template: templates/deployment.yaml
+        documentIndex: 1
+      - notExists: {path: 'spec.template.spec.containers[0].resources'}
+        template: templates/postgres-statefulset.yaml
+      - notMatchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: "fleet:"
+        template: templates/configmap-app-config.yaml
+
+  - it: renders resources on all three containers when set
+    set:
+      backstage.resources: {requests: {memory: 256Mi, cpu: 50m}, limits: {memory: 256Mi}}
+      backstageApi.resources: {requests: {memory: 512Mi}, limits: {memory: 1536Mi}}
+      postgres.resources: {limits: {memory: 512Mi}}
+    asserts:
+      - equal: {path: 'spec.template.spec.containers[0].resources.limits.memory', value: 256Mi}
+        template: templates/deployment.yaml
+        documentIndex: 0
+      - equal: {path: 'spec.template.spec.containers[0].resources.limits.memory', value: 1536Mi}
+        template: templates/deployment.yaml
+        documentIndex: 1
+      - equal: {path: 'spec.template.spec.containers[0].resources.limits.memory', value: 512Mi}
+        template: templates/postgres-statefulset.yaml

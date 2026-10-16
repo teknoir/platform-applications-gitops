@@ -2,7 +2,7 @@
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
-  name: backstage-postgres-admin-allow
+  name: {{ .Values.name }}-postgres-admin-allow
   namespace: {{ .Release.Namespace }}
 spec:
   action: ALLOW
@@ -10,11 +10,11 @@ spec:
   - from:
     - source:
         principals:
-        - "cluster.local/ns/{{ .Release.Namespace }}/sa/backstage-api"
+        - "cluster.local/ns/{{ .Release.Namespace }}/sa/{{ .Values.name }}-api"
     to:
     - operation:
         ports:
         - "5432"
   selector:
     matchLabels:
-      app: backstage-postgres
+      app: {{ .Values.name }}-postgres

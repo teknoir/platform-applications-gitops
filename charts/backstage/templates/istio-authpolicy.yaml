@@ -2,12 +2,12 @@
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
-  name: backstage-auth-policy
+  name: {{ .Values.name }}-auth-policy
   namespace: {{ .Release.Namespace }}
 spec:
   selector:
     matchLabels:
-      app: backstage
+      app: {{ .Values.name }}
   action: ALLOW
   rules:
     # Allow calls only from gateway, no internal calls
@@ -19,12 +19,12 @@ spec:
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
-  name: backstage-api-auth-policy
+  name: {{ .Values.name }}-api-auth-policy
   namespace: {{ .Release.Namespace }}
 spec:
   selector:
     matchLabels:
-      app: backstage-api
+      app: {{ .Values.name }}-api
   action: ALLOW
   rules:
     # Allow calls only from gateway, no internal calls
@@ -48,12 +48,12 @@ spec:
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
-  name: backstage-postgres-allow
+  name: {{ .Values.name }}-postgres-allow
   namespace: {{ .Release.Namespace }}
 spec:
   selector:
     matchLabels:
-      app: backstage-postgres
+      app: {{ .Values.name }}-postgres
   action: ALLOW
   rules:
     - from:

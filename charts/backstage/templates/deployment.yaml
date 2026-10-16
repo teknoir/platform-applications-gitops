@@ -2,17 +2,17 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: backstage
+  name: {{ .Values.name }}
   namespace: {{ .Release.Namespace }}
 spec:
   replicas: {{ .Values.backstage.replicas }}
   selector:
     matchLabels:
-      app: backstage
+      app: {{ .Values.name }}
   template:
     metadata:
       labels:
-        app: backstage
+        app: {{ .Values.name }}
     spec:
       imagePullSecrets:
         {{- toYaml .Values.backstage.imagePullSecrets | nindent 8 }}
@@ -25,9 +25,9 @@ spec:
               containerPort: 80
           env:
             - name: APP_CONFIG_app_baseUrl
-              value: "https://{{ .Values.config.domain }}"
+              value: "https://{{ .Values.config.host | default .Values.config.domain }}"
             - name: APP_CONFIG_backend_baseUrl
-              value: "https://{{ .Values.config.domain }}"
+              value: "https://{{ .Values.config.host | default .Values.config.domain }}"
             {{- if (.Values.virtualDevices).enabled }}
             - name: APP_CONFIG_teknoir_virtualDevices_enabled
               value: "true"
@@ -36,16 +36,24 @@ spec:
             - name: APP_CONFIG_teknoir_ztna_enabled
               value: "true"
             {{- end }}
+            {{- if (.Values.fleet).classicUrl }}
+            - name: APP_CONFIG_teknoir_fleet_classicUrl
+              value: {{ .Values.fleet.classicUrl | quote }}
+            {{- end }}
             - name: LOG_LEVEL
               value: {{ .Values.config.logLevel | quote }}
             - name: PROMETHEUS_URL
               value: {{ .Values.config.prometheusUrl | quote }}
+          {{- with .Values.backstage.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
 
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: backstage-api
+  name: {{ .Values.name }}-api
   namespace: {{ .Release.Namespace }}
 spec:
   replicas: {{ .Values.backstageApi.replicas }}
@@ -53,11 +61,11 @@ spec:
     type: Recreate
   selector:
     matchLabels:
-      app: backstage-api
+      app: {{ .Values.name }}-api
   template:
     metadata:
       labels:
-        app: backstage-api
+        app: {{ .Values.name }}-api
     spec:
       {{- with .Values.backstageApi.podSecurityContext }}
       securityContext:
@@ -69,10 +77,10 @@ spec:
             secretName: {{ .Values.backstageApi.secrets.authSecretsName }}
         - name: techdocs-persistent-storage
           persistentVolumeClaim:
-            claimName: backstage-techdocs
+            claimName: {{ .Values.name }}-techdocs
         - name: backstage-app-config
           configMap:
-            name: backstage-app-config
+            name: {{ .Values.name }}-app-config
         {{- if (.Values.ztna).enabled }}
         # Token for the ZTNA hub's live status port only: its own audience, so the hub never
         # holds a token the API server accepts.
@@ -84,7 +92,7 @@ spec:
                   expirationSeconds: 3600
                   path: token
         {{- end }}
-      serviceAccountName: backstage-api
+      serviceAccountName: {{ .Values.name }}-api
       imagePullSecrets:
         {{- toYaml .Values.backstageApi.imagePullSecrets | nindent 8 }}
       containers:
@@ -117,7 +125,7 @@ spec:
             - name: SERVICE_ACCOUNT_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: backstage-k8s-sa-token
+                  name: {{ .Values.name }}-k8s-sa-token
                   key: token
           command:
             - /bin/bash
@@ -140,6 +148,10 @@ spec:
               readOnly: true
               mountPath: /var/run/secrets/ztna-status
             {{- end }}
+          {{- with .Values.backstageApi.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           readinessProbe:
             initialDelaySeconds: 60
             httpGet:

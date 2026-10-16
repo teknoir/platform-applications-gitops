@@ -54,6 +54,8 @@ rules:
   resources:
   - devices
   - deviceapplicationsets
+  - robots
+  - robotmodels
   verbs:
   - create
   - delete
@@ -67,6 +69,8 @@ rules:
   resources:
   - devices/status
   - deviceapplicationsets/status
+  - robots/status
+  - robotmodels/status
   verbs:
   - get
 
@@ -139,6 +143,12 @@ rules:
   - deviceapplicationsets
   - deviceapplicationsets/status
   - deviceapplicationsets/finalizers
+  - robots
+  - robots/status
+  - robots/finalizers
+  - robotmodels
+  - robotmodels/status
+  - robotmodels/finalizers
   verbs:
   - '*'
 - apiGroups:
@@ -209,6 +219,8 @@ rules:
   resources:
   - devices
   - deviceapplicationsets
+  - robots
+  - robotmodels
   verbs:
   - get
   - list
@@ -218,6 +230,8 @@ rules:
   resources:
   - devices/status
   - deviceapplicationsets/status
+  - robots/status
+  - robotmodels/status
   verbs:
   - get
 

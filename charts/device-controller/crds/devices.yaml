@@ -3,6 +3,9 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
+    # Never pruned or deleted by ArgoCD: removing a CRD deletes every object of its kind.
+    # Re-add after copying regenerated CRDs from device-controller (tests/crd_guard_test.sh).
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
     controller-gen.kubebuilder.io/version: v0.16.5
   name: devices.teknoir.org
 spec:
@@ -210,6 +213,8 @@ spec:
             - message: a device cannot be converted to or from virtual
               rule: '!has(oldSelf.device_type) || oldSelf.device_type == '''' || ((oldSelf.device_type
                 == ''virtual'') == (has(self.device_type) && self.device_type == ''virtual''))'
+            - message: spec.virtual cannot be removed
+              rule: '!has(oldSelf.virtual) || has(self.virtual)'
           status:
             description: SubResourcesStatus defines the observed state of Device
             properties:
@@ -315,8 +320,24 @@ spec:
                           type: string
                       type: object
                     type: array
+                  gitops_layout:
+                    description: |-
+                      GitOpsLayout is a hash of the ordered list of applications, with the
+                      layer of each, that the last GitOps sync rendered. When it changes and
+                      some rendered resource replaced another, the sync re-fetches every
+                      application instead of trusting "not modified" answers, because the
+                      order decides which layer wins a resource that more than one application
+                      provides.
+                    type: string
                   last_config_change:
                     format: date-time
+                    type: string
+                  message:
+                    description: |-
+                      Message says which items of spec.manifest.apps were left out of the
+                      published config because TOE v4 cannot apply them faithfully (a top-level
+                      field other than apiVersion, kind, metadata, data, binaryData, type, spec
+                      and status), and which fields it would drop. Empty when none.
                     type: string
                 type: object
               encryption_key_gen_info:
@@ -525,42 +546,54 @@ spec:
                 properties:
                   activation:
                     description: |-
-                      Activation says how the current identity was (or is to be) activated:
-                      by the trusted host key (automatic) or by an admin (manual).
+                      Activation reports how identities are activated for this device and how
+                      the current one was.
                     properties:
                       at:
-                        description: At (RFC3339) is when the activation was decided.
+                        description: At (RFC3339) is when the current identity was
+                          activated.
                         type: string
                       attestedHostKey:
-                        description: AttestedHostKey is the SHA256 fingerprint of the
-                          ed25519 host key that signed the enrollment attestation.
+                        description: |-
+                          AttestedHostKey is the SHA256 fingerprint of the key that attested the
+                          current identity (the device key), and AttestedHostKeyType its type.
                         type: string
                       attestedHostKeyType:
-                        description: AttestedHostKeyType is the type of that host key.
                         type: string
                       duplicateHostKey:
-                        description: DuplicateHostKey is true when the host key is
-                          trusted for more than one device; auto-activation is refused.
+                        description: |-
+                          DuplicateHostKey is true when the trusted device key is trusted for more
+                          than one device (a cloned image); automatic activation is refused.
                         type: boolean
                       forcedManual:
-                        description: ForcedManual is true when activation is forced
-                          manual for this generation (after a compromised or health flag
-                          was cleared).
+                        description: |-
+                          ForcedManual is true while activation is forced manual for the current
+                          enrollment generation (only on a policy written before device keys; a
+                          cleared flag now rotates the device key instead).
                         type: boolean
                       mode:
-                        description: Mode is auto or manual.
+                        description: Mode is automatic or manual (the ztna.teknoir.org/activation
+                          annotation).
                         type: string
                       trustedHostKey:
-                        description: TrustedHostKey is the admin-trusted host key
-                          fingerprint (annotation ztna.teknoir.org/trusted-host-key).
+                        description: |-
+                          TrustedHostKey is the SHA256 fingerprint of the trusted device key
+                          (ztna.teknoir.org/device-key). The name is kept from the time it was an
+                          SSH host key.
                         type: string
                       verifiedBy:
-                        description: VerifiedBy names what verified the activation.
+                        description: |-
+                          VerifiedBy says how the current identity was activated: approval (an
+                          admin approved its fingerprint), device-key (its attestation was made by
+                          the trusted device key) or host-key (the same for an SSH host key, only
+                          on entries activated before device keys). Empty while it is not
+                          activated.
                         type: string
                     type: object
                   agentCapabilities:
-                    description: AgentCapabilities are the capabilities the enrolled
-                      agent advertises (for example attest-v1, services-v1).
+                    description: |-
+                      AgentCapabilities are the capabilities the agent advertised when it
+                      enrolled the current identity (services-v1, control-v1, attest-v1, p2p-v1).
                     items:
                       type: string
                     type: array
@@ -575,14 +608,50 @@ spec:
                     type: string
                   approvedFingerprint:
                     description: |-
-                      ApprovedFingerprint is the identity fingerprint an admin approved (annotation
-                      ztna.teknoir.org/approved-identity); a pinned identity gets sessions only
-                      when it matches.
+                      ApprovedFingerprint is the identity fingerprint in the hub's policy: the
+                      ztna.teknoir.org/approved-identity annotation, copied only while it equals
+                      the fingerprint pinned for the current enrollment epoch and generation
+                      and the pin is not voided.
                     type: string
+                  deviceKey:
+                    description: |-
+                      DeviceKey reports the device key that activates the device's identity
+                      without an admin (ztna.teknoir.org/device-key), and how it reached the
+                      device. It never contains the key itself.
+                    properties:
+                      confirmedAt:
+                        description: |-
+                          ConfirmedAt (RFC3339) is when the hub first saw the device sign an
+                          attestation with the key. The sealed key is removed from the device's
+                          MQTT config then.
+                        type: string
+                      deliveredAt:
+                        description: |-
+                          DeliveredAt (RFC3339) is when device-controller put the key, sealed to
+                          the device's RSA key, into the device's MQTT config. Empty for a key
+                          that came with the bootstrap.
+                        type: string
+                      fingerprint:
+                        description: Fingerprint is the SHA256 fingerprint of the
+                          device key's public half.
+                        type: string
+                      setAt:
+                        description: SetAt (RFC3339) is when the key was created or
+                          registered.
+                        type: string
+                      source:
+                        description: 'Source says how the key reached the device:
+                          bootstrap, vdevice or mqtt.'
+                        type: string
+                    type: object
                   enabled:
                     description: Enabled is true while the device has the WireGuard
                       annotation set to "enabled".
                     type: boolean
+                  enrollUntil:
+                    description: EnrollUntil (RFC3339) closes the enrollment window
+                      of this generation.
+                    type: string
                   enrolledAt:
                     description: EnrolledAt (RFC3339) is when that identity was pinned.
                     type: string
@@ -595,23 +664,22 @@ spec:
                       is reset.
                     format: int64
                     type: integer
-                  enrollUntil:
-                    description: EnrollUntil (RFC3339) closes the enrollment window
-                      of this generation.
-                    type: string
+                  identityApproved:
+                    description: |-
+                      IdentityApproved is true while the pinned identity is approved, which is
+                      what lets it open sessions. A pinned identity that is not approved is
+                      pending approval.
+                    type: boolean
                   identityFingerprint:
                     description: |-
                       IdentityFingerprint is the fingerprint of the device agent identity key
                       pinned by the hub for the current enrollment generation.
                     type: string
-                  identityApproved:
-                    description: IdentityApproved is true when the pinned identity matches
-                      the fingerprint an admin approved.
-                    type: boolean
                   identityVoided:
-                    description: IdentityVoided is true when the hub voided the pinned
-                      identity (compromised or health-check-failed flag); re-admission needs
-                      a new identity.
+                    description: |-
+                      IdentityVoided is true while the hub has voided the pinned identity (it
+                      saw a compromised or health-check flag). A voided identity is never
+                      accepted again; the device must enroll a new one.
                     type: boolean
                   lastFlagsSet:
                     description: |-
@@ -630,8 +698,7 @@ spec:
                       with the flag.
                     type: string
                   p2p:
-                    description: P2P is true when the direct peer-to-peer path is
-                      offered for the device.
+                    description: P2P is true unless the device opted out with ztna.teknoir.org/p2p=disabled.
                     type: boolean
                   policyUpdatedAt:
                     description: PolicyUpdatedAt (RFC3339) is when the controller
@@ -645,16 +712,26 @@ spec:
                       type: string
                     type: array
                   services:
-                    description: Services are the web/UI services published for the
-                      device through the WireGuard web gateway.
+                    description: |-
+                      Services are the services configured by the ztna.teknoir.org/services
+                      annotation (the implicit ssh service is not listed).
                     items:
+                      description: WireGuardServiceStatus is one configured service
+                        of a device.
                       properties:
                         id:
+                          description: ID is the service id (a DNS label).
                           type: string
                         kind:
+                          description: Kind is external or internal.
                           type: string
                         url:
+                          description: URL is the browser URL of a web service while
+                            the web gateway is enabled.
                           type: string
+                      required:
+                      - id
+                      - kind
                       type: object
                     type: array
                   state:

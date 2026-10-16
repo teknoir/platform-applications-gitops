@@ -10,7 +10,9 @@ image:
   # device-controller 608381e (PR #45: keep wg-agent through the GitOps prune; previous pin sha-c6a6f6b1). Before that: c6a6f6b (ztna-wireguard, PR #44 into applicationset: WireGuard ZTNA plugin, no-op without ZTNA config), index digest. Previous pin: sha-7c2a852b@sha256:41b10284cf2fd3fea2606ccaf99186105614e9cf7f8a99521786ffe7a20a683e
   # device-controller cff556b5 (applicationset: #53 agent gets a virtual device's k3s networks; #52 agent RBAC as HelmChart; built by local CI on the dev host, GitHub Actions billing-blocked). Previous pin: sha-aae24592@sha256:60d2dc3f5df7e1407a634fbbc1f04590f27d4836912084d6c6ba10de1cc08391
   # Change it only by promoting a new sha-<commit> through this branch.
-  tag: "sha-cff556b5@sha256:4e741505e7292af530aabd11faa14c4f23c9ba9eabbd1baee771053d77485002"
+  # device-controller 367857e (branch nextgen = applicationset cff556b + Robot/RobotModel, model/fleet/robot config layers,
+  # DAS priority; next-gen fleet MVP, plans/nextgen-fleet-platform.md; index sha256:64603735cc144a26597b4755659f2f964c8bb9d75af238815d760669f9aae4ec; built by on-cluster CI). Previous pin: sha-cff556b5@sha256:4e741505e7292af530aabd11faa14c4f23c9ba9eabbd1baee771053d77485002
+  tag: "sha-367857e3@sha256:64603735cc144a26597b4755659f2f964c8bb9d75af238815d760669f9aae4ec"
   pullPolicy: IfNotPresent
 
 imagePullSecrets:
