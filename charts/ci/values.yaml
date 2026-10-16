@@ -103,10 +103,10 @@ poll:
   maxSubmit: 20
 
 # Disables the GitHub Actions workflows the registry replaces (files/github-sync.py).
-# Suspended until every pipeline kind has run green here (then GitHub Actions copies go).
+# Verified 2026-10-16 (image single/multi-arch, tests, chart release, poll -> build).
 githubSync:
   schedule: "*/30 * * * *"
-  suspend: true
+  suspend: false
 
 argo-workflows:
   crds:
