@@ -121,7 +121,8 @@ harborConfig:
     registries:
       - {name: dockerhub, type: docker-hub, url: "https://hub.docker.com"}
       - {name: ghcr, type: github-ghcr, url: "https://ghcr.io"}
-      - {name: quay, type: quay, url: "https://quay.io"}
+      # Harbor's "quay" adapter cannot back a proxy-cache project; the generic one can.
+      - {name: quay, type: docker-registry, url: "https://quay.io"}
       - {name: k8s, type: docker-registry, url: "https://registry.k8s.io"}
     # Quotas are the hard stop that keeps /opt from filling: 1 TiB + 4 x 150 GiB fits
     # in /opt (3.6 TB, 3.3 TB free on 2026-10-16) with room for k3s and the PVs.

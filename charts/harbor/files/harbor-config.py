@@ -174,7 +174,12 @@ def registries():
         if cur is None:
             call("POST", "/registries", body)
             log(f"registry {r['name']}: created")
-        elif cur.get("url") != r["url"] or cur.get("type") != r["type"]:
+        elif cur.get("type") != r["type"]:
+            # The type cannot be changed in place: re-create (only if no project uses it yet).
+            call("DELETE", f"/registries/{cur['id']}")
+            call("POST", "/registries", body)
+            log(f"registry {r['name']}: re-created as {r['type']}")
+        elif cur.get("url") != r["url"]:
             call("PUT", f"/registries/{cur['id']}", {"url": r["url"], "name": r["name"]})
             log(f"registry {r['name']}: updated")
     for r in get_all("/registries"):

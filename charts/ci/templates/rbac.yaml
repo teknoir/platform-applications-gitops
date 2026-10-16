@@ -128,7 +128,6 @@ metadata:
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: ci-admin}
 subjects:
   - {kind: ServiceAccount, name: ci-admin, namespace: {{ $ns }}}
-{{- if .Values.harbor.enabled }}
 ---
 # charts/harbor's harbor-config Job writes the CI robot credential here.
 apiVersion: rbac.authorization.k8s.io/v1
@@ -157,4 +156,3 @@ subjects:
   - kind: ServiceAccount
     name: {{ .Values.harbor.configServiceAccount.name }}
     namespace: {{ .Values.harbor.configServiceAccount.namespace }}
-{{- end }}
