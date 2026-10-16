@@ -1,0 +1,18 @@
+# profile-plugins-helm (public). Translated from .github/workflows/release.yml, beta.yml
+# and stunnel-image.yml on 2026-10-16. The stunnel image is built on main only when its
+# sources change, tagged with images/stunnel/VERSION.
+branches: [main, beta]
+images:
+  - name: stunnel
+    context: images/stunnel
+    platforms: [linux/amd64, linux/arm64]
+    branches: [main]
+    paths: ["images/stunnel/**"]
+    versionFile: images/stunnel/VERSION
+    tagTemplates: ["{version}", "sha-{sha8}"]
+    latest: []
+helm:
+  release: [main]
+  beta: [beta]
+githubActions: disable
+actionsWorkflows: [release.yml, beta.yml, stunnel-image.yml]

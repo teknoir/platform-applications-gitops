@@ -29,3 +29,11 @@ virtualDevices:
 # cherry-picked onto another environment branch.
 ztna:
   enabled: true
+
+# CI/CD on the cluster (plans/ci-argo-workflows.md), teknoir-cloud only (allowlist in
+# templates/ci.yaml): Harbor as the registry (harbor.teknoir.cloud) and Argo Workflows +
+# BuildKit pipelines (ci.teknoir.cloud), with vpro as the k3s build node.
+harbor:
+  enabled: true
+ci:
+  enabled: true

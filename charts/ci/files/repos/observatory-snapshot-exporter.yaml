@@ -1,0 +1,6 @@
+# observatory-snapshot-exporter (public). Translated from .github/workflows/build.yml on 2026-10-16.
+branches: ['**']
+images:
+- {name: observatory-snapshot-exporter}
+githubActions: disable
+actionsWorkflows: [build.yml]

@@ -1,0 +1,152 @@
+{{- if .Values.registryAuth.enabled }}
+{{- $namespace := .Values.namespace | default .Release.Namespace }}
+{{- $cfg := .Values.registryAuth }}
+{{- $creds := .Values.harbor.registry.credentials }}
+{{- if not $creds.existingSecret }}
+{{- fail "registryAuth.enabled needs harbor.registry.credentials.existingSecret (the Secret the Job creates)" }}
+{{- end }}
+{{- if not $creds.username }}
+{{- fail "registryAuth.enabled needs harbor.registry.credentials.username (the htpasswd user)" }}
+{{- end }}
+---
+# Creates Harbor's internal registry credential (harbor-core/jobservice ->
+# harbor-registry basic auth) once, as Secret
+# {{ $creds.existingSecret }}: see files/registry-auth.sh. The Secret carries
+# no ArgoCD tracking, so no sync ever prunes or diffs it.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: harbor-registry-auth
+  namespace: {{ $namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+---
+# Least privilege: Secret create cannot be restricted by name in Kubernetes
+# RBAC, so it is namespace-wide; everything else is limited to the one Secret
+# and the Deployments that read it (kubectl patch reads the object first).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: harbor-registry-auth
+  namespace: {{ $namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: [{{ $creds.existingSecret | quote }}]
+    verbs: ["get", "patch"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+  {{- with $cfg.restartDeployments }}
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames:
+    {{- range . }}
+      - {{ . | quote }}
+    {{- end }}
+    verbs: ["get", "patch"]
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: harbor-registry-auth
+  namespace: {{ $namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: harbor-registry-auth
+subjects:
+  - kind: ServiceAccount
+    name: harbor-registry-auth
+    namespace: {{ $namespace }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: harbor-registry-auth
+  namespace: {{ $namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+data:
+  registry-auth.sh: |
+{{ .Files.Get "files/registry-auth.sh" | indent 4 }}
+---
+# A Sync hook before Harbor's workloads (wave 0) on every ArgoCD sync. The
+# airgap bootstrap's one-shot applies the same render as a plain Job (kubectl
+# ignores the hook annotations); the Deployments wait for the Secret until it
+# exists.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: harbor-registry-auth
+  namespace: {{ $namespace }}
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  backoffLimit: 6
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: harbor-registry-auth
+        app.kubernetes.io/part-of: harbor
+        # Only talks to the API server; a sidecar would keep the Job from
+        # completing, and there is no istiod yet during the bootstrap.
+        sidecar.istio.io/inject: "false"
+    spec:
+      serviceAccountName: harbor-registry-auth
+      automountServiceAccountToken: true
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: registry-auth
+          image: {{ $cfg.image }}
+          imagePullPolicy: {{ $cfg.imagePullPolicy }}
+          command: ["/bin/sh", "/scripts/registry-auth.sh"]
+          env:
+            - name: SECRET_NAME
+              value: {{ $creds.existingSecret | quote }}
+            - name: REGISTRY_USERNAME
+              value: {{ $creds.username | quote }}
+            - name: RESTART_DEPLOYMENTS
+              value: {{ join " " $cfg.restartDeployments | quote }}
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: HOME
+              value: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml $cfg.resources | nindent 12 }}
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: scripts
+          configMap:
+            name: harbor-registry-auth
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
+{{- end }}

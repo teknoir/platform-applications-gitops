@@ -1,0 +1,16 @@
+# robot-helm-deployer (private). Translated from .github/workflows/ci.yml on 2026-10-16:
+# lint/typecheck, test and build on main (no image, no release).
+branches: [main]
+tests:
+  - name: lint
+    image: docker.io/library/node:20
+    run: corepack enable && pnpm install --frozen-lockfile && pnpm lint && pnpm format:check && pnpm typecheck
+  - name: test
+    image: docker.io/library/node:20
+    run: corepack enable && pnpm install --frozen-lockfile && pnpm test
+  - name: build
+    image: docker.io/library/node:20
+    memory: 4Gi
+    run: corepack enable && pnpm install --frozen-lockfile && pnpm build
+githubActions: disable
+actionsWorkflows: [ci.yml]

@@ -1,0 +1,8 @@
+# swin-reid-embedding-service (public). Translated from .github/workflows/beta.yml, release.yml on 2026-10-16.
+branches: [main, beta]
+helm:
+  release: [main]
+  beta: [beta]
+  crAction: v1.7.0
+githubActions: disable
+actionsWorkflows: [beta.yml, release.yml]

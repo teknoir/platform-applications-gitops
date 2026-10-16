@@ -1,0 +1,39 @@
+# wg-tunnel (public). Translated from .github/workflows/build.yml on 2026-10-16.
+# Tests gate all three images. Tag builds publish the tag as is; VERSION is built in.
+branches: ['**']
+tags: ['**']
+tests:
+  - {name: go-vet, image: "docker.io/library/golang:1.26", run: go vet ./...}
+  - {name: go-test-race, image: "docker.io/library/golang:1.26", run: go test -race -count=1 ./..., memory: 4Gi}
+  - name: smoke-wg-agent
+    image: docker.io/library/docker:29-cli
+    dind: true
+    run: |
+      apk add -q --no-cache bash
+      docker buildx build --load --target wg-agent -t wg-agent:smoke .
+      bash test/smoke-agent-init.sh wg-agent:smoke
+      bash test/smoke-attestor.sh wg-agent:smoke
+images:
+  - name: wg-hub
+    target: wg-hub
+    platforms: [linux/amd64, linux/arm64]
+    tagTemplates: ["sha-{sha7}", "{ref}-{ts}", "{ref}"]
+    tagTagTemplates: ["sha-{sha7}", "{ref}"]
+    buildArgs: {VERSION: "{ref}-{sha7}"}
+    tagBuildArgs: {VERSION: "{ref}"}
+  - name: wg-agent
+    target: wg-agent
+    platforms: [linux/amd64, linux/arm64, linux/arm/v7]
+    tagTemplates: ["sha-{sha7}", "{ref}-{ts}", "{ref}"]
+    tagTagTemplates: ["sha-{sha7}", "{ref}"]
+    buildArgs: {VERSION: "{ref}-{sha7}"}
+    tagBuildArgs: {VERSION: "{ref}"}
+  - name: wg-gateway
+    target: wg-gateway
+    platforms: [linux/amd64, linux/arm64]
+    tagTemplates: ["sha-{sha7}", "{ref}-{ts}", "{ref}"]
+    tagTagTemplates: ["sha-{sha7}", "{ref}"]
+    buildArgs: {VERSION: "{ref}-{sha7}"}
+    tagBuildArgs: {VERSION: "{ref}"}
+githubActions: disable
+actionsWorkflows: [build.yml]

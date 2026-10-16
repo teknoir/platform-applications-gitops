@@ -1,0 +1,6 @@
+# nvidia-tracker-deepstream (private). Translated from .github/workflows/build.yml on 2026-10-16.
+branches: ['**']
+images:
+- {name: nvidia-tracker-deepstream}
+githubActions: disable
+actionsWorkflows: [build.yml]

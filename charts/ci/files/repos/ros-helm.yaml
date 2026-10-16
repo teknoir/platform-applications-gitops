@@ -1,0 +1,15 @@
+# ros-helm (public). Translated from .github/workflows/build.yml, release.yml, beta.yml
+# on 2026-10-16: six images (matrix) on every branch, charts on main/beta.
+branches: ['**']
+images:
+  - {name: ros-helm/kitti-bag, context: docker/bags/kitti-bag, platforms: [linux/amd64, linux/arm64/v8]}
+  - {name: ros-helm/nviros-humanoid-example, context: docker/src/nviros-humanoid-example, platforms: [linux/amd64, linux/arm64/v8]}
+  - {name: ros-helm/tb3-headless-launch, context: docker/src/tb3_headless_launch, platforms: [linux/amd64, linux/arm64/v8]}
+  - {name: ros-helm/nviros, context: docker, dockerfile: docker/nviros.Dockerfile}
+  - {name: ros-helm/ros2, context: docker, dockerfile: docker/ros2.Dockerfile, platforms: [linux/amd64, linux/arm64/v8]}
+  - {name: ros-helm/discovery, context: docker, dockerfile: docker/discovery.Dockerfile, platforms: [linux/amd64, linux/arm64/v8]}
+helm:
+  release: [main]
+  beta: [beta]
+githubActions: disable
+actionsWorkflows: [build.yml, release.yml, beta.yml]

@@ -1,0 +1,6 @@
+# historian-helm (public). Translated from .github/workflows/release.yml on 2026-10-16.
+branches: [main]
+helm:
+  release: [main]
+githubActions: disable
+actionsWorkflows: [release.yml]

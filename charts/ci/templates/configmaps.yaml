@@ -1,0 +1,30 @@
+{{- $ns := include "ci.namespace" . }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ci-scripts
+  namespace: {{ $ns }}
+  labels: {{- include "ci.labels" . | nindent 4 }}
+data:
+{{- range $f := list "plan.py" "clone.sh" "build.sh" "helm-release.sh" "status.py" "github-sync.py" "poll.py" }}
+  {{ $f }}: |
+{{ $.Files.Get (printf "files/%s" $f) | indent 4 }}
+{{- end }}
+---
+# The pipeline registry: one key per repo (files/repos/<repo>.yaml as JSON) plus the
+# defaults. plan.py reads it per push, poll.py polls the repos in it, github-sync.py
+# disables the GitHub Actions workflows it replaces.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ci-repos
+  namespace: {{ $ns }}
+  labels: {{- include "ci.labels" . | nindent 4 }}
+data:
+  _defaults.json: |
+    {{- dict "repo" .Values.pipelines.repo "image" .Values.pipelines.image "test" .Values.pipelines.test "helm" .Values.pipelines.helm "builder" .Values.defaultBuilder | toJson | nindent 4 }}
+{{- range $path, $_ := .Files.Glob "files/repos/*.yaml" }}
+  {{ base $path | trimSuffix ".yaml" }}.json: |
+    {{- $.Files.Get $path | fromYaml | toJson | nindent 4 }}
+{{- end }}

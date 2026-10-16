@@ -1,0 +1,336 @@
+# ci-dispatch: one pipeline run for one GitHub push (submitted by the WorkflowEventBinding
+# github-push, or by hand: README.md "Run a pipeline by hand").
+# Placeholders (two at-signs around a NAME) are filled by templates/workflows.yaml; {{...}} is Argo's.
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: ci-dispatch
+  namespace: @@NAMESPACE@@
+spec:
+  serviceAccountName: ci-workflow
+  automountServiceAccountToken: false
+  executor:
+    serviceAccountName: ci-executor
+  entrypoint: main
+  onExit: report
+  arguments:
+    parameters:
+      - name: repo
+      - name: ref
+      - name: sha
+      - name: before
+        value: ""
+  workflowMetadata:
+    labelsFrom:
+      teknoir.org/repo:
+        expression: workflow.parameters.repo
+  volumes:
+    - name: scripts
+      configMap: {name: ci-scripts, defaultMode: 0555}
+    - name: repos
+      configMap: {name: ci-repos}
+    - name: github
+      secret:
+        secretName: @@GITHUB_SECRET@@
+        items: [{key: username, path: username}, {key: token, path: token}]
+    - name: harbor
+      secret:
+        secretName: @@HARBOR_SECRET@@
+        optional: true
+        items: [{key: username, path: username}, {key: password, path: password}]
+    - {name: src, emptyDir: {}}
+    - {name: out, emptyDir: {}}
+    - {name: work, emptyDir: {}}
+  templates:
+    - name: main
+      dag:
+        tasks:
+          - name: plan
+            template: plan
+          - name: pending
+            depends: plan
+            when: "{{tasks.plan.outputs.parameters.active}} == true"
+            template: status
+            arguments:
+              parameters:
+                - {name: state, value: pending}
+                - {name: context, value: teknoir-ci}
+                - {name: description, value: "{{tasks.plan.outputs.parameters.summary}}"}
+          - name: test
+            depends: plan
+            when: "{{tasks.plan.outputs.parameters.active}} == true"
+            template: run-test
+            withParam: "{{tasks.plan.outputs.parameters.tests}}"
+            arguments: &test-args
+              parameters:
+                - {name: image, value: "{{item.image}}"}
+                - {name: workdir, value: "{{item.workdir}}"}
+                - {name: script, value: "{{item.script}}"}
+                - {name: shell, value: "{{item.shell}}"}
+                - {name: cpu, value: "{{item.cpu}}"}
+                - {name: memory, value: "{{item.memory}}"}
+                - {name: depth, value: "{{item.depth}}"}
+          - name: test-dind
+            depends: plan
+            when: "{{tasks.plan.outputs.parameters.active}} == true"
+            template: run-test-dind
+            withParam: "{{tasks.plan.outputs.parameters.testsdind}}"
+            arguments: *test-args
+          - name: image
+            depends: test && test-dind
+            when: "{{tasks.plan.outputs.parameters.active}} == true"
+            template: image
+            withParam: "{{tasks.plan.outputs.parameters.images}}"
+            arguments:
+              parameters:
+                - {name: name, value: "{{item.name}}"}
+                - {name: refs, value: "{{item.refs}}"}
+                - {name: args, value: "{{item.args}}"}
+                - {name: prebuild, value: "{{item.prebuild}}"}
+                - {name: builders, value: "{{item.builders}}"}
+                - {name: depth, value: "{{item.depth}}"}
+                - {name: lfs, value: "{{item.lfs}}"}
+                - {name: submodules, value: "{{item.submodules}}"}
+          - name: helm
+            depends: test && test-dind
+            when: "{{tasks.plan.outputs.parameters.helmenabled}} == true"
+            template: helm-release
+            arguments:
+              parameters:
+                - {name: config, value: "{{tasks.plan.outputs.parameters.helm}}"}
+
+    # ---------------------------------------------------------------- plan
+    - name: plan
+      metadata:
+        labels: {teknoir.org/ci-role: plan}
+      outputs:
+        parameters:
+          - name: active
+            globalName: active
+            valueFrom: {path: /out/active, default: "false"}
+          - name: summary
+            globalName: summary
+            valueFrom: {path: /out/summary, default: "CI plan failed"}
+          - {name: tests, valueFrom: {path: /out/tests, default: "[]"}}
+          - {name: testsdind, valueFrom: {path: /out/testsdind, default: "[]"}}
+          - {name: images, valueFrom: {path: /out/images, default: "[]"}}
+          - {name: helm, valueFrom: {path: /out/helm, default: ""}}
+          - {name: helmenabled, valueFrom: {path: /out/helmenabled, default: "false"}}
+      container:
+        image: @@IMAGE_PYTHON@@
+        command: [python3, -I, /scripts/plan.py]
+        env:
+          - {name: REPO, value: "{{workflow.parameters.repo}}"}
+          - {name: REF, value: "{{workflow.parameters.ref}}"}
+          - {name: SHA, value: "{{workflow.parameters.sha}}"}
+          - {name: BEFORE, value: "{{workflow.parameters.before}}"}
+          - {name: GITHUB_ORG, value: "@@GITHUB_ORG@@"}
+          - {name: HARBOR_HOST, value: "@@HARBOR_HOST@@"}
+          - {name: HARBOR_PROJECT, value: "@@HARBOR_PROJECT@@"}
+          - {name: BUILDERS, value: '@@BUILDERS_JSON@@'}
+          - {name: OUT, value: /out}
+        resources:
+          requests: {cpu: 10m, memory: 32Mi}
+          limits: {memory: 128Mi}
+        volumeMounts:
+          - {name: scripts, mountPath: /scripts}
+          - {name: repos, mountPath: /repos}
+          - {name: github, mountPath: /github}
+          - {name: out, mountPath: /out}
+
+    # ---------------------------------------------------------------- tests
+    - name: run-test
+      inputs: &test-inputs
+        parameters:
+          - name: image
+          - name: workdir
+          - name: script
+          - name: shell
+          - name: cpu
+          - name: memory
+          - name: depth
+      metadata:
+        labels: {teknoir.org/ci-role: test}
+      initContainers: &clone
+        - name: clone
+          image: @@IMAGE_GIT@@
+          command: [sh, /scripts/clone.sh]
+          env:
+            - {name: ORG, value: "@@GITHUB_ORG@@"}
+            - {name: REPO, value: "{{workflow.parameters.repo}}"}
+            - {name: SHA, value: "{{workflow.parameters.sha}}"}
+            - {name: DEPTH, value: "{{inputs.parameters.depth}}"}
+          volumeMounts:
+            - {name: src, mountPath: /src}
+            - {name: scripts, mountPath: /scripts}
+            - {name: github, mountPath: /github}
+      container:
+        image: "{{inputs.parameters.image}}"
+        command: [sh, -c]
+        args:
+          - printf %s "$CI_SCRIPT" | base64 -d > /tmp/ci-step.sh && cd "/src/$CI_WORKDIR" && exec "$CI_SHELL" -e /tmp/ci-step.sh
+        env:
+          - {name: CI, value: "true"}
+          - {name: CI_SCRIPT, value: "{{inputs.parameters.script}}"}
+          - {name: CI_WORKDIR, value: "{{inputs.parameters.workdir}}"}
+          - {name: CI_SHELL, value: "{{inputs.parameters.shell}}"}
+        volumeMounts:
+          - {name: src, mountPath: /src}
+      # Per-test resources (Quantity fields cannot hold a {{...}} parameter themselves).
+      podSpecPatch: &test-resources '{"containers":[{"name":"main","resources":{"requests":{"cpu":"{{inputs.parameters.cpu}}","memory":"{{inputs.parameters.memory}}"},"limits":{"memory":"{{inputs.parameters.memory}}"}}}]}'
+
+    - name: run-test-dind
+      inputs: *test-inputs
+      metadata:
+        labels: {teknoir.org/ci-role: test}
+      initContainers: *clone
+      sidecars:
+        - name: dind
+          image: @@IMAGE_DIND@@
+          command: [dockerd-entrypoint.sh]
+          env:
+            - {name: DOCKER_TLS_CERTDIR, value: ""}
+          securityContext: {privileged: true}
+          mirrorVolumeMounts: true
+      container:
+        image: "{{inputs.parameters.image}}"
+        command: [sh, -c]
+        args:
+          - |
+            i=0; until docker info >/dev/null 2>&1; do i=$((i+1)); [ $i -lt 60 ] || { echo "dind did not start" >&2; exit 1; }; sleep 1; done
+            printf %s "$CI_SCRIPT" | base64 -d > /tmp/ci-step.sh && cd "/src/$CI_WORKDIR" && exec "$CI_SHELL" -e /tmp/ci-step.sh
+        env:
+          - {name: DOCKER_HOST, value: "tcp://127.0.0.1:2375"}
+          - {name: CI, value: "true"}
+          - {name: CI_SCRIPT, value: "{{inputs.parameters.script}}"}
+          - {name: CI_WORKDIR, value: "{{inputs.parameters.workdir}}"}
+          - {name: CI_SHELL, value: "{{inputs.parameters.shell}}"}
+        volumeMounts:
+          - {name: src, mountPath: /src}
+      podSpecPatch: *test-resources
+
+    # ---------------------------------------------------------------- images
+    - name: image
+      inputs:
+        parameters: [{name: name}, {name: refs}, {name: args}, {name: prebuild}, {name: builders},
+                     {name: depth}, {name: lfs}, {name: submodules}]
+      steps:
+        - - name: build
+            template: build-image
+            arguments:
+              parameters:
+                - {name: refs, value: "{{inputs.parameters.refs}}"}
+                - {name: args, value: "{{inputs.parameters.args}}"}
+                - {name: prebuild, value: "{{inputs.parameters.prebuild}}"}
+                - {name: builders, value: "{{inputs.parameters.builders}}"}
+                - {name: depth, value: "{{inputs.parameters.depth}}"}
+                - {name: lfs, value: "{{inputs.parameters.lfs}}"}
+                - {name: submodules, value: "{{inputs.parameters.submodules}}"}
+        - - name: digest-status
+            template: status
+            arguments:
+              parameters:
+                - {name: state, value: success}
+                - {name: context, value: "teknoir-ci/image/{{inputs.parameters.name}}"}
+                - {name: description, value: "{{steps.build.outputs.parameters.digest}}"}
+
+    - name: build-image
+      inputs:
+        parameters: [{name: refs}, {name: args}, {name: prebuild}, {name: builders}, {name: depth},
+                     {name: lfs}, {name: submodules}]
+      metadata:
+        labels: {teknoir.org/ci-role: build}
+      initContainers:
+        - name: clone
+          image: @@IMAGE_GIT@@
+          command: [sh, /scripts/clone.sh]
+          env:
+            - {name: ORG, value: "@@GITHUB_ORG@@"}
+            - {name: REPO, value: "{{workflow.parameters.repo}}"}
+            - {name: SHA, value: "{{workflow.parameters.sha}}"}
+            - {name: DEPTH, value: "{{inputs.parameters.depth}}"}
+            - {name: LFS, value: "{{inputs.parameters.lfs}}"}
+            - {name: SUBMODULES, value: "{{inputs.parameters.submodules}}"}
+          volumeMounts:
+            - {name: src, mountPath: /src}
+            - {name: scripts, mountPath: /scripts}
+            - {name: github, mountPath: /github}
+      outputs:
+        parameters:
+          - {name: digest, valueFrom: {path: /tmp/digest, default: ""}}
+      container:
+        image: @@IMAGE_BUILDKIT@@
+        command: [sh, /scripts/build.sh]
+        env:
+          - {name: ARGS, value: "{{inputs.parameters.args}}"}
+          - {name: PREBUILD, value: "{{inputs.parameters.prebuild}}"}
+          - {name: BUILDERS, value: "{{inputs.parameters.builders}}"}
+          - {name: REFS, value: "{{inputs.parameters.refs}}"}
+          - {name: HARBOR_HOST, value: "@@HARBOR_HOST@@"}
+        resources:
+          requests: {cpu: 50m, memory: 64Mi}
+          limits: {memory: 512Mi}
+        volumeMounts:
+          - {name: src, mountPath: /src}
+          - {name: scripts, mountPath: /scripts}
+          - {name: github, mountPath: /github}
+          - {name: harbor, mountPath: /harbor}
+
+    # ---------------------------------------------------------------- charts
+    - name: helm-release
+      inputs:
+        parameters: [{name: config}]
+      metadata:
+        labels: {teknoir.org/ci-role: helm}
+      container:
+        image: @@IMAGE_HELM@@
+        command: [sh, -c, "apk add -q --no-cache bash >/dev/null && exec bash /scripts/helm-release.sh"]
+        env:
+          - {name: ORG, value: "@@GITHUB_ORG@@"}
+          - {name: REPO, value: "{{workflow.parameters.repo}}"}
+          - {name: SHA, value: "{{workflow.parameters.sha}}"}
+          - {name: REF, value: "{{workflow.parameters.ref}}"}
+          - {name: HELM_CONFIG, value: "{{inputs.parameters.config}}"}
+        resources:
+          requests: {cpu: 100m, memory: 128Mi}
+          limits: {memory: 1Gi}
+        volumeMounts:
+          - {name: scripts, mountPath: /scripts}
+          - {name: github, mountPath: /github}
+          - {name: work, mountPath: /work}
+
+    # ---------------------------------------------------------------- GitHub status
+    - name: status
+      inputs:
+        parameters: [{name: state}, {name: context}, {name: description}]
+      metadata:
+        labels: {teknoir.org/ci-role: status}
+      retryStrategy: {limit: 3, retryPolicy: Always, backoff: {duration: 10s, factor: 2}}
+      container:
+        image: @@IMAGE_PYTHON@@
+        command: [python3, -I, /scripts/status.py]
+        env:
+          - {name: ORG, value: "@@GITHUB_ORG@@"}
+          - {name: REPO, value: "{{workflow.parameters.repo}}"}
+          - {name: SHA, value: "{{workflow.parameters.sha}}"}
+          - {name: STATE, value: "{{inputs.parameters.state}}"}
+          - {name: CONTEXT, value: "{{inputs.parameters.context}}"}
+          - {name: DESCRIPTION, value: "{{inputs.parameters.description}}"}
+          - {name: TARGET_URL, value: "https://@@UI_HOST@@/workflows/@@NAMESPACE@@/{{workflow.name}}"}
+        resources:
+          requests: {cpu: 10m, memory: 32Mi}
+          limits: {memory: 128Mi}
+        volumeMounts:
+          - {name: scripts, mountPath: /scripts}
+          - {name: github, mountPath: /github}
+
+    - name: report
+      steps:
+        - - name: final
+            template: status
+            when: "{{workflow.outputs.parameters.active}} == true"
+            arguments:
+              parameters:
+                - {name: state, value: "{{workflow.status}}"}
+                - {name: context, value: teknoir-ci}
+                - {name: description, value: "{{workflow.outputs.parameters.summary}}"}

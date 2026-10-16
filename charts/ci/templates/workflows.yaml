@@ -1,0 +1,36 @@
+{{- /*
+The Argo objects live in files/workflows/ as plain YAML so Argo's {{...}} expressions
+need no Helm escaping; Placeholders (two at-signs around a NAME) are replaced here.
+*/ -}}
+{{- $ns := include "ci.namespace" . }}
+{{- $vars := dict
+  "@@NAMESPACE@@" $ns
+  "@@GITHUB_ORG@@" .Values.github.org
+  "@@GITHUB_SECRET@@" .Values.github.tokenSecret
+  "@@HARBOR_HOST@@" .Values.harbor.host
+  "@@HARBOR_PROJECT@@" .Values.harbor.project
+  "@@HARBOR_SECRET@@" .Values.harbor.robotSecret
+  "@@BUILDERS_JSON@@" (include "ci.buildersJson" .)
+  "@@UI_HOST@@" .Values.hosts.ui
+  "@@IMAGE_GIT@@" .Values.images.git
+  "@@IMAGE_BUILDKIT@@" .Values.images.buildkit
+  "@@IMAGE_PYTHON@@" .Values.images.python
+  "@@IMAGE_HELM@@" .Values.images.helm
+  "@@IMAGE_DIND@@" .Values.images.dind
+  "@@SYNC_SCHEDULE@@" .Values.githubSync.schedule
+  "@@SYNC_SUSPEND@@" (toString .Values.githubSync.suspend)
+  "@@POLL_SCHEDULE@@" .Values.poll.schedule
+  "@@POLL_SUSPEND@@" (toString .Values.poll.suspend)
+  "@@POLL_MAX_SUBMIT@@" (toString .Values.poll.maxSubmit)
+}}
+{{- range $path, $_ := .Files.Glob "files/workflows/*.yaml" }}
+{{- $doc := $.Files.Get $path }}
+{{- range $k, $v := $vars }}
+{{- $doc = replace $k $v $doc }}
+{{- end }}
+{{- if contains "@@" $doc }}
+{{- fail (printf "%s: unknown placeholder left after substitution" $path) }}
+{{- end }}
+---
+{{ $doc }}
+{{- end }}

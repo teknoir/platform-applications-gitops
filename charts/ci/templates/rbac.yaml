@@ -1,0 +1,147 @@
+{{- $ns := include "ci.namespace" . }}
+---
+# Workflow pods: no Kubernetes API access (automountServiceAccountToken: false in
+# ci-dispatch); only the executor (wait container) gets a token, as ci-executor.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ci-workflow
+  namespace: {{ $ns }}
+  labels: {{- include "ci.labels" . | nindent 4 }}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ci-executor
+  namespace: {{ $ns }}
+  labels: {{- include "ci.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ci-executor
+  namespace: {{ $ns }}
+  labels: {{- include "ci.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [argoproj.io]
+    resources: [workflowtaskresults]
+    verbs: [create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ci-executor
+  namespace: {{ $ns }}
+  labels: {{- include "ci.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: ci-executor}
+subjects:
+  - {kind: ServiceAccount, name: ci-executor, namespace: {{ $ns }}}
+---
+# ci-poll: reads/writes its state ConfigMap and submits ci-dispatch Workflows.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ci-poller
+  namespace: {{ $ns }}
+  labels: {{- include "ci.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ci-poller
+  namespace: {{ $ns }}
+  labels: {{- include "ci.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [ci-poll-state]
+    verbs: [get, patch]
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [create]
+  - apiGroups: [argoproj.io]
+    resources: [workflows]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ci-poller
+  namespace: {{ $ns }}
+  labels: {{- include "ci.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: ci-poller}
+subjects:
+  - {kind: ServiceAccount, name: ci-poller, namespace: {{ $ns }}}
+---
+# UI / CLI access (argo-server --auth-mode=client): paste "Bearer <token>" from
+# README.md "UI token". Full control of the pipelines in this namespace, nothing else.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ci-admin
+  namespace: {{ $ns }}
+  labels: {{- include "ci.labels" . | nindent 4 }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ci-admin.service-account-token
+  namespace: {{ $ns }}
+  labels: {{- include "ci.labels" . | nindent 4 }}
+  annotations:
+    kubernetes.io/service-account.name: ci-admin
+type: kubernetes.io/service-account-token
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ci-admin
+  namespace: {{ $ns }}
+  labels: {{- include "ci.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [argoproj.io]
+    resources: [workflows, workflows/finalizers, workflowtemplates, cronworkflows, workfloweventbindings,
+                workflowtaskresults, workflowtasksets, workflowartifactgctasks]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [pods, pods/log, events]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ci-admin
+  namespace: {{ $ns }}
+  labels: {{- include "ci.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: ci-admin}
+subjects:
+  - {kind: ServiceAccount, name: ci-admin, namespace: {{ $ns }}}
+---
+# charts/harbor's harbor-config Job writes the CI robot credential here.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: harbor-config
+  namespace: {{ $ns }}
+  labels: {{- include "ci.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [{{ .Values.harbor.robotSecret | quote }}]
+    verbs: [get, update]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: harbor-config
+  namespace: {{ $ns }}
+  labels: {{- include "ci.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: harbor-config}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.harbor.configServiceAccount.name }}
+    namespace: {{ .Values.harbor.configServiceAccount.namespace }}

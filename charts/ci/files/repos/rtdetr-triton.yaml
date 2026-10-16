@@ -1,0 +1,6 @@
+# rtdetr-triton (private). Translated from .github/workflows/build.yml on 2026-10-16.
+branches: ['**']
+images:
+- {name: rtdetr-triton}
+githubActions: disable
+actionsWorkflows: [build.yml]
