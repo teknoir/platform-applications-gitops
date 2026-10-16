@@ -1,0 +1,32 @@
+{{- if .Values.tokenServiceCert.certManager }}
+{{- $namespace := .Values.namespace | default .Release.Namespace }}
+---
+# The token-service key pair (harbor.core.secretName), created once by cert-manager
+# so the chart never generates one at render time (see values.yaml).
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: harbor-token-selfsigned
+  namespace: {{ $namespace }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ .Values.harbor.core.secretName }}
+  namespace: {{ $namespace }}
+spec:
+  secretName: {{ .Values.harbor.core.secretName }}
+  commonName: harbor-token-ca
+  duration: {{ .Values.tokenServiceCert.duration }}
+  renewBefore: 720h
+  privateKey:
+    algorithm: RSA
+    size: 4096
+    encoding: PKCS1
+    rotationPolicy: Never
+  issuerRef:
+    name: harbor-token-selfsigned
+    kind: Issuer
+{{- end }}

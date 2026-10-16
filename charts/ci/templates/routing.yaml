@@ -1,0 +1,19 @@
+{{- $ns := include "ci.namespace" . }}
+{{- $server := printf "%s-argo-workflows-server.%s.svc.cluster.local" .Release.Name $ns }}
+---
+# Argo UI. The edge login (oauth2-proxy ext_authz at the gateway) applies; argo-server
+# then wants a ServiceAccount token (auth mode client).
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: ci
+  namespace: {{ $ns }}
+  labels: {{- include "ci.labels" . | nindent 4 }}
+spec:
+  hosts: [{{ .Values.hosts.ui | quote }}]
+  gateways: [{{ .Values.gateway | quote }}]
+  http:
+    - route:
+        - destination:
+            host: {{ $server }}
+            port: {number: 2746}

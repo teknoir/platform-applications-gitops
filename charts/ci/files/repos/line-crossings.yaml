@@ -1,0 +1,7 @@
+# line-crossings (public). Translated from .github/workflows/beta.yml, release.yml on 2026-10-16.
+branches: [release, beta]
+helm:
+  release: [release]
+  beta: [beta]
+githubActions: disable
+actionsWorkflows: [beta.yml, release.yml]

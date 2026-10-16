@@ -1,0 +1,380 @@
+#!/usr/bin/env python3
+"""harbor-config: reconcile Harbor's configuration from values (config as code).
+
+Runs as an ArgoCD PostSync hook and as an hourly CronJob (templates/harbor-config.yaml).
+Idempotent: every run converges Harbor to /config/config.json and changes nothing
+that already matches.
+
+  - system settings (PUT /configurations)
+  - upstream registry endpoints for the proxy-cache projects
+  - projects: visibility, proxy upstream, storage quota, tag-retention policy
+  - garbage collection, audit-log purge and scan-all schedules
+  - system robot accounts; each robot's credential is delivered as a
+    kubernetes.io/dockerconfigjson Secret (extra keys username/password) in the
+    namespace that consumes it. A robot whose Secret is missing or whose
+    credential no longer logs in gets a new secret (refresh), so deleting the
+    Secret rotates the credential.
+
+Never prints a credential. Python stdlib only (python:3.x-alpine).
+Environment: HARBOR_URL, HARBOR_ADMIN_PASSWORD, CONFIG (path), HARBOR_HOST (registry
+host written into the docker config).
+"""
+import base64
+import json
+import os
+import secrets
+import ssl
+import string
+import sys
+import urllib.error
+import urllib.request
+
+HARBOR = os.environ["HARBOR_URL"].rstrip("/") + "/api/v2.0"
+HOST = os.environ["HARBOR_HOST"]
+ADMIN = "Basic " + base64.b64encode(("admin:" + os.environ["HARBOR_ADMIN_PASSWORD"]).encode()).decode()
+CFG = json.load(open(os.environ.get("CONFIG", "/config/config.json")))
+GIB = 1024 ** 3
+failures = []
+
+
+def log(msg):
+    print("harbor-config: " + msg, flush=True)
+
+
+class HTTPError(Exception):
+    def __init__(self, code, body):
+        super().__init__(f"HTTP {code}")
+        self.code, self.body = code, body
+
+
+def call(method, path, body=None, auth=ADMIN, base=HARBOR, headers=None, ctx=None):
+    data = None if body is None else json.dumps(body).encode()
+    req = urllib.request.Request(base + path, data=data, method=method)
+    req.add_header("Authorization", auth)
+    req.add_header("Accept", "application/json")
+    if data is not None:
+        req.add_header("Content-Type", "application/json")
+    for k, v in (headers or {}).items():
+        req.add_header(k, v)
+    try:
+        with urllib.request.urlopen(req, timeout=30, context=ctx) as r:
+            raw = r.read()
+            return json.loads(raw) if raw.strip() else None
+    except urllib.error.HTTPError as e:
+        # The body is Harbor's error message (never a credential).
+        raise HTTPError(e.code, e.read()[:300].decode(errors="replace")) from None
+
+
+def get_all(path):
+    out, page = [], 1
+    sep = "&" if "?" in path else "?"
+    while True:
+        items = call("GET", f"{path}{sep}page={page}&page_size=100") or []
+        out += items
+        if len(items) < 100:
+            return out
+        page += 1
+
+
+def step(name):
+    """Run one reconcile step; a failure is recorded and the run continues."""
+    def deco(fn):
+        def run(*a, **kw):
+            try:
+                return fn(*a, **kw)
+            except Exception as e:  # noqa: BLE001
+                failures.append(name)
+                log(f"ERROR {name}: {e} {getattr(e, 'body', '')}")
+        return run
+    return deco
+
+
+# ---------------------------------------------------------------- system
+
+@step("system configurations")
+def configurations():
+    want = CFG.get("configurations") or {}
+    if not want:
+        return
+    have = call("GET", "/configurations") or {}
+    diff = {k: v for k, v in want.items() if (have.get(k) or {}).get("value") != v}
+    if diff:
+        call("PUT", "/configurations", diff)
+        log(f"configurations: set {sorted(diff)}")
+
+
+def schedule_body(sch, params):
+    return {"schedule": {"type": "Custom", "cron": sch}, "parameters": params}
+
+
+def ensure_schedule(name, path, cron, params):
+    have = call("GET", path) or {}
+    cur = (have.get("schedule") or {}).get("cron")
+    # Harbor returns the parameters as a JSON string in job_parameters.
+    cur_params = have.get("parameters") or have.get("job_parameters") or {}
+    if isinstance(cur_params, str):
+        try:
+            cur_params = json.loads(cur_params) if cur_params else {}
+        except ValueError:
+            cur_params = {}
+    body = schedule_body(cron, params)
+    if not cur:
+        call("POST", path, body)
+        log(f"{name}: scheduled '{cron}'")
+    elif cur != cron or any(cur_params.get(k) != v for k, v in params.items()):
+        call("PUT", path, body)
+        log(f"{name}: updated to '{cron}'")
+
+
+@step("gc schedule")
+def gc():
+    g = CFG.get("gc")
+    if g:
+        ensure_schedule("gc", "/system/gc/schedule", g["schedule"],
+                        {"delete_untagged": g.get("deleteUntagged", True), "workers": g.get("workers", 1),
+                         "dry_run": False})
+
+
+@step("audit purge schedule")
+def purge():
+    p = CFG.get("auditPurge")
+    if p:
+        ensure_schedule("audit purge", "/system/purgeaudit/schedule", p["schedule"],
+                        {"audit_retention_hour": p["retentionHours"],
+                         "include_event_types": ",".join(p.get("eventTypes", [])),
+                         "dry_run": False})
+
+
+@step("scan-all schedule")
+def scan_all():
+    s = CFG.get("scanAll")
+    if not s:
+        return
+    have = call("GET", "/system/scanAll/schedule") or {}
+    cur = (have.get("schedule") or {}).get("cron")
+    body = {"schedule": {"type": "Custom", "cron": s["schedule"]}}
+    if not cur:
+        call("POST", "/system/scanAll/schedule", body)
+        log(f"scan all: scheduled '{s['schedule']}'")
+    elif cur != s["schedule"]:
+        call("PUT", "/system/scanAll/schedule", body)
+        log(f"scan all: updated to '{s['schedule']}'")
+
+
+# ---------------------------------------------------------------- registries
+
+@step("registries")
+def registries():
+    have = {r["name"]: r for r in get_all("/registries")}
+    ids = {}
+    for r in CFG.get("registries", []):
+        body = {"name": r["name"], "type": r["type"], "url": r["url"], "insecure": False,
+                "description": "managed by harbor-config (platform-applications-gitops)"}
+        cur = have.get(r["name"])
+        if cur is None:
+            call("POST", "/registries", body)
+            log(f"registry {r['name']}: created")
+        elif cur.get("url") != r["url"] or cur.get("type") != r["type"]:
+            call("PUT", f"/registries/{cur['id']}", {"url": r["url"], "name": r["name"]})
+            log(f"registry {r['name']}: updated")
+    for r in get_all("/registries"):
+        ids[r["name"]] = r["id"]
+    return ids
+
+
+# ---------------------------------------------------------------- projects
+
+def retention_body(policy, project_id):
+    rules = []
+    for rule in policy["rules"]:
+        params = {}
+        if rule["template"] != "always":
+            params = {rule["template"]: rule["value"]}
+        rules.append({
+            "disabled": False, "action": "retain", "template": rule["template"], "params": params,
+            "tag_selectors": [{"kind": "doublestar", "decoration": "matches",
+                               "pattern": rule.get("tags", "**"),
+                               "extras": json.dumps({"untagged": rule.get("untagged", False)})}],
+            "scope_selectors": {"repository": [{"kind": "doublestar", "decoration": "repoMatches",
+                                                "pattern": rule.get("repositories", "**")}]},
+        })
+    return {"algorithm": "or", "rules": rules,
+            "trigger": {"kind": "Schedule", "settings": {"cron": policy["schedule"]}},
+            "scope": {"level": "project", "ref": project_id}}
+
+
+def same_retention(have, want):
+    def norm(p):
+        return json.dumps({"rules": [{k: r.get(k) for k in ("template", "params", "tag_selectors", "scope_selectors")}
+                                     for r in p.get("rules", [])],
+                           "cron": ((p.get("trigger") or {}).get("settings") or {}).get("cron")}, sort_keys=True)
+    return norm(have) == norm(want)
+
+
+@step("projects")
+def projects(registry_ids):
+    have = {p["name"]: p for p in get_all("/projects")}
+    for p in CFG.get("projects", []):
+        name = p["name"]
+        quota = int(p["quotaGiB"] * GIB) if p.get("quotaGiB") else -1
+        public = "true" if p.get("public") else "false"
+        cur = have.get(name)
+        if cur is None:
+            body = {"project_name": name, "metadata": {"public": public}, "storage_limit": quota}
+            if p.get("proxyRegistry"):
+                body["registry_id"] = registry_ids[p["proxyRegistry"]]
+            call("POST", "/projects", body)
+            log(f"project {name}: created")
+            cur = call("GET", f"/projects/{name}", headers={"X-Is-Resource-Name": "true"})
+        pid = cur["project_id"]
+        meta = cur.get("metadata") or {}
+        want_meta = {"public": public, "auto_scan": "true" if p.get("autoScan") else "false"}
+        if any(meta.get(k) != v for k, v in want_meta.items()):
+            call("PUT", f"/projects/{pid}", {"metadata": want_meta})
+            log(f"project {name}: metadata {want_meta}")
+        # Storage quota.
+        for q in call("GET", f"/quotas?reference=project&reference_id={pid}") or []:
+            if (q.get("hard") or {}).get("storage") != quota:
+                call("PUT", f"/quotas/{q['id']}", {"hard": {"storage": quota}})
+                log(f"project {name}: quota {p.get('quotaGiB', 'unlimited')} GiB")
+        # Tag retention.
+        pol_name = p.get("retention")
+        if pol_name:
+            want = retention_body(CFG["retentionPolicies"][pol_name], pid)
+            rid = meta.get("retention_id")
+            if not rid:
+                call("POST", "/retentions", want)
+                log(f"project {name}: retention '{pol_name}' created")
+            else:
+                cur_pol = call("GET", f"/retentions/{rid}") or {}
+                if not same_retention(cur_pol, want):
+                    want["id"] = int(rid)
+                    call("PUT", f"/retentions/{rid}", want)
+                    log(f"project {name}: retention '{pol_name}' updated")
+
+
+# ---------------------------------------------------------------- robots + k8s
+
+SA = "/var/run/secrets/kubernetes.io/serviceaccount"
+K8S = "https://kubernetes.default.svc"
+
+
+def k8s(method, path, body=None):
+    ctx = ssl.create_default_context(cafile=f"{SA}/ca.crt")
+    token = open(f"{SA}/token").read().strip()
+    return call(method, path, body, auth="Bearer " + token, base=K8S, ctx=ctx)
+
+
+def new_secret():
+    alphabet = string.ascii_letters + string.digits
+    while True:
+        s = "".join(secrets.choice(alphabet) for _ in range(40))
+        if any(c.islower() for c in s) and any(c.isupper() for c in s) and any(c.isdigit() for c in s):
+            return s
+
+
+def robot_works(user, password):
+    auth = "Basic " + base64.b64encode(f"{user}:{password}".encode()).decode()
+    try:
+        call("GET", "/users/current/permissions", auth=auth)
+        return True
+    except HTTPError as e:
+        if e.code in (401, 403):
+            return False
+        raise
+
+
+def robot_permissions(r):
+    out = []
+    for perm in r["permissions"]:
+        out.append({"kind": "project", "namespace": perm["project"],
+                    "access": [{"resource": a.split(":")[0], "action": a.split(":")[1]} for a in perm["access"]]})
+    return out
+
+
+@step("robots")
+def robots():
+    prefix = (call("GET", "/configurations") or {}).get("robot_name_prefix", {}).get("value", "robot$")
+    have = {r["name"]: r for r in get_all("/robots?q=level%3Dsystem")}
+    for r in CFG.get("robots", []):
+        full = prefix + r["name"]
+        ns, sname = r["secret"]["namespace"], r["secret"]["name"]
+        path = f"/api/v1/namespaces/{ns}/secrets/{sname}"
+        try:
+            ksec = k8s("GET", path)
+        except HTTPError as e:
+            if e.code == 404 and "namespaces" in e.body and "not found" in e.body and sname not in e.body:
+                log(f"robot {r['name']}: namespace {ns} does not exist yet; skipped")
+                continue
+            if e.code != 404:
+                raise
+            ksec = None
+        cur = have.get(full)
+        password = None
+        if cur is None:
+            password = new_secret()
+            body = {"name": r["name"], "level": "system", "duration": -1, "disable": False,
+                    "description": "managed by harbor-config", "secret": password,
+                    "permissions": robot_permissions(r)}
+            created = call("POST", "/robots", body)
+            # Harbor ignores a requested secret on create in some versions; set it explicitly.
+            call("PATCH", f"/robots/{created['id']}", {"secret": password})
+            log(f"robot {full}: created")
+        else:
+            want_perm = json.dumps(sorted(robot_permissions(r), key=lambda x: x["namespace"]), sort_keys=True)
+            have_perm = json.dumps(sorted([{"kind": p["kind"], "namespace": p["namespace"],
+                                            "access": [{"resource": a["resource"], "action": a["action"]}
+                                                       for a in p["access"]]}
+                                           for p in cur.get("permissions") or []],
+                                          key=lambda x: x["namespace"]), sort_keys=True)
+            if want_perm != have_perm:
+                full_robot = call("GET", f"/robots/{cur['id']}")
+                full_robot["permissions"] = robot_permissions(r)
+                call("PUT", f"/robots/{cur['id']}", full_robot)
+                log(f"robot {full}: permissions updated")
+            stored = None
+            if ksec:
+                d = ksec.get("data") or {}
+                if "password" in d:
+                    stored = base64.b64decode(d["password"]).decode()
+            if stored is None or not robot_works(full, stored):
+                password = new_secret()
+                call("PATCH", f"/robots/{cur['id']}", {"secret": password})
+                log(f"robot {full}: secret refreshed ({'no Secret' if stored is None else 'stale Secret'})")
+        if password is None:
+            continue
+        auth = base64.b64encode(f"{full}:{password}".encode()).decode()
+        dockercfg = json.dumps({"auths": {HOST: {"username": full, "password": password, "auth": auth}}})
+        data = {".dockerconfigjson": base64.b64encode(dockercfg.encode()).decode(),
+                "username": base64.b64encode(full.encode()).decode(),
+                "password": base64.b64encode(password.encode()).decode()}
+        obj = {"apiVersion": "v1", "kind": "Secret", "type": "kubernetes.io/dockerconfigjson",
+               "metadata": {"name": sname, "namespace": ns,
+                            "labels": {"teknoir.org/managed-by": "harbor-config"},
+                            "annotations": {"teknoir.org/harbor-robot": full}},
+               "data": data}
+        if ksec is None:
+            k8s("POST", f"/api/v1/namespaces/{ns}/secrets", obj)
+        else:
+            obj["metadata"]["resourceVersion"] = ksec["metadata"]["resourceVersion"]
+            k8s("PUT", path, obj)
+        log(f"robot {full}: Secret {ns}/{sname} written")
+
+
+def main():
+    call("GET", "/systeminfo")  # fail fast when Harbor or the admin password is wrong
+    configurations()
+    ids = registries() or {}
+    projects(ids)
+    gc()
+    purge()
+    scan_all()
+    robots()
+    if failures:
+        log(f"FAILED steps: {', '.join(failures)}")
+        sys.exit(1)
+    log("in sync")
+
+
+if __name__ == "__main__":
+    main()

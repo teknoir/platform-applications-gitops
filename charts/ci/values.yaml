@@ -1,0 +1,161 @@
+# Values for charts/ci on teknoir-cloud (staging, r415). Plan: ~/git/ai/plans/ci-argo-workflows.md
+#
+#   CronWorkflow ci-poll (every 2 min, files/poll.py) sees a new commit on a registered
+#   repo (conditional GitHub API requests; no inbound webhook endpoint)
+#     -> Workflow from WorkflowTemplate ci-dispatch:
+#          plan (files/plan.py + files/repos/<repo>.yaml) -> tests -> images (buildctl ->
+#          buildkitd on vpro or r415 -> Harbor + ghcr) / chart release (chart-releaser)
+#          -> GitHub commit status "teknoir-ci" (and one per image with its digest).
+#
+# Secrets (none in Git):
+#   github-ci              username + token (classic PAT: repo, write:packages). Created by
+#                          hand: see README.md. Clone, statuses, chart releases, ghcr push.
+#   harbor-ci-robot        Harbor robot robot$ci, written by charts/harbor's harbor-config Job
+namespace: teknoir-ci
+domain: teknoir.cloud
+hosts:
+  ui: ci.teknoir.cloud        # Argo UI behind the edge login (oauth2-proxy) + an Argo token
+gateway: istio-system/teknoir-gateway
+
+github:
+  org: teknoir
+  tokenSecret: github-ci
+
+harbor:
+  # false: images go to ghcr only, no Harbor mirror for Docker Hub pulls. Turn on together
+  # with app-of-apps harbor.enabled once Harbor is managed by ArgoCD (robot Secret exists).
+  enabled: false
+  host: harbor.teknoir.cloud
+  project: teknoir
+  robotSecret: harbor-ci-robot
+  # charts/harbor's harbor-config Job (this ServiceAccount) writes the robot Secret here.
+  configServiceAccount: {name: harbor-config, namespace: teknoir-system}
+  # harbor.<domain> resolves to the office's public IP; pin it to the node that runs the
+  # ingress gateway so pushes stay on the LAN instead of hairpinning through the router.
+  hostIP: 192.168.2.166
+
+images:
+  git: docker.io/alpine/git:v2.52.0
+  buildkit: docker.io/moby/buildkit:v0.33.1
+  python: docker.io/library/python:3.14-alpine
+  helm: docker.io/alpine/helm:3.22.0
+  kubectl: docker.io/alpine/k8s:1.34.11
+
+# BuildKit daemons, one per builder node, each with a host-path cache and a GC cap
+# (BuildKit 0.33 gc: keep at most maxUsedSpace, leave minFreeSpace free on the disk,
+# never prune below reservedSpace).
+builders:
+  vpro:
+    node: vpro
+    cachePath: /var/lib/buildkit   # vpro root LV, 1.8 TB NVMe
+    reservedSpace: 20GB
+    maxUsedSpace: 400GB
+    minFreeSpace: 20%
+    maxParallelism: 6
+    resources:
+      requests: {cpu: "2", memory: 4Gi}
+      limits: {memory: 10Gi}
+  r415:
+    node: r415
+    cachePath: /srv/buildkit       # r415 SSD (/srv, 205 GB, otherwise unused)
+    reservedSpace: 10GB
+    maxUsedSpace: 150GB
+    minFreeSpace: 15%
+    maxParallelism: 4
+    resources:
+      requests: {cpu: "1", memory: 2Gi}
+      limits: {memory: 24Gi}
+defaultBuilder: vpro
+
+# Defaults for files/repos/<repo>.yaml (merged; see README.md for the format).
+pipelines:
+  repo:
+    enabled: true
+    branches: ["**"]
+    tags: []
+    ghcr: true              # mirror every image to ghcr.io/<org>/<name> (prod, devices pull there)
+    githubActions: keep     # keep | disable | enable the repo's GitHub Actions workflows
+  image:
+    platforms: [linux/amd64]
+    branchTags: ["{branch}-{ts}", "{branch}", "sha-{sha8}"]
+    tagTags: ["{tag}"]
+    latestBranches: [main, master]
+  test:
+    cpu: 500m
+    memory: 2Gi
+  helm:
+    crAction: v1.6.0
+    # Per helm/chart-releaser-action version: the sha256 of its cr.sh, the chart-releaser
+    # (cr) version that cr.sh installs, and that cr tarball's sha256 (linux_amd64).
+    # helm-release.sh verifies both downloads; cr.sh then finds cr installed and does not
+    # download it again.
+    crShaSums:
+      v1.6.0: {crSh: 477435c85761360feddff56b30b810e396fdc20c4cfc6b97fc32b821bc48dab6, cr: v1.6.1,
+               crTar: d4a2ffa825ff1b60a1cce819ce87eec337cf16059ca3d8a053e20cac39cf9e0a}
+      v1.7.0: {crSh: 0c774693c8d2404e07c4b0182f0cbd1e09b166730f0ccd50b4ff6aa34af98716, cr: v1.7.0,
+               crTar: 121a16d4e38b348decb977b8257d4bddab3323681c1819bab4870603138087cf}
+
+# Change detection (files/poll.py). maxSubmit caps the pipelines one poll starts; the
+# rest start on the next poll.
+poll:
+  schedule: "*/2 * * * *"
+  suspend: false
+  maxSubmit: 20
+
+# Disables the GitHub Actions workflows the registry replaces (files/github-sync.py).
+# Suspended until every pipeline kind has run green here (then GitHub Actions copies go).
+githubSync:
+  schedule: "*/30 * * * *"
+  suspend: true
+
+argo-workflows:
+  crds:
+    install: true
+    keep: true
+    full: false   # minified CRDs applied by ArgoCD (the full ones need a hook Job)
+  controller:
+    workflowNamespaces: [teknoir-ci]
+    parallelism: 12
+    namespaceParallelism: 12
+    logging: {level: info}
+    resources:
+      requests: {cpu: 50m, memory: 128Mi}
+      limits: {memory: 1Gi}
+    # Retention: finished workflows go after 3 days (success) / 7 days (failure); logs live
+    # only in pods (no artifact repository), and failed pods stay until their workflow goes.
+    workflowDefaults:
+      spec:
+        ttlStrategy:
+          secondsAfterSuccess: 259200
+          secondsAfterFailure: 604800
+        podGC:
+          strategy: OnPodSuccess
+          deleteDelayDuration: 1h
+        activeDeadlineSeconds: 7200
+        # Workflow pods may run on the CI node vpro (taint teknoir.org/ci) and prefer it.
+        tolerations:
+          - {key: teknoir.org/ci, operator: Exists, effect: NoSchedule}
+        affinity:
+          nodeAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                preference:
+                  matchExpressions:
+                    - {key: node-role.kubernetes.io/ci-builder, operator: Exists}
+  server:
+    # client: every request carries a ServiceAccount token (README.md: UI token), on top of
+    # the edge login. Any signed-in staging user passes the edge login; only a token holder
+    # can see or run pipelines.
+    authModes: [client]
+    secure: false
+    resources:
+      requests: {cpu: 20m, memory: 64Mi}
+      limits: {memory: 512Mi}
+  # Controller and server see only teknoir-ci (Roles, not ClusterRoles: argo-server can
+  # read Secrets in this namespace only).
+  singleNamespace: true
+  workflow:
+    serviceAccount:
+      create: false
+    rbac:
+      create: false   # templates/rbac.yaml

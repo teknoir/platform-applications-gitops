@@ -1,0 +1,9 @@
+# fleet-metrics (private). Translated from .github/workflows/build.yml on 2026-10-16
+# (a matrix over the three components).
+branches: ['**']
+images:
+  - {name: fleet-metrics/event-processor, context: event-processor}
+  - {name: fleet-metrics/metrics-processor, context: metrics-processor}
+  - {name: fleet-metrics/metrics-publisher, context: metrics-publisher}
+githubActions: disable
+actionsWorkflows: [build.yml]

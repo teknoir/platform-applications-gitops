@@ -1,0 +1,11 @@
+---
+apiVersion: v2
+name: ci
+description: CI/CD on the cluster - Argo Workflows, BuildKit builders and the Teknoir pipelines
+type: application
+version: 0.1.0
+appVersion: "v4.1.4"
+dependencies:
+  - name: argo-workflows
+    version: 2.0.11
+    repository: https://argoproj.github.io/argo-helm

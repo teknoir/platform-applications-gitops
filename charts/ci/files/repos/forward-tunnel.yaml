@@ -1,0 +1,6 @@
+# forward-tunnel (public). Translated from .github/workflows/build.yml on 2026-10-16.
+branches: ['**']
+images:
+- {name: forward-tunnel}
+githubActions: disable
+actionsWorkflows: [build.yml]

@@ -1,0 +1,12 @@
+# robot-pov-demo-mediamtx (private). Translated from .github/workflows/docker-build.yaml
+# on 2026-10-16 (docker/metadata-action tags; media files in git LFS).
+branches: [main]
+tags: ['v*']
+images:
+  - name: robot-pov-demo-mediamtx
+    lfs: true
+    tagTemplates: ["{branch}", "sha-{sha7}"]
+    tagTagTemplates: ["{tag}", "sha-{sha7}"]
+    latest: [main]
+githubActions: disable
+actionsWorkflows: [docker-build.yaml]

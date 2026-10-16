@@ -1,0 +1,6 @@
+# device-controller (private). Translated from .github/workflows/build.yml on 2026-10-16.
+branches: ['**']
+images:
+- {name: device-controller}
+githubActions: disable
+actionsWorkflows: [build.yml]

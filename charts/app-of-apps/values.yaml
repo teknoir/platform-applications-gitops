@@ -29,3 +29,15 @@ virtualDevices:
 # cherry-picked onto another environment branch.
 ztna:
   enabled: true
+
+# CI/CD on the cluster (plans/ci-argo-workflows.md), teknoir-cloud only (allowlist in
+# templates/ci.yaml): Harbor as the registry (harbor.teknoir.cloud) and Argo Workflows +
+# BuildKit pipelines (ci.teknoir.cloud), with vpro as the k3s build node.
+#
+# harbor is OFF for now: turning it on adopts the orphaned Harbor install in teknoir-system
+# (old StatefulSets must be deleted first, see charts/harbor/README.md "teknoir-cloud");
+# that needs Anders' go-ahead. Until then ci pushes to ghcr only (charts/ci harbor.enabled).
+harbor:
+  enabled: false
+ci:
+  enabled: true

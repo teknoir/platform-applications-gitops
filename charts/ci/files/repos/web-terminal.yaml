@@ -1,0 +1,8 @@
+# web-terminal (public). Translated from .github/workflows/build.yml on 2026-10-16.
+# NEVER push :latest: it is frozen at sha256:6316438d667b82d5eccedf643eefa87d265eaa7f4d8b515d1c45bc37bc436c43
+# because production legacy terminals pull it.
+branches: ['**']
+images:
+  - {name: web-terminal, latest: []}
+githubActions: disable
+actionsWorkflows: [build.yml]

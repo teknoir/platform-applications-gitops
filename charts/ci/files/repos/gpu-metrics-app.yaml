@@ -1,0 +1,7 @@
+# gpu-metrics-app (private). Translated from .github/workflows/build.yml on 2026-10-16.
+branches: ['**']
+images:
+- name: gpu-metrics-app
+  platforms: [linux/amd64, linux/arm64/v8]
+githubActions: disable
+actionsWorkflows: [build.yml]

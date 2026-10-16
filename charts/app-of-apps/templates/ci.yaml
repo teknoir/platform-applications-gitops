@@ -1,0 +1,80 @@
+{{- /*
+CI/CD on the cluster (plans/ci-argo-workflows.md): Harbor (registry) and ci (Argo
+Workflows, BuildKit, the pipelines). Each has its own values flag, and both need the
+environment in the allowlist below, so a cherry-pick of this file onto teknoir-online
+(production) or teknoir-local (airgapped; it installs Harbor from the airgap bootstrap)
+renders nothing there. Add an environment only in its own reviewed commit.
+
+No sync waves (see ztna.yaml): ci tolerates Harbor arriving later (its pipelines just
+fail to push until the robot Secret exists). No resources-finalizer: removing an
+Application leaves Harbor's data and the teknoir-ci namespace in place.
+*/ -}}
+{{- $allowedProjects := list "teknoir-cloud" }}
+{{- if and (.Values.harbor).enabled (has .Values.project $allowedProjects) }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: harbor
+spec:
+  destination:
+    namespace: teknoir-system
+    server: https://kubernetes.default.svc
+  source:
+    path: charts/harbor
+    repoURL: https://github.com/teknoir/platform-applications-gitops
+    targetRevision: {{ .Values.project }}
+  sources: [ ]
+  project: {{ .Values.project }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      enabled: true
+    retry:
+      limit: 10
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
+{{- end }}
+{{- if and (.Values.ci).enabled (has .Values.project $allowedProjects) }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ci
+  annotations:
+    argocd.argoproj.io/compare-options: ServerSideDiff=true
+spec:
+  destination:
+    namespace: teknoir-ci
+    server: https://kubernetes.default.svc
+  source:
+    path: charts/ci
+    repoURL: https://github.com/teknoir/platform-applications-gitops
+    targetRevision: {{ .Values.project }}
+  sources: [ ]
+  project: {{ .Values.project }}
+  syncPolicy:
+    managedNamespaceMetadata:
+      # Workflow pods run without sidecars: an Istio sidecar keeps a step's pod
+      # running after the step ends, and buildkitd is privileged. argo-server is
+      # reached through the ingress gateway (auto mTLS falls back to plain text).
+      labels:
+        istio-injection: disabled
+    syncOptions:
+      - CreateNamespace=true
+      # The Argo Workflows CRDs are above the 256 KiB client-side apply annotation.
+      - ServerSideApply=true
+    automated:
+      prune: true
+      selfHeal: true
+      enabled: true
+    retry:
+      limit: 10
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
+{{- end }}

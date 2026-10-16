@@ -1,0 +1,58 @@
+{{- if .Values.harborConfig.enabled }}
+{{- $namespace := .Values.namespace | default .Release.Namespace }}
+{{- $cfg := .Values.harborConfig }}
+---
+# Harbor configuration as code: files/harbor-config.py reconciles Harbor to
+# harborConfig.config. Robot Secrets in other namespaces are written with RBAC that
+# the consuming chart grants to this ServiceAccount (charts/ci for teknoir-ci).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: harbor-config
+  namespace: {{ $namespace }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: harbor-config
+  namespace: {{ $namespace }}
+data:
+  harbor-config.py: |
+{{ .Files.Get "files/harbor-config.py" | indent 4 }}
+  config.json: |
+{{ $cfg.config | toPrettyJson | indent 4 }}
+---
+# After every sync (Harbor up), and hourly to correct drift and heal robot Secrets.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: harbor-config-sync
+  namespace: {{ $namespace }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+{{ include "harbor.configPodSpec" . | indent 6 }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: harbor-config
+  namespace: {{ $namespace }}
+spec:
+  schedule: {{ $cfg.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 86400
+      template:
+        spec:
+{{ include "harbor.configPodSpec" . | indent 10 }}
+{{- end }}

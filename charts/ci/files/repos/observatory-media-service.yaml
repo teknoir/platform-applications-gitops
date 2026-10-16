@@ -1,0 +1,6 @@
+# observatory-media-service (public). Translated from .github/workflows/build.yml on 2026-10-16.
+branches: ['**']
+images:
+- {name: observatory-media-service}
+githubActions: disable
+actionsWorkflows: [build.yml]

@@ -1,0 +1,33 @@
+{{- $ns := include "ci.namespace" . }}
+---
+# Default deny: nothing outside this namespace may connect to a pipeline pod, a builder
+# or Argo. The explicit allows are below and in buildkitd.yaml.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: {{ $ns }}
+  labels: {{- include "ci.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+# The Argo UI through the ingress gateway.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: argo-server-from-gateway
+  namespace: {{ $ns }}
+  labels: {{- include "ci.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: server
+      app.kubernetes.io/part-of: argo-workflows
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: istio-system}
+      ports:
+        - {port: 2746, protocol: TCP}

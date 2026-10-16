@@ -1,26 +1,51 @@
-{{/*---*/}}
-{{/*apiVersion: networking.istio.io/v1alpha3*/}}
-{{/*kind: EnvoyFilter*/}}
-{{/*metadata:*/}}
-{{/*  name: harbor-bypass-ext-authz*/}}
-{{/*  namespace: {{ .Values.istio.gateway.namespace | default "istio-system" }}*/}}
-{{/*spec:*/}}
-{{/*  workloadSelector:*/}}
-{{/*    labels:*/}}
-{{/*      # Targets the ingress gateway*/}}
-{{/*      istio: ingressgateway*/}}
-{{/*  configPatches:*/}}
-{{/*    - applyTo: VIRTUAL_HOST*/}}
-{{/*      match:*/}}
-{{/*        context: GATEWAY*/}}
-{{/*        routeConfiguration:*/}}
-{{/*          vhost:*/}}
-{{/*            # Matches the Harbor domain setup in your VirtualService*/}}
-{{/*            name: "{{ .Values.hostname }}:443"*/}}
-{{/*      patch:*/}}
-{{/*        operation: MERGE*/}}
-{{/*        value:*/}}
-{{/*          typed_per_filter_config:*/}}
-{{/*            envoy.filters.http.ext_authz:*/}}
-{{/*              "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute*/}}
-{{/*              disabled: true*/}}
+{{- $namespace := .Values.namespace | default .Release.Namespace -}}
+{{- $registryFqdn := printf "harbor-registry.%s.svc.cluster.local" $namespace -}}
+---
+# Harbor core acts as a reverse proxy for the OCI registry API: the ingress
+# VirtualService sends /v2/ to harbor-core, and core relays most of those
+# requests to harbor-registry. harbor-core uses Go's
+# httputil.NewSingleHostReverseProxy, which preserves the client-facing Host
+# header (e.g. harbor.teknoir.airgapped) instead of the internal registry host.
+#
+# Under namespace-wide STRICT PeerAuthentication that preserved authority has
+# no matching cluster in the core sidecar, so Envoy sends the hop through the
+# PassthroughCluster (response_flags=UC) without mTLS and the registry rejects
+# it. Rewriting the authority back to the internal harbor-registry service keeps
+# the hop on the ISTIO_MUTUAL cluster and preserves its mTLS identity.
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: harbor-core-registry-host-rewrite
+  namespace: {{ $namespace }}
+spec:
+  workloadSelector:
+    labels:
+      app: harbor
+      component: core
+  configPatches:
+    - applyTo: HTTP_FILTER
+      match:
+        context: SIDECAR_OUTBOUND
+        listener:
+          # harbor-registry service port (http-registry); no internal TLS here.
+          portNumber: 5000
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+              subFilter:
+                name: envoy.filters.http.router
+      patch:
+        operation: INSERT_BEFORE
+        value:
+          name: envoy.filters.http.lua
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+            inlineCode: |
+              function envoy_on_request(request_handle)
+                local headers = request_handle:headers()
+                local path = headers:get(":path") or ""
+                if string.sub(path, 1, 4) == "/v2/" then
+                  headers:replace(":authority", "{{ $registryFqdn }}")
+                  headers:replace("host", "{{ $registryFqdn }}")
+                end
+              end

@@ -1,0 +1,44 @@
+# Disables (or re-enables) the GitHub Actions workflows the registry has replaced
+# (files/github-sync.py).
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: ci-github-sync
+  namespace: @@NAMESPACE@@
+spec:
+  schedules: ["@@SYNC_SCHEDULE@@"]
+  timezone: UTC
+  concurrencyPolicy: Forbid
+  suspend: @@SYNC_SUSPEND@@
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  workflowSpec:
+    serviceAccountName: ci-workflow
+    automountServiceAccountToken: false
+    executor:
+      serviceAccountName: ci-executor
+    entrypoint: sync
+    volumes:
+      - name: scripts
+        configMap: {name: ci-scripts, defaultMode: 0555}
+      - name: repos
+        configMap: {name: ci-repos}
+      - name: github
+        secret:
+          secretName: @@GITHUB_SECRET@@
+          items: [{key: token, path: token}]
+    templates:
+      - name: sync
+        container:
+          image: @@IMAGE_PYTHON@@
+          command: [python3, -I, /scripts/github-sync.py]
+          env:
+            - {name: GITHUB_ORG, value: "@@GITHUB_ORG@@"}
+            - {name: REPOS_DIR, value: /repos}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 128Mi}
+          volumeMounts:
+            - {name: scripts, mountPath: /scripts}
+            - {name: repos, mountPath: /repos}
+            - {name: github, mountPath: /github}

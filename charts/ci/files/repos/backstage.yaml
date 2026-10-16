@@ -1,0 +1,14 @@
+# backstage (private). Translated from .github/workflows/build.yml on 2026-10-16.
+# Two images from one Dockerfile (targets backend and app). The Dockerfile COPYs three
+# secret files that only exist on a deployed host, so empty placeholders are created
+# first (as the GitHub workflow did).
+branches: ['**']
+images:
+  - name: backstage
+    target: backend
+    preBuild: touch github-app-backstage-teknoir-credentials.yaml backend-auth-backstage-secrets.yaml admin-credentials.json
+  - name: backstage-app
+    target: app
+    preBuild: touch github-app-backstage-teknoir-credentials.yaml backend-auth-backstage-secrets.yaml admin-credentials.json
+githubActions: disable
+actionsWorkflows: [build.yml]

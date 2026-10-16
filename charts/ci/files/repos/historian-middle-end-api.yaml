@@ -1,0 +1,6 @@
+# historian-middle-end-api (private). Translated from .github/workflows/build.yml on 2026-10-16.
+branches: ['**']
+images:
+- {name: historian-middle-end-api}
+githubActions: disable
+actionsWorkflows: [build.yml]

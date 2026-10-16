@@ -1,0 +1,129 @@
+{{- $ns := include "ci.namespace" . }}
+{{- range $name, $b := .Values.builders }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: buildkitd-{{ $name }}
+  namespace: {{ $ns }}
+  labels: {{- include "ci.labels" $ | nindent 4 }}
+data:
+  buildkitd.toml: |
+    [grpc]
+      address = ["tcp://0.0.0.0:1234", "unix:///run/buildkit/buildkitd.sock"]
+    [worker.oci]
+      enabled = true
+      max-parallelism = {{ $b.maxParallelism }}
+      # Cache retention: GC keeps the cache under maxUsedSpace and leaves minFreeSpace of
+      # the disk free; reservedSpace is never pruned.
+      gc = true
+      reservedSpace = {{ $b.reservedSpace | quote }}
+      maxUsedSpace = {{ $b.maxUsedSpace | quote }}
+      minFreeSpace = {{ $b.minFreeSpace | quote }}
+    [worker.containerd]
+      enabled = false
+    {{- if $.Values.harbor.enabled }}
+    # Docker Hub pulls go through Harbor's proxy cache (rate limits); BuildKit falls back
+    # to Docker Hub when the mirror fails.
+    [registry."docker.io"]
+      mirrors = ["{{ $.Values.harbor.host }}/dockerhub"]
+    {{- end }}
+---
+# Privileged BuildKit daemon with a host-path cache on {{ $b.node }} ({{ $b.cachePath }}).
+# Only pipeline build pods may connect (NetworkPolicy below).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: buildkitd-{{ $name }}
+  namespace: {{ $ns }}
+  labels: {{- include "ci.labels" $ | nindent 4 }}
+    app.kubernetes.io/name: buildkitd
+    teknoir.org/builder: {{ $name }}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}   # one daemon per cache directory
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: buildkitd
+      teknoir.org/builder: {{ $name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: buildkitd
+        teknoir.org/builder: {{ $name }}
+      annotations:
+        checksum/config: {{ print ($b | toJson) $.Values.harbor.host $.Values.harbor.enabled | sha256sum | trunc 16 }}
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: {{ $b.node }}
+      tolerations:
+        - {key: teknoir.org/ci, operator: Exists, effect: NoSchedule}
+      {{- if $.Values.harbor.enabled }}{{- with $.Values.harbor.hostIP }}
+      hostAliases:
+        - ip: {{ . | quote }}
+          hostnames: [{{ $.Values.harbor.host | quote }}]
+      {{- end }}{{- end }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 120
+      containers:
+        - name: buildkitd
+          image: {{ $.Values.images.buildkit }}
+          args: ["--config", "/etc/buildkit/buildkitd.toml"]
+          securityContext:
+            privileged: true
+          ports:
+            - {name: buildkit, containerPort: 1234}
+          readinessProbe:
+            exec: {command: ["buildctl", "debug", "workers"]}
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          livenessProbe:
+            exec: {command: ["buildctl", "debug", "workers"]}
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 10
+          resources: {{- toYaml $b.resources | nindent 12 }}
+          volumeMounts:
+            - {name: cache, mountPath: /var/lib/buildkit}
+            - {name: config, mountPath: /etc/buildkit}
+      volumes:
+        - name: cache
+          hostPath: {path: {{ $b.cachePath | quote }}, type: DirectoryOrCreate}
+        - name: config
+          configMap: {name: buildkitd-{{ $name }}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: buildkitd-{{ $name }}
+  namespace: {{ $ns }}
+  labels: {{- include "ci.labels" $ | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: buildkitd
+    teknoir.org/builder: {{ $name }}
+  ports:
+    - {name: buildkit, port: 1234, targetPort: buildkit}
+{{- end }}
+---
+# The daemons build anything they are asked to: only the pipeline's build steps
+# (label teknoir.org/ci-role=build) may reach them.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: buildkitd
+  namespace: {{ $ns }}
+  labels: {{- include "ci.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: buildkitd
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              teknoir.org/ci-role: build
+      ports:
+        - {port: 1234, protocol: TCP}
