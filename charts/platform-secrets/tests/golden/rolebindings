@@ -1,0 +1,4 @@
+stunner-system Role/platform-secrets ServiceAccount:teknoir-system/platform-secrets
+teknoir-auth Role/platform-secrets ServiceAccount:teknoir-system/platform-secrets
+teknoir-ci Role/platform-secrets ServiceAccount:teknoir-system/platform-secrets
+teknoir-system Role/platform-secrets ServiceAccount:teknoir-system/platform-secrets

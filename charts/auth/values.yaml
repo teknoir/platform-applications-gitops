@@ -38,11 +38,10 @@ keycloak:
     timeoutSeconds: 5
     failureThreshold: 180
     periodSeconds: 5
+  # No KC_BOOTSTRAP_ADMIN_*: a bootstrap admin with a password in Git would be an open admin
+  # on every fresh install. Admin access is the keycloak-config-cli service client that
+  # keycloak-admin-bootstrap creates (templates/keycloak-config.yaml).
   extraEnv: |
-    - name: KC_BOOTSTRAP_ADMIN_USERNAME
-      value: admin
-    - name: KC_BOOTSTRAP_ADMIN_PASSWORD
-      value: change-me
     - name: KC_HOSTNAME
       value: auth.teknoir.cloud
     - name: KC_HOSTNAME_URL
@@ -153,6 +152,8 @@ keycloakConfig:
     KEYCLOAK_CONFIG_CLI_CLIENT_SECRET: keycloak-config-cli
     ARGO_WORKFLOWS_CLIENT_SECRET: argo-workflows
     HARBOR_CLIENT_SECRET: harbor
+    TEKNOIR_CLIENT_SECRET: teknoir
+    ARGOCD_CLIENT_SECRET: argocd
   backoffLimit: 4
   activeDeadlineSeconds: 1800
   javaOpts: "-XX:MaxRAMPercentage=75"

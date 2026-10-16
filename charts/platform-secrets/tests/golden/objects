@@ -1,0 +1,12 @@
+ConfigMap teknoir-system/platform-secrets
+CronJob teknoir-system/platform-secrets-resync
+Job teknoir-system/platform-secrets-ensure
+Role stunner-system/platform-secrets
+Role teknoir-auth/platform-secrets
+Role teknoir-ci/platform-secrets
+Role teknoir-system/platform-secrets
+RoleBinding stunner-system/platform-secrets
+RoleBinding teknoir-auth/platform-secrets
+RoleBinding teknoir-ci/platform-secrets
+RoleBinding teknoir-system/platform-secrets
+ServiceAccount teknoir-system/platform-secrets

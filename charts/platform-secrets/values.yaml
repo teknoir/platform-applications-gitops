@@ -101,6 +101,49 @@ resources:
     memory: 128Mi
 
 secrets:
+  # --- Keycloak realm-as-code (charts/auth keycloakConfig, realm master) -----
+  # Canonical client secrets of the clients charts/auth/files/realm/master.yaml
+  # manages. keycloak-config-cli sets them in Keycloak; the copies below hand
+  # them to the consumers. Generated once in-cluster, never in Git.
+  #   keycloak-config-cli  the master-realm admin service client the import
+  #                        logs in with (created once by keycloak-admin-bootstrap)
+  #   argo-workflows       Argo Workflows SSO (charts/ci)
+  #   harbor               Harbor OIDC login (charts/harbor oidcConfig)
+  - namespace: teknoir-auth
+    name: keycloak-client-secrets
+    addMissingKeys: true
+    keys:
+      keycloak-config-cli:
+        random: {length: 48, charset: alnum}
+      argo-workflows:
+        random: {length: 40, charset: alnum}
+      harbor:
+        random: {length: 40, charset: alnum}
+      # oauth2-proxy and user-controller (client `teknoir`, realm master).
+      teknoir:
+        random: {length: 40, charset: alnum}
+      argocd:
+        random: {length: 40, charset: alnum}
+
+  # argo-server's SSO client (charts/ci argo-workflows.server.sso).
+  - namespace: teknoir-ci
+    name: argo-workflows-sso
+    keys:
+      client-id:
+        value: argo-workflows
+        sync: true
+      client-secret:
+        copyFrom: teknoir-auth/keycloak-client-secrets/argo-workflows
+    restartDeployments:
+      - teknoir-ci/ci-argo-workflows-server
+
+  # Harbor's OIDC client secret (charts/harbor oidcConfig.clientSecret).
+  - namespace: teknoir-system
+    name: harbor-oidc-secret
+    keys:
+      client-secret:
+        copyFrom: teknoir-auth/keycloak-client-secrets/harbor
+
   # --- user-controller (teknoir-system) -------------------------------------
   # user-controller logs in to Keycloak with the client-credentials grant of
   # client `teknoir` in realm `master` (its service account has master-realm
@@ -128,44 +171,89 @@ secrets:
         value: teknoir
         sync: true
       KEYCLOAK_CLIENTSECRET:
-        copyFrom: teknoir-auth/oauth2-proxy-secret/client-secret
+        copyFrom: teknoir-auth/keycloak-client-secrets/teknoir
     restartDeployments:
       - teknoir-system/user-controller
 
-  # --- Keycloak realm-as-code (charts/auth keycloakConfig, realm master) -----
-  # Canonical client secrets of the clients charts/auth/files/realm/master.yaml
-  # manages. keycloak-config-cli sets them in Keycloak; the copies below hand
-  # them to the consumers. Generated once in-cluster, never in Git.
-  #   keycloak-config-cli  the master-realm admin service client the import
-  #                        logs in with (created once by keycloak-admin-bootstrap)
-  #   argo-workflows       Argo Workflows SSO (charts/ci)
-  #   harbor               Harbor OIDC login (charts/harbor oidcConfig)
+  # --- Fresh-install Secrets (staging moved to vpro on 2026-10-16) ----------
+  # Before, these came from hand-made manifest files on r415 (infra scripts/gen-*.sh +
+  # deploy-secrets.sh). Generated once in-cluster; never delete one while its data
+  # (PVC, hostPath) exists.
   - namespace: teknoir-auth
-    name: keycloak-client-secrets
-    addMissingKeys: true
+    name: keycloak-db-secret
     keys:
-      keycloak-config-cli:
-        random: {length: 48, charset: alnum}
-      argo-workflows:
-        random: {length: 40, charset: alnum}
-      harbor:
-        random: {length: 40, charset: alnum}
+      username:
+        value: keycloak
+      password:
+        random: {length: 32, charset: alnum}
 
-  # argo-server's SSO client (charts/ci argo-workflows.server.sso).
-  - namespace: teknoir-ci
-    name: argo-workflows-sso
+  - namespace: teknoir-auth
+    name: oauth2-proxy-secret
     keys:
-      client-id:
-        value: argo-workflows
-        sync: true
       client-secret:
-        copyFrom: teknoir-auth/keycloak-client-secrets/argo-workflows
+        copyFrom: teknoir-auth/keycloak-client-secrets/teknoir
+      cookie-secret:
+        random: {bytes: 32, encoding: base64url}
     restartDeployments:
-      - teknoir-ci/ci-argo-workflows-server
+      - teknoir-auth/oauth2-proxy
 
-  # Harbor's OIDC client secret (charts/harbor oidcConfig.clientSecret).
-  - namespace: teknoir-system
-    name: harbor-oidc-secret
+  - namespace: teknoir-auth
+    name: oauth2-proxy-redis-secret
     keys:
-      client-secret:
-        copyFrom: teknoir-auth/keycloak-client-secrets/harbor
+      password:
+        random: {length: 32, charset: alnum}
+
+  - namespace: teknoir-system
+    name: harbor-secret
+    keys:
+      HARBOR_ADMIN_PASSWORD:
+        random: {length: 24, charset: alnum}
+      secretKey:
+        random: {length: 16, charset: alnum}
+      secret:
+        random: {length: 16, charset: alnum}
+      CSRF_KEY:
+        random: {length: 32, charset: alnum}
+      JOBSERVICE_SECRET:
+        random: {length: 16, charset: alnum}
+      REGISTRY_HTTP_SECRET:
+        random: {length: 16, charset: alnum}
+      database-password:
+        random: {length: 24, charset: alnum}
+      redis-password:
+        random: {length: 24, charset: alnum}
+
+  # ArgoCD OIDC (infra charts/argo: $argocd-oidc-secret:oidc.auth.clientSecret; ArgoCD only
+  # reads Secrets labelled part-of=argocd).
+  - namespace: teknoir-system
+    name: argocd-oidc-secret
+    labels:
+      app.kubernetes.io/part-of: argocd
+    keys:
+      oidc.auth.clientSecret:
+        copyFrom: teknoir-auth/keycloak-client-secrets/argocd
+    restartDeployments:
+      - teknoir-system/argo-argocd-server
+
+  - namespace: teknoir-system
+    name: backstage-postgres-secrets
+    keys:
+      POSTGRES_USER:
+        value: backstage
+      POSTGRES_PASSWORD:
+        random: {length: 32, charset: alnum}
+      DATA_SOURCE_USER:
+        value: backstage
+      DATA_SOURCE_PASS:
+        copyFrom: teknoir-system/backstage-postgres-secrets/POSTGRES_PASSWORD
+
+  # STUNner TURN-REST shared secret (charts/stunner, charts/ztna). Rotating it resets every
+  # WireGuard tunnel.
+  - namespace: stunner-system
+    name: stunner-auth-secret
+    keys:
+      type:
+        value: ephemeral
+        sync: true
+      secret:
+        random: {bytes: 48, encoding: base64}

@@ -155,7 +155,7 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
               - matchExpressions:
-                  - {key: node-role.kubernetes.io/ci-builder, operator: Exists}
+                  - {key: teknoir.org/ci-builder, operator: Exists}
       initContainers:
         - name: clone
           image: @@IMAGE_GIT@@
