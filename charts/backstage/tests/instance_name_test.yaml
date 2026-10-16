@@ -92,7 +92,7 @@ tests:
     documentIndex: 0
     asserts:
       - contains: {path: 'rules[0].resources', content: robots}
-      - contains: {path: 'rules[0].resources', content: robotmodels}
+      - contains: {path: 'rules[0].resources', content: robottypes}
       - contains: {path: 'rules[0].resources', content: deviceapplicationsets}
       - contains: {path: 'rules[0].verbs', content: patch}
       - contains: {path: 'rules[0].verbs', content: delete}

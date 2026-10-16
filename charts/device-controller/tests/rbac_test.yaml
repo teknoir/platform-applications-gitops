@@ -1,0 +1,64 @@
+suite: robot type RBAC and the config source cache
+templates:
+  - templates/rbac.yaml
+tests:
+  - it: lets the editor role manage robottypes (not robotmodels)
+    documentSelector:
+      path: metadata.name
+      value: x-device-controller-editor-role
+    release:
+      name: x
+    asserts:
+      - contains: {path: 'rules[0].resources', content: robottypes}
+      - contains: {path: 'rules[1].resources', content: robottypes/status}
+      - notContains: {path: 'rules[0].resources', content: robotmodels}
+
+  - it: lets the viewer role read robottypes
+    documentSelector:
+      path: metadata.name
+      value: x-device-controller-viewer-role
+    release:
+      name: x
+    asserts:
+      - contains: {path: 'rules[0].resources', content: robottypes}
+      - contains: {path: 'rules[1].resources', content: robottypes/status}
+
+  - it: gives the manager robottypes (with status and finalizers) and no robotmodels
+    documentSelector:
+      path: metadata.name
+      value: x-device-controller-manager-role
+    release:
+      name: x
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [teknoir.org]
+            resources:
+              - devices
+              - devices/status
+              - devices/finalizers
+              - deviceapplicationsets
+              - deviceapplicationsets/status
+              - deviceapplicationsets/finalizers
+              - robots
+              - robots/status
+              - robots/finalizers
+              - robottypes
+              - robottypes/status
+              - robottypes/finalizers
+            verbs: ['*']
+
+  - it: lets the manager read, create, update and delete the config source cache ConfigMaps in teamspaces
+    documentSelector:
+      path: metadata.name
+      value: x-device-controller-manager-role
+    release:
+      name: x
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [configmaps]
+            verbs: [get, create, update, delete]
