@@ -2,10 +2,10 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: backstage-postgres
+  name: {{ .Values.name }}-postgres
   namespace: {{ .Release.Namespace }}
   labels:
-    app: backstage-postgres
+    app: {{ .Values.name }}-postgres
 spec:
   ports:
     - name: postgres
@@ -13,4 +13,4 @@ spec:
       targetPort: postgres
       protocol: TCP
   selector:
-    app: backstage-postgres
+    app: {{ .Values.name }}-postgres

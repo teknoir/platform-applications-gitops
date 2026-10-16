@@ -1,12 +1,12 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: backstage-app-config
+  name: {{ .Values.name }}-app-config
   namespace: {{ .Release.Namespace }}
 data:
   app-config.prod-env.yaml: |
     app:
-      baseUrl: https://{{ .Values.config.domain }}
+      baseUrl: https://{{ .Values.config.host | default .Values.config.domain }}
 
     backend:
       auth:
@@ -20,7 +20,14 @@ data:
               subjectPrefix: keycloak
         keys:
           - $include: /app/secrets/backend-auth-backstage-secrets.yaml
-      baseUrl: https://{{ .Values.config.domain }}
+      baseUrl: https://{{ .Values.config.host | default .Values.config.domain }}
+{{- if ne .Values.name "backstage" }}
+      # The image's app-config.yaml points at the Service "backstage-postgres"; another instance
+      # must use its own database, not the one of the instance named backstage.
+      database:
+        connection:
+          host: {{ .Values.name }}-postgres
+{{- end }}
 
     scaffolder:
       customActions:
@@ -41,6 +48,10 @@ data:
         custom:
           {{- toYaml . | nindent 10 }}
         {{- end }}
+{{- end }}
+{{- with (.Values.fleet).prometheusUrlTemplate }}
+      fleet:
+        prometheusUrlTemplate: {{ . | quote }}
 {{- end }}
 {{- if (.Values.ztna).enabled }}
       # WireGuard (ZTNA) tunnels: charts/app-of-apps passes ztna.enabled to this Application.

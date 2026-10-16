@@ -1,0 +1,87 @@
+{{- /*
+Next-gen robot fleet platform (plans/nextgen-fleet-platform.md): a second Backstage instance
+("backstage-next", branch images :nextgen) beside the classic one, served at next.teknoir.cloud.
+It is the same charts/backstage with name=backstage-next, so every object is prefixed and nothing
+collides with the classic instance. It has its own postgres (fresh database) that reuses the
+classic Secret backstage-postgres-secrets, and the same other Secrets.
+
+Gated like ci.yaml: values flag backstageNext.enabled AND the environment in the allowlist, so a
+cherry-pick onto teknoir-online (production) or teknoir-local (airgapped) renders nothing.
+No sync waves, see ztna.yaml.
+*/ -}}
+{{- $allowedProjects := list "teknoir-cloud" }}
+{{- if and (.Values.backstageNext).enabled (has .Values.project $allowedProjects) }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: backstage-next
+spec:
+  destination:
+    namespace: teknoir-system
+    server: https://kubernetes.default.svc
+  source:
+    path: charts/backstage
+    repoURL: https://github.com/teknoir/platform-applications-gitops
+    targetRevision: {{ .Values.project }}
+    helm:
+      parameters:
+        - name: name
+          value: backstage-next
+        - name: config.host
+          value: {{ .Values.backstageNext.host | default "next.teknoir.cloud" | quote }}
+        - name: backstage.image
+          value: {{ .Values.backstageNext.appImage | default "ghcr.io/teknoir/backstage-app:nextgen" | quote }}
+        - name: backstage.imagePullPolicy
+          value: Always
+        - name: backstageApi.image
+          value: {{ .Values.backstageNext.apiImage | default "ghcr.io/teknoir/backstage:nextgen" | quote }}
+        - name: backstageApi.imagePullPolicy
+          value: Always
+        - name: fleet.classicUrl
+          value: {{ .Values.backstageNext.classicUrl | default "https://teknoir.cloud" | quote }}
+        # Same in-cluster URL the device-controller uses (plugin_device_state PROMETHEUS_URL_TEMPLATE).
+        - name: fleet.prometheusUrlTemplate
+          value: "http://prometheus.{namespace}.svc.cluster.local/{namespace}/prometheus"
+        - name: backstage.resources.requests.memory
+          value: 256Mi
+        - name: backstage.resources.requests.cpu
+          value: 50m
+        - name: backstage.resources.limits.memory
+          value: 256Mi
+        - name: backstageApi.resources.requests.memory
+          value: 512Mi
+        - name: backstageApi.resources.requests.cpu
+          value: 50m
+        - name: backstageApi.resources.limits.memory
+          value: 1536Mi
+        - name: postgres.resources.requests.memory
+          value: 256Mi
+        - name: postgres.resources.requests.cpu
+          value: 50m
+        - name: postgres.resources.limits.memory
+          value: 512Mi
+        # Smaller than the classic 8 GiB heap: the API container is limited to 1536Mi.
+        - name: backstageApi.nodeOptions
+          value: "--max-old-space-size=1200"
+        - name: postgres.storage
+          value: 5Gi
+{{- if include "app-of-apps.ztnaEnabled" . }}
+        # Same ZTNA switch as the classic Backstage Application.
+        - name: ztna.enabled
+          value: "true"
+{{- end }}
+  sources: [ ]
+  project: {{ .Values.project }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      enabled: true
+    retry:
+      limit: 10
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
+{{- end }}

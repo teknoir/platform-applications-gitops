@@ -2,7 +2,7 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: backstage-api-resources-role
+  name: {{ .Values.name }}-api-resources-role
 rules:
 - apiGroups:
   - '*'
@@ -17,6 +17,8 @@ rules:
   - helmcharts
   - virtualservices
   - deviceapplicationsets
+  - robots
+  - robotmodels
   verbs:
   - create
   - delete
@@ -42,22 +44,34 @@ rules:
   - devstudios/status
   - notebooks/status
   - deviceapplicationsets/status
+  - robots/status
+  - robotmodels/status
   verbs:
   - get
+# Next-gen fleet pages: the "needs you" list reads events.
+- apiGroups:
+  - ""
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - get
+  - list
+  - watch
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: backstage-api-resources-rolebinding
+  name: {{ .Values.name }}-api-resources-rolebinding
   namespace: {{ .Release.Namespace }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: backstage-api-resources-role
+  name: {{ .Values.name }}-api-resources-role
 subjects:
 - kind: ServiceAccount
-  name: backstage-api
+  name: {{ .Values.name }}-api
   namespace: {{ .Release.Namespace }}
 
 {{/*---*/}}
@@ -110,7 +124,7 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: backstage-api-teknoir-admin-rolebinding
+  name: {{ .Values.name }}-api-teknoir-admin-rolebinding
   namespace: {{ .Release.Namespace }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -118,5 +132,5 @@ roleRef:
   name: teknoir-admin
 subjects:
   - kind: ServiceAccount
-    name: backstage-api
+    name: {{ .Values.name }}-api
     namespace: {{ .Release.Namespace }}

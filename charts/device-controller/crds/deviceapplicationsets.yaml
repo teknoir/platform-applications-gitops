@@ -3,7 +3,10 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.15.0
+    # Never pruned or deleted by ArgoCD: removing a CRD deletes every object of its kind.
+    # Re-add after copying regenerated CRDs from device-controller (tests/crd_guard_test.sh).
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+    controller-gen.kubebuilder.io/version: v0.16.5
   name: deviceapplicationsets.teknoir.org
 spec:
   group: teknoir.org
@@ -44,8 +47,9 @@ spec:
                 description: |-
                   Applications lists GitOps applications that are deployed to every
                   matching Device. They are merged into the effective applications list
-                  before the Device's own Spec.Applications, so device-level entries win
-                  on shared resource identity.
+                  above the applications of the Device's RobotModel and below the Device's
+                  own Spec.Applications, so device-level entries win on shared resource
+                  identity.
                 items:
                   description: |-
                     GitOpsApplication describes a set of k8s resources to deploy to the device
@@ -68,6 +72,15 @@ spec:
                   - repo_url
                   type: object
                 type: array
+              priority:
+                default: 0
+                description: |-
+                  Priority orders the sets that match one Device. Sets are applied from
+                  the lowest priority to the highest, so a higher priority wins when two
+                  sets provide the same resource. Sets with equal priority are applied in
+                  name order, so the one that sorts last wins.
+                format: int32
+                type: integer
               selector:
                 description: |-
                   Selector determines which Devices receive the applications defined in

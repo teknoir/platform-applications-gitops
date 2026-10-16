@@ -2,24 +2,24 @@
 apiVersion: networking.istio.io/v1alpha3
 kind: VirtualService
 metadata:
-  name: backstage
+  name: {{ .Values.name }}
   namespace: {{ .Release.Namespace }}
 spec:
   gateways:
     - istio-system/teknoir-gateway
   hosts:
-    - {{ .Values.config.domain | quote }}
+    - {{ .Values.config.host | default .Values.config.domain | quote }}
   http:
     - match:
         - uri:
             prefix: /api/
       route:
         - destination:
-            host: backstage-api.{{ .Release.Namespace }}.svc.cluster.local
+            host: {{ .Values.name }}-api.{{ .Release.Namespace }}.svc.cluster.local
             port:
               number: 80
     - route:
         - destination:
-            host: backstage.{{ .Release.Namespace }}.svc.cluster.local
+            host: {{ .Values.name }}.{{ .Release.Namespace }}.svc.cluster.local
             port:
               number: 80

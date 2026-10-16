@@ -1,0 +1,259 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    # Never pruned or deleted by ArgoCD: removing a CRD deletes every object of its kind.
+    # Re-add after copying regenerated CRDs from device-controller (tests/crd_guard_test.sh).
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+    controller-gen.kubebuilder.io/version: v0.16.5
+  name: robots.teknoir.org
+spec:
+  group: teknoir.org
+  names:
+    kind: Robot
+    listKind: RobotList
+    plural: robots
+    singular: robot
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.model
+      name: Model
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.device
+      name: Device
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          Robot is one managed machine: a k3s cluster of one or more computers, backed
+          by exactly one Device.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: RobotSpec defines the desired state of Robot.
+            properties:
+              applications:
+                description: |-
+                  Applications are the robot layer: they are synced to the Device's
+                  spec.applications.
+                items:
+                  description: |-
+                    GitOpsApplication describes a set of k8s resources to deploy to the device
+                    that are sourced from a Git repository following a GitOps model.
+                  properties:
+                    path:
+                      description: |-
+                        Path is the path within the repository to the YAML file (or directory)
+                        containing the k8s resources to deploy to the device.
+                      type: string
+                    repo_url:
+                      description: RepoURL is the URL of the Git repository that holds
+                        the k8s resources.
+                      type: string
+                    revision:
+                      description: Revision is the Git revision (branch, tag or commit)
+                        to deploy.
+                      type: string
+                  required:
+                  - repo_url
+                  type: object
+                type: array
+              device:
+                description: |-
+                  Device is the name of the backing Device. The controller creates it if it
+                  is missing. Defaults to the robot's name.
+                type: string
+              model:
+                description: Model is the name of the RobotModel (same namespace).
+                minLength: 1
+                type: string
+              nodes:
+                description: Nodes bind the roles of the model to computers.
+                items:
+                  description: RobotNodeBinding binds a node role to the computer
+                    that fills it.
+                  properties:
+                    nodeName:
+                      description: NodeName is the k3s node-name of the computer.
+                      maxLength: 63
+                      minLength: 1
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
+                    role:
+                      description: Role is a node role of the robot's model.
+                      maxLength: 63
+                      minLength: 1
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
+                  required:
+                  - nodeName
+                  - role
+                  type: object
+                type: array
+              serverAddress:
+                description: ServerAddress is the LAN address of the server node,
+                  for agents that join.
+                type: string
+            required:
+            - model
+            type: object
+          status:
+            description: RobotStatus defines the observed state of Robot.
+            properties:
+              conditions:
+                description: 'Conditions: DeviceReady, DeviceConflict, ModelFound.'
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              device:
+                description: Device is the name of the backing Device.
+                type: string
+              layers:
+                description: Layers summarise where the robot's configuration comes
+                  from, lowest first.
+                items:
+                  description: RobotLayerSummary counts the applications one source
+                    contributes.
+                  properties:
+                    applications:
+                      description: Applications is the number of applications, or
+                        items for the local layer.
+                      format: int32
+                      type: integer
+                    layer:
+                      description: Layer is model, fleet, robot or local.
+                      type: string
+                    source:
+                      description: Source is the model, DeviceApplicationSet or robot
+                        name, or "local".
+                      type: string
+                  required:
+                  - applications
+                  - layer
+                  - source
+                  type: object
+                type: array
+              nodes:
+                description: Nodes are the nodes of the robot with their join and
+                  ready state.
+                items:
+                  description: RobotNodeStatus is the observed state of one node of
+                    a robot.
+                  properties:
+                    joined:
+                      description: Joined is true when the node reports metrics.
+                      type: boolean
+                    nodeName:
+                      type: string
+                    ready:
+                      description: Ready is true when the node reports Ready.
+                      type: boolean
+                    role:
+                      type: string
+                  required:
+                  - joined
+                  - nodeName
+                  - ready
+                  - role
+                  type: object
+                type: array
+              observedGeneration:
+                description: ObservedGeneration is the generation of the spec this
+                  status describes.
+                format: int64
+                type: integer
+              phase:
+                description: Phase is the lifecycle phase.
+                enum:
+                - WaitingForDevice
+                - Registered
+                - Online
+                - Degraded
+                - Offline
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

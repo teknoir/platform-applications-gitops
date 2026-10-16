@@ -1,8 +1,16 @@
 # GitOps values for backstage
 
 # Parameters from params.env
+# name prefixes every object (Deployments, Services, ConfigMap, PVC, ServiceAccount, postgres,
+# Istio policies, ClusterRole/Binding), so a second instance (backstage-next) can run beside the
+# first in the same namespace. Do not change it on a running instance: it renames the PVC and the database.
+name: backstage
+
 config:
   domain: "teknoir.cloud"
+  # Public host of this instance (VirtualService, app.baseUrl, backend.baseUrl). Empty = config.domain.
+  # Issuer/JWKS and teknoir.domain keep config.domain.
+  host: ""
   logLevel: info
   prometheusUrl: http://prometheus.__NAMESPACE__.svc.cluster.local:80
 
@@ -13,6 +21,7 @@ backstage:
   imagePullPolicy: Always
   imagePullSecrets:
     - name: ghcr-token
+  resources: {}
 
 # Backstage API deployment
 backstageApi:
@@ -21,6 +30,7 @@ backstageApi:
   imagePullPolicy: Always
   imagePullSecrets:
     - name: ghcr-token
+  resources: {}
   nodeOptions: '--max-old-space-size=8192'
   podSecurityContext:
     fsGroup: 1000
@@ -39,6 +49,7 @@ postgres:
   image: postgres:17-alpine
   imagePullPolicy: Always
   storage: 10Gi
+  resources: {}
   exporter:
     image: prometheuscommunity/postgres-exporter:v0.15.0
     imagePullPolicy: Always
@@ -69,3 +80,10 @@ virtualDevices:
     cpu: {min: 2, max: 4}
     memoryGi: {min: 4, max: 8}
     diskGi: {min: 20, max: 40}
+
+# Next-gen fleet pages (backstage-plugin-teknoir-fleet). Both optional.
+fleet:
+  # Frontend env APP_CONFIG_teknoir_fleet_classicUrl: where the "Classic" nav links point.
+  classicUrl: ""
+  # Backend teknoir.fleet.prometheusUrlTemplate ({namespace} is replaced). Empty = the plugin default.
+  prometheusUrlTemplate: ""

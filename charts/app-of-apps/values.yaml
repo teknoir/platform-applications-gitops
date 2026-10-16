@@ -41,3 +41,9 @@ harbor:
   enabled: true
 ci:
   enabled: true
+
+# Next-gen robot fleet platform (plans/nextgen-fleet-platform.md): a second Backstage instance at
+# next.teknoir.cloud (templates/backstage-next.yaml), teknoir-cloud only (allowlist in the
+# template). Needs the DNS name and certificate for the host (wildcard *.teknoir.cloud covers it).
+backstageNext:
+  enabled: true

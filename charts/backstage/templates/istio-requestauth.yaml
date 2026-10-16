@@ -2,12 +2,12 @@
 apiVersion: security.istio.io/v1beta1
 kind: RequestAuthentication
 metadata:
-  name: backstage-request-auth
+  name: {{ .Values.name }}-request-auth
   namespace: {{ .Release.Namespace }}
 spec:
   selector:
     matchLabels:
-      app: backstage
+      app: {{ .Values.name }}
   jwtRules:
     - issuer: "https://auth.{{ .Values.config.domain }}/auth/realms/master"
       jwksUri: "https://auth.{{ .Values.config.domain }}/auth/realms/master/protocol/openid-connect/certs"
@@ -21,12 +21,12 @@ spec:
 apiVersion: security.istio.io/v1beta1
 kind: RequestAuthentication
 metadata:
-  name: backstage-api-request-auth
+  name: {{ .Values.name }}-api-request-auth
   namespace: {{ .Release.Namespace }}
 spec:
   selector:
     matchLabels:
-      app: backstage-api
+      app: {{ .Values.name }}-api
   jwtRules:
     - issuer: "https://auth.{{ .Values.config.domain }}/auth/realms/master"
       jwksUri: "https://auth.{{ .Values.config.domain }}/auth/realms/master/protocol/openid-connect/certs"

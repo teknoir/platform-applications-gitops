@@ -2,13 +2,13 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: backstage
+  name: {{ .Values.name }}
   namespace: {{ .Release.Namespace }}
   labels:
-    app: backstage
+    app: {{ .Values.name }}
 spec:
   selector:
-    app: backstage
+    app: {{ .Values.name }}
   ports:
     - name: http-web
       appProtocol: http
@@ -19,13 +19,13 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: backstage-api
+  name: {{ .Values.name }}-api
   namespace: {{ .Release.Namespace }}
   labels:
-    app: backstage-api
+    app: {{ .Values.name }}-api
 spec:
   selector:
-    app: backstage-api
+    app: {{ .Values.name }}-api
   ports:
     - name: http-api
       appProtocol: http

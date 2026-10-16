@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: backstage-techdocs
+  name: {{ .Values.name }}-techdocs
   namespace: {{ .Release.Namespace }}
 spec:
   accessModes:
