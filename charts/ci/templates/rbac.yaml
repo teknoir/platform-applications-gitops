@@ -85,14 +85,18 @@ roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: ci-poller}
 subjects:
   - {kind: ServiceAccount, name: ci-poller, namespace: {{ $ns }}}
 ---
-# UI / CLI access (argo-server --auth-mode=client): paste "Bearer <token>" from
-# README.md "UI token". Full control of the pipelines in this namespace, nothing else.
+# UI / CLI access: Keycloak SSO (group admin) or "Bearer <token>" from README.md
+# "UI token". Full control of the pipelines in this namespace, nothing else.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: ci-admin
   namespace: {{ $ns }}
   labels: {{- include "ci.labels" . | nindent 4 }}
+  annotations:
+    # SSO: members of Keycloak group admin (realm master) act as this account.
+    workflows.argoproj.io/rbac-rule: "'admin' in groups"
+    workflows.argoproj.io/rbac-rule-precedence: "1"
 ---
 apiVersion: v1
 kind: Secret

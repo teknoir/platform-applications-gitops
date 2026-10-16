@@ -1,0 +1,101 @@
+{{- /*
+Realm `master` on teknoir-cloud, imported by keycloak-config-cli
+(templates/keycloak-config.yaml) after every sync of the auth Application.
+
+Rendered by Helm first (domain); keycloak-config-cli then substitutes
+$(env:...) with the client secrets from Secret teknoir-auth/keycloak-client-secrets
+(platform-secrets). No secret is in Git.
+
+Only what is listed here is managed, and nothing is ever deleted (the Job sets
+every IMPORT_MANAGED_* to no-delete): the clients made by hand before this file
+(teknoir for oauth2-proxy and user-controller, ...) stay as they are until they are
+added here. Users are mostly managed by user-controller (User CRs); this file only
+pins the platform owner's Keycloak admin access. For a managed user the import sets
+exactly the listed realm roles and groups, so list all of them.
+*/ -}}
+{{- $d := .Values.domain }}
+realm: master
+groups:
+  # Platform administrators: Keycloak-side admin of the platform services (Argo
+  # Workflows admin, Harbor admin through the group claim).
+  - name: admin
+clients:
+  # The service client this import logs in with (client credentials, realm role
+  # admin). keycloak-admin-bootstrap creates it once with `kc.sh bootstrap-admin
+  # service`; from then on it is managed here.
+  - clientId: keycloak-config-cli
+    name: keycloak-config-cli (GitOps realm import)
+    enabled: true
+    publicClient: false
+    serviceAccountsEnabled: true
+    standardFlowEnabled: false
+    implicitFlowEnabled: false
+    directAccessGrantsEnabled: false
+    secret: $(env:KEYCLOAK_CONFIG_CLI_CLIENT_SECRET)
+  # Argo Workflows UI (charts/ci). Group membership is in the `groups` claim (Argo
+  # RBAC: group admin -> ServiceAccount ci-admin).
+  - clientId: argo-workflows
+    name: Argo Workflows (ci.{{ $d }})
+    enabled: true
+    protocol: openid-connect
+    publicClient: false
+    standardFlowEnabled: true
+    implicitFlowEnabled: false
+    directAccessGrantsEnabled: false
+    serviceAccountsEnabled: false
+    rootUrl: https://ci.{{ $d }}
+    redirectUris: ["https://ci.{{ $d }}/oauth2/callback"]
+    webOrigins: ["https://ci.{{ $d }}"]
+    attributes:
+      post.logout.redirect.uris: "https://ci.{{ $d }}/*"
+    secret: $(env:ARGO_WORKFLOWS_CLIENT_SECRET)
+    protocolMappers:
+      - name: groups
+        protocol: openid-connect
+        protocolMapper: oidc-group-membership-mapper
+        config:
+          claim.name: groups
+          full.path: "false"
+          id.token.claim: "true"
+          access.token.claim: "true"
+          userinfo.token.claim: "true"
+  # Harbor UI login (charts/harbor oidcConfig). Group admin -> Harbor system admin.
+  - clientId: harbor
+    name: Harbor (harbor.{{ $d }})
+    enabled: true
+    protocol: openid-connect
+    publicClient: false
+    standardFlowEnabled: true
+    implicitFlowEnabled: false
+    directAccessGrantsEnabled: false
+    serviceAccountsEnabled: false
+    rootUrl: https://harbor.{{ $d }}
+    redirectUris: ["https://harbor.{{ $d }}/c/oidc/callback"]
+    webOrigins: ["https://harbor.{{ $d }}"]
+    secret: $(env:HARBOR_CLIENT_SECRET)
+    protocolMappers:
+      - name: groups
+        protocol: openid-connect
+        protocolMapper: oidc-group-membership-mapper
+        config:
+          claim.name: groups
+          full.path: "false"
+          id.token.claim: "true"
+          access.token.claim: "true"
+          userinfo.token.claim: "true"
+users:
+  # The import's own identity: keep realm role admin (without it the next import
+  # cannot log in).
+  - username: service-account-keycloak-config-cli
+    enabled: true
+    serviceAccountClientId: keycloak-config-cli
+    realmRoles: [admin, default-roles-master]
+{{- range .Values.keycloakConfig.platformOwners }}
+  # Platform owner: always Keycloak admin and in group admin, on every install.
+  - username: {{ . | quote }}
+    email: {{ . | quote }}
+    enabled: true
+    emailVerified: true
+    realmRoles: [admin, default-roles-master]
+    groups: [admin]
+{{- end }}

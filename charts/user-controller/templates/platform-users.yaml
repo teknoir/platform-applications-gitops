@@ -1,0 +1,36 @@
+{{- /*
+Platform users declared in Git (values platformUsers): User CRs that every install
+gets, reconciled by user-controller into Keycloak and Kubernetes like users made in
+Backstage. The full spec is listed on purpose: ArgoCD applies it client-side, so a
+field left out would be removed from the live User (dropping the Keycloak plugin
+would revoke the Keycloak user). Changes to these users go through Git; edits made
+in the UI are reverted by self-heal.
+
+Never pruned or deleted by ArgoCD: removing an entry from values leaves the User
+(and its Keycloak user) in place. Delete it by hand if that is really wanted.
+*/ -}}
+{{- range .Values.platformUsers }}
+---
+apiVersion: teknoir.org/v1
+kind: User
+metadata:
+  name: {{ .email | replace "@" "-at-" }}
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+  labels:
+    teknoir.org/managed-by: gitops
+spec:
+  email: {{ .email | quote }}
+  display_name: {{ .displayName | quote }}
+  email_verified: true
+  enabled: true
+  claims_v0:
+    role: {{ .role | quote }}
+  claim_set:
+    {{- toYaml .claimSet | nindent 4 }}
+  plugins:
+    - kind: K8S
+      spec: {enabled: true, version: v1}
+    - kind: Keycloak
+      spec: {enabled: true, version: v1}
+{{- end }}

@@ -143,10 +143,22 @@ argo-workflows:
                   matchExpressions:
                     - {key: node-role.kubernetes.io/ci-builder, operator: Exists}
   server:
-    # client: every request carries a ServiceAccount token (README.md: UI token), on top of
-    # the edge login. Any signed-in staging user passes the edge login; only a token holder
-    # can see or run pipelines.
-    authModes: [client]
+    # sso: Keycloak login (realm master, client argo-workflows, charts/auth realm file);
+    # members of Keycloak group admin act as ServiceAccount ci-admin (templates/rbac.yaml),
+    # everyone else gets no access. client: a ServiceAccount token still works (CLI).
+    # Both sit behind the edge login.
+    authModes: [sso, client]
+    sso:
+      enabled: true
+      issuer: https://auth.teknoir.cloud/auth/realms/master
+      clientId: {name: argo-workflows-sso, key: client-id}          # platform-secrets
+      clientSecret: {name: argo-workflows-sso, key: client-secret}
+      redirectUrl: https://ci.teknoir.cloud/oauth2/callback
+      scopes: [email, profile]   # the client's mapper always adds the groups claim
+      rbac:
+        enabled: true
+        secretWhitelist: [ci-admin.service-account-token, argo-workflows-sso]
+      sessionExpiry: 10h
     secure: false
     resources:
       requests: {cpu: 20m, memory: 64Mi}

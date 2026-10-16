@@ -87,7 +87,14 @@ gh auth token | kubectl --context r415 -n teknoir-ci create secret generic githu
 Replace it with a GitHub App (git, statuses) plus a machine user's `write:packages` PAT
 (ghcr does not accept App tokens) when there is time.
 
-## UI token
+## UI login
+
+`https://ci.teknoir.cloud`: "Login" (Keycloak SSO, realm master, client `argo-workflows`).
+Members of the Keycloak group `admin` act as ServiceAccount `ci-admin`; anyone else is
+refused. The client, its secret and the group come from GitOps (charts/auth
+files/realm/master.yaml, charts/platform-secrets).
+
+## UI token (CLI, or when Keycloak is down)
 
 ```sh
 kubectl --context r415 -n teknoir-ci get secret ci-admin.service-account-token \

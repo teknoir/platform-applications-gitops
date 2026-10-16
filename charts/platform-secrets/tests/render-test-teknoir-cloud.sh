@@ -71,12 +71,14 @@ ConfigMap teknoir-system/platform-secrets
 CronJob teknoir-system/platform-secrets-resync
 Job teknoir-system/platform-secrets-ensure
 Role teknoir-auth/platform-secrets
+Role teknoir-ci/platform-secrets
 Role teknoir-system/platform-secrets
 RoleBinding teknoir-auth/platform-secrets
+RoleBinding teknoir-ci/platform-secrets
 RoleBinding teknoir-system/platform-secrets
 ServiceAccount teknoir-system/platform-secrets
 EOF
-diff -u "$WORK/objects.want" "$WORK/objects" && ok "R2 exactly the 8 expected objects" || bad "R2 object list"
+diff -u "$WORK/objects.want" "$WORK/objects" && ok "R2 exactly the 10 expected objects" || bad "R2 object list"
 
 echo "== R3 secrets.spec"
 yq -N 'select(.kind == "ConfigMap") | .data["secrets.spec"]' "$WORK/render.yaml" | sed '/^$/d' >"$WORK/spec"
@@ -89,26 +91,54 @@ K|KEYCLOAK_REALM|value|bWFzdGVy|1
 K|KEYCLOAK_CLIENTSECRET|copy|teknoir-auth|oauth2-proxy-secret|client-secret
 R|teknoir-system|user-controller
 E
+S|teknoir-auth|keycloak-client-secrets|Opaque|1
+L|teknoir.org/managed-by|platform-secrets
+K|argo-workflows|random|40|alnum|0|base64|JXM=
+K|harbor|random|40|alnum|0|base64|JXM=
+K|keycloak-config-cli|random|48|alnum|0|base64|JXM=
+E
+S|teknoir-ci|argo-workflows-sso|Opaque|0
+L|teknoir.org/managed-by|platform-secrets
+K|client-id|value|YXJnby13b3JrZmxvd3M=|1
+K|client-secret|copy|teknoir-auth|keycloak-client-secrets|argo-workflows
+R|teknoir-ci|ci-argo-workflows-server
+E
+S|teknoir-system|harbor-oidc-secret|Opaque|0
+L|teknoir.org/managed-by|platform-secrets
+K|client-secret|copy|teknoir-auth|keycloak-client-secrets|harbor
+E
 EOF
-diff -u "$WORK/spec.want" "$WORK/spec" && ok "R3 secrets.spec is exactly the staging entry" || bad "R3 secrets.spec"
-grep -q '|random|' "$WORK/spec" && bad "R3 staging spec has a random key" || ok "R3 no random key (nothing is generated)"
+diff -u "$WORK/spec.want" "$WORK/spec" && ok "R3 secrets.spec is exactly the staging entries" || bad "R3 secrets.spec"
+# Only the Keycloak client secrets are generated here; everything else is copied.
+[ "$(grep '|random|' "$WORK/spec" | cut -d'|' -f2 | tr '\n' ' ')" = "argo-workflows harbor keycloak-config-cli " ] &&
+	ok "R3 random keys only in keycloak-client-secrets" || bad "R3 unexpected random keys"
 [ "$(yq -N 'select(.kind == "ConfigMap") | .data["ensure-secrets.sh"]' "$WORK/render.yaml")" = "$(cat "$CHART/files/ensure-secrets.sh")" ] &&
 	ok "R3 ConfigMap carries files/ensure-secrets.sh verbatim" || bad "R3 script in ConfigMap differs"
 
 echo "== R4 RBAC"
 rules() { yq -N -o=json -I=0 "select(.kind == \"Role\" and .metadata.namespace == \"$1\") | .rules" "$WORK/render.yaml"; }
-[ "$(rules teknoir-auth)" = '[{"apiGroups":[""],"resources":["secrets"],"resourceNames":["oauth2-proxy-secret"],"verbs":["get"]}]' ] &&
-	ok "R4 teknoir-auth: only get on oauth2-proxy-secret" || bad "R4 teknoir-auth rules: $(rules teknoir-auth)"
-want_sys='[{"apiGroups":[""],"resources":["secrets"],"resourceNames":["backstage-keycloak-secrets"],"verbs":["get"]},'
-want_sys+='{"apiGroups":[""],"resources":["secrets"],"resourceNames":["backstage-keycloak-secrets"],"verbs":["patch"]},'
+want_auth='[{"apiGroups":[""],"resources":["secrets"],"resourceNames":["keycloak-client-secrets","oauth2-proxy-secret"],"verbs":["get"]},'
+want_auth+='{"apiGroups":[""],"resources":["secrets"],"resourceNames":["keycloak-client-secrets"],"verbs":["patch"]},'
+want_auth+='{"apiGroups":[""],"resources":["secrets"],"verbs":["create"]}]'
+[ "$(rules teknoir-auth)" = "$want_auth" ] &&
+	ok "R4 teknoir-auth: get oauth2-proxy-secret, get/patch keycloak-client-secrets, create" || bad "R4 teknoir-auth rules: $(rules teknoir-auth)"
+want_ci='[{"apiGroups":[""],"resources":["secrets"],"resourceNames":["argo-workflows-sso"],"verbs":["get"]},'
+want_ci+='{"apiGroups":[""],"resources":["secrets"],"resourceNames":["argo-workflows-sso"],"verbs":["patch"]},'
+want_ci+='{"apiGroups":[""],"resources":["secrets"],"verbs":["create"]},'
+want_ci+='{"apiGroups":["apps"],"resources":["deployments"],"resourceNames":["ci-argo-workflows-server"],"verbs":["get","patch"]}]'
+[ "$(rules teknoir-ci)" = "$want_ci" ] &&
+	ok "R4 teknoir-ci: get/patch argo-workflows-sso, create, get/patch ci-argo-workflows-server" || bad "R4 teknoir-ci rules: $(rules teknoir-ci)"
+want_sys='[{"apiGroups":[""],"resources":["secrets"],"resourceNames":["backstage-keycloak-secrets","harbor-oidc-secret"],"verbs":["get"]},'
+want_sys+='{"apiGroups":[""],"resources":["secrets"],"resourceNames":["backstage-keycloak-secrets","harbor-oidc-secret"],"verbs":["patch"]},'
 want_sys+='{"apiGroups":[""],"resources":["secrets"],"verbs":["create"]},'
 want_sys+='{"apiGroups":["apps"],"resources":["deployments"],"resourceNames":["user-controller"],"verbs":["get","patch"]}]'
 [ "$(rules teknoir-system)" = "$want_sys" ] &&
-	ok "R4 teknoir-system: get/patch backstage-keycloak-secrets, create secrets, get/patch user-controller" ||
+	ok "R4 teknoir-system: get/patch backstage-keycloak-secrets + harbor-oidc-secret, create, get/patch user-controller" ||
 	bad "R4 teknoir-system rules: $(rules teknoir-system)"
 yq -N 'select(.kind == "RoleBinding") | .metadata.namespace + " " + .roleRef.kind + "/" + .roleRef.name + " " +
 	(.subjects | map(.kind + ":" + .namespace + "/" + .name) | join(","))' "$WORK/render.yaml" | sort >"$WORK/rb"
 printf '%s\n' "teknoir-auth Role/platform-secrets ServiceAccount:teknoir-system/platform-secrets" \
+	"teknoir-ci Role/platform-secrets ServiceAccount:teknoir-system/platform-secrets" \
 	"teknoir-system Role/platform-secrets ServiceAccount:teknoir-system/platform-secrets" >"$WORK/rb.want"
 diff -u "$WORK/rb.want" "$WORK/rb" && ok "R4 RoleBindings bind only the platform-secrets ServiceAccount" || bad "R4 RoleBindings"
 grep -qE '^kind: Cluster(Role|RoleBinding)' "$WORK/render.yaml" && bad "R4 cluster-scoped RBAC rendered" || ok "R4 no ClusterRole/ClusterRoleBinding"
@@ -146,8 +176,8 @@ want_app='["charts/platform-secrets","https://github.com/teknoir/platform-applic
 	bad "R6 Application platform-secrets: ${app:-<missing>}"
 [ -s "$WORK/app.yaml" ] && [ "$(yq -N '.metadata.finalizers // [] | length' "$WORK/app.yaml")" = 0 ] &&
 	ok "R6 no resources finalizer (like the other Applications)" || bad "R6 finalizer"
-[ "$(yq -N 'select(.kind == "Application") | .metadata.name' "$WORK/aoa.yaml" | grep -c .)" = 11 ] &&
-	ok "R6 11 Applications (10 existing + platform-secrets)" || bad "R6 Application count"
+[ "$(yq -N 'select(.kind == "Application") | .metadata.name' "$WORK/aoa.yaml" | grep -c '^platform-secrets$')" = 1 ] &&
+	ok "R6 exactly one platform-secrets Application" || bad "R6 platform-secrets Application count"
 kubeconform -strict -summary -ignore-missing-schemas "$WORK/aoa.yaml" >/dev/null && ok "R6 app-of-apps render parses" || bad "R6 app-of-apps render"
 
 echo "== R7 digest is the linux/amd64 manifest (online)"
