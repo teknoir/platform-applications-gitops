@@ -100,24 +100,24 @@ tests:
         documentIndex: 4
       - equal:
           path: metadata.annotations["teknoir.org/allowance"]
-          value: '{"devices":2,"cpu":"4","memory":"8Gi","disk":"60Gi"}'
+          value: '{"devices":2,"cpu":"4","memory":"4Gi","disk":"60Gi"}'
         documentIndex: 5
 
-  - it: sets the allowance annotation and the exact teknoir-demo quota (devices 2, 4 vCPU, 8Gi, 60Gi, overcommit 2)
+  - it: sets the allowance annotation and the exact teknoir-demo quota (devices 2, 4 vCPU, 4Gi, 60Gi, overcommit 2)
     documentSelector:
       path: kind
       value: ResourceQuota
     asserts:
       - equal:
           path: metadata.annotations["teknoir.org/allowance"]
-          value: '{"devices":2,"cpu":"4","memory":"8Gi","disk":"60Gi"}'
+          value: '{"devices":2,"cpu":"4","memory":"4Gi","disk":"60Gi"}'
       - equal:
           path: spec.hard
           value:
             requests.cpu: 3000m
             limits.cpu: "5"
-            requests.memory: 10Gi
-            limits.memory: 11Gi
+            requests.memory: 6Gi
+            limits.memory: 7Gi
             requests.storage: 132Gi
             persistentvolumeclaims: "6"
             pods: "6"
@@ -395,7 +395,7 @@ tests:
         documentIndex: 1
       - equal:
           path: metadata.annotations["teknoir.org/allowance"]
-          value: '{"devices":0,"cpu":"4","memory":"8Gi","disk":"60Gi"}'
+          value: '{"devices":0,"cpu":"4","memory":"4Gi","disk":"60Gi"}'
         documentSelector:
           path: metadata.name
           value: vdev-quota
@@ -446,7 +446,7 @@ tests:
         documentIndex: 5   # other-ts-vdev sorts first: Namespace, 4 NetworkPolicies, then the quota
       - equal:
           path: metadata.annotations["teknoir.org/allowance"]
-          value: '{"devices":0,"cpu":"4","memory":"8Gi","disk":"60Gi"}'
+          value: '{"devices":0,"cpu":"4","memory":"4Gi","disk":"60Gi"}'
         documentIndex: 12
 
   - it: fails the render for a missing disk allowance
