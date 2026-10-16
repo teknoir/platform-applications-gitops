@@ -158,3 +158,23 @@ platformDeviceApplicationSets:
     applications:
       - {repo_url: "https://github.com/teknoir/teknoir-demo-gitops", path: common/devstudio.yaml, revision: main}
       - {repo_url: "https://github.com/teknoir/teknoir-demo-gitops", path: common/notebook.yaml, revision: main}
+  # GPU metrics on the platform: the on-device Prometheus, the GPU exporter and gpu-metrics-app
+  # (publishes to MQTT). Device label gpu=nvidia (discrete GPU, dcgm-exporter) or gpu=jetson
+  # (jetson-exporter). An inline app of the same name on a device (prometheus, nvidia-exporter)
+  # takes precedence over these.
+  - name: gpu-nvidia
+    namespace: teknoir-demo
+    selector:
+      matchLabels:
+        gpu: nvidia
+    applications:
+      - {repo_url: "https://github.com/teknoir/teknoir-demo-gitops", path: fleets/gpu-metrics/prometheus.yaml, revision: main}
+      - {repo_url: "https://github.com/teknoir/teknoir-demo-gitops", path: fleets/gpu-nvidia/gpu-metrics.yaml, revision: main}
+  - name: gpu-jetson
+    namespace: teknoir-demo
+    selector:
+      matchLabels:
+        gpu: jetson
+    applications:
+      - {repo_url: "https://github.com/teknoir/teknoir-demo-gitops", path: fleets/gpu-metrics/prometheus.yaml, revision: main}
+      - {repo_url: "https://github.com/teknoir/teknoir-demo-gitops", path: fleets/gpu-jetson/gpu-metrics.yaml, revision: main}
