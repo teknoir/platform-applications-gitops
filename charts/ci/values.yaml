@@ -1,4 +1,4 @@
-# Values for charts/ci on teknoir-cloud (staging, r415). Plan: ~/git/ai/plans/ci-argo-workflows.md
+# Values for charts/ci on teknoir-cloud (staging, single node vpro since 2026-10-16). Plan: ~/git/ai/plans/ci-argo-workflows.md
 #
 #   CronWorkflow ci-poll (every 2 min, files/poll.py) sees a new commit on a registered
 #   repo (conditional GitHub API requests; no inbound webhook endpoint)
@@ -32,7 +32,7 @@ harbor:
   configServiceAccount: {name: harbor-config, namespace: teknoir-system}
   # harbor.<domain> resolves to the office's public IP; pin it to the node that runs the
   # ingress gateway so pushes stay on the LAN instead of hairpinning through the router.
-  hostIP: 192.168.2.166
+  hostIP: 192.168.2.19
 
 images:
   git: docker.io/alpine/git:v2.52.0
@@ -49,22 +49,13 @@ builders:
     node: vpro
     cachePath: /var/lib/buildkit   # vpro root LV, 1.8 TB NVMe
     reservedSpace: 20GB
-    maxUsedSpace: 400GB
+    maxUsedSpace: 300GB
     minFreeSpace: 20%
-    maxParallelism: 6
-    resources:
-      requests: {cpu: "2", memory: 4Gi}
-      limits: {memory: 10Gi}
-  r415:
-    node: r415
-    cachePath: /srv/buildkit       # r415 SSD (/srv, 205 GB, otherwise unused)
-    reservedSpace: 10GB
-    maxUsedSpace: 150GB
-    minFreeSpace: 15%
-    maxParallelism: 4
+    # vpro is the whole staging cluster (14 GB RAM + swap): keep builds from starving it.
+    maxParallelism: 3
     resources:
       requests: {cpu: "1", memory: 2Gi}
-      limits: {memory: 24Gi}
+      limits: {memory: 6Gi}
 defaultBuilder: vpro
 
 # Defaults for files/repos/<repo>.yaml (merged; see README.md for the format).
@@ -141,7 +132,7 @@ argo-workflows:
               - weight: 100
                 preference:
                   matchExpressions:
-                    - {key: node-role.kubernetes.io/ci-builder, operator: Exists}
+                    - {key: teknoir.org/ci-builder, operator: Exists}
   server:
     # sso: Keycloak login (realm master, client argo-workflows, charts/auth realm file);
     # members of Keycloak group admin act as ServiceAccount ci-admin (templates/rbac.yaml),
@@ -154,7 +145,7 @@ argo-workflows:
       clientId: {name: argo-workflows-sso, key: client-id}          # platform-secrets
       clientSecret: {name: argo-workflows-sso, key: client-secret}
       redirectUrl: https://ci.teknoir.cloud/oauth2/callback
-      scopes: [email, profile]   # the client's mapper always adds the groups claim
+      scopes: [email, profile, groups]
       rbac:
         enabled: true
         secretWhitelist: [ci-admin.service-account-token, argo-workflows-sso]

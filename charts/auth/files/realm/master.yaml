@@ -1,44 +1,137 @@
 {{- /*
 Realm `master` on teknoir-cloud, imported by keycloak-config-cli
-(templates/keycloak-config.yaml) after every sync of the auth Application.
+(templates/keycloak-config.yaml) after every sync of the auth Application. This file
+replaces the manual Keycloak steps of the old bootstrap (infra README): a fresh install
+needs nothing done in the Keycloak UI.
 
-Rendered by Helm first (domain); keycloak-config-cli then substitutes
-$(env:...) with the client secrets from Secret teknoir-auth/keycloak-client-secrets
-(platform-secrets). No secret is in Git.
+Rendered by Helm first (domain); keycloak-config-cli then substitutes $(env:...) with
+the client secrets from Secret teknoir-auth/keycloak-client-secrets (platform-secrets).
+No secret is in Git.
 
-Only what is listed here is managed, and nothing is ever deleted (the Job sets
-every IMPORT_MANAGED_* to no-delete): the clients made by hand before this file
-(teknoir for oauth2-proxy and user-controller, ...) stay as they are until they are
-added here. Users are mostly managed by user-controller (User CRs); this file only
-pins the platform owner's Keycloak admin access. For a managed user the import sets
-exactly the listed realm roles and groups, so list all of them.
+Nothing that is not listed here is ever deleted (the Job sets every IMPORT_MANAGED_*
+to no-delete). Users are managed by user-controller (User CRs); this file only pins
+service accounts and the platform owners' Keycloak admin access. For a managed user
+the import sets exactly the listed realm roles, client roles and groups.
 */ -}}
 {{- $d := .Values.domain }}
+{{- $scopes := list "web-origins" "acr" "profile" "roles" "email" "basic" "groups" }}
 realm: master
+
+clientScopes:
+  # Flat group names as claim "groups" (ArgoCD, Argo Workflows and Harbor RBAC on group admin).
+  - name: groups
+    description: Group membership (flat names) as claim "groups"
+    protocol: openid-connect
+    attributes:
+      include.in.token.scope: "true"
+      display.on.consent.screen: "false"
+    protocolMappers:
+      - name: groups
+        protocol: openid-connect
+        protocolMapper: oidc-group-membership-mapper
+        consentRequired: false
+        config:
+          claim.name: groups
+          full.path: "false"
+          id.token.claim: "true"
+          access.token.claim: "true"
+          userinfo.token.claim: "true"
+          introspection.token.claim: "true"
+  # Audience "teknoir" in access tokens of the platform login (oauth2-proxy -> services).
+  - name: teknoir
+    description: Audience teknoir
+    protocol: openid-connect
+    attributes:
+      include.in.token.scope: "true"
+      display.on.consent.screen: "false"
+    protocolMappers:
+      - name: audience-teknoir
+        protocol: openid-connect
+        protocolMapper: oidc-audience-mapper
+        consentRequired: false
+        config:
+          included.client.audience: teknoir
+          access.token.claim: "true"
+          id.token.claim: "false"
+          introspection.token.claim: "true"
+
 groups:
-  # Platform administrators: Keycloak-side admin of the platform services (Argo
-  # Workflows admin, Harbor admin through the group claim).
+  # Platform administrators: ArgoCD role:admin, Argo Workflows ci-admin, Harbor admin.
   - name: admin
+
 clients:
-  # The service client this import logs in with (client credentials, realm role
-  # admin). keycloak-admin-bootstrap creates it once with `kc.sh bootstrap-admin
-  # service`; from then on it is managed here.
-  - clientId: keycloak-config-cli
-    name: keycloak-config-cli (GitOps realm import)
+  # The edge login (oauth2-proxy on every *.{{ $d }} host) and user-controller's Keycloak
+  # admin access (client credentials, master-realm manage/view/query-users).
+  - clientId: teknoir
+    name: Teknoir platform (oauth2-proxy, user-controller)
     enabled: true
+    protocol: openid-connect
     publicClient: false
+    clientAuthenticatorType: client-secret
+    secret: $(env:TEKNOIR_CLIENT_SECRET)
+    standardFlowEnabled: true
+    implicitFlowEnabled: false
+    directAccessGrantsEnabled: false
     serviceAccountsEnabled: true
+    rootUrl: https://{{ $d }}
+    redirectUris:
+      - https://{{ $d }}/oauth2/callback
+      - https://*.{{ $d }}/oauth2/callback
+    webOrigins: ["+"]
+    attributes:
+      pkce.code.challenge.method: S256
+      post.logout.redirect.uris: "https://{{ $d }}/*##https://*.{{ $d }}/*"
+    defaultClientScopes: {{ toJson (append $scopes "teknoir") }}
+    optionalClientScopes: [offline_access]
+  # tnctl (cli): public client, OAuth device flow; tokens carry audience teknoir-cli, which
+  # oauth2-proxy (--extra-jwt-issuers) and Backstage externalAccess accept.
+  - clientId: teknoir-cli
+    name: tnctl
+    enabled: true
+    protocol: openid-connect
+    publicClient: true
     standardFlowEnabled: false
     implicitFlowEnabled: false
     directAccessGrantsEnabled: false
-    secret: $(env:KEYCLOAK_CONFIG_CLI_CLIENT_SECRET)
-  # Argo Workflows UI (charts/ci). Group membership is in the `groups` claim (Argo
-  # RBAC: group admin -> ServiceAccount ci-admin).
+    serviceAccountsEnabled: false
+    attributes:
+      oauth2.device.authorization.grant.enabled: "true"
+    protocolMappers:
+      - name: audience-teknoir-cli
+        protocol: openid-connect
+        protocolMapper: oidc-audience-mapper
+        consentRequired: false
+        config:
+          included.client.audience: teknoir-cli
+          access.token.claim: "true"
+          id.token.claim: "false"
+    defaultClientScopes: {{ toJson $scopes }}
+    optionalClientScopes: [offline_access]
+  # Argo CD (infra charts/argo, oidc.config): group admin -> role:admin.
+  - clientId: argocd
+    name: Argo CD (argocd.{{ $d }})
+    enabled: true
+    protocol: openid-connect
+    publicClient: false
+    clientAuthenticatorType: client-secret
+    secret: $(env:ARGOCD_CLIENT_SECRET)
+    standardFlowEnabled: true
+    implicitFlowEnabled: false
+    directAccessGrantsEnabled: false
+    serviceAccountsEnabled: false
+    rootUrl: https://argocd.{{ $d }}
+    redirectUris: ["https://argocd.{{ $d }}/auth/callback"]
+    webOrigins: ["https://argocd.{{ $d }}"]
+    defaultClientScopes: {{ toJson $scopes }}
+    optionalClientScopes: [offline_access]
+  # Argo Workflows UI (charts/ci): group admin -> ServiceAccount ci-admin.
   - clientId: argo-workflows
     name: Argo Workflows (ci.{{ $d }})
     enabled: true
     protocol: openid-connect
     publicClient: false
+    clientAuthenticatorType: client-secret
+    secret: $(env:ARGO_WORKFLOWS_CLIENT_SECRET)
     standardFlowEnabled: true
     implicitFlowEnabled: false
     directAccessGrantsEnabled: false
@@ -48,23 +141,16 @@ clients:
     webOrigins: ["https://ci.{{ $d }}"]
     attributes:
       post.logout.redirect.uris: "https://ci.{{ $d }}/*"
-    secret: $(env:ARGO_WORKFLOWS_CLIENT_SECRET)
-    protocolMappers:
-      - name: groups
-        protocol: openid-connect
-        protocolMapper: oidc-group-membership-mapper
-        config:
-          claim.name: groups
-          full.path: "false"
-          id.token.claim: "true"
-          access.token.claim: "true"
-          userinfo.token.claim: "true"
-  # Harbor UI login (charts/harbor oidcConfig). Group admin -> Harbor system admin.
+    defaultClientScopes: {{ toJson $scopes }}
+    optionalClientScopes: [offline_access]
+  # Harbor UI login (charts/harbor oidcConfig): group admin -> Harbor system admin.
   - clientId: harbor
     name: Harbor (harbor.{{ $d }})
     enabled: true
     protocol: openid-connect
     publicClient: false
+    clientAuthenticatorType: client-secret
+    secret: $(env:HARBOR_CLIENT_SECRET)
     standardFlowEnabled: true
     implicitFlowEnabled: false
     directAccessGrantsEnabled: false
@@ -72,24 +158,34 @@ clients:
     rootUrl: https://harbor.{{ $d }}
     redirectUris: ["https://harbor.{{ $d }}/c/oidc/callback"]
     webOrigins: ["https://harbor.{{ $d }}"]
-    secret: $(env:HARBOR_CLIENT_SECRET)
-    protocolMappers:
-      - name: groups
-        protocol: openid-connect
-        protocolMapper: oidc-group-membership-mapper
-        config:
-          claim.name: groups
-          full.path: "false"
-          id.token.claim: "true"
-          access.token.claim: "true"
-          userinfo.token.claim: "true"
+    defaultClientScopes: {{ toJson $scopes }}
+    optionalClientScopes: [offline_access]
+  # The import's own identity (client credentials, realm role admin). keycloak-admin-bootstrap
+  # creates it once with `kc.sh bootstrap-admin service`; from then on it is managed here.
+  - clientId: keycloak-config-cli
+    name: keycloak-config-cli (GitOps realm import)
+    enabled: true
+    publicClient: false
+    clientAuthenticatorType: client-secret
+    serviceAccountsEnabled: true
+    standardFlowEnabled: false
+    implicitFlowEnabled: false
+    directAccessGrantsEnabled: false
+    secret: $(env:KEYCLOAK_CONFIG_CLI_CLIENT_SECRET)
+
 users:
-  # The import's own identity: keep realm role admin (without it the next import
-  # cannot log in).
+  # Keep realm role admin, or the next import cannot log in.
   - username: service-account-keycloak-config-cli
     enabled: true
     serviceAccountClientId: keycloak-config-cli
     realmRoles: [admin, default-roles-master]
+  # user-controller (KEYCLOAK_CLIENTID=teknoir in backstage-keycloak-secrets).
+  - username: service-account-teknoir
+    enabled: true
+    serviceAccountClientId: teknoir
+    realmRoles: [default-roles-master]
+    clientRoles:
+      master-realm: [manage-users, view-users, query-users, query-groups]
 {{- range .Values.keycloakConfig.platformOwners }}
   # Platform owner: always Keycloak admin and in group admin, on every install.
   - username: {{ . | quote }}

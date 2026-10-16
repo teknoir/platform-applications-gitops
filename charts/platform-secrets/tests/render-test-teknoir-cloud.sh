@@ -29,6 +29,8 @@ CHART=$(cd "$HERE/.." && pwd)
 REPO=$(cd "$CHART/../.." && pwd)
 REDESIGN_REF=${REDESIGN_REF:-origin/airgap-redesign}
 WORK=$(mktemp -d)
+GOLDEN="$(dirname "$0")/golden"
+# UPDATE_GOLDEN=1 rewrites the golden files from this render (review the git diff!).
 trap 'rm -rf "$WORK"' EXIT
 pass=0
 fail=0
@@ -66,81 +68,24 @@ else
 	cat "$WORK/kc.txt"
 fi
 yq -N '.kind + " " + .metadata.namespace + "/" + .metadata.name' "$WORK/render.yaml" | sort >"$WORK/objects"
-cat >"$WORK/objects.want" <<'EOF'
-ConfigMap teknoir-system/platform-secrets
-CronJob teknoir-system/platform-secrets-resync
-Job teknoir-system/platform-secrets-ensure
-Role teknoir-auth/platform-secrets
-Role teknoir-ci/platform-secrets
-Role teknoir-system/platform-secrets
-RoleBinding teknoir-auth/platform-secrets
-RoleBinding teknoir-ci/platform-secrets
-RoleBinding teknoir-system/platform-secrets
-ServiceAccount teknoir-system/platform-secrets
-EOF
-diff -u "$WORK/objects.want" "$WORK/objects" && ok "R2 exactly the 10 expected objects" || bad "R2 object list"
+diff -u "$GOLDEN/objects" "$WORK/objects" && ok "R2 object list = golden/objects" || bad "R2 object list (golden/objects; UPDATE_GOLDEN=1 to rewrite after review)"
 
 echo "== R3 secrets.spec"
 yq -N 'select(.kind == "ConfigMap") | .data["secrets.spec"]' "$WORK/render.yaml" | sed '/^$/d' >"$WORK/spec"
 # KEYCLOAK_CLIENTID=teknoir, KEYCLOAK_REALM=master (base64), both sync: true.
-cat >"$WORK/spec.want" <<'EOF'
-S|teknoir-system|backstage-keycloak-secrets|Opaque|0
-L|teknoir.org/managed-by|platform-secrets
-K|KEYCLOAK_CLIENTID|value|dGVrbm9pcg==|1
-K|KEYCLOAK_REALM|value|bWFzdGVy|1
-K|KEYCLOAK_CLIENTSECRET|copy|teknoir-auth|oauth2-proxy-secret|client-secret
-R|teknoir-system|user-controller
-E
-S|teknoir-auth|keycloak-client-secrets|Opaque|1
-L|teknoir.org/managed-by|platform-secrets
-K|argo-workflows|random|40|alnum|0|base64|JXM=
-K|harbor|random|40|alnum|0|base64|JXM=
-K|keycloak-config-cli|random|48|alnum|0|base64|JXM=
-E
-S|teknoir-ci|argo-workflows-sso|Opaque|0
-L|teknoir.org/managed-by|platform-secrets
-K|client-id|value|YXJnby13b3JrZmxvd3M=|1
-K|client-secret|copy|teknoir-auth|keycloak-client-secrets|argo-workflows
-R|teknoir-ci|ci-argo-workflows-server
-E
-S|teknoir-system|harbor-oidc-secret|Opaque|0
-L|teknoir.org/managed-by|platform-secrets
-K|client-secret|copy|teknoir-auth|keycloak-client-secrets|harbor
-E
-EOF
-diff -u "$WORK/spec.want" "$WORK/spec" && ok "R3 secrets.spec is exactly the staging entries" || bad "R3 secrets.spec"
-# Only the Keycloak client secrets are generated here; everything else is copied.
-[ "$(grep '|random|' "$WORK/spec" | cut -d'|' -f2 | tr '\n' ' ')" = "argo-workflows harbor keycloak-config-cli " ] &&
-	ok "R3 random keys only in keycloak-client-secrets" || bad "R3 unexpected random keys"
+diff -u "$GOLDEN/secrets.spec" "$WORK/spec" && ok "R3 secrets.spec = golden/secrets.spec" || bad "R3 secrets.spec (golden/secrets.spec)"
 [ "$(yq -N 'select(.kind == "ConfigMap") | .data["ensure-secrets.sh"]' "$WORK/render.yaml")" = "$(cat "$CHART/files/ensure-secrets.sh")" ] &&
 	ok "R3 ConfigMap carries files/ensure-secrets.sh verbatim" || bad "R3 script in ConfigMap differs"
 
 echo "== R4 RBAC"
 rules() { yq -N -o=json -I=0 "select(.kind == \"Role\" and .metadata.namespace == \"$1\") | .rules" "$WORK/render.yaml"; }
-want_auth='[{"apiGroups":[""],"resources":["secrets"],"resourceNames":["keycloak-client-secrets","oauth2-proxy-secret"],"verbs":["get"]},'
-want_auth+='{"apiGroups":[""],"resources":["secrets"],"resourceNames":["keycloak-client-secrets"],"verbs":["patch"]},'
-want_auth+='{"apiGroups":[""],"resources":["secrets"],"verbs":["create"]}]'
-[ "$(rules teknoir-auth)" = "$want_auth" ] &&
-	ok "R4 teknoir-auth: get oauth2-proxy-secret, get/patch keycloak-client-secrets, create" || bad "R4 teknoir-auth rules: $(rules teknoir-auth)"
-want_ci='[{"apiGroups":[""],"resources":["secrets"],"resourceNames":["argo-workflows-sso"],"verbs":["get"]},'
-want_ci+='{"apiGroups":[""],"resources":["secrets"],"resourceNames":["argo-workflows-sso"],"verbs":["patch"]},'
-want_ci+='{"apiGroups":[""],"resources":["secrets"],"verbs":["create"]},'
-want_ci+='{"apiGroups":["apps"],"resources":["deployments"],"resourceNames":["ci-argo-workflows-server"],"verbs":["get","patch"]}]'
-[ "$(rules teknoir-ci)" = "$want_ci" ] &&
-	ok "R4 teknoir-ci: get/patch argo-workflows-sso, create, get/patch ci-argo-workflows-server" || bad "R4 teknoir-ci rules: $(rules teknoir-ci)"
-want_sys='[{"apiGroups":[""],"resources":["secrets"],"resourceNames":["backstage-keycloak-secrets","harbor-oidc-secret"],"verbs":["get"]},'
-want_sys+='{"apiGroups":[""],"resources":["secrets"],"resourceNames":["backstage-keycloak-secrets","harbor-oidc-secret"],"verbs":["patch"]},'
-want_sys+='{"apiGroups":[""],"resources":["secrets"],"verbs":["create"]},'
-want_sys+='{"apiGroups":["apps"],"resources":["deployments"],"resourceNames":["user-controller"],"verbs":["get","patch"]}]'
-[ "$(rules teknoir-system)" = "$want_sys" ] &&
-	ok "R4 teknoir-system: get/patch backstage-keycloak-secrets + harbor-oidc-secret, create, get/patch user-controller" ||
-	bad "R4 teknoir-system rules: $(rules teknoir-system)"
+for ns in $(yq -N 'select(.kind == "Role") | .metadata.namespace' "$WORK/render.yaml" | sort -u); do
+	printf '%s %s\n' "$ns" "$(rules "$ns")"
+done >"$WORK/rules"
+diff -u "$GOLDEN/rules" "$WORK/rules" && ok "R4 Role rules = golden/rules" || bad "R4 Role rules (golden/rules)"
 yq -N 'select(.kind == "RoleBinding") | .metadata.namespace + " " + .roleRef.kind + "/" + .roleRef.name + " " +
 	(.subjects | map(.kind + ":" + .namespace + "/" + .name) | join(","))' "$WORK/render.yaml" | sort >"$WORK/rb"
-printf '%s\n' "teknoir-auth Role/platform-secrets ServiceAccount:teknoir-system/platform-secrets" \
-	"teknoir-ci Role/platform-secrets ServiceAccount:teknoir-system/platform-secrets" \
-	"teknoir-system Role/platform-secrets ServiceAccount:teknoir-system/platform-secrets" >"$WORK/rb.want"
-diff -u "$WORK/rb.want" "$WORK/rb" && ok "R4 RoleBindings bind only the platform-secrets ServiceAccount" || bad "R4 RoleBindings"
+diff -u "$GOLDEN/rolebindings" "$WORK/rb" && ok "R4 RoleBindings = golden/rolebindings (only the platform-secrets ServiceAccount)" || bad "R4 RoleBindings (golden/rolebindings)"
 grep -qE '^kind: Cluster(Role|RoleBinding)' "$WORK/render.yaml" && bad "R4 cluster-scoped RBAC rendered" || ok "R4 no ClusterRole/ClusterRoleBinding"
 
 echo "== R5 Job and CronJob"
@@ -191,6 +136,13 @@ if command -v crane >/dev/null 2>&1 && [ -z "${OFFLINE:-}" ]; then
 	fi
 else
 	skip "R7 crane missing or OFFLINE set"
+fi
+
+if [ -n "${UPDATE_GOLDEN:-}" ]; then
+	mkdir -p "$GOLDEN"
+	cp "$WORK/objects" "$GOLDEN/objects"; cp "$WORK/spec" "$GOLDEN/secrets.spec"
+	cp "$WORK/rules" "$GOLDEN/rules"; cp "$WORK/rb" "$GOLDEN/rolebindings"
+	echo "golden files rewritten in $GOLDEN"
 fi
 
 echo
