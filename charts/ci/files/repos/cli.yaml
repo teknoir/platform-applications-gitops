@@ -1,0 +1,16 @@
+# cli / tnctl (public). Tests translated from .github/workflows/k3s-ca.yml (job unit) on 2026-10-16.
+# Releases stay on GitHub Actions (release.yml, goreleaser on v* tags): the repo is public, so Actions
+# runs, and a release step here would need the org-wide CI token inside repo-controlled code, which the
+# test steps deliberately never get. k3s-ca.yml's docker-matrix job needs Docker (none here on
+# purpose), so that workflow stays too.
+branches: ['**']
+tests:
+  - name: unit
+    image: "docker.io/library/golang:1.26"
+    memory: 2Gi
+    run: >-
+      apt-get update -qq && apt-get install -y -qq --no-install-recommends openssl shellcheck >/dev/null &&
+      shellcheck -s sh -S warning pkg/templates/scripts/tn-k3s-ca.sh &&
+      go test ./test/k3s-ca/... ./cmd/... ./pkg/auth/... &&
+      (cd pkg/templates && go test ./...)
+githubActions: keep
