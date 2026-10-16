@@ -1,0 +1,223 @@
+{{- if .Values.keycloakConfig.enabled }}
+{{- $ns := include "auth.namespace" . -}}
+{{- $c := .Values.keycloakConfig -}}
+# Realm-as-code (files/realm/master.yaml): two PostSync hooks after every sync.
+#   wave 0  keycloak-admin-bootstrap  makes sure the import's admin service client
+#           exists (kc.sh bootstrap-admin service, only when it cannot log in)
+#   wave 1  keycloak-config           keycloak-config-cli imports the realm file
+# Both talk to Keycloak and its database through the mesh (STRICT mTLS), with the
+# Istio sidecar as a native sidecar that ends with the Job.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keycloak-config
+  namespace: {{ $ns }}
+  labels:
+    app: keycloak-config
+data:
+  master.yaml: |
+{{ tpl (.Files.Get "files/realm/master.yaml") . | indent 4 }}
+  admin-check.sh: |
+    #!/bin/sh
+    # Writes /state/result: "ok" when the service client logs in, "bootstrap" when
+    # Keycloak answers that the client does not exist or its secret is wrong.
+    # Waits for Keycloak; any other answer fails the Job (retried by ArgoCD).
+    set -eu
+    url="$KEYCLOAK_URL/realms/master/protocol/openid-connect/token"
+    i=0
+    while :; do
+      code=$(curl -s -o /tmp/resp -w '%{http_code}' -X POST "$url" \
+        --data-urlencode grant_type=client_credentials \
+        --data-urlencode client_id="$CLIENT_ID" \
+        --data-urlencode client_secret@/secret/client-secret || echo 000)
+      case $code in
+      200) echo ok >/state/result; echo "admin-check: $CLIENT_ID logs in"; exit 0 ;;
+      400|401)
+        if grep -q -E 'invalid_client|unauthorized_client' /tmp/resp; then
+          echo bootstrap >/state/result; echo "admin-check: $CLIENT_ID cannot log in ($code), bootstrap needed"; exit 0
+        fi ;;
+      esac
+      i=$((i+1)); [ "$i" -lt 60 ] || { echo "admin-check: Keycloak not ready (last HTTP $code)" >&2; exit 1; }
+      sleep 10
+    done
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: keycloak-config
+  namespace: {{ $ns }}
+  labels:
+    app: keycloak-config
+automountServiceAccountToken: false
+---
+# Creates the master-realm service client keycloak-config-cli (realm role admin)
+# with Keycloak's own non-interactive bootstrap (`kc.sh bootstrap-admin service`,
+# the documented way to (re)gain admin access without a password), only when the
+# client cannot log in. It runs Keycloak's image against the database with a local
+# cache, so it never joins the running cluster. On an install where the client exists
+# with another secret, the bootstrap refuses (client exists) and the Job fails:
+# rotate by deleting the client in Keycloak, then sync.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: keycloak-admin-bootstrap
+  namespace: {{ $ns }}
+  labels:
+    app: keycloak-config
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  backoffLimit: {{ $c.backoffLimit }}
+  activeDeadlineSeconds: {{ $c.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        app: keycloak-config
+      annotations:
+        sidecar.istio.io/nativeSidecar: "true"
+    spec:
+      serviceAccountName: keycloak-config
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      initContainers:
+        - name: admin-check
+          image: "{{ $c.toolboxImage.repository }}:{{ $c.toolboxImage.tag }}"
+          imagePullPolicy: {{ $c.toolboxImage.pullPolicy }}
+          command: ["/bin/sh", "/opt/keycloak-config/admin-check.sh"]
+          env:
+            - {name: KEYCLOAK_URL, value: {{ include "auth.keycloakInternalUrl" . | quote }}}
+            - {name: CLIENT_ID, value: keycloak-config-cli}
+          securityContext: &restricted
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {memory: 64Mi}
+          volumeMounts:
+            - {name: scripts, mountPath: /opt/keycloak-config, readOnly: true}
+            - {name: cli-secret, mountPath: /secret, readOnly: true}
+            - {name: state, mountPath: /state}
+      containers:
+        - name: bootstrap
+          image: "{{ .Values.keycloak.image.repository }}:{{ .Values.keycloak.image.tag }}"
+          imagePullPolicy: {{ .Values.keycloak.image.pullPolicy }}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              if [ "$(cat /state/result)" = ok ]; then echo "bootstrap: not needed"; exit 0; fi
+              export KC_CLI_SECRET; KC_CLI_SECRET=$(cat /secret/client-secret)
+              /opt/keycloak/bin/kc.sh bootstrap-admin service --client-id=keycloak-config-cli \
+                --client-secret:env=KC_CLI_SECRET --no-prompt
+              echo "bootstrap: service client keycloak-config-cli created"
+          env:
+            # Same database and build options as the Keycloak StatefulSet; a local
+            # cache keeps this process out of the running Infinispan cluster.
+            - {name: KC_CACHE, value: local}
+            - {name: KC_HTTP_RELATIVE_PATH, value: {{ include "auth.relativePath" . | quote }}}
+            - {name: KC_DB, value: postgres}
+            - {name: KC_DB_URL_HOST, value: {{ .Values.keycloak.database.hostname | quote }}}
+            - {name: KC_DB_URL_PORT, value: {{ .Values.keycloak.database.port | quote }}}
+            - {name: KC_DB_URL_DATABASE, value: {{ .Values.keycloak.database.database | quote }}}
+            - name: KC_DB_USERNAME
+              valueFrom: {secretKeyRef: {name: {{ .Values.keycloak.database.existingSecret }}, key: username}}
+            - name: KC_DB_PASSWORD
+              valueFrom: {secretKeyRef: {name: {{ .Values.keycloak.database.existingSecret }}, key: {{ .Values.keycloak.database.existingSecretKey }}}}
+            - {name: KC_HEALTH_ENABLED, value: "true"}
+            - {name: KC_METRICS_ENABLED, value: "true"}
+          securityContext: *restricted
+          resources:
+            requests: {cpu: 100m, memory: 512Mi}
+            limits: {memory: 1Gi}
+          volumeMounts:
+            - {name: cli-secret, mountPath: /secret, readOnly: true}
+            - {name: state, mountPath: /state, readOnly: true}
+      {{- with .Values.keycloak.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: scripts
+          configMap: {name: keycloak-config, items: [{key: admin-check.sh, path: admin-check.sh}]}
+        - name: cli-secret
+          secret:
+            secretName: {{ $c.clientSecretsSecret }}
+            items: [{key: keycloak-config-cli, path: client-secret}]
+        - {name: state, emptyDir: {medium: Memory, sizeLimit: 1Mi}}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: keycloak-config
+  namespace: {{ $ns }}
+  labels:
+    app: keycloak-config
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  backoffLimit: {{ $c.backoffLimit }}
+  activeDeadlineSeconds: {{ $c.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        app: keycloak-config
+      annotations:
+        sidecar.istio.io/nativeSidecar: "true"
+    spec:
+      serviceAccountName: keycloak-config
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: keycloak-config-cli
+          image: "{{ $c.image.repository }}:{{ $c.image.tag }}"
+          imagePullPolicy: {{ $c.image.pullPolicy }}
+          env:
+            - {name: KEYCLOAK_URL, value: {{ include "auth.keycloakInternalUrl" . | quote }}}
+            - {name: KEYCLOAK_LOGINREALM, value: master}
+            - {name: KEYCLOAK_GRANTTYPE, value: client_credentials}
+            - {name: KEYCLOAK_CLIENTID, value: keycloak-config-cli}
+            - name: KEYCLOAK_CLIENTSECRET
+              valueFrom: {secretKeyRef: {name: {{ $c.clientSecretsSecret }}, key: keycloak-config-cli}}
+            - {name: KEYCLOAK_AVAILABILITYCHECK_ENABLED, value: "true"}
+            - {name: KEYCLOAK_AVAILABILITYCHECK_TIMEOUT, value: "300s"}
+            - {name: IMPORT_FILES_LOCATIONS, value: /config/*.yaml}
+            - {name: IMPORT_VARSUBSTITUTION_ENABLED, value: "true"}
+            # Always the full (idempotent) import, so UI drift is corrected on the next sync.
+            - {name: IMPORT_CACHE_ENABLED, value: "false"}
+            # user-controller owns user attributes; required actions only at creation.
+            - {name: IMPORT_BEHAVIORS_USERUPDATEIGNOREDPROPERTIES, value: "attributes,requiredActions"}
+            # Never delete anything this file does not list (realm master predates it).
+            {{- range list "AUTHENTICATIONFLOW" "CLIENT" "CLIENTSCOPE" "CLIENTAUTHORIZATIONRESOURCES" "CLIENTAUTHORIZATIONPOLICIES" "CLIENTAUTHORIZATIONSCOPES" "COMPONENT" "GROUP" "IDENTITYPROVIDER" "IDENTITYPROVIDERMAPPER" "MESSAGEBUNDLE" "REQUIREDACTION" "ROLE" "SCOPEMAPPING" "CLIENTSCOPEMAPPING" "SUBCOMPONENT" }}
+            - {name: IMPORT_MANAGED_{{ . }}, value: no-delete}
+            {{- end }}
+            - {name: JAVA_OPTS, value: {{ $c.javaOpts | quote }}}
+            {{- range $env, $key := $c.clientSecretEnv }}
+            - name: {{ $env }}
+              valueFrom: {secretKeyRef: {name: {{ $c.clientSecretsSecret }}, key: {{ $key }}}}
+            {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          resources: {{- toYaml $c.resources | nindent 12 }}
+          volumeMounts:
+            - {name: realm, mountPath: /config, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: realm
+          configMap: {name: keycloak-config, items: [{key: master.yaml, path: master.yaml}]}
+        - {name: tmp, emptyDir: {medium: Memory, sizeLimit: 32Mi}}
+{{- end }}

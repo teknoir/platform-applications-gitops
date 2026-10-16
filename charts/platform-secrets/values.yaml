@@ -2,8 +2,8 @@
 #
 # The chart code (templates, files/ensure-secrets.sh, README) is identical to
 # platform-secrets 0.0.1 on airgap-redesign/teknoir-local. Only this file
-# differs: staging manages exactly ONE Secret, so a missing values override
-# can never generate the airgap's Secrets here.
+# differs: staging manages only the Secrets listed below, so a missing values
+# override can never generate the airgap's Secrets here.
 #
 # A Job (files/ensure-secrets.sh) reconciles the Secrets listed under
 # `secrets` below:
@@ -131,3 +131,41 @@ secrets:
         copyFrom: teknoir-auth/oauth2-proxy-secret/client-secret
     restartDeployments:
       - teknoir-system/user-controller
+
+  # --- Keycloak realm-as-code (charts/auth keycloakConfig, realm master) -----
+  # Canonical client secrets of the clients charts/auth/files/realm/master.yaml
+  # manages. keycloak-config-cli sets them in Keycloak; the copies below hand
+  # them to the consumers. Generated once in-cluster, never in Git.
+  #   keycloak-config-cli  the master-realm admin service client the import
+  #                        logs in with (created once by keycloak-admin-bootstrap)
+  #   argo-workflows       Argo Workflows SSO (charts/ci)
+  #   harbor               Harbor OIDC login (charts/harbor oidcConfig)
+  - namespace: teknoir-auth
+    name: keycloak-client-secrets
+    addMissingKeys: true
+    keys:
+      keycloak-config-cli:
+        random: {length: 48, charset: alnum}
+      argo-workflows:
+        random: {length: 40, charset: alnum}
+      harbor:
+        random: {length: 40, charset: alnum}
+
+  # argo-server's SSO client (charts/ci argo-workflows.server.sso).
+  - namespace: teknoir-ci
+    name: argo-workflows-sso
+    keys:
+      client-id:
+        value: argo-workflows
+        sync: true
+      client-secret:
+        copyFrom: teknoir-auth/keycloak-client-secrets/argo-workflows
+    restartDeployments:
+      - teknoir-ci/ci-argo-workflows-server
+
+  # Harbor's OIDC client secret (charts/harbor oidcConfig.clientSecret).
+  - namespace: teknoir-system
+    name: harbor-oidc-secret
+    keys:
+      client-secret:
+        copyFrom: teknoir-auth/keycloak-client-secrets/harbor

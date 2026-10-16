@@ -50,3 +50,12 @@ config:
   userIdPrefix:
   mailClientApiKey: ""
   webDomain: teknoir.cloud
+
+# Users every install gets (templates/platform-users.yaml). role superadmin = platform
+# superuser (all teamspaces). Anders (2026-10-16): "always add my user as a superuser".
+platformUsers:
+  - email: anders.aslund@teknoir.ai
+    displayName: Anders Åslund
+    role: superadmin
+    claimSet:
+      - {name: owner, namespace: teknoir-demo}
