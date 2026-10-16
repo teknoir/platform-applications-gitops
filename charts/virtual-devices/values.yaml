@@ -18,6 +18,13 @@ kubevirt:
   # Staging is the single 14 GB vpro host since 2026-10-16: one replica each. At two, KubeVirt and
   # CDI reserved 3.5 GiB of requests and CI pods no longer scheduled ("Insufficient memory").
   infraReplicas: 1
+  # Where virt-handler runs, so where VMs can run: the dev host agent (taint teknoir.org/ci,
+  # label teknoir.org/virtual-devices=true). Empty: every node. The VMs themselves are placed
+  # by the device-controller (virtualDevices.nodeSelector/tolerations).
+  workloadsNodePlacement:
+    nodeSelector: {teknoir.org/virtual-devices: "true"}
+    tolerations:
+      - {key: teknoir.org/ci, operator: Exists, effect: NoSchedule}
   # No feature gates: nothing in the virtual-device design needs one.
   featureGates: []
   # The auto-attached serial console is still available (virtctl console), but its
@@ -51,6 +58,9 @@ cdi:
   # kubevirt.infraReplicas (+150Mi requests). CDI's anti-affinity is only preferred.
   # One on the single vpro host (see kubevirt.infraReplicas).
   apiServerReplicas: 1
+  # CDI workload pods (importer, cloner, upload server) run next to the VM's disk: the dev host.
+  workloadTolerations:
+    - {key: teknoir.org/ci, operator: Exists, effect: NoSchedule}
   uninstallStrategy: BlockUninstallIfWorkloadsExist
 
 # Scheduling class for virtual-device VMs (virt-launcher pods). Platform pods run at

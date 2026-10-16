@@ -149,7 +149,10 @@ on the quota annotation). Only included in the ConfigMap when virtualDevices.ena
 {{- $m := atoi (include "device-controller.vdev.whole" (dict "value" $mp.memory "unit" "Gi" "what" "virtualDevices.maxPerDevice.memory")) -}}
 {{- $s := atoi (include "device-controller.vdev.whole" (dict "value" $mp.disk "unit" "Gi" "what" "virtualDevices.maxPerDevice.disk")) -}}
 {{- $max := dict "cpu" (printf "%d" $c) "memory" (printf "%dGi" $m) "disk" (printf "%dGi" $s) -}}
-{{- dict "enabled" true "osImage" $v.osImage "k3sVersion" $v.k3sVersion "innerCIDRs" $v.innerCIDRs "cpuOvercommit" $o "maxPerDevice" $max "storageClassName" $v.storageClassName "priorityClassName" $v.priorityClassName | toJson -}}
+{{- $c := dict "enabled" true "osImage" $v.osImage "k3sVersion" $v.k3sVersion "innerCIDRs" $v.innerCIDRs "cpuOvercommit" $o "maxPerDevice" $max "storageClassName" $v.storageClassName "priorityClassName" $v.priorityClassName -}}
+{{- with $v.nodeSelector }}{{- $_ := set $c "nodeSelector" . -}}{{- end -}}
+{{- with $v.tolerations }}{{- $_ := set $c "tolerations" . -}}{{- end -}}
+{{- toJson $c -}}
 {{- end }}
 
 {{/*

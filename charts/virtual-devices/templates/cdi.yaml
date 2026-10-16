@@ -21,5 +21,9 @@ spec:
   workload:
     nodeSelector:
       kubernetes.io/os: linux
+    {{- with .Values.cdi.workloadTolerations }}
+    tolerations:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
   uninstallStrategy: {{ .Values.cdi.uninstallStrategy }}
 {{- end }}
