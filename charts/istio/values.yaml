@@ -67,21 +67,21 @@ istio-egressgateway:
   service:
     type: ClusterIP
 
-# Second public domain fronted by the r415 edge. The single public IP is
-# port-forwarded to r415, so the hostname decision happens on this cluster's
-# ingress gateway. TLS is terminated here with a wildcard secret mirrored
-# out-of-band from the contoai cluster (r415 has no DNS-01 credentials for the
-# contoai.site zone - the Loopia webhook lives on contoai):
-#   infra/scripts/copy-contoai-cert-secret.sh
-# Traffic is then re-encrypted to the contoai ingress, which is authoritative
-# for *.contoai.site.
+# Second public domain fronted by the staging edge (vpro since 2026-10-16, r415 before).
+# The single office public IP is port-forwarded here, so the hostname decision
+# happens on this cluster's ingress gateway. Default PASSTHROUGH: TLS for
+# contoai.site / *.contoai.site is forwarded by SNI to the contoai ingress, which
+# terminates it with its own certificate (renewed there by its Loopia DNS-01 webhook),
+# so no certificate is copied here. tls.mode SIMPLE restores the old setup (terminate
+# here with a Secret copied by infra/scripts/copy-contoai-cert-secret.sh, re-encrypt).
 contoai:
   enabled: true
   domain: contoai.site
   # Explicit host list override (unset = [domain, *.domain]).
   hosts: []
   tls:
-    # Secret in istio-system, copied out-of-band (NOT managed by this chart).
+    mode: PASSTHROUGH
+    # SIMPLE only: Secret in istio-system, copied out-of-band (NOT managed by this chart).
     # Unset = "<domain-with-dashes>-wildcard-tls".
     credentialName: contoai-site-wildcard-tls
   backend:

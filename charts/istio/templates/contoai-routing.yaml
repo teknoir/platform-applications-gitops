@@ -6,6 +6,7 @@
 {{- $backendPort := .Values.contoai.backend.port | default 443 -}}
 {{- $backendSni := .Values.contoai.backend.sni | default $domain -}}
 {{- $insecure := .Values.contoai.backend.insecureSkipVerify | default false -}}
+{{- $passthrough := eq (.Values.contoai.tls.mode | default "PASSTHROUGH") "PASSTHROUGH" -}}
 ---
 # The contoai ingress lives outside this mesh.
 apiVersion: networking.istio.io/v1beta1
@@ -22,8 +23,9 @@ spec:
     - address: {{ $backendAddress | quote }}
   ports:
     - number: {{ $backendPort }}
-      name: https
-      protocol: HTTPS
+      name: {{ ternary "tls" "https" $passthrough }}
+      protocol: {{ ternary "TLS" "HTTPS" $passthrough }}
+{{- if not $passthrough }}
 ---
 # r415 terminates client TLS, then re-originates TLS to the contoai ingress
 # (which only speaks HTTPS). The wildcard certificate is publicly trusted and
@@ -40,6 +42,7 @@ spec:
       mode: SIMPLE
       sni: {{ $backendSni | quote }}
       insecureSkipVerify: {{ $insecure }}
+{{- end }}
 ---
 # Route every *.contoai.site host to the contoai ingress. That ingress routes by
 # Host header, which Istio preserves on the re-encrypted hop.
@@ -55,6 +58,21 @@ spec:
 {{- end }}
   gateways:
     - istio-system/contoai-gateway
+{{- if $passthrough }}
+  # SNI routing: the encrypted connection is forwarded as is.
+  tls:
+    - match:
+        - port: 443
+          sniHosts:
+{{- range $hosts }}
+            - {{ . | quote }}
+{{- end }}
+      route:
+        - destination:
+            host: {{ $backendHost | quote }}
+            port:
+              number: {{ $backendPort }}
+{{- else }}
   http:
     - name: contoai
       route:
@@ -62,4 +80,5 @@ spec:
             host: {{ $backendHost | quote }}
             port:
               number: {{ $backendPort }}
+{{- end }}
 {{- end }}

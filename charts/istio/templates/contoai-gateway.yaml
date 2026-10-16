@@ -2,12 +2,13 @@
 {{- $domain := .Values.contoai.domain | default "contoai.site" -}}
 {{- $hosts := .Values.contoai.hosts | default (list $domain (printf "*.%s" $domain)) -}}
 {{- $credentialName := .Values.contoai.tls.credentialName | default (printf "%s-wildcard-tls" (replace "." "-" $domain)) -}}
+{{- $passthrough := eq (.Values.contoai.tls.mode | default "PASSTHROUGH") "PASSTHROUGH" -}}
 ---
-# Edge Gateway for *.contoai.site.
-#
-# This is a second SIMPLE server on the same 443 listener as teknoir-gateway;
-# Istio selects the certificate by SNI, so the two Gateway resources coexist.
-# This is additive: the teknoir-gateway resource is not modified.
+# Edge Gateway for contoai (*.contoai.site): a second server on the same 443 listener
+# as teknoir-gateway, selected by SNI, so the two Gateway resources coexist.
+# PASSTHROUGH (default): the TLS connection goes untouched to the contoai ingress,
+# which holds and renews its own certificate. SIMPLE: terminate here with a copied
+# wildcard Secret (old r415 setup).
 apiVersion: networking.istio.io/v1beta1
 kind: Gateway
 metadata:
@@ -29,13 +30,22 @@ spec:
       httpsRedirect: true
   - port:
       number: 443
+{{- if $passthrough }}
+      name: tls-contoai
+      protocol: TLS
+{{- else }}
       name: https
       protocol: HTTPS
+{{- end }}
     hosts:
 {{- range $hosts }}
     - {{ . | quote }}
 {{- end }}
     tls:
+{{- if $passthrough }}
+      mode: PASSTHROUGH
+{{- else }}
       mode: SIMPLE
       credentialName: {{ $credentialName | quote }}
+{{- end }}
 {{- end }}
