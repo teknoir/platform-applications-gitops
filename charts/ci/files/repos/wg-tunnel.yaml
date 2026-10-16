@@ -7,7 +7,8 @@ branches: ['**']
 tags: ['**']
 tests:
   - {name: go-vet, image: "docker.io/library/golang:1.26", run: go vet ./...}
-  - {name: go-test-race, image: "docker.io/library/golang:1.26", run: go test -race -count=1 ./..., memory: 4Gi}
+  # -race needs a lot of memory per package; -p 4 bounds it on the 14 GB CI node.
+  - {name: go-test-race, image: "docker.io/library/golang:1.26", run: go test -race -count=1 -p 4 ./..., cpu: "2", memory: 8Gi}
 images:
   - name: wg-hub
     target: wg-hub
