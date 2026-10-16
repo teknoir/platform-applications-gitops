@@ -25,5 +25,10 @@ spec:
   imagePullPolicy: IfNotPresent
   infra:
     replicas: {{ int .Values.kubevirt.infraReplicas }}
+  {{- with .Values.kubevirt.workloadsNodePlacement }}
+  workloads:
+    nodePlacement:
+      {{- toYaml . | nindent 6 }}
+  {{- end }}
   uninstallStrategy: {{ .Values.kubevirt.uninstallStrategy }}
 {{- end }}
