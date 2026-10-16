@@ -255,8 +255,6 @@ tests:
               port: 8883
             - protocol: TCP
               port: 8084
-            - protocol: TCP
-              port: 2222
         documentIndex: 3
       - equal:
           path: spec.egress[0].to[0].ipBlock.cidr

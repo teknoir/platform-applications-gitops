@@ -64,13 +64,3 @@ spec:
       tls:
         mode: SIMPLE
         credentialName: {{ $credentialName | quote }}
-    - port:
-        name: tls-ssh
-        number: 2222
-        protocol: TLS
-      hosts:
-{{- range $hosts }}
-        - {{ . | quote }}
-{{- end }}
-      tls:
-        mode: PASSTHROUGH

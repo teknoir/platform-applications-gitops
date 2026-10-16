@@ -7,7 +7,7 @@ device:
   name: vd-spike-1
   teamspace: teknoir-demo
 
-# Platform domain the device connects to (mqtt-/deadend-<teamspace>.<domain>).
+# Platform domain the device connects to (mqtt-<teamspace>.<domain>).
 domain: teknoir.cloud
 
 vm:
