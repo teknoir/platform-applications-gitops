@@ -16,7 +16,7 @@ Checks:
   - PriorityClass teknoir-virtual-device: negative value, preemptionPolicy Never,
     not global default;
   - coredns-custom: one key, virtual-devices.override, whose rewrite regex matches
-    exactly mqtt-/deadend-<label>.<domain>.
+    exactly mqtt-<label>.<domain> (deadend-* is not rewritten).
 """
 import re
 import sys
@@ -160,7 +160,7 @@ def main():
             check(target == "istio-ingressgateway-public.istio-system.svc.cluster.local.", f"rewrite target {target}")
             for name, want in (
                 ("mqtt-teknoir-demo.teknoir.cloud.", True),
-                ("deadend-teknoir-demo.teknoir.cloud.", True),
+                ("deadend-teknoir-demo.teknoir.cloud.", False),  # deadend is gone on staging
                 ("mqtt-a.teknoir.cloud.", True),
                 ("mqtt-teknoir-demo.teknoir.cloud.example.com.", False),
                 ("x.mqtt-teknoir-demo.teknoir.cloud.", False),

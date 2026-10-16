@@ -2,8 +2,7 @@
 
 GitOps for **WireGuard over STUNner**, the ZTNA alternative to the SSH reverse tunnels. Design:
 `plans/wireguard-ztna-tunnel.md` (rev 3); wire contract: `github.com/teknoir/wg-tunnel` `pkg/api/api.go`.
-Staging (`teknoir-cloud`, r415) only. The SSH tunnel stack (deadend, reverse-tunnel, web-terminal tunnels)
-is not touched.
+Staging (`teknoir-cloud`, r415) only. The legacy SSH tunnel (deadend, port 2222) has been removed on staging; WireGuard replaces it.
 
 Three new charts and four touched charts, all behind **one switch**:
 

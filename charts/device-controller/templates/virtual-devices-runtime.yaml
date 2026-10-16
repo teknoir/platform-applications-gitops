@@ -46,7 +46,7 @@ metadata:
 # Kept (Prune=false) even when the allowance is removed: vdev-egress-internet is the
 # only policy that stays prunable, so switching to platform-only removes it.
 # Default deny in both directions for every pod in the namespace (virt-launcher, CDI
-# importer). Operators reach the device only through its reverse tunnel to deadend.
+# importer). Operators reach the device only through its WireGuard tunnel.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -91,7 +91,7 @@ spec:
           port: 53
 ---
 # Platform endpoints exactly as an external device uses them: MQTT over TLS (8883),
-# MQTT over WSS (8084) and the deadend reverse tunnel (2222), on the public ingress
+# MQTT over WSS (8084), on the public ingress
 # gateway pods (kube-proxy DNATs the gateway's ClusterIP to them).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -117,8 +117,6 @@ spec:
           port: 8883
         - protocol: TCP
           port: 8084
-        - protocol: TCP
-          port: 2222
 {{- if ($.Values.ztna).enabled }}
 ---
 # WireGuard (ZTNA) tunnels: the device's wg-agent reaches the TURN server exactly as an external

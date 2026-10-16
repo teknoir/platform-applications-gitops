@@ -47,10 +47,6 @@ istio-ingressgateway-public:
         port: 16021
         protocol: TCP
         targetPort: 15021
-      - name: tls-ssh
-        port: 2222
-        targetPort: 2222
-        protocol: TCP
       - name: https-mqtt
         port: 8084
         targetPort: 8084

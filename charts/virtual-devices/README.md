@@ -10,7 +10,7 @@ S1 spike on `teknoir-cloud`; see `hack/virtual-device-spike/README.md`.
 | KubeVirt operator, `KubeVirt` CR | v1.8.4 (k8s 1.34-1.35). No feature gates; serial console log disabled; 2 infra replicas; uninstall blocked while VMs exist. |
 | CDI operator, `CDI` CR | v1.65.0. Feature gate `HonorWaitForFirstConsumer` (local-path); explicit worker pod resources for quota budgeting; 2 `cdi-apiserver` replicas; uninstall blocked while DataVolumes exist. |
 | PriorityClass `teknoir-virtual-device` | `-100`, `preemptionPolicy: Never`: below every platform pod, never preempts. |
-| `kube-system/coredns-custom` key `virtual-devices.override` | `(mqtt\|deadend)-<ns>.<domain>` answer with the `istio-ingressgateway-public` ClusterIP, so a VM reaches EMQX and deadend through the public gateway like an external device. This chart owns the ConfigMap. |
+| `kube-system/coredns-custom` key `virtual-devices.override` | `mqtt-<ns>.<domain>` answer with the `istio-ingressgateway-public` ClusterIP, so a VM reaches EMQX through the public gateway like an external device. This chart owns the ConfigMap. |
 
 ## When it is deployed
 
@@ -66,7 +66,7 @@ backstage and oauth2-proxy PDBs allow 0 disruptions.
 
 Turning the flag off removes only the Application, because there is no resources
 finalizer. KubeVirt, CDI, their APIServices and webhooks, both PriorityClasses and
-`kube-system/coredns-custom` stay in place, so the cluster-wide `mqtt-`/`deadend-` DNS
+`kube-system/coredns-custom` stay in place, so the cluster-wide `mqtt-` DNS
 rewrite stays active too. Removing the runtime is a manual procedure, and its order
 matters: delete the CRs while the operators still run. See "Rollback and removing the
 runtime" in `hack/virtual-device-spike/README.md`, and check the result with

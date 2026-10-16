@@ -73,7 +73,7 @@ priorityClass:
 
 # CoreDNS override (coredns-custom key virtual-devices.override). Answers
 # <prefix>-<ns>.<domain> with the ClusterIP of the public ingress gateway, so a VM
-# reaches EMQX (8883/8084) and deadend (2222) through the same gateway and SNI as
+# reaches EMQX (8883/8084) through the same gateway and SNI as
 # an external device, without depending on router hairpin NAT. r415 has no other
 # coredns-custom keys (checked 2026-10-09); this chart owns the ConfigMap there.
 coreDNS:
@@ -81,7 +81,6 @@ coreDNS:
   domain: teknoir.cloud
   prefixes:
     - mqtt
-    - deadend
   target: istio-ingressgateway-public.istio-system.svc.cluster.local
 
 # WireGuard (ZTNA) tunnels: two more CoreDNS rewrites (wg-device.<domain> to the public ingress

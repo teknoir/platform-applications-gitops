@@ -4,7 +4,7 @@ name: virtual-devices
 description: >-
   Runtime for Teknoir virtual devices: KubeVirt and CDI (vendored, pinned operator
   manifests and their CRs), the teknoir-virtual-device PriorityClass and the CoreDNS
-  override that lets in-cluster virtual devices reach mqtt-/deadend-<ns> through the
+  override that lets in-cluster virtual devices reach mqtt-<ns> through the
   public ingress gateway like external devices.
 type: application
 version: 0.1.0
