@@ -110,7 +110,13 @@ def schedule_body(sch, params):
 def ensure_schedule(name, path, cron, params):
     have = call("GET", path) or {}
     cur = (have.get("schedule") or {}).get("cron")
-    cur_params = have.get("parameters") or {}
+    # Harbor returns the parameters as a JSON string in job_parameters.
+    cur_params = have.get("parameters") or have.get("job_parameters") or {}
+    if isinstance(cur_params, str):
+        try:
+            cur_params = json.loads(cur_params) if cur_params else {}
+        except ValueError:
+            cur_params = {}
     body = schedule_body(cron, params)
     if not cur:
         call("POST", path, body)

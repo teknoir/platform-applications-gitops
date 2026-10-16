@@ -64,9 +64,13 @@ def k8s(method, path, body=None, content_type="application/json"):
 
 
 def github_refs(repo, kind, etag):
-    """(status, etag, {ref: sha}) for refs/heads or refs/tags; status 304 = unchanged."""
-    refs, url, first_etag = {}, f"https://api.github.com/repos/{ORG}/{repo}/git/matching-refs/{kind}?per_page=100", None
+    """(status, etag, {ref: sha}, pages) for refs/heads or refs/tags; status 304 = unchanged.
+
+    Only the first page is sent conditionally, so callers pass etag=None for a listing
+    that had more than one page (a change on a later page would hide behind a 304)."""
+    refs, url, first_etag, pages = {}, f"https://api.github.com/repos/{ORG}/{repo}/git/matching-refs/{kind}?per_page=100", None, 0
     while url:
+        pages += 1
         req = urllib.request.Request(url)
         req.add_header("Authorization", "Bearer " + TOKEN)
         req.add_header("Accept", "application/vnd.github+json")
@@ -85,9 +89,9 @@ def github_refs(repo, kind, etag):
                 url = m.group(1) if m else None
         except urllib.error.HTTPError as e:
             if e.code == 304:
-                return 304, etag, None
+                return 304, etag, None, 0
             raise
-    return 200, first_etag, refs
+    return 200, first_etag, refs, pages
 
 
 def peel(repo, sha):
@@ -110,6 +114,11 @@ def submit(repo, ref, sha, before):
                                                 {"name": "sha", "value": sha}, {"name": "before", "value": before}]}}}
     created = k8s("POST", f"/apis/argoproj.io/v1alpha1/namespaces/{NS}/workflows", wf)
     print(f"{repo}: {ref} {before[:8]}..{sha[:8]} -> {created['metadata']['name']}")
+
+
+def save(state):
+    k8s("PATCH", f"/api/v1/namespaces/{NS}/configmaps/{STATE_CM}",
+        {"data": {"state.json": json.dumps(state, sort_keys=True)}}, "application/merge-patch+json")
 
 
 def main():
@@ -135,15 +144,17 @@ def main():
         rs = state.setdefault(repo, {"refs": {}, "etags": {}})
         kinds = ["heads"] + (["tags"] if cfg.get("tags") else [])
         for kind in kinds:
+            cond = rs["etags"].get(kind) if rs.get(f"pages-{kind}", 1) <= 1 else None
             try:
-                status, etag, refs = github_refs(repo, kind, rs["etags"].get(kind))
-            except urllib.error.HTTPError as e:
+                status, etag, refs, pages = github_refs(repo, kind, cond)
+            except (urllib.error.URLError, OSError) as e:
                 errors += 1
-                print(f"{repo}: ERROR listing refs/{kind}: HTTP {e.code}")
+                print(f"{repo}: ERROR listing refs/{kind}: {getattr(e, 'code', '') or e}")
                 continue
             if status == 304:
                 continue
-            rs["etags"][kind] = etag
+            rs[f"pages-{kind}"] = pages
+            pending = False  # a ref left for the next poll: do not keep this ETag
             known = {r: s for r, s in rs["refs"].items() if r.startswith(f"refs/{kind}/")}
             first = f"seen-{kind}" not in rs
             for ref, sha in sorted(refs.items()):
@@ -158,23 +169,30 @@ def main():
                     continue
                 if submitted >= MAX_SUBMIT:
                     rs["refs"][ref] = old or ZERO  # retried on the next poll
+                    pending = True
                     continue
                 try:
                     submit(repo, ref, peel(repo, sha), peel(repo, old) if old and old != ZERO else ZERO)
                     submitted += 1
-                except urllib.error.HTTPError as e:
+                    # Persist right away: a poll that dies later must not submit this again.
+                    save(state)
+                except (urllib.error.URLError, OSError) as e:
                     errors += 1
                     rs["refs"][ref] = old or ZERO
-                    print(f"{repo}: ERROR submitting {ref}: HTTP {e.code}")
+                    pending = True
+                    print(f"{repo}: ERROR submitting {ref}: {getattr(e, 'code', '') or e}")
             for ref in set(known) - set(refs):  # deleted branches/tags
                 del rs["refs"][ref]
+            if pending:
+                rs["etags"].pop(kind, None)
+            else:
+                rs["etags"][kind] = etag
             rs[f"seen-{kind}"] = True
             if first:
                 print(f"{repo}: refs/{kind} recorded ({len(refs)} refs, nothing built on first sight)")
     for repo in set(state) - set(names):
         del state[repo]
-    k8s("PATCH", f"/api/v1/namespaces/{NS}/configmaps/{STATE_CM}",
-        {"data": {"state.json": json.dumps(state, sort_keys=True)}}, "application/merge-patch+json")
+    save(state)
     print(f"poll: {len(names)} repos, {submitted} pipelines started, {errors} errors")
     sys.exit(1 if errors else 0)
 

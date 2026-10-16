@@ -13,6 +13,11 @@ spec:
     serviceAccountName: ci-executor
   entrypoint: main
   onExit: report
+  # One pipeline per repo at a time: an older run can never overwrite :<branch>/:latest
+  # after a newer one, and chart releases never race on the gh-pages index.
+  synchronization:
+    mutexes:
+      - name: "ci-{{workflow.parameters.repo}}"
   arguments:
     parameters:
       - name: repo
@@ -70,14 +75,8 @@ spec:
                 - {name: cpu, value: "{{item.cpu}}"}
                 - {name: memory, value: "{{item.memory}}"}
                 - {name: depth, value: "{{item.depth}}"}
-          - name: test-dind
-            depends: plan
-            when: "{{tasks.plan.outputs.parameters.active}} == true"
-            template: run-test-dind
-            withParam: "{{tasks.plan.outputs.parameters.testsdind}}"
-            arguments: *test-args
           - name: image
-            depends: test && test-dind
+            depends: test
             when: "{{tasks.plan.outputs.parameters.active}} == true"
             template: image
             withParam: "{{tasks.plan.outputs.parameters.images}}"
@@ -92,7 +91,7 @@ spec:
                 - {name: lfs, value: "{{item.lfs}}"}
                 - {name: submodules, value: "{{item.submodules}}"}
           - name: helm
-            depends: test && test-dind
+            depends: test
             when: "{{tasks.plan.outputs.parameters.helmenabled}} == true"
             template: helm-release
             arguments:
@@ -112,7 +111,6 @@ spec:
             globalName: summary
             valueFrom: {path: /out/summary, default: "CI plan failed"}
           - {name: tests, valueFrom: {path: /out/tests, default: "[]"}}
-          - {name: testsdind, valueFrom: {path: /out/testsdind, default: "[]"}}
           - {name: images, valueFrom: {path: /out/images, default: "[]"}}
           - {name: helm, valueFrom: {path: /out/helm, default: ""}}
           - {name: helmenabled, valueFrom: {path: /out/helmenabled, default: "false"}}
@@ -151,7 +149,14 @@ spec:
           - name: depth
       metadata:
         labels: {teknoir.org/ci-role: test}
-      initContainers: &clone
+      # Repo code (tests) runs only on the CI build node, never on r415 (the k3s server).
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: node-role.kubernetes.io/ci-builder, operator: Exists}
+      initContainers:
         - name: clone
           image: @@IMAGE_GIT@@
           command: [sh, /scripts/clone.sh]
@@ -178,36 +183,6 @@ spec:
           - {name: src, mountPath: /src}
       # Per-test resources (Quantity fields cannot hold a {{...}} parameter themselves).
       podSpecPatch: &test-resources '{"containers":[{"name":"main","resources":{"requests":{"cpu":"{{inputs.parameters.cpu}}","memory":"{{inputs.parameters.memory}}"},"limits":{"memory":"{{inputs.parameters.memory}}"}}}]}'
-
-    - name: run-test-dind
-      inputs: *test-inputs
-      metadata:
-        labels: {teknoir.org/ci-role: test}
-      initContainers: *clone
-      sidecars:
-        - name: dind
-          image: @@IMAGE_DIND@@
-          command: [dockerd-entrypoint.sh]
-          env:
-            - {name: DOCKER_TLS_CERTDIR, value: ""}
-          securityContext: {privileged: true}
-          mirrorVolumeMounts: true
-      container:
-        image: "{{inputs.parameters.image}}"
-        command: [sh, -c]
-        args:
-          - |
-            i=0; until docker info >/dev/null 2>&1; do i=$((i+1)); [ $i -lt 60 ] || { echo "dind did not start" >&2; exit 1; }; sleep 1; done
-            printf %s "$CI_SCRIPT" | base64 -d > /tmp/ci-step.sh && cd "/src/$CI_WORKDIR" && exec "$CI_SHELL" -e /tmp/ci-step.sh
-        env:
-          - {name: DOCKER_HOST, value: "tcp://127.0.0.1:2375"}
-          - {name: CI, value: "true"}
-          - {name: CI_SCRIPT, value: "{{inputs.parameters.script}}"}
-          - {name: CI_WORKDIR, value: "{{inputs.parameters.workdir}}"}
-          - {name: CI_SHELL, value: "{{inputs.parameters.shell}}"}
-        volumeMounts:
-          - {name: src, mountPath: /src}
-      podSpecPatch: *test-resources
 
     # ---------------------------------------------------------------- images
     - name: image

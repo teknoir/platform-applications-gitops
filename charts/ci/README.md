@@ -9,7 +9,7 @@ CronWorkflow ci-poll (every 2 min, files/poll.py)
   lists branch/tag heads of every registered repo (conditional requests, 304 = free)
   -> new commit: Workflow from WorkflowTemplate ci-dispatch (repo, ref, sha, before)
        plan   files/plan.py + files/repos/<repo>.yaml -> tests / images / chart release
-       tests  any toolchain image, repo cloned at sha (dind sidecar when dind: true)
+       tests  any toolchain image, repo cloned at sha, only on the CI node (vpro)
        images buildctl -> buildkitd-vpro (default) or buildkitd-r415 (fallback)
               -> harbor.teknoir.cloud/teknoir/<name> + ghcr.io/teknoir/<name>, same tags
        charts helm/chart-releaser-action's own cr.sh (pinned): GitHub release + gh-pages index
@@ -39,7 +39,8 @@ tests:                      # run before any image or chart job; a failure stops
     image: docker.io/library/golang:1.26
     run: go test ./...      # sh -e (shell: bash to change), in workdir (default .)
     memory: 2Gi             # cpu: 500m
-    dind: false             # true: a Docker daemon at DOCKER_HOST (privileged sidecar)
+    # No Docker daemon (dind): it would give repo code root on the node and every pod
+    # credential there. Image smoke tests that need `docker run` are not supported yet.
 images:
   - name: deadend           # -> harbor.teknoir.cloud/teknoir/deadend, ghcr.io/teknoir/deadend
     context: .              # dockerfile: <context>/Dockerfile

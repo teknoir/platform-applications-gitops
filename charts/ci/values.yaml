@@ -37,7 +37,6 @@ images:
   python: docker.io/library/python:3.14-alpine
   helm: docker.io/alpine/helm:3.22.0
   kubectl: docker.io/alpine/k8s:1.34.11
-  dind: docker.io/library/docker:29-dind
 
 # BuildKit daemons, one per builder node, each with a host-path cache and a GC cap
 # (BuildKit 0.33 gc: keep at most maxUsedSpace, leave minFreeSpace free on the disk,
@@ -83,11 +82,15 @@ pipelines:
     memory: 2Gi
   helm:
     crAction: v1.6.0
-    # sha256 of helm/chart-releaser-action's cr.sh per action version (helm-release.sh
-    # verifies the download).
+    # Per helm/chart-releaser-action version: the sha256 of its cr.sh, the chart-releaser
+    # (cr) version that cr.sh installs, and that cr tarball's sha256 (linux_amd64).
+    # helm-release.sh verifies both downloads; cr.sh then finds cr installed and does not
+    # download it again.
     crShaSums:
-      v1.6.0: 477435c85761360feddff56b30b810e396fdc20c4cfc6b97fc32b821bc48dab6
-      v1.7.0: 0c774693c8d2404e07c4b0182f0cbd1e09b166730f0ccd50b4ff6aa34af98716
+      v1.6.0: {crSh: 477435c85761360feddff56b30b810e396fdc20c4cfc6b97fc32b821bc48dab6, cr: v1.6.1,
+               crTar: d4a2ffa825ff1b60a1cce819ce87eec337cf16059ca3d8a053e20cac39cf9e0a}
+      v1.7.0: {crSh: 0c774693c8d2404e07c4b0182f0cbd1e09b166730f0ccd50b4ff6aa34af98716, cr: v1.7.0,
+               crTar: 121a16d4e38b348decb977b8257d4bddab3323681c1819bab4870603138087cf}
 
 # Change detection (files/poll.py). maxSubmit caps the pipelines one poll starts; the
 # rest start on the next poll.
@@ -145,6 +148,9 @@ argo-workflows:
     resources:
       requests: {cpu: 20m, memory: 64Mi}
       limits: {memory: 512Mi}
+  # Controller and server see only teknoir-ci (Roles, not ClusterRoles: argo-server can
+  # read Secrets in this namespace only).
+  singleNamespace: true
   workflow:
     serviceAccount:
       create: false

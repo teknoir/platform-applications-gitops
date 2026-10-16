@@ -6,7 +6,6 @@ merged with the defaults in /repos/_defaults.json) and writes Argo output parame
 
   /out/active   "true" when the push matches the repo's triggers and has work
   /out/tests    JSON list of test steps   {name, image, workdir, script, ...}
-  /out/testsdind  the same for steps that need a Docker daemon (dind: true)
   /out/images   JSON list of image builds {name, refs, args, prebuild, builders, ...}
   /out/helm     JSON object for a chart release, or "" for none
   /out/summary  one line for the commit status
@@ -47,9 +46,7 @@ def out(name, value):
 
 def finish(active, summary, tests=(), images=(), helm=""):
     out("active", "true" if active else "false")
-    # Steps that need a Docker daemon run in a separate template with a dind sidecar.
-    out("tests", [t for t in tests if t.get("dind") != "true"])
-    out("testsdind", [t for t in tests if t.get("dind") == "true"])
+    out("tests", list(tests))
     out("images", list(images))
     out("helm", helm if helm == "" else json.dumps(helm, separators=(",", ":")))
     out("helmenabled", "false" if helm == "" else "true")
@@ -62,7 +59,7 @@ def die(msg):
     # Still report on the commit: the exit handler posts a failure with this summary.
     out("active", "true")
     out("summary", f"CI config error: {msg}"[:140])
-    for name in ("tests", "testsdind", "images"):
+    for name in ("tests", "images"):
         out(name, [])
     out("helm", "")
     out("helmenabled", "false")
@@ -195,11 +192,15 @@ def main():
         for k in ("name", "image", "run"):
             if not t.get(k):
                 die(f"test without {k}: {t}")
+        if t.get("dind"):
+            # A Docker daemon would give repo code root on the build node (and the
+            # credentials of every pod there). Not supported; see README.md.
+            die(f"test {t['name']}: dind is not supported")
         tests.append({"name": t["name"], "image": t["image"], "workdir": t.get("workdir", "."),
                       "script": b64(t["run"]), "shell": t.get("shell", "sh"),
                       "cpu": str(t.get("cpu", defaults["test"]["cpu"])),
                       "memory": str(t.get("memory", defaults["test"]["memory"])),
-                      "depth": str(t.get("depth", 1)), "dind": str(bool(t.get("dind", False))).lower()})
+                      "depth": str(t.get("depth", 1))})
 
     # -- images
     images = []
@@ -264,7 +265,8 @@ def main():
             if action not in sums:
                 die(f"helm.crAction {action} has no pinned cr.sh checksum (known: {', '.join(sums)})")
             helm = {"mode": mode, "chartsDir": h.get("chartsDir", "charts"), "crAction": action,
-                    "crSha256": sums[action], "betaVersionCheck": str(h.get("betaVersionCheck", True)).lower(),
+                    "crSha256": sums[action]["crSh"], "cr": sums[action]["cr"], "crTarSha256": sums[action]["crTar"],
+                    "betaVersionCheck": str(h.get("betaVersionCheck", True)).lower(),
                     "skipExisting": str(h.get("skipExisting", False)).lower(),
                     "markAsLatest": str(h.get("markAsLatest", True)).lower(),
                     "pagesBranch": h.get("pagesBranch", "")}

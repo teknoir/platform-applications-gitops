@@ -134,13 +134,13 @@ harborConfig:
     retentionPolicies:
       # CI images (rules are OR-ed; anything no rule retains is deleted, including
       # untagged digests):
-      #   - release and environment tags forever,
+      #   - release tags (v1.2.3, 1.2.3) and environment/default-branch tags forever,
       #   - the 15 most recently pushed artifacts of every repository,
       #   - anything pulled in the last 30 days (in use).
       ci:
         schedule: "0 0 2 * * *"
         rules:
-          - {template: always, tags: "{v*,latest,main,master,teknoir-cloud,teknoir-online,teknoir-local,robot}"}
+          - {template: always, tags: "{v[0-9]*,[0-9]*,latest,main,master,teknoir-cloud,teknoir-online,teknoir-local,robot}"}
           - {template: latestPushedK, value: 15}
           - {template: nDaysSinceLastPull, value: 30}
       # Proxy caches: keep what was pulled in the last 30 days.
