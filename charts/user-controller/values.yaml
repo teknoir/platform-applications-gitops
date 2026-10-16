@@ -59,3 +59,11 @@ platformUsers:
     role: superadmin
     claimSet:
       - {name: owner, namespace: teknoir-demo}
+  # Staging test user for the agents' browser checks (developer in teknoir-demo, not a
+  # platform admin). Its password lives only in the dev host's
+  # ~/.config/teknoir/staging-agent-user.env (set in Keycloak from there, never in Git).
+  - email: claude-agent@teknoir.cloud
+    displayName: Claude Agent Staging Test
+    role: ""
+    claimSet:
+      - {name: developer, namespace: teknoir-demo}

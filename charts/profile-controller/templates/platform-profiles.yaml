@@ -1,0 +1,21 @@
+{{- /*
+Teamspaces every install gets (values platformProfiles): Profile CRs, reconciled by
+profile-controller like teamspaces made in Backstage (namespace, plugins, owner).
+Never pruned or deleted by ArgoCD: removing an entry leaves the teamspace and its data.
+*/ -}}
+{{- range .Values.platformProfiles }}
+---
+apiVersion: teknoir.org/v1
+kind: Profile
+metadata:
+  name: {{ .name }}
+  finalizers: [profile-finalizer]
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+  labels:
+    teknoir.org/managed-by: gitops
+spec:
+  owner:
+    kind: User
+    name: {{ .owner | lower | quote }}
+{{- end }}

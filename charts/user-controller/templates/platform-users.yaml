@@ -24,8 +24,12 @@ spec:
   display_name: {{ .displayName | quote }}
   email_verified: true
   enabled: true
+  {{- if .role }}
   claims_v0:
     role: {{ .role | quote }}
+  {{- else }}
+  claims_v0: {}
+  {{- end }}
   claim_set:
     {{- toYaml .claimSet | nindent 4 }}
   plugins:

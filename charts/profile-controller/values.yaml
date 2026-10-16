@@ -58,3 +58,9 @@ nodeSelector: {}
 tolerations: []
 
 affinity: {}
+
+# Teamspaces every install gets (templates/platform-profiles.yaml). teknoir-demo is the
+# staging demo teamspace (devices, devstudios, notebooks; claude-agent's test teamspace).
+platformProfiles:
+  - name: teknoir-demo
+    owner: anders.aslund@teknoir.ai
