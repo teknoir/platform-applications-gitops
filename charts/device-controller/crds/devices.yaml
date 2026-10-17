@@ -86,8 +86,9 @@ spec:
                 type: string
               keys:
                 description: |-
-                  Secret holds secret data of a certain type. The total bytes of the values in
-                  the Data field must be less than MaxSecretSize bytes.
+                  Keys holds the device's keys. Deprecated: the data key "tunnel" (the
+                  reverse SSH tunnel port, "NA" when off) is no longer read; Tunneling
+                  replaces it.
                 properties:
                   apiVersion:
                     description: |-
@@ -233,6 +234,7 @@ spec:
                 description: |-
                   INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
                   Important: Run "make" to regenerate code after modifying this file
+                  Deprecated: no longer written (SSH authorized keys were removed).
                 properties:
                   active:
                     type: boolean
@@ -352,11 +354,15 @@ spec:
                     type: boolean
                 type: object
               remote_access:
+                description: 'Deprecated: no longer written (the SSH RemoteAccess
+                  plugin was removed).'
                 properties:
                   active:
                     type: boolean
                   last_applied_tunnels:
                     items:
+                      description: 'Deprecated: part of the removed SSH RemoteAccess
+                        plugin.'
                       properties:
                         host:
                           type: string
@@ -365,7 +371,10 @@ spec:
                         port:
                           type: string
                         type:
-                          description: Type defines network protocols supported tunnels.
+                          description: |-
+                            Deprecated: part of the removed SSH RemoteAccess plugin.
+
+                            Type defines network protocols supported tunnels.
                           type: string
                       required:
                       - host
@@ -378,6 +387,8 @@ spec:
                     type: string
                   tunnels:
                     items:
+                      description: 'Deprecated: part of the removed SSH RemoteAccess
+                        plugin.'
                       properties:
                         host:
                           type: string
@@ -386,7 +397,10 @@ spec:
                         port:
                           type: string
                         type:
-                          description: Type defines network protocols supported tunnels.
+                          description: |-
+                            Deprecated: part of the removed SSH RemoteAccess plugin.
+
+                            Type defines network protocols supported tunnels.
                           type: string
                       required:
                       - host
@@ -737,6 +751,16 @@ spec:
                         kind:
                           description: Kind is external or internal.
                           type: string
+                        message:
+                          description: Message says why the service is pending, if
+                            it is.
+                          type: string
+                        state:
+                          description: |-
+                            State is pending until the web gateway of the web service is rolled out
+                            (the pod runs the current template), then ready. Empty for a service
+                            without a web URL.
+                          type: string
                         url:
                           description: URL is the browser URL of a web service while
                             the web gateway is enabled.
@@ -750,6 +774,25 @@ spec:
                     description: 'State is the access policy state: active, revoked
                       or disabled.'
                     type: string
+                  terminal:
+                    description: Terminal is the state of the web terminal; nil while
+                      it is not enabled.
+                    properties:
+                      message:
+                        description: Message says why the terminal is not ready, if
+                          it is not.
+                        type: string
+                      ready:
+                        description: |-
+                          Ready is true when the terminal's pod is rolled out for the current
+                          template and available.
+                        type: boolean
+                      url:
+                        description: URL opens a new terminal.
+                        type: string
+                    required:
+                    - ready
+                    type: object
                   webTerminalURL:
                     description: WebTerminalURL is the WireGuard web terminal of the
                       device, while enabled.
