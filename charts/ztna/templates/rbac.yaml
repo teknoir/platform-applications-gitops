@@ -118,6 +118,11 @@ rules:
   - apiGroups: ["teknoir.org"]
     resources: ["devices"]
     verbs: ["get", "list", "watch"]
+  # The org gate: the watcher reads Users (org-tree annotations, role, claim_set, email) and
+  # writes the ztna-org-<teamspace> ConfigMaps from them.
+  - apiGroups: ["teknoir.org"]
+    resources: ["users"]
+    verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

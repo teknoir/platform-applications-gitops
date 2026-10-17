@@ -35,6 +35,10 @@ hub:
   statusPrincipal: cluster.local/ns/teknoir-system/sa/backstage-api
   keycloak:
     realm: master
+  # The org gate in the hub (CanOpen): enforce (default, fails closed), audit (log would-be denials,
+  # allow) or off. Any other value fails the render.
+  orgGate:
+    mode: enforce
 
 # The flags watcher (Deployment wg-flags, same image as the hub, command `flags-watcher`): the only
 # component with access to Device objects.
@@ -64,6 +68,16 @@ deviceController:
 # (admission policy ztna-device-annotations).
 backstage:
   serviceAccount: system:serviceaccount:teknoir-system:backstage-api
+
+# Who may add, change or remove the org-tree annotations on Users (teknoir.org/org-tree-member-* and
+# org-tree-units-*), the inputs of the hub org gate (admission policy ztna-user-org-annotations),
+# besides system:masters. Backstage backend (Settings > Members), ArgoCD (platformUsers/orgUnits in
+# charts/user-controller) and user-controller.
+userOrgAnnotations:
+  writers:
+    - system:serviceaccount:teknoir-system:backstage-api
+    - system:serviceaccount:teknoir-system:argocd-application-controller
+    - system:serviceaccount:teknoir-system:user-controller
 
 # Identities (besides device-controller, the ArgoCD application controller and anything in
 # kube-system, i.e. the replicaset/job controllers) that may create or update pods and workloads

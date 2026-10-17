@@ -172,3 +172,12 @@ the Gateway API CRDs only when nothing else uses them.
 
 Hub and agent code, the controller plugin, web terminal, Backstage and `tnctl` are other work packages. The hub is one replica
 with in-memory sessions: a restart drops every tunnel and clients re-establish them.
+
+## Org gate (hub CanOpen)
+
+- Hub env `ORG_GATE_MODE` from `hub.orgGate.mode` (`enforce` default, `audit`, `off`); any other value fails the render.
+- ClusterRole `wg-flags` also reads `users.teknoir.org` (get/list/watch); the watcher writes `ztna-org-<teamspace>`
+  ConfigMaps. `ztna-policy-store` lets only `wg-flags` write them (name prefix `ztna-org-` or label `ztna.teknoir.org/org`).
+- `ztna-device-annotations` also guards `teknoir.org/org-tree-path` and `teknoir.org/org-tree-node-id` on Devices.
+- `ztna-user-org-annotations` guards `teknoir.org/org-tree-member-*` and `org-tree-units-*` on Users; writers are
+  values `userOrgAnnotations.writers` plus `system:masters`.

@@ -9,9 +9,11 @@ so RBAC alone does not keep a compromised UI out of the access policy.
                         only the hub's service account;
                       - ConfigMaps labelled ztna.teknoir.org/flags (or named ztna-flags-*):
                         only the flags watcher's service account (wg-flags);
+                      - ConfigMaps labelled ztna.teknoir.org/org (or named ztna-org-*), the per-teamspace
+                        org-gate data for the hub: only the flags watcher's service account;
                       - ConfigMaps labelled ztna.teknoir.org/revoked (or named ztna-revoked-*), the
                         revocation tombstones that keep a recreated Device off: only device-controller;
-                      - the hub and the flags watcher may write no other ConfigMap.
+                      - the hub may write no other ConfigMap, the flags watcher only flags and org ones.
   ztna-workloads:     pods and workload kinds (deployments, replicasets, statefulsets, daemonsets,
                       jobs, cronjobs) in teknoir-ztna and stunner-system are created and updated
                       only by ArgoCD's application controller, device-controller, the stunner
@@ -76,6 +78,12 @@ spec:
           (has(object.metadata.labels) && '{{ $label }}/flags' in object.metadata.labels))) ||
         (oldObject != null && ((has(oldObject.metadata.name) && oldObject.metadata.name.startsWith('ztna-flags-')) ||
           (has(oldObject.metadata.labels) && '{{ $label }}/flags' in oldObject.metadata.labels)))
+    - name: isOrg
+      expression: >-
+        (object != null && ((has(object.metadata.name) && object.metadata.name.startsWith('ztna-org-')) ||
+          (has(object.metadata.labels) && '{{ $label }}/org' in object.metadata.labels))) ||
+        (oldObject != null && ((has(oldObject.metadata.name) && oldObject.metadata.name.startsWith('ztna-org-')) ||
+          (has(oldObject.metadata.labels) && '{{ $label }}/org' in oldObject.metadata.labels)))
     - name: isRevoked
       expression: >-
         (object != null && ((has(object.metadata.name) && object.metadata.name.startsWith('ztna-revoked-')) ||
@@ -109,12 +117,17 @@ spec:
       message: "ztna flags ConfigMaps are written by the wg-flags watcher only"
       reason: Forbidden
     - expression: >-
+        !variables.isOrg || variables.teardown ||
+        request.userInfo.username == '{{ include "ztna.flagsUser" . }}'
+      message: "ztna org ConfigMaps are written by the wg-flags watcher only"
+      reason: Forbidden
+    - expression: >-
         request.userInfo.username != '{{ include "ztna.hubUser" . }}' || variables.isIdentity
       message: "the wg-hub may only write ztna identity ConfigMaps"
       reason: Forbidden
     - expression: >-
-        request.userInfo.username != '{{ include "ztna.flagsUser" . }}' || variables.isFlags
-      message: "the wg-flags watcher may only write ztna flags ConfigMaps"
+        request.userInfo.username != '{{ include "ztna.flagsUser" . }}' || variables.isFlags || variables.isOrg
+      message: "the wg-flags watcher may only write ztna flags and org ConfigMaps"
       reason: Forbidden
 ---
 apiVersion: admissionregistration.k8s.io/v1
@@ -270,6 +283,10 @@ identity, trusted host key, compromised/health flags, reenroll) is a security de
 pods run as the default-editor service account and can edit Devices, which would bypass the
 Backstage admin gate. Only the Backstage backend, device-controller and system:masters may add,
 change or remove such an annotation; any other Device edit is unaffected, and DELETE is not matched.
+The same holds for the exact keys teknoir.org/org-tree-path and teknoir.org/org-tree-node-id: they
+place a Device in the org tree and so feed the hub org gate. Their writers (checked 2026-10-17):
+device-controller (copy from a Robot), the Backstage backend (Settings > Org tree) and
+`kubectl annotate` by a cluster admin (system:masters).
 */}}
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
@@ -288,6 +305,8 @@ spec:
   variables:
     - name: prefix
       expression: "'ztna.teknoir.org/'"
+    - name: orgKeys
+      expression: "['teknoir.org/org-tree-path', 'teknoir.org/org-tree-node-id']"
     - name: oldA
       expression: >-
         (oldObject != null && has(oldObject.metadata.annotations)) ? oldObject.metadata.annotations : {}
@@ -301,9 +320,9 @@ spec:
   validations:
     - expression: >-
         variables.privileged ||
-        (variables.newA.all(k, !k.startsWith(variables.prefix) || (k in variables.oldA && variables.oldA[k] == variables.newA[k])) &&
-         variables.oldA.all(k, !k.startsWith(variables.prefix) || k in variables.newA))
-      message: "ztna.teknoir.org/* annotations on a Device are changed only by the Backstage backend, device-controller or system:masters"
+        (variables.newA.all(k, !(k.startsWith(variables.prefix) || k in variables.orgKeys) || (k in variables.oldA && variables.oldA[k] == variables.newA[k])) &&
+         variables.oldA.all(k, !(k.startsWith(variables.prefix) || k in variables.orgKeys) || k in variables.newA))
+      message: "ztna.teknoir.org/* and teknoir.org/org-tree-path|node-id annotations on a Device are changed only by the Backstage backend, device-controller or system:masters"
       reason: Forbidden
 ---
 apiVersion: admissionregistration.k8s.io/v1
@@ -314,4 +333,60 @@ metadata:
     {{- include "ztna.hubLabels" . | nindent 4 }}
 spec:
   policyName: ztna-device-annotations
+  validationActions: ["Deny", "Audit"]
+---
+{{- /*
+ztna-user-org-annotations: protects the INPUTS of the hub org gate. The gate decides from the User's
+annotations teknoir.org/org-tree-member-<teamspace> and teknoir.org/org-tree-units-<teamspace>;
+anyone who can edit a User could otherwise widen their own scope. Only the identities in values
+userOrgAnnotations.writers (Backstage backend: Settings > Members; ArgoCD: platformUsers/orgUnits
+rendered by charts/user-controller; user-controller) and system:masters may add, change or remove
+such an annotation. Any other User edit is unaffected, and DELETE is not matched. Writers checked
+2026-10-17: backstage-nextgen user-entity.ts (backstage-api), charts/user-controller
+platform-users.yaml (ArgoCD application controller); user-controller itself writes none (it is on
+the list because it rewrites User objects).
+*/}}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: ztna-user-org-annotations
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["teknoir.org"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["users"]
+  variables:
+    - name: oldA
+      expression: >-
+        (oldObject != null && has(oldObject.metadata.annotations)) ? oldObject.metadata.annotations : {}
+    - name: newA
+      expression: >-
+        has(object.metadata.annotations) ? object.metadata.annotations : {}
+    - name: privileged
+      expression: >-
+        request.userInfo.username in [{{ range $i, $w := .Values.userOrgAnnotations.writers }}{{ if $i }}, {{ end }}'{{ $w }}'{{ end }}] ||
+        'system:masters' in request.userInfo.groups
+  validations:
+    - expression: >-
+        variables.privileged ||
+        (variables.newA.all(k, !(k.startsWith('teknoir.org/org-tree-member-') || k.startsWith('teknoir.org/org-tree-units-')) ||
+           (k in variables.oldA && variables.oldA[k] == variables.newA[k])) &&
+         variables.oldA.all(k, !(k.startsWith('teknoir.org/org-tree-member-') || k.startsWith('teknoir.org/org-tree-units-')) ||
+           k in variables.newA))
+      message: "teknoir.org/org-tree-member-* and org-tree-units-* annotations on a User are changed only by the Backstage backend, ArgoCD, user-controller or system:masters"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: ztna-user-org-annotations-binding
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+spec:
+  policyName: ztna-user-org-annotations
   validationActions: ["Deny", "Audit"]

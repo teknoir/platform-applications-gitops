@@ -164,6 +164,28 @@ denied "wg-flags creates an identity ConfigMap" "${FLAGS}" "${TMP}/identity.yaml
 denied "wg-flags creates an unrelated ConfigMap" "${FLAGS}" "${TMP}/other.yaml"
 if as "${FLAGS}" delete configmap ztna-flags-ts.dev1 -n teknoir-ztna >/dev/null 2>&1; then ok "allowed: wg-flags deletes its flags ConfigMap"; else bad "wg-flags delete denied"; fi
 
+# --- org ConfigMaps (ztna-org-<teamspace>, the org-gate data): the flags watcher only
+cm ztna-org-x ztna.teknoir.org/org > "${TMP}/org.yaml"
+cm ztna-org-y > "${TMP}/org-nolabel.yaml"
+cm innocent-org ztna.teknoir.org/org > "${TMP}/org-labelonly.yaml"
+allowed "wg-flags creates ztna-org-x" "${FLAGS}" "${TMP}/org.yaml"
+sed 's/k: v/k: changed/' "${TMP}/org.yaml" > "${TMP}/org-update.yaml"
+allowed "wg-flags updates ztna-org-x" "${FLAGS}" "${TMP}/org-update.yaml" apply
+allowed "wg-flags creates ztna-org-* without the label" "${FLAGS}" "${TMP}/org-nolabel.yaml"
+denied "device-controller creates ztna-org-x" "${DC}" "${TMP}/org.yaml"
+denied "backstage-api creates ztna-org-x" "${BACKSTAGE_API}" "${TMP}/org.yaml"
+denied "hub creates ztna-org-x" "${HUB}" "${TMP}/org.yaml"
+denied "cluster admin creates ztna-org-x" admin "${TMP}/org.yaml"
+denied "backstage creates ztna-org-* without the label" "${BACKSTAGE}" "${TMP}/org-nolabel.yaml"
+denied "backstage creates an org-labelled ConfigMap with another name" "${BACKSTAGE}" "${TMP}/org-labelonly.yaml"
+sed 's/k: changed/k: tampered/' "${TMP}/org-update.yaml" > "${TMP}/org-tamper.yaml"
+denied "device-controller updates ztna-org-x" "${DC}" "${TMP}/org-tamper.yaml" apply
+denied "backstage-api updates ztna-org-x" "${BACKSTAGE_API}" "${TMP}/org-tamper.yaml" apply
+cm ztna-org-x > "${TMP}/org-stripped.yaml"
+denied "backstage-api strips the label from ztna-org-x" "${BACKSTAGE_API}" "${TMP}/org-stripped.yaml" replace
+if as "${DC}" delete configmap ztna-org-x -n teknoir-ztna >/dev/null 2>&1; then bad "should be denied: device-controller deletes ztna-org-x"; else ok "denied: device-controller deletes ztna-org-x"; fi
+if as "${FLAGS}" delete configmap ztna-org-x -n teknoir-ztna >/dev/null 2>&1; then ok "allowed: wg-flags deletes ztna-org-x"; else bad "wg-flags delete of ztna-org-x denied"; fi
+
 # --- pods and workloads (only ArgoCD, device-controller, the stunner operator, kube-system)
 wl() { # kind name -> manifest
   case $1 in
@@ -308,6 +330,62 @@ if as "${EDITOR_SA}" delete device dev1 -n devns >/dev/null 2>&1; then ok "allow
 # status subresource is not matched (the controller writes status; annotations cannot change there)
 "${KC[@]}" apply -n devns -f "${TMP}/d-base.yaml" >/dev/null 2>&1 || true
 if as "${EDITOR_SA}" patch device dev1 -n devns --subresource=status --type=merge -p '{"status":{"x":1}}' 2>&1 | grep -q "ztna-device-annotations"; then bad "status update was denied by the annotation policy"; else ok "status subresource is not subject to the annotation policy"; fi
+
+# --- Device org-tree placement (teknoir.org/org-tree-path, org-tree-node-id): same principals
+OT=teknoir.org/org-tree-path; ON=teknoir.org/org-tree-node-id
+dev odev other.io/x=1 > "${TMP}/o-base.yaml"
+"${KC[@]}" create -n devns -f "${TMP}/o-base.yaml" >/dev/null
+dev odev "$OT=se/a" "$ON=a" other.io/x=1 > "${TMP}/o-placed.yaml"
+dverdict "editor sets org-tree-path/node-id on a Device" deny "${EDITOR_SA}" replace "${TMP}/o-placed.yaml"
+dev odev "$OT=se/a" other.io/x=1 > "${TMP}/o-pathonly.yaml"
+dverdict "editor sets only org-tree-path" deny "${EDITOR_SA}" replace "${TMP}/o-pathonly.yaml"
+dev odev "$ON=a" other.io/x=1 > "${TMP}/o-nodeonly.yaml"
+dverdict "editor sets only org-tree-node-id" deny "${EDITOR_SA}" replace "${TMP}/o-nodeonly.yaml"
+dverdict "backstage-api sets org-tree-path/node-id" allow "${BACKSTAGE_API}" replace "${TMP}/o-placed.yaml"
+dev odev "$OT=se/b" "$ON=a" other.io/x=1 > "${TMP}/o-moved.yaml"
+dverdict "editor changes org-tree-path" deny "${EDITOR_SA}" replace "${TMP}/o-moved.yaml"
+dev odev other.io/x=1 > "${TMP}/o-removed.yaml"
+dverdict "editor removes org-tree-path/node-id" deny "${EDITOR_SA}" replace "${TMP}/o-removed.yaml"
+dverdict "device-controller moves a Device in the org tree" allow "${DC}" replace "${TMP}/o-moved.yaml"
+dev odev "$OT=se/b" "$ON=a" other.io/x=2 other.io/y=3 > "${TMP}/o-unrelated.yaml"
+dverdict "editor changes unrelated annotations, org-tree kept" allow "${EDITOR_SA}" replace "${TMP}/o-unrelated.yaml"
+if "${KC[@]}" replace -n devns -f "${TMP}/o-removed.yaml" >/dev/null 2>&1; then ok "allowed: system:masters removes the org-tree placement"; else bad "system:masters org-tree removal denied"; fi
+
+# --- User org annotations (org-tree-member-*, org-tree-units-*): Backstage backend, ArgoCD, user-controller, system:masters
+"${KC[@]}" apply -f "${CHART}/../user-controller/crds/crds.yaml" >/dev/null
+"${KC[@]}" wait --for=condition=Established crd/users.teknoir.org --timeout=30s >/dev/null
+USER_CTRL=system:serviceaccount:teknoir-system:user-controller
+usr() { # name [annotations key=value ...] -> manifest
+  local name=$1; shift
+  printf 'apiVersion: teknoir.org/v1\nkind: User\nmetadata:\n  name: %s\n' "$name"
+  if [[ $# -gt 0 ]]; then printf '  annotations:\n'; for kv in "$@"; do printf '    %s: '"'"'%s'"'"'\n' "${kv%%=*}" "${kv#*=}"; done; fi
+  printf 'spec:\n  email: %s@example.com\n' "$name"
+}
+uverdict() { # description want(allow|deny) user verb manifest
+  local d=$1 want=$2 u=$3 v=$4 f=$5 out got
+  out=$(as "$u" "$v" -f "$f" 2>&1) && got=allow || { grep -q "ValidatingAdmissionPolicy 'ztna-user-org-annotations'" <<<"$out" && got=deny || got="other: $out"; }
+  if [[ $got == "$want" ]]; then ok "$d ($want)"; else bad "$d: want $want, got $got"; fi
+}
+UM=teknoir.org/org-tree-member-ts; UU=teknoir.org/org-tree-units-ts
+usr u1 other.io/x=1 > "${TMP}/u-base.yaml"
+uverdict "editor creates a User without org annotations" allow "${EDITOR_SA}" create "${TMP}/u-base.yaml"
+usr u1 "$UM=true" "$UU=[\"a\"]" other.io/x=1 > "${TMP}/u-org.yaml"
+uverdict "editor adds org-tree annotations to a User" deny "${EDITOR_SA}" replace "${TMP}/u-org.yaml"
+usr u2 "$UM=true" "$UU=[\"a\"]" > "${TMP}/u-new.yaml"
+uverdict "editor creates a User with org-tree annotations" deny "${EDITOR_SA}" create "${TMP}/u-new.yaml"
+uverdict "backstage-api creates a User with org-tree annotations" allow "${BACKSTAGE_API}" create "${TMP}/u-new.yaml"
+uverdict "backstage-api sets org-tree annotations" allow "${BACKSTAGE_API}" replace "${TMP}/u-org.yaml"
+usr u1 "$UM=true" "$UU=[\"a\",\"b\"]" other.io/x=1 > "${TMP}/u-widen.yaml"
+uverdict "editor widens org-tree-units" deny "${EDITOR_SA}" replace "${TMP}/u-widen.yaml"
+uverdict "device-controller widens org-tree-units" deny "${DC}" replace "${TMP}/u-widen.yaml"
+uverdict "ArgoCD widens org-tree-units" allow "${ARGO}" replace "${TMP}/u-widen.yaml"
+usr u1 other.io/x=1 > "${TMP}/u-strip.yaml"
+uverdict "editor removes org-tree annotations" deny "${EDITOR_SA}" replace "${TMP}/u-strip.yaml"
+usr u1 "$UM=true" "$UU=[\"a\",\"b\"]" other.io/x=2 other.io/y=3 > "${TMP}/u-unrelated.yaml"
+uverdict "editor changes unrelated User annotations, org-tree kept" allow "${EDITOR_SA}" replace "${TMP}/u-unrelated.yaml"
+uverdict "user-controller rewrites a User, org-tree kept" allow "${USER_CTRL}" replace "${TMP}/u-unrelated.yaml"
+if "${KC[@]}" replace -f "${TMP}/u-strip.yaml" >/dev/null 2>&1; then ok "allowed: system:masters removes the org-tree annotations"; else bad "system:masters User replace denied"; fi
+if as "${EDITOR_SA}" delete user u2 >/dev/null 2>&1; then ok "allowed: DELETE of a User is not matched"; else bad "DELETE of a User was denied"; fi
 
 # --- namespace teardown: DELETE of a policy ConfigMap by anyone while the namespace is Terminating
 as "${DC}" create -n teknoir-ztna -f "${TMP}/policy.yaml" >/dev/null

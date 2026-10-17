@@ -34,3 +34,12 @@ system:serviceaccount:{{ .Values.deviceController.namespace }}:{{ .Values.device
 {{- define "ztna.flagsUser" -}}
 system:serviceaccount:{{ .Release.Namespace }}:wg-flags
 {{- end -}}
+
+{{/* hub.orgGate.mode: enforce (default) | audit | off; anything else fails the render. */}}
+{{- define "ztna.orgGateMode" -}}
+{{- $m := default "enforce" (.Values.hub.orgGate).mode -}}
+{{- if not (has $m (list "enforce" "audit" "off")) -}}
+{{- fail (printf "hub.orgGate.mode must be enforce, audit or off, got %q" $m) -}}
+{{- end -}}
+{{- $m -}}
+{{- end -}}
