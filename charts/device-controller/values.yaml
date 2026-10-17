@@ -168,6 +168,8 @@ ztna:
 # DeviceApplicationSets every install gets (templates/platform-device-application-sets.yaml).
 # teknoir-demo: the starter apps of teknoir-demo-gitops on the test devices (label
 # device-group=test), as on r415 before the move to vpro (2026-10-16).
+# Revisions are commit SHAs (teknoir-demo-gitops main on 2026-10-17), so a push to that repo
+# does not change staging by itself; move them with a PR + staging release (staging-releases.md).
 platformDeviceApplicationSets:
   - name: demo-test
     namespace: teknoir-demo
@@ -175,8 +177,8 @@ platformDeviceApplicationSets:
       matchLabels:
         device-group: test
     applications:
-      - {repo_url: "https://github.com/teknoir/teknoir-demo-gitops", path: common/devstudio.yaml, revision: main}
-      - {repo_url: "https://github.com/teknoir/teknoir-demo-gitops", path: common/notebook.yaml, revision: main}
+      - {repo_url: "https://github.com/teknoir/teknoir-demo-gitops", path: common/devstudio.yaml, revision: 2140e79c8d8815da3bb2bd1a186187322b2d0362}
+      - {repo_url: "https://github.com/teknoir/teknoir-demo-gitops", path: common/notebook.yaml, revision: 2140e79c8d8815da3bb2bd1a186187322b2d0362}
   # GPU metrics on the platform: the on-device Prometheus, the GPU exporter and gpu-metrics-app
   # (publishes to MQTT). Device label gpu=nvidia (discrete GPU, dcgm-exporter) or gpu=jetson
   # (jetson-exporter). An inline app of the same name on a device (prometheus, nvidia-exporter)
@@ -187,13 +189,13 @@ platformDeviceApplicationSets:
       matchLabels:
         gpu: nvidia
     applications:
-      - {repo_url: "https://github.com/teknoir/teknoir-demo-gitops", path: fleets/gpu-metrics/prometheus.yaml, revision: main}
-      - {repo_url: "https://github.com/teknoir/teknoir-demo-gitops", path: fleets/gpu-nvidia/gpu-metrics.yaml, revision: main}
+      - {repo_url: "https://github.com/teknoir/teknoir-demo-gitops", path: fleets/gpu-metrics/prometheus.yaml, revision: 2140e79c8d8815da3bb2bd1a186187322b2d0362}
+      - {repo_url: "https://github.com/teknoir/teknoir-demo-gitops", path: fleets/gpu-nvidia/gpu-metrics.yaml, revision: 2140e79c8d8815da3bb2bd1a186187322b2d0362}
   - name: gpu-jetson
     namespace: teknoir-demo
     selector:
       matchLabels:
         gpu: jetson
     applications:
-      - {repo_url: "https://github.com/teknoir/teknoir-demo-gitops", path: fleets/gpu-metrics/prometheus.yaml, revision: main}
-      - {repo_url: "https://github.com/teknoir/teknoir-demo-gitops", path: fleets/gpu-jetson/gpu-metrics.yaml, revision: main}
+      - {repo_url: "https://github.com/teknoir/teknoir-demo-gitops", path: fleets/gpu-metrics/prometheus.yaml, revision: 2140e79c8d8815da3bb2bd1a186187322b2d0362}
+      - {repo_url: "https://github.com/teknoir/teknoir-demo-gitops", path: fleets/gpu-jetson/gpu-metrics.yaml, revision: 2140e79c8d8815da3bb2bd1a186187322b2d0362}
