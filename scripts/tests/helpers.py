@@ -3,6 +3,7 @@ import importlib.machinery
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -51,8 +52,10 @@ class Repo:
         with open(os.path.join(self.work, "charts", "app-of-apps", "tests", "x_test.yaml"), "w") as fh:
             fh.write("suite: x\n")
         os.makedirs(os.path.join(self.work, "scripts"))
+        # The real policy, but without the real rollback floor: tests that need a floor add their own
+        # (the repo's floor names real releases that the fake repo does not have).
         with open(os.path.join(SCRIPTS, "release-policy.yaml")) as src, open(os.path.join(self.work, "scripts", "release-policy.yaml"), "w") as dst:
-            dst.write(src.read())
+            dst.write(re.sub(r"(?m)^rollback_floor:.*$", 'rollback_floor: ""', src.read()))
         self.c["c1"] = self.commit("c1", "README", "1")
         self.c["c2"] = self.commit("c2", "README", "2")
         git(self.work, "checkout", "-q", "-b", "feature")
