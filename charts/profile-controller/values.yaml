@@ -46,7 +46,8 @@ config:
   # 0.0.101: EMQX 5 listener names, so 8883 serves domain-wildcard-tls; deadend stunnel image.
   # 0.0.102: EMQX restarts on a config change. 0.0.103/0.0.104: jwks key writes only from device-controller (DENY policy).
   # 0.0.105: every first-party plugin image is pinned as tag@sha256 (IfNotPresent); release only after chart-releaser has published it.
-  pluginChartVersion: "0.0.105"
+  # 0.0.106: Observatory: standalone frontend off, wss-mqtt admits the Backstage backends, legacy wss path routed.
+  pluginChartVersion: "0.0.106"
 
 resources: {}
   # limits:
