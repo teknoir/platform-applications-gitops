@@ -8,6 +8,11 @@ in the UI are reverted by self-heal.
 
 Never pruned or deleted by ArgoCD: removing an entry from values leaves the User
 (and its Keycloak user) in place. Delete it by hand if that is really wanted.
+
+orgUnits (optional) maps a teamspace to the org-tree units the user is limited to
+there, e.g. {teknoir-demo: [se-karlstad]}: the user then sees only robots and devices
+placed in those units (or below), plus unplaced ones, in Backstage. The annotations
+are the ones Settings > Members writes for an "Org Tree Member".
 */ -}}
 {{- range .Values.platformUsers }}
 ---
@@ -17,6 +22,10 @@ metadata:
   name: {{ .email | replace "@" "-at-" }}
   annotations:
     argocd.argoproj.io/sync-options: Prune=false,Delete=false
+    {{- range $ns, $units := .orgUnits }}
+    teknoir.org/org-tree-member-{{ $ns }}: "true"
+    teknoir.org/org-tree-units-{{ $ns }}: {{ $units | toJson | quote }}
+    {{- end }}
   labels:
     teknoir.org/managed-by: gitops
 spec:
