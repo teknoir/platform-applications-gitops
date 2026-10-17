@@ -16,6 +16,10 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: backstage-next
+  # Removing this Application at the UI cut-over (release B, --allow-remove backstage-next) must also delete its
+  # workloads, PVC claims aside (plans/nextgen/ui-cutover.md section 10).
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
 {{- if .Values.releaseName }}
   annotations:
     teknoir.org/release: {{ .Values.releaseName | quote }}
@@ -73,6 +77,10 @@ spec:
 {{- if include "app-of-apps.ztnaEnabled" . }}
         # Same ZTNA switch as the classic Backstage Application.
         - name: ztna.enabled
+          value: "true"
+        # Connect (open the web terminal and device apps over Tunneling), read-only here: the ztna VAP admits writes
+        # only from the SA backstage-api, so enabling waits for the UI cut-over.
+        - name: fleet.access.enabled
           value: "true"
 {{- end }}
   project: {{ .Values.project }}

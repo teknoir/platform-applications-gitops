@@ -20,15 +20,23 @@ tests:
       - contains: {path: spec.source.helm.parameters, content: {name: postgres.resources.limits.memory, value: 512Mi}}
       - contains: {path: spec.source.helm.parameters, content: {name: fleet.classicUrl, value: "https://teknoir.cloud"}}
 
-  - it: passes the ZTNA switch like the classic Application
+  - it: passes the ZTNA switch like the classic Application, and turns Connect on read-only
     set: {project: teknoir-cloud, ztna.enabled: true}
     asserts:
       - contains: {path: spec.source.helm.parameters, content: {name: ztna.enabled, value: "true"}}
+      - contains: {path: spec.source.helm.parameters, content: {name: fleet.access.enabled, value: "true"}}
+      - notContains: {path: spec.source.helm.parameters, content: {name: fleet.access.writes, value: "true"}}
 
-  - it: leaves ZTNA out when it is off
+  - it: deletes its resources when the Application is removed
+    set: {project: teknoir-cloud}
+    asserts:
+      - contains: {path: metadata.finalizers, content: resources-finalizer.argocd.argoproj.io}
+
+  - it: leaves ZTNA and Connect out when ZTNA is off
     set: {project: teknoir-cloud, ztna.enabled: false}
     asserts:
       - notContains: {path: spec.source.helm.parameters, content: {name: ztna.enabled, value: "true"}}
+      - notContains: {path: spec.source.helm.parameters, content: {name: fleet.access.enabled, value: "true"}}
 
   - it: renders nothing when the flag is off
     set: {project: teknoir-cloud, backstageNext.enabled: false}
