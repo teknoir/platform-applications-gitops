@@ -52,10 +52,11 @@ class Repo:
         with open(os.path.join(self.work, "charts", "app-of-apps", "tests", "x_test.yaml"), "w") as fh:
             fh.write("suite: x\n")
         os.makedirs(os.path.join(self.work, "scripts"))
-        # The real policy, but without the real rollback floor: tests that need a floor add their own
-        # (the repo's floor names real releases that the fake repo does not have).
+        # The real policy, but with the fixture baseline (no rollback floor, images: warn): tests that need a
+        # floor or deny set it themselves (the repo's floor names real releases the fake repo does not have).
         with open(os.path.join(SCRIPTS, "release-policy.yaml")) as src, open(os.path.join(self.work, "scripts", "release-policy.yaml"), "w") as dst:
-            dst.write(re.sub(r"(?m)^rollback_floor:.*$", 'rollback_floor: ""', src.read()))
+            text = re.sub(r"(?m)^rollback_floor:.*$", 'rollback_floor: ""', src.read())
+            dst.write(re.sub(r"(?m)^images:.*$", "images: warn", text))   # the fixture baseline; tests set deny themselves
         self.c["c1"] = self.commit("c1", "README", "1")
         self.c["c2"] = self.commit("c2", "README", "2")
         git(self.work, "checkout", "-q", "-b", "feature")

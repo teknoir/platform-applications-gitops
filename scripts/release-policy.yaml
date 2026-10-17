@@ -6,7 +6,7 @@
 #   warn  listed in the output, the release goes ahead (until the pins are adopted, rollout step 4/8)
 #   deny  fails the release lint
 # Third-party images without a digest are always only a warning.
-images: warn
+images: deny   # since 2026-10-17 (all first-party images pinned; plans/staging-releases.md step 8)
 
 # First-party registries. An image under one of these prefixes must be pinned by digest once
 # `images: deny` is set: repo:<tag>@sha256:<64 hex>.
