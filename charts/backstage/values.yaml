@@ -11,6 +11,8 @@ config:
   # Public host of this instance (VirtualService, app.baseUrl, backend.baseUrl). Empty = config.domain.
   # Issuer/JWKS and teknoir.domain keep config.domain.
   host: ""
+  # Hosts that only redirect (301, path kept) to the host above, e.g. next.teknoir.cloud after the UI cut-over.
+  redirectHosts: []
   logLevel: info
   prometheusUrl: http://prometheus.__NAMESPACE__.svc.cluster.local:80
 

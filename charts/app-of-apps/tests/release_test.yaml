@@ -55,6 +55,8 @@ tests:
     template: templates/backstage-next.yaml
     set:
       project: teknoir-cloud
+      # Off by default since the UI cut-over; the template must still follow the release when turned on.
+      backstageNext: {enabled: true}
       release: "0123456789abcdef0123456789abcdef01234567"
       releaseName: staging-20261017.1
       virtualDevices: {enabled: true, spike: {enabled: true}}
@@ -281,6 +283,8 @@ tests:
     template: templates/backstage-next.yaml
     set:
       project: teknoir-cloud
+      # Off by default since the UI cut-over; the template must still follow the release when turned on.
+      backstageNext: {enabled: true}
       virtualDevices: {enabled: true, spike: {enabled: true}}
       releaseGuard: {enabled: true}
       ztna: {enabled: true}

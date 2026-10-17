@@ -3,6 +3,7 @@ templates:
   - templates/configmap-app-config.yaml
   - templates/deployment.yaml
   - templates/istio-virtualservice.yaml
+  - templates/istio-redirect-virtualservice.yaml
   - templates/istio-authpolicy.yaml
   - templates/postgres-authpolicy.yaml
   - templates/postgres-statefulset.yaml
@@ -236,3 +237,18 @@ tests:
         documentIndex: 1
       - equal: {path: 'spec.template.spec.containers[0].resources.limits.memory', value: 512Mi}
         template: templates/postgres-statefulset.yaml
+
+  - it: renders a 301 redirect VirtualService for the redirect hosts only when given
+    set:
+      config.redirectHosts: [next.teknoir.cloud]
+    template: templates/istio-redirect-virtualservice.yaml
+    asserts:
+      - equal: {path: metadata.name, value: backstage-redirect}
+      - equal: {path: 'spec.hosts[0]', value: next.teknoir.cloud}
+      - equal: {path: 'spec.http[0].redirect.authority', value: teknoir.cloud}
+      - equal: {path: 'spec.http[0].redirect.redirectCode', value: 301}
+
+  - it: renders no redirect VirtualService by default
+    template: templates/istio-redirect-virtualservice.yaml
+    asserts:
+      - hasDocuments: {count: 0}

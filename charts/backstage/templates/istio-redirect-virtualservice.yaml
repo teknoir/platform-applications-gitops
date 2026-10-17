@@ -1,0 +1,23 @@
+{{- /*
+Hosts that only redirect to this instance's host, path and query kept (301). Used for next.teknoir.cloud after
+the UI cut-over a2 (plans/nextgen/ui-cutover.md): the next-gen pages moved to the main host.
+*/ -}}
+{{- with .Values.config.redirectHosts }}
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: {{ $.Values.name }}-redirect
+  namespace: {{ $.Release.Namespace }}
+spec:
+  gateways:
+    - istio-system/teknoir-gateway
+  hosts:
+    {{- range . }}
+    - {{ . | quote }}
+    {{- end }}
+  http:
+    - redirect:
+        authority: {{ $.Values.config.host | default $.Values.config.domain | quote }}
+        redirectCode: 301
+{{- end }}

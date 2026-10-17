@@ -23,6 +23,9 @@ spec:
         # device-controller uses (plugin_device_state PROMETHEUS_URL_TEMPLATE).
         - name: fleet.prometheusUrlTemplate
           value: "http://prometheus.{namespace}.svc.cluster.local/{namespace}/prometheus"
+        # The former preview host redirects here since the UI cut-over.
+        - name: config.redirectHosts[0]
+          value: next.teknoir.cloud
 {{- if include "app-of-apps.ztnaEnabled" . }}
         # The ZTNA switch (app-of-apps values ztna.enabled), turns the WireGuard UI on (teknoir.ztna.enabled).
         - name: ztna.enabled

@@ -128,14 +128,11 @@ class Exceptions(unittest.TestCase):
         f = CP.check_exceptions(policy(exceptions=[{"image": "x", "expires": "2027-01-01"}]), TODAY)
         self.assertEqual(codes(f), ["exception-invalid"])
 
-    def test_shipped_policy_has_the_nextgen_lane_expiring_2026_11_30(self):
+    def test_shipped_policy_has_no_exceptions_since_the_ui_cutover(self):
         pol = CP.load_policy(os.path.join(H.SCRIPTS, "release-policy.yaml"))
         self.assertEqual(pol["images"], "deny")   # since 2026-10-17: every first-party image is pinned
-        exc = {e["image"]: e for e in pol["exceptions"]}
-        self.assertEqual(set(exc), {"ghcr.io/teknoir/backstage-app:nextgen", "ghcr.io/teknoir/backstage:nextgen"})
-        for e in exc.values():
-            self.assertEqual(e["owner"], "Nextgen")
-            self.assertEqual(CP._date(e["expires"]), dt.date(2026, 11, 30))
+        # The next.teknoir.cloud preview lane (:nextgen) ended with the UI cut-over (release B, 2026-10-17).
+        self.assertEqual(pol["exceptions"], [])
         self.assertEqual(CP.check_exceptions(pol, TODAY), [])
 
 
