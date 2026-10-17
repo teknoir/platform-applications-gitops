@@ -107,7 +107,7 @@ subjects:
 ---
 # The flags watcher (templates/flags.yaml). The ONLY identity with access to Device objects, so
 # the internet-facing hub never can read spec.keys. It has no ingress. Its ConfigMap writes are
-# limited to ztna-flags-* by the admission policy.
+# limited to ztna-flags-* and ztna-org-* by the admission policy.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:

@@ -183,7 +183,10 @@ denied "device-controller updates ztna-org-x" "${DC}" "${TMP}/org-tamper.yaml" a
 denied "backstage-api updates ztna-org-x" "${BACKSTAGE_API}" "${TMP}/org-tamper.yaml" apply
 cm ztna-org-x > "${TMP}/org-stripped.yaml"
 denied "backstage-api strips the label from ztna-org-x" "${BACKSTAGE_API}" "${TMP}/org-stripped.yaml" replace
-if as "${DC}" delete configmap ztna-org-x -n teknoir-ztna >/dev/null 2>&1; then bad "should be denied: device-controller deletes ztna-org-x"; else ok "denied: device-controller deletes ztna-org-x"; fi
+if out=$(as "${DC}" delete configmap ztna-org-x -n teknoir-ztna 2>&1); then bad "should be denied: device-controller deletes ztna-org-x"; elif grep -q "ValidatingAdmissionPolicy" <<<"$out"; then ok "denied: device-controller deletes ztna-org-x"; else bad "denied, but not by the policy: device-controller deletes ztna-org-x: $out"; fi
+cm other-name ztna.teknoir.org/org > "${TMP}/org-othername.yaml"
+allowed "wg-flags (the label owner) creates an org-labelled ConfigMap named other-name" "${FLAGS}" "${TMP}/org-othername.yaml"
+denied "device-controller updates an org-labelled ConfigMap named other-name" "${DC}" "${TMP}/org-othername.yaml" apply
 if as "${FLAGS}" delete configmap ztna-org-x -n teknoir-ztna >/dev/null 2>&1; then ok "allowed: wg-flags deletes ztna-org-x"; else bad "wg-flags delete of ztna-org-x denied"; fi
 
 # --- pods and workloads (only ArgoCD, device-controller, the stunner operator, kube-system)
@@ -341,6 +344,9 @@ dev odev "$OT=se/a" other.io/x=1 > "${TMP}/o-pathonly.yaml"
 dverdict "editor sets only org-tree-path" deny "${EDITOR_SA}" replace "${TMP}/o-pathonly.yaml"
 dev odev "$ON=a" other.io/x=1 > "${TMP}/o-nodeonly.yaml"
 dverdict "editor sets only org-tree-node-id" deny "${EDITOR_SA}" replace "${TMP}/o-nodeonly.yaml"
+dev odev-new "$OT=se/a" "$ON=a" > "${TMP}/o-create.yaml"
+dverdict "editor creates a Device with org-tree-path/node-id" deny "${EDITOR_SA}" create "${TMP}/o-create.yaml"
+dverdict "backstage-api creates a Device with org-tree-path/node-id" allow "${BACKSTAGE_API}" create "${TMP}/o-create.yaml"
 dverdict "backstage-api sets org-tree-path/node-id" allow "${BACKSTAGE_API}" replace "${TMP}/o-placed.yaml"
 dev odev "$OT=se/b" "$ON=a" other.io/x=1 > "${TMP}/o-moved.yaml"
 dverdict "editor changes org-tree-path" deny "${EDITOR_SA}" replace "${TMP}/o-moved.yaml"

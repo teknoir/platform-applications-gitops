@@ -37,7 +37,12 @@ system:serviceaccount:{{ .Release.Namespace }}:wg-flags
 
 {{/* hub.orgGate.mode: enforce (default) | audit | off; anything else fails the render. */}}
 {{- define "ztna.orgGateMode" -}}
-{{- $m := default "enforce" (.Values.hub.orgGate).mode -}}
+{{- $m := (.Values.hub.orgGate).mode -}}
+{{- if kindIs "invalid" $m -}}{{- $m = "enforce" -}}{{- end -}}
+{{- if not (kindIs "string" $m) -}}
+{{- fail (printf "hub.orgGate.mode must be a string (enforce, audit or off); quote it: 'off' (got %v)" $m) -}}
+{{- end -}}
+{{- if eq $m "" -}}{{- $m = "enforce" -}}{{- end -}}
 {{- if not (has $m (list "enforce" "audit" "off")) -}}
 {{- fail (printf "hub.orgGate.mode must be enforce, audit or off, got %q" $m) -}}
 {{- end -}}

@@ -72,10 +72,9 @@ backstage:
 # Who may add, change or remove the org-tree annotations on Users (teknoir.org/org-tree-member-* and
 # org-tree-units-*), the inputs of the hub org gate (admission policy ztna-user-org-annotations),
 # besides system:masters. Backstage backend (Settings > Members), ArgoCD (platformUsers/orgUnits in
-# charts/user-controller) and user-controller.
+# charts/user-controller) and user-controller. backstage.serviceAccount is always added by the policy.
 userOrgAnnotations:
   writers:
-    - system:serviceaccount:teknoir-system:backstage-api
     - system:serviceaccount:teknoir-system:argocd-application-controller
     - system:serviceaccount:teknoir-system:user-controller
 

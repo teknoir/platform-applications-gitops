@@ -613,6 +613,14 @@ tests:
           path: spec.template.spec.containers[0].env
           content: {name: ORG_GATE_MODE, value: audit}
 
+  - it: fails the render for an unquoted YAML boolean mode (off parses as false)
+    template: templates/hub.yaml
+    set:
+      hub.orgGate.mode: false
+    asserts:
+      - failedTemplate:
+          errorPattern: "quote it"
+
   - it: fails the render for an unknown org gate mode
     template: templates/hub.yaml
     set:
@@ -664,7 +672,7 @@ tests:
           value: Fail
       - matchRegex:
           path: spec.variables[2].expression
-          pattern: "backstage-api', 'system:serviceaccount:teknoir-system:argocd-application-controller', 'system:serviceaccount:teknoir-system:user-controller'.*system:masters"
+          pattern: "'system:serviceaccount:teknoir-system:backstage-api', 'system:serviceaccount:teknoir-system:argocd-application-controller', 'system:serviceaccount:teknoir-system:user-controller'.*system:masters"
       - matchRegex:
           path: spec.validations[0].expression
           pattern: "org-tree-member-.*org-tree-units-"

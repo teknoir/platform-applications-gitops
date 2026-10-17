@@ -369,7 +369,7 @@ spec:
         has(object.metadata.annotations) ? object.metadata.annotations : {}
     - name: privileged
       expression: >-
-        request.userInfo.username in [{{ range $i, $w := .Values.userOrgAnnotations.writers }}{{ if $i }}, {{ end }}'{{ $w }}'{{ end }}] ||
+        request.userInfo.username in [{{ .Values.backstage.serviceAccount | squote }}{{ range .Values.userOrgAnnotations.writers }}, {{ . | squote }}{{ end }}] ||
         'system:masters' in request.userInfo.groups
   validations:
     - expression: >-
