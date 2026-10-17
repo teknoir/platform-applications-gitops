@@ -103,6 +103,11 @@ for n in SWITCHED:
     assert zon == want, (n, on[n]["spec"]["source"])
     zoff = [p for p in off[n]["spec"]["source"].get("helm", {}).get("parameters", []) if p["name"].startswith("ztna.")]
     assert zoff == [], (n, off[n]["spec"]["source"])  # other charts' parameters (e.g. backstage fleet.*) are not this test's business
+    # exact on-minus-off parameter set per switched app, and off is a subset of on
+    pset = lambda app: {(p["name"], p["value"]) for p in app["spec"]["source"].get("helm", {}).get("parameters", [])}
+    extra = {"backstage": {("fleet.access.enabled", "true"), ("fleet.access.writes", "true")}}.get(n, set())
+    assert pset(on[n]) - pset(off[n]) == {(w["name"], w["value"]) for w in want} | extra, (n, pset(on[n]) - pset(off[n]))
+    assert pset(off[n]) <= pset(on[n]), (n, pset(off[n]) - pset(on[n]))
 assert "sync-wave" not in str(on["device-controller"]["metadata"]), "device-controller has no wave (retry covers the missing namespace)"
 assert on["device-controller"]["spec"]["syncPolicy"]["retry"]["limit"] == 10
 for n in on:

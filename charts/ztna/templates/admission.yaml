@@ -287,6 +287,8 @@ The same holds for the exact keys teknoir.org/org-tree-path and teknoir.org/org-
 place a Device in the org tree and so feed the hub org gate. Their writers (checked 2026-10-17):
 device-controller (copy from a Robot), the Backstage backend (Settings > Org tree) and
 `kubectl annotate` by a cluster admin (system:masters).
+Robot org annotations are not guarded: device-controller copies a Robot's placement only onto an
+unplaced Device, so an editor of Robots can narrow but not widen access. Guarding Robots is a follow-up.
 */}}
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
