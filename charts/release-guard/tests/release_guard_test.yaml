@@ -1,0 +1,76 @@
+suite: release-guard chart
+templates:
+  - templates/policy.yaml
+  - templates/rbac.yaml
+tests:
+  - it: Warn is the default mode and Audit is always on
+    template: templates/policy.yaml
+    documentIndex: 1
+    asserts:
+      - isKind: {of: ValidatingAdmissionPolicyBinding}
+      - equal: {path: spec.validationActions, value: [Warn, Audit]}
+
+  - it: Deny mode
+    template: templates/policy.yaml
+    set: {guard.mode: Deny}
+    documentIndex: 1
+    asserts:
+      - equal: {path: spec.validationActions, value: [Deny, Audit]}
+
+  - it: a bad mode fails the render of this chart only
+    template: templates/policy.yaml
+    set: {guard.mode: Maybe}
+    asserts:
+      - failedTemplate: {}
+
+  - it: the policy fails closed and is keyed on the real ArgoCD and profile-controller identities
+    template: templates/policy.yaml
+    documentIndex: 0
+    asserts:
+      - equal: {path: spec.failurePolicy, value: Fail}
+      - matchRegex:
+          path: spec.matchConditions[0].expression
+          pattern: "system:serviceaccount:teknoir-system:argocd-application-controller"
+      - matchRegex:
+          path: spec.matchConditions[0].expression
+          pattern: "system:serviceaccount:teknoir-system:profile-controller"
+      - matchRegex:
+          path: spec.matchConditions[0].expression
+          pattern: "system:serviceaccount:kube-system:generic-garbage-collector"
+      - matchRegex:
+          path: spec.matchConditions[0].expression
+          pattern: "system:serviceaccount:kube-system:namespace-controller"
+      - matchRegex:
+          path: spec.variables[0].expression
+          pattern: "system:serviceaccount:teknoir-system:staging-releaser"
+
+  - it: no param ConfigMap is used (break-glass is the namespace annotation)
+    template: templates/policy.yaml
+    asserts:
+      - notExists: {path: spec.paramKind, documentIndex: 0}
+      - notExists: {path: spec.paramRef, documentIndex: 1}
+      - matchRegex:
+          path: spec.variables[1].expression
+          pattern: "namespaceObject.metadata.annotations.'teknoir.org/release-guard'. == 'break-glass'"
+        documentIndex: 0
+
+  - it: the binding is limited to the guarded namespace
+    template: templates/policy.yaml
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: spec.matchResources.namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
+          value: teknoir-system
+
+  - it: the releaser Role is minimal
+    template: templates/rbac.yaml
+    documentIndex: 1
+    asserts:
+      - isKind: {of: Role}
+      - contains:
+          path: rules
+          content: {apiGroups: [argoproj.io], resources: [applications], verbs: [get, list, patch]}
+      - notContains:
+          path: rules
+          content: {apiGroups: [""], resources: [secrets], verbs: [get]}
+      - lengthEqual: {path: rules, count: 3}

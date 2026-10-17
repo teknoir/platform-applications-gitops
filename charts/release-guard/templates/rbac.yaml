@@ -1,0 +1,51 @@
+{{- /*
+The identity scripts/staging-release acts as (kubectl --as=system:serviceaccount:<ns>:staging-releaser).
+Nobody runs as it: no token is created, no pod uses it. The Role is the minimum the release needs:
+  - patch (and get) Applications, the root app-of-apps and, for the rollback's operation termination,
+    its children;
+  - the release Lease;
+It cannot create or delete Applications (creating the root is a bootstrap, done by an admin).
+*/ -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.releaser.serviceAccount }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "release-guard.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Values.releaser.serviceAccount }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "release-guard.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications"]
+    verbs: ["get", "list", "patch"]
+  # create cannot be restricted by name
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["create"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    resourceNames: [{{ .Values.releaser.leaseName | quote }}]
+    verbs: ["get", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Values.releaser.serviceAccount }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "release-guard.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.releaser.serviceAccount }}
+    namespace: {{ .Values.namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Values.releaser.serviceAccount }}
