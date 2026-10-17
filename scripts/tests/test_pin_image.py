@@ -199,6 +199,13 @@ class PinFlow(unittest.TestCase):
         with self.assertRaises(L.Refuse):
             self.pin(FakeSys()).adopt_running(write=False, context="teknoir-poc-eks")
 
+    def test_digest_style_writes_only_the_digest_and_keeps_the_tag(self):
+        self.assertEqual(PI.build_value("digest", "ghcr.io/teknoir/keycloak-theme", "latest", D), D)
+        self.assertEqual(PI.sibling_tag_path("keycloak.image.digest"), "keycloak.image.tag")
+        self.assertEqual(PI.current_ref("digest", "ghcr.io/teknoir/keycloak-theme", None, "latest"), "ghcr.io/teknoir/keycloak-theme:latest")
+        self.assertEqual(PI.current_ref("digest", "ghcr.io/teknoir/keycloak-theme", D, "latest"), "ghcr.io/teknoir/keycloak-theme:latest@" + D)
+        self.assertIsNone(PI.current_ref("digest", "ghcr.io/teknoir/keycloak-theme", D, None))
+
     def test_adopt_skips_what_is_already_pinned(self):
         res = {r["name"]: r for r in self.pin(FakeSys()).adopt_running(write=False, context="vpro")}
         self.assertNotIn("device-controller", res)        # file not copied into the fixture

@@ -38,7 +38,8 @@ from dataclasses import dataclass, field, asdict
 import yaml
 
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
-PINNED = re.compile(r":[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$")
+# repo:<tag>@sha256:<digest>, or repo@sha256:<digest> (charts with a separate digest value render no tag)
+PINNED = re.compile(r"(:[A-Za-z0-9._-]+)?@sha256:[0-9a-f]{64}$")
 DIGEST = re.compile(r"@sha256:[0-9a-f]{64}$")
 GITOPS_SUFFIX = "platform-applications-gitops"
 CR_KINDS = {"DeviceApplicationSet", "Device", "Robot", "RobotType"}
