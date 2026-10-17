@@ -6,17 +6,26 @@ Design: plans/staging-releases.md, "enforcement" 2 and 4. The style follows char
 
 NOT evaluated at all (matchConditions): the identities in values `identities` (ArgoCD's application
 controller, profile-controller, kube-system GC and namespace controller) and UPDATEs that change none of
-spec, metadata.finalizers, a foreign operation.sync.revision(s) or an operation.sync.source(s) override:
-status writes, refresh annotations, break-glass annotations and a plain `argocd app sync` pass. failurePolicy: Fail is safe only because
-those identities are excluded; a wrong name in values would block ArgoCD itself (tested on k3d with the
-real names: charts/release-guard/tests/k3d-guard-test.sh).
+spec, metadata.finalizers or the operation in a way that is not a plain sync of the Application's own spec:
+status writes (terminate, health), refresh annotations, break-glass annotations, and a plain sync from the
+UI (argocd-server) pass. failurePolicy: Fail is safe only because those identities are excluded; a wrong name
+in values would block ArgoCD itself (tested on k3d with the real names: charts/release-guard/tests/k3d-guard-test.sh).
+
+Operations (ArgoCD v3.5.1 shapes, see _helpers.tpl "release-guard.opOk"): argocd-server's Sync and the
+controller's autoSync both write operation.sync.source as a COPY of spec.source (and sources = spec.sources,
+revision = the resolved revision), and the operation stays on the object until it completes. The policy therefore
+judges an operation only when THIS request sets or changes it (oldObject has none, or a different one), never
+when it merely rides along on another write (the releaser patching the root while an autosync is Running), and
+treats it as a plain sync, not an override, when source/sources equal spec.source/sources and revision(s) are
+empty or the Application's own targetRevision (for a symbolic targetRevision such as a branch: the revision
+ArgoCD resolved for it, oldObject.status.sync.revision).
 
 Validations, for everything that is evaluated:
   (a) the requester is the releaser ServiceAccount, or the Namespace is annotated break-glass;
-  (b) an UPDATE that sets operation.sync.revision to anything but spec.source.targetRevision, or sets an
-      override operation.sync.source / sources (an operation with its own source and targetRevision, which is
-      what a rollback operation carries), is denied (blocks `argocd app sync --revision <branch>`), unless
-      break-glass;
+  (b) an UPDATE that SETS OR CHANGES an operation which is not a plain sync of the Application's own spec (a
+      foreign operation.sync.revision(s), or its own source / sources that differ from spec.source / sources,
+      which is what a rollback operation carries) is denied (blocks `argocd app sync --revision <branch>`),
+      unless break-glass;
   (c) when the releaser writes the root Application: exact shape (repoURL, path, project, a 40-hex
       targetRevision, exactly the helm parameters release (== targetRevision) and releaseName (== the
       teknoir.org/release annotation, staging-YYYYMMDD.N, no leading zero), no values, destination
@@ -58,20 +67,17 @@ spec:
       expression: >-
         !(request.userInfo.username in [{{ range $i, $u := $excluded }}{{ if $i }}, {{ end }}'{{ $u }}'{{ end }}])
     # Only a change of what an Application deploys is evaluated. object/oldObject: oldObject is null on
-    # CREATE and object is null on DELETE, both are always evaluated.
+    # CREATE and object is null on DELETE, both are always evaluated. An UPDATE is evaluated when it changes the
+    # spec or the finalizers, or sets/changes an operation that is not a plain sync of the Application's own spec
+    # (the same expressions as the variables opChanged/opOk; matchConditions cannot reference variables).
     - name: relevant-change
       expression: >-
         request.operation != 'UPDATE' ||
         object.spec != oldObject.spec ||
         has(object.metadata.finalizers) != has(oldObject.metadata.finalizers) ||
         (has(object.metadata.finalizers) && object.metadata.finalizers != oldObject.metadata.finalizers) ||
-        (has(object.operation) && has(object.operation.sync) && has(object.operation.sync.revision) &&
-          object.operation.sync.revision != '' &&
-          object.operation.sync.revision != (has(object.spec.source) && has(object.spec.source.targetRevision) ? object.spec.source.targetRevision : '')) ||
-        (has(object.operation) && has(object.operation.sync) && has(object.operation.sync.revisions) &&
-          object.operation.sync.revisions.exists(r, r != (has(object.spec.source) && has(object.spec.source.targetRevision) ? object.spec.source.targetRevision : ''))) ||
-        (has(object.operation) && has(object.operation.sync) &&
-          (has(object.operation.sync.source) || (has(object.operation.sync.sources) && size(object.operation.sync.sources) > 0)))
+        (({{ include "release-guard.opChanged" . }}) &&
+         !({{ include "release-guard.opOk" . | nindent 10 }}))
   variables:
     - name: isReleaser
       expression: request.userInfo.username == '{{ include "release-guard.releaserUser" . }}'
@@ -85,20 +91,15 @@ spec:
         request.operation == 'DELETE' ? oldObject.metadata.name : object.metadata.name
     - name: isRoot
       expression: variables.appName == '{{ .Values.guard.rootApplication }}'
-    - name: targetRevision
+    # the request sets or changes an operation (UPDATE; on CREATE an operation is always new)
+    - name: opChanged
       expression: >-
-        object != null && has(object.spec.source) && has(object.spec.source.targetRevision) ? object.spec.source.targetRevision : ''
-    - name: opRevision
+        request.operation == 'CREATE' ? has(object.operation) :
+        (request.operation == 'UPDATE' && ({{ include "release-guard.opChanged" . }}))
+    # the operation is a plain sync of the Application's own spec
+    - name: opPlain
       expression: >-
-        object != null && has(object.operation) && has(object.operation.sync) && has(object.operation.sync.revision) ? object.operation.sync.revision : ''
-    - name: opRevisionsForeign
-      expression: >-
-        object != null && has(object.operation) && has(object.operation.sync) && has(object.operation.sync.revisions) &&
-        object.operation.sync.revisions.exists(r, r != variables.targetRevision)
-    - name: opSourceOverride
-      expression: >-
-        object != null && has(object.operation) && has(object.operation.sync) &&
-        (has(object.operation.sync.source) || (has(object.operation.sync.sources) && size(object.operation.sync.sources) > 0))
+        request.operation == 'DELETE' || ({{ include "release-guard.opOk" . | nindent 8 }})
   validations:
     # (a)
     - expression: variables.isReleaser || variables.breakGlass
@@ -108,10 +109,8 @@ spec:
         '. Stop and ask Anders.'
       reason: Forbidden
     # (b)
-    - expression: >-
-        variables.breakGlass || (!variables.opRevisionsForeign && !variables.opSourceOverride &&
-                                 (variables.opRevision == '' || variables.opRevision == variables.targetRevision))
-      message: "a sync may only use the Application's own spec.source.targetRevision (argocd app sync --revision <other>, and an operation with its own source or sources, are not allowed). Stop and ask Anders."
+    - expression: variables.breakGlass || !variables.opChanged || variables.opPlain
+      message: "a sync may only use the Application's own spec (argocd app sync --revision <other>, and an operation with its own source or sources, are not allowed). Stop and ask Anders."
       reason: Forbidden
     # (c)
     - expression: >-

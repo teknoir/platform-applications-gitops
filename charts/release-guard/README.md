@@ -26,16 +26,38 @@ The policy is keyed on WHO writes (`request.userInfo.username`), following `char
   teardown). The names were confirmed on vpro (`kubectl --context vpro -n teknoir-system get sa`, managedFields of
   the Applications) and the GC and namespace-controller ones on k3d with the real controllers
   (`tests/k3d-guard-test.sh`, section 4 and 7);
-- UPDATEs that change none of `spec`, `metadata.finalizers`, a foreign `operation.sync.revision(s)` or an
-  `operation.sync.source(s)` override: status writes, refresh annotations, the break-glass annotation, a plain
-  `argocd app sync`.
+- UPDATEs that change none of `spec`, `metadata.finalizers` or the `operation` in a way that is not a plain sync of the
+  Application's own spec: status writes (terminate = `status.operationState.phase=Terminating`), refresh and hard-refresh
+  annotations, the break-glass annotation, and a plain sync from the UI Sync button or `argocd app sync` (argocd-server).
+
+#### Operations (ArgoCD v3.5.1)
+
+`argocd-server`'s `Sync` (UI button, CLI) and the controller's `autoSync` both write `operation.sync.source` as a COPY
+of `spec.source` (`sources` = `spec.sources`), plus a `revision` that is the revision resolved for the request, and the
+`operation` stays on the Application until it completes (read in the v3.5.1 source, `server/application/application.go`
+`Sync` and `controller/appcontroller.go` `autoSync`). So the policy
+
+- judges an operation only when THIS request sets or changes it (`oldObject` has none, or a different one). An operation
+  that merely rides along on another write is not judged: the releaser patching the root while an autosync is Running
+  (its `source` is the OLD `spec.source`), a terminate, a refresh, an admin annotating an Application mid-sync;
+- treats the operation as a plain sync, not an override, when `source` equals `spec.source` (`sources` equal
+  `spec.sources`) and `revision` is empty or equals the Application's `targetRevision`; `revisions` are empty or equal
+  the sources' `targetRevision`s. For a SYMBOLIC `targetRevision` (a branch, tag or chart range, anything but a 40-hex
+  SHA) argocd-server writes the revision it resolved, so that one is accepted too: the old object's
+  `status.sync.revision`. A pinned (40-hex) Application takes only its own SHA, which is every Application after
+  the cutover (the lint enforces it) and every `profile-plugin-*` app (exact chart version);
+- denies anything else: a foreign `revision` (`argocd app sync --revision <branch>`), or its own `source` / `sources`
+  with another `targetRevision` or path (an override, which is what a rollback operation carries).
+
+The same expressions are used in the `relevant-change` matchCondition (so an allowed operation never reaches the
+binding, in Warn mode too: no warning, the apiserver warn counter does not move) and in the variables `opChanged` /
+`opPlain`, rule (b). The identity does not matter for the operation rule: the UI Sync is allowed for whoever clicks it.
 
 ### Rules, for everything else
 
 - (a) the requester is `staging-releaser`, or break-glass is open;
-- (b) `operation.sync.revision(s)` may only be the Application's own `spec.source.targetRevision` (blocks
-  `argocd app sync --revision <branch>`), and an operation may not carry its own `source` / `sources` (an override
-  with another targetRevision, which is what a rollback operation carries), unless break-glass;
+- (b) an `operation` that this request sets or changes must be a plain sync of the Application's own spec (see
+  "Operations" above): no foreign `revision(s)`, no `source` / `sources` of its own, unless break-glass;
 - (c) when the releaser writes the root `app-of-apps`: repoURL, path and project fixed, `targetRevision` 40-hex, helm
   parameters exactly `release` (== targetRevision) and `releaseName` (== annotation `teknoir.org/release`,
   `staging-YYYYMMDD.N` with N >= 1 and no leading zero), none of the other helm or source keys, `destination`
@@ -90,4 +112,7 @@ set `releaseGuard.enabled: false` in a release.
 - `charts/release-guard/tests/k3d-guard-test.sh`: every rule against `k3d-teknoir-dev` with `--as` impersonation of
   the ArgoCD controller, profile-controller, argocd-server, the releaser (with the chart's own Role), a plain admin
   and the kube-system GC/namespace identities, status-only updates, break-glass on and off, Warn mode, and real GC and
-  namespace teardown. Every verdict uses `--dry-run=server`; the script refuses any context that is not `k3d-*` or `kind-*`.
+  namespace teardown. Section 2b runs ArgoCD v3.5.1's exact operation shapes (server plain sync, symbolic and
+  multi-source targets, an autosync operation Running while the releaser patches the root, terminate and refresh during
+  a running operation, foreign revisions and overriding sources) in Deny mode, and again in Warn mode, where the allowed
+  cases must leave the apiserver warn counter (`apiserver_validating_admission_policy_check_total`) unchanged. Every verdict uses `--dry-run=server`; the script refuses any context that is not `k3d-*` or `kind-*`.

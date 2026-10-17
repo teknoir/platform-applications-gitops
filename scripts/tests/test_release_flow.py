@@ -22,6 +22,9 @@ class Base(unittest.TestCase):
         os.makedirs(self.cache)
         self.out = []
 
+    def out_text(self):
+        return "\n".join(self.out)
+
     def root_branch(self):
         return H.root_app(target="teknoir-cloud", sync_rev=self.repo.sha("c2"))
 
@@ -363,10 +366,11 @@ class IdentityAndGuards(Base):
         self.assertIn("guard warn count at release: 7", msg)
 
     def test_a_failed_root_patch_marks_the_release_not_applied(self):
-        fake = H.FakeSys(self.root_pinned("c2"))
+        fake = H.FakeSys(self.root_pinned("c2", tag="staging-20261016.5"))
         self.plan(fake, self.repo.sha("c4"))
         fake.patch_fails = True
-        with self.assertRaisesRegex(L.Refuse, "root patch FAILED"):
+        # the root was read again before the Release was marked
+        with self.assertRaisesRegex(L.Refuse, r"root patch FAILED.*the root was read again: annotation staging-20261016.5, targetRevision"):
             self.tool(fake).cmd_yes(self.args(yes=self.repo.sha("c4"), by="s", reason="r", timeout=30))
         day = fake.now().strftime("%Y%m%d")
         tag = f"staging-{day}.1"
@@ -378,6 +382,45 @@ class IdentityAndGuards(Base):
         self.assertTrue(L.is_marked(rel["name"], rel["body"]))
         self.assertEqual(fake.root["spec"]["source"]["targetRevision"], self.repo.sha("c2"))
         self.assertFalse(fake.lease["spec"].get("holderIdentity"))
+
+    def failed_patch_setup(self, **flags):
+        fake = H.FakeSys(self.root_pinned("c2", tag="staging-20261016.5"))
+        self.plan(fake, self.repo.sha("c4"))
+        for k, v in flags.items():
+            setattr(fake, k, v)
+        return fake
+
+    def test_a_failed_patch_that_the_apiserver_applied_is_not_marked_and_the_watch_continues(self):
+        fake = self.failed_patch_setup(patch_applies_then_fails=True)
+        rc = self.tool(fake).cmd_yes(self.args(yes=self.repo.sha("c4"), by="s", reason="r", timeout=30))
+        self.assertEqual(rc, 0, self.out_text())
+        tag = f"staging-{fake.now().strftime('%Y%m%d')}.1"
+        rel = next(r for r in fake.releases if r["tagName"] == tag)
+        self.assertEqual(rel["name"], tag)                                         # not marked
+        self.assertNotIn(L.NOT_APPLIED_TRAILER, rel["body"].splitlines())
+        self.assertIn("but the root IS", self.out_text())
+        self.assertIn("CONVERGED", self.out_text())
+        self.assertEqual(fake.root["spec"]["source"]["targetRevision"], self.repo.sha("c4"))
+
+    def test_a_failed_patch_with_an_unreadable_root_is_reported_as_ambiguous_and_not_marked(self):
+        fake = self.failed_patch_setup(patch_fails=True, unreadable_after_patch_fail=True)
+        with self.assertRaisesRegex(L.Refuse, "could not be classified"):
+            self.tool(fake).cmd_yes(self.args(yes=self.repo.sha("c4"), by="s", reason="r", timeout=30))
+        tag = f"staging-{fake.now().strftime('%Y%m%d')}.1"
+        rel = next(r for r in fake.releases if r["tagName"] == tag)
+        self.assertEqual(rel["name"], tag)
+        self.assertNotIn(L.NOT_APPLIED_TRAILER, rel["body"].splitlines())
+        self.assertFalse([c for c, _ in fake.calls if c[:3] == ["gh", "release", "edit"]])
+        self.assertFalse(fake.lease["spec"].get("holderIdentity"))                 # the lease is released either way
+
+    def test_a_failed_patch_that_left_a_mixed_root_is_ambiguous(self):
+        fake = self.failed_patch_setup(patch_fails=True)
+        t = self.tool(fake)
+        sha, tag = self.repo.sha("c4"), "staging-20261017.9"
+        fake.root["metadata"]["annotations"][L.ANN_RELEASE] = tag                  # the annotation moved, the revision did not
+        self.assertEqual(t.root_after_failed_patch(sha, tag)[0], "unknown")
+        fake.root["metadata"]["annotations"][L.ANN_RELEASE] = "staging-20261016.5"
+        self.assertEqual(t.root_after_failed_patch(sha, tag)[0], "not-applied")
 
     def test_policy_and_lint_come_from_the_candidate_not_the_checkout(self):
         c5 = self.add_commit("c5", "scripts/release-policy.yaml", open(os.path.join(self.repo.work, "scripts", "release-policy.yaml")).read() + "\nrollback_floor: staging-20261017.3\n")
@@ -409,18 +452,95 @@ class IdentityAndGuards(Base):
         with self.assertRaisesRegex(L.Refuse, "floor"):
             self.tool(fake).cmd_rollback(self.args(rollback="staging-20261017.1", yes=self.repo.sha("c2"), by="s", reason="r"))
 
-    def test_yes_is_refused_from_a_checkout_whose_scripts_differ_from_the_candidates(self):
+    def commit_local_scripts_change(self):
+        """A commit on the checkout that is NOT on origin/teknoir-cloud: the checkout's scripts/ tree differs."""
+        H.git(self.repo.work, "checkout", "-q", "-b", "local-tooling")
+        self.repo.commit("local tooling", "scripts/release-policy.yaml",
+                         open(os.path.join(self.repo.work, "scripts", "release-policy.yaml")).read() + "\n# local\n")
+
+    def test_yes_is_refused_from_a_checkout_whose_scripts_are_uncommitted(self):
         fake = H.FakeSys(self.root_pinned("c2"))
         self.plan(fake, self.repo.sha("c4"))
         self.edit_policy_uncommitted("# stale or edited checkout\n")
-        with self.assertRaisesRegex(L.Refuse, "differs from that of the candidate"):
+        with self.assertRaisesRegex(L.Refuse, "scripts/ of this checkout .* is not clean: scripts/release-policy.yaml"):
             self.tool(fake).cmd_yes(self.args(yes=self.repo.sha("c4"), by="s", reason="r", timeout=30))
         self.assertEqual(self.remote_tags(), [])
         self.assertNotIn("create", fake.verbs())                         # nothing was touched, not even the lease
 
+    def test_yes_is_refused_when_scripts_hold_an_untracked_file(self):
+        fake = H.FakeSys(self.root_pinned("c2"))
+        self.plan(fake, self.repo.sha("c4"))
+        with open(os.path.join(self.repo.work, "scripts", "check-pins.py"), "w") as fh:     # untracked: git diff would not see it
+            fh.write("# planted\n")
+        with self.assertRaisesRegex(L.Refuse, "not clean: scripts/check-pins.py"):
+            self.tool(fake).cmd_yes(self.args(yes=self.repo.sha("c4"), by="s", reason="r", timeout=30))
+        self.assertEqual(self.remote_tags(), [])
+        self.assertNotIn("create", fake.verbs())
+
+    def test_a_pycache_is_not_a_difference(self):
+        fake = H.FakeSys(self.root_pinned("c2"))
+        self.plan(fake, self.repo.sha("c4"))
+        os.makedirs(os.path.join(self.repo.work, "scripts", "__pycache__"))
+        with open(os.path.join(self.repo.work, "scripts", "__pycache__", "stagelib.cpython-313.pyc"), "w") as fh:
+            fh.write("x")
+        self.assertEqual(self.tool(fake).tooling()["dirty"], [])
+        rc = self.tool(fake).cmd_yes(self.args(yes=self.repo.sha("c4"), by="s", reason="r", timeout=30))
+        self.assertEqual(rc, 0, self.out_text())
+
+    def test_yes_is_refused_from_a_checkout_whose_committed_scripts_differ_from_the_candidates(self):
+        fake = H.FakeSys(self.root_pinned("c2"))
+        self.plan(fake, self.repo.sha("c4"))
+        self.commit_local_scripts_change()
+        with self.assertRaisesRegex(L.Refuse, "differs from that of the candidate"):
+            self.tool(fake).cmd_yes(self.args(yes=self.repo.sha("c4"), by="s", reason="r", timeout=30))
+        self.assertEqual(self.remote_tags(), [])
+        self.assertNotIn("create", fake.verbs())
+
+    def test_the_plan_records_the_tooling_and_yes_refuses_a_plan_made_by_other_tooling(self):
+        fake = H.FakeSys(self.root_pinned("c2"))
+        self.plan(fake, self.repo.sha("c4"))
+        planfile = L.plan_path(self.cache, self.repo.sha("c4"))
+        plan = json.load(open(planfile))
+        want = H.git(self.repo.work, "rev-parse", f"{self.repo.sha('c4')}:scripts")
+        self.assertEqual(plan["tooling"], {"tree": want, "dirty": []})           # == git rev-parse <cand>:scripts
+        # a plan written by a dirty or different checkout is refused even though THIS checkout is fine
+        plan["tooling"] = {"tree": "0" * 40, "dirty": []}
+        json.dump(plan, open(planfile, "w"))
+        with self.assertRaisesRegex(L.Refuse, "made by other tooling"):
+            self.tool(fake).cmd_yes(self.args(yes=self.repo.sha("c4"), by="s", reason="r", timeout=30))
+        plan["tooling"] = {"tree": want, "dirty": ["scripts/x.py"]}
+        json.dump(plan, open(planfile, "w"))
+        with self.assertRaisesRegex(L.Refuse, "made by other tooling.*not clean"):
+            self.tool(fake).cmd_yes(self.args(yes=self.repo.sha("c4"), by="s", reason="r", timeout=30))
+        del plan["tooling"]                                                      # an old plan without the identity
+        json.dump(plan, open(planfile, "w"))
+        with self.assertRaisesRegex(L.Refuse, "made by other tooling"):
+            self.tool(fake).cmd_yes(self.args(yes=self.repo.sha("c4"), by="s", reason="r", timeout=30))
+        self.assertEqual(self.remote_tags(), [])
+
+    def test_a_dry_run_from_a_dirty_scripts_tree_says_so_and_records_it(self):
+        fake = H.FakeSys(self.root_pinned("c2"))
+        self.edit_policy_uncommitted("# edited\n")
+        self.plan(fake, self.repo.sha("c4"))
+        self.assertIn("scripts/ of this checkout is not clean", self.out_text())
+        plan = json.load(open(L.plan_path(self.cache, self.repo.sha("c4"))))
+        self.assertEqual(plan["tooling"]["dirty"], ["scripts/release-policy.yaml"])
+
     def test_rollback_is_refused_from_a_checkout_with_unrelated_scripts(self):
         fake = Rollback.prep(self)
         self.edit_policy_uncommitted("# edited\n")
+        with self.assertRaisesRegex(L.Refuse, "not clean"):
+            self.tool(fake).cmd_rollback(self.args(rollback="-", yes=self.repo.sha("c2"), by="s", reason="r", timeout=30))
+        self.assertNotIn("patch", fake.verbs())
+
+    def test_rollback_is_refused_from_a_checkout_with_untracked_scripts_or_other_committed_scripts(self):
+        fake = Rollback.prep(self)
+        with open(os.path.join(self.repo.work, "scripts", "extra.py"), "w") as fh:
+            fh.write("x")
+        with self.assertRaisesRegex(L.Refuse, "not clean: scripts/extra.py"):
+            self.tool(fake).cmd_rollback(self.args(rollback="-", yes=self.repo.sha("c2"), by="s", reason="r", timeout=30))
+        os.unlink(os.path.join(self.repo.work, "scripts", "extra.py"))
+        self.commit_local_scripts_change()
         with self.assertRaisesRegex(L.Refuse, "differs from that of"):
             self.tool(fake).cmd_rollback(self.args(rollback="-", yes=self.repo.sha("c2"), by="s", reason="r", timeout=30))
         self.assertNotIn("patch", fake.verbs())

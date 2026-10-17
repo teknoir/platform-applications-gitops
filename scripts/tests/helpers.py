@@ -139,6 +139,9 @@ class FakeSys(L.Sys):
         self.pods = []
         self.metrics = ""
         self.patch_fails = False
+        self.patch_applies_then_fails = False    # the apiserver applied the patch but the call reported an error
+        self.root_unreadable = False
+        self.unreadable_after_patch_fail = False
         self.releaser_can_i = True
         self.guard_binding = None            # a dict (the binding's spec) when the guard is installed
 
@@ -172,6 +175,8 @@ class FakeSys(L.Sys):
         j = lambda o: out(o)
         if verb == "get":
             if rest[0] == "application" and rest[1] == L.ROOT_APP:
+                if self.root_unreadable:
+                    return out("", 1, "Error from server (Timeout): the server was unable to return a response")
                 return j(self.root)
             if rest[0] == "applications":
                 return j({"items": [self.root, *self.children.values()]})
@@ -205,6 +210,7 @@ class FakeSys(L.Sys):
             patch = json.loads(rest[rest.index("-p") + 1])
             if name == L.ROOT_APP:
                 if self.patch_fails:
+                    self.root_unreadable = self.unreadable_after_patch_fail
                     return out("", 1, "Error from server (InternalError): webhook timed out")
                 self.root = merge_patch(self.root, patch)
                 sha = patch.get("spec", {}).get("source", {}).get("targetRevision")
@@ -218,6 +224,8 @@ class FakeSys(L.Sys):
                     for n in self.render_children:
                         if n not in self.children:
                             self.children[n] = app(n, target=sha, revision=sha)
+                if self.patch_applies_then_fails:
+                    return out("", 1, "Error from server (Timeout): request did not complete within the allowed duration")
                 return out("patched")
             self.children[name] = merge_patch(self.children[name], patch)
             return out("patched")

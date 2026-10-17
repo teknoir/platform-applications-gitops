@@ -99,6 +99,20 @@ TAG=staging-20261017.1
 # shape of a valid root patch from the releaser
 ROOT_OK='{"metadata":{"annotations":{"teknoir.org/release":"'$TAG'","teknoir.org/previous-release":"staging-20261016.9"}},"spec":{"source":{"targetRevision":"'$SHA2'","helm":{"parameters":[{"name":"release","value":"'$SHA2'","forceString":true},{"name":"releaseName","value":"'$TAG'","forceString":true}]}}}}'
 
+
+# ---- operation shapes written by ArgoCD v3.5.1 --------------------------------------------------
+# (server/application/application.go Sync and controller/appcontroller.go autoSync, tag v3.5.1): both write
+# operation.sync.source as a COPY of spec.source (single source) or sources = spec.sources, and revision = the
+# revision RESOLVED for the Application; the operation stays on the object until it completes.
+src_of()  { "${KC[@]}" get application "$1" -n "$NS" -o jsonpath='{.spec.source}'; }
+srcs_of() { "${KC[@]}" get application "$1" -n "$NS" -o jsonpath='{.spec.sources}'; }
+# server_sync <source-json> <revision>: what argocd-server's Sync (UI button, argocd app sync) sets
+server_sync() { printf '{"operation":{"initiatedBy":{"username":"anders"},"sync":{"source":%s,"revision":"%s","prune":true,"syncOptions":["CreateNamespace=true"]}}}' "$1" "$2"; }
+# server_sync_multi <sources-json> <revisions-json>
+server_sync_multi() { printf '{"operation":{"initiatedBy":{"username":"anders"},"sync":{"sources":%s,"revisions":%s,"prune":true}}}' "$1" "$2"; }
+# auto_sync_op <source-json> <revision>: the controller's autoSync operation
+auto_sync_op() { printf '{"sync":{"source":%s,"revision":"%s","prune":true},"initiatedBy":{"automated":true},"retry":{"limit":5}}' "$1" "$2"; }
+
 cleanup() {
   "${KC[@]}" delete validatingadmissionpolicybinding staging-release-guard-binding --ignore-not-found >/dev/null 2>&1
   "${KC[@]}" delete validatingadmissionpolicy staging-release-guard --ignore-not-found >/dev/null 2>&1
@@ -171,6 +185,56 @@ run pc apply -f "${TMP}/root.yaml" >/dev/null && ok "setup: profile-controller c
 [[ $failn -eq 0 ]] || { echo "setup failed, stopping" >&2; exit 1; }
 sed 's/name: child/name: pc-child/' "${TMP}/child.yaml" | run pc apply -f - >/dev/null && ok "setup: profile-controller created pc-child" || bad "setup: profile-controller cannot create pc-child"
 
+REPO_URL=https://github.com/teknoir/platform-applications-gitops
+SRC1='{"path":"charts/x","repoURL":"'$REPO_URL'","targetRevision":"'$SHA1'"}'
+# busy: an autosync operation is Running (what a release finds when it arrives)
+cat > "${TMP}/busy.yaml" <<E
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata: {name: busy, namespace: ${NS}}
+spec:
+  project: teknoir-cloud
+  destination: {namespace: x, server: https://kubernetes.default.svc}
+  source: {path: charts/x, repoURL: ${REPO_URL}, targetRevision: "${SHA1}"}
+  syncPolicy: {automated: {prune: true, selfHeal: true}}
+operation: $(auto_sync_op "$SRC1" "$SHA1")
+status:
+  operationState:
+    phase: Running
+    startedAt: "2026-10-17T10:00:00Z"
+    operation: $(auto_sync_op "$SRC1" "$SHA1")
+E
+# branchy: a symbolic targetRevision; ArgoCD has resolved it to SHA1 (status.sync.revision)
+cat > "${TMP}/branchy.yaml" <<E
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata: {name: branchy, namespace: ${NS}}
+spec:
+  project: teknoir-cloud
+  destination: {namespace: x, server: https://kubernetes.default.svc}
+  source: {path: charts/x, repoURL: ${REPO_URL}, targetRevision: teknoir-cloud}
+  syncPolicy: {automated: {prune: true, selfHeal: true}}
+status:
+  sync: {status: Synced, revision: "${SHA1}"}
+E
+# multi: a multi-source Application (spec.sources, no spec.source)
+cat > "${TMP}/multi.yaml" <<E
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata: {name: multi, namespace: ${NS}}
+spec:
+  project: teknoir-cloud
+  destination: {namespace: x, server: https://kubernetes.default.svc}
+  sources:
+    - {path: charts/x, repoURL: ${REPO_URL}, targetRevision: "${SHA1}"}
+    - {path: charts/y, repoURL: ${REPO_URL}, targetRevision: "${SHA2}"}
+  syncPolicy: {automated: {prune: true, selfHeal: true}}
+E
+for f in busy branchy multi; do
+  run argo apply -f "${TMP}/${f}.yaml" >/dev/null && ok "setup: argocd controller created ${f}" || bad "setup: argocd controller cannot create ${f}"
+done
+[[ $failn -eq 0 ]] || { echo "setup failed, stopping" >&2; exit 1; }
+
 echo "== 1. a plain admin (every session is system:admin)"
 expect deny  "admin: create a new Application"            admin create -n "$NS" -f "${TMP}/new.yaml" --dry-run=server
 expect allow "admin: kubectl apply of the unchanged root (no spec change)" admin apply -f "${TMP}/root.yaml" --dry-run=server -o name
@@ -213,6 +277,71 @@ expect deny  "argocd-server: app set --revision (spec change)" argosrv patch app
 expect deny  "argocd-server: app sync --revision main"      argosrv patch application child -n "$NS" --type merge -p '{"operation":{"sync":{"revision":"main"}}}' --dry-run=server
 expect deny  "argocd-server: a sync operation with its own source" argosrv patch application child -n "$NS" --type merge -p "$SRC_OVERRIDE" --dry-run=server
 expect deny  "argocd-server: app delete"                    argosrv delete application child -n "$NS" --dry-run=server
+
+
+# The operation cases are defined once and run in Deny mode (here) and in Warn mode (section 6), so both modes
+# are checked on the exact shapes ArgoCD v3.5.1 writes. op_allowed_cases must give no verdict in either mode;
+# op_denied_cases takes the verdict word (deny | warn).
+op_allowed_cases() {
+  echo "-- ALLOWED: ArgoCD's own operation shapes, nothing evaluated, no warning"
+  expect allow "argocd-server: plain UI sync of the current targetRevision (source = copy of spec.source, revision == targetRevision)" \
+    argosrv patch application child -n "$NS" --type merge -p "$(server_sync "$(src_of child)" "$SHA1")" --dry-run=server
+  expect allow "argocd-server: plain sync with an empty revision" \
+    argosrv patch application child -n "$NS" --type merge -p "$(server_sync "$(src_of child)" "")" --dry-run=server
+  expect allow "argocd-server: plain UI sync of a symbolic targetRevision (revision = the one ArgoCD resolved, status.sync.revision)" \
+    argosrv patch application branchy -n "$NS" --type merge -p "$(server_sync "$(src_of branchy)" "$SHA1")" --dry-run=server
+  expect allow "argocd-server: plain UI sync of a multi-source Application (sources = spec.sources, revisions = the targetRevisions)" \
+    argosrv patch application multi -n "$NS" --type merge -p "$(server_sync_multi "$(srcs_of multi)" '["'$SHA1'","'$SHA2'"]')" --dry-run=server
+  expect allow "admin: the same plain sync (the verdict does not depend on who clicks)" \
+    admin patch application child -n "$NS" --type merge -p "$(server_sync "$(src_of child)" "$SHA1")" --dry-run=server
+  expect allow "releaser: patches the root while an AUTOSYNC operation is Running on it (the operation is not this request's)" \
+    releaser patch application app-of-apps -n "$NS" --type merge -p "$ROOT_OK" --dry-run=server
+  expect allow "releaser: terminates a running operation (status.operationState.phase=Terminating)" \
+    releaser patch application busy -n "$NS" --type merge -p '{"status":{"operationState":{"phase":"Terminating"}}}' --dry-run=server
+  expect allow "releaser: hard refresh annotation during a running operation" \
+    releaser annotate application busy -n "$NS" argocd.argoproj.io/refresh=hard --overwrite --dry-run=server
+  expect allow "releaser: terminates the autosync operation on the root" \
+    releaser patch application app-of-apps -n "$NS" --type merge -p '{"status":{"operationState":{"phase":"Terminating"}}}' --dry-run=server
+  expect allow "admin: refresh annotation during a running operation" \
+    admin annotate application busy -n "$NS" argocd.argoproj.io/refresh=hard --overwrite --dry-run=server
+  expect allow "admin: terminate (status phase) during a running operation" \
+    admin patch application busy -n "$NS" --type merge -p '{"status":{"operationState":{"phase":"Terminating"}}}' --dry-run=server
+  expect allow "admin: write the same operation again (unchanged, rides along)" \
+    admin patch application busy -n "$NS" --type merge -p '{"operation":'"$(auto_sync_op "$(src_of busy)" "$SHA1")"'}' --dry-run=server
+}
+op_denied_cases() {
+  local b=$1
+  echo "-- DENIED ($b): not a plain sync"
+  expect "$b" "argocd-server: sync with a foreign revision (argocd app sync --revision main)" \
+    argosrv patch application child -n "$NS" --type merge -p "$(server_sync "$(src_of child)" "main")" --dry-run=server
+  expect "$b" "argocd-server: sync with another commit SHA than the pinned targetRevision" \
+    argosrv patch application child -n "$NS" --type merge -p "$(server_sync "$(src_of child)" "$SHA2")" --dry-run=server
+  expect "$b" "argocd-server: sync of a symbolic targetRevision to a commit that is not the resolved one" \
+    argosrv patch application branchy -n "$NS" --type merge -p "$(server_sync "$(src_of branchy)" "$SHA2")" --dry-run=server
+  expect "$b" "argocd-server: sync with an overriding source (another targetRevision), revision == targetRevision" \
+    argosrv patch application child -n "$NS" --type merge -p "$(server_sync '{"path":"charts/x","repoURL":"'$REPO_URL'","targetRevision":"teknoir-cloud"}' "$SHA1")" --dry-run=server
+  expect "$b" "argocd-server: sync with an overriding source (another path)" \
+    argosrv patch application child -n "$NS" --type merge -p "$(server_sync '{"path":"charts/other","repoURL":"'$REPO_URL'","targetRevision":"'$SHA1'"}' "$SHA1")" --dry-run=server
+  expect "$b" "argocd-server: sync with an overriding source and no revision" \
+    argosrv patch application child -n "$NS" --type merge -p "$SRC_OVERRIDE" --dry-run=server
+  expect "$b" "argocd-server: multi-source sync with revisions swapped" \
+    argosrv patch application multi -n "$NS" --type merge -p "$(server_sync_multi "$(srcs_of multi)" '["'$SHA2'","'$SHA1'"]')" --dry-run=server
+  expect "$b" "argocd-server: multi-source sync with overriding sources" \
+    argosrv patch application multi -n "$NS" --type merge -p "$SRCS_OVERRIDE" --dry-run=server
+  expect "$b" "releaser: replaces the running operation of a child with a foreign revision" \
+    releaser patch application busy -n "$NS" --type merge -p '{"operation":{"sync":{"revision":"main"}}}' --dry-run=server
+  expect "$b" "admin: replaces the running operation of a child with an overriding source" \
+    admin patch application busy -n "$NS" --type merge -p "$SRC_OVERRIDE" --dry-run=server
+}
+
+echo "== 2b. operation shapes of ArgoCD v3.5.1 (Deny mode)"
+# an AUTOSYNC operation is Running on the root while the releaser works (written by the controller, an excluded identity)
+run argo patch application app-of-apps -n "$NS" --type merge -p '{"operation":'"$(auto_sync_op "$(src_of app-of-apps)" "$SHA1")"'}' >/dev/null \
+  && ok "setup: autosync operation Running on the root" || bad "setup: cannot set the autosync operation on the root"
+run argo patch application app-of-apps -n "$NS" --type merge -p '{"status":{"operationState":{"phase":"Running","startedAt":"2026-10-17T10:00:00Z","operation":'"$(auto_sync_op "$(src_of app-of-apps)" "$SHA1")"'}}}' >/dev/null \
+  && ok "setup: operationState Running on the root" || bad "setup: cannot set the operationState on the root"
+op_allowed_cases
+op_denied_cases deny
 
 echo "== 3. the releaser (real Role, no system:masters)"
 expect allow "releaser: patch the root to a valid release" releaser patch application app-of-apps -n "$NS" --type merge -p "$ROOT_OK" --dry-run=server
@@ -314,6 +443,17 @@ WARN_AFTER=$(warn_count)
 [[ $WARN_AFTER -gt $WARN_BEFORE ]] && ok "apiserver metrics count the warning (apiserver_validating_admission_policy_check_total warn: $WARN_BEFORE -> $WARN_AFTER; staging-status reads this)" \
   || bad "the warn counter did not move ($WARN_BEFORE -> $WARN_AFTER)"
 expect warn  "Warn: admin create goes through with a warning" admin create -f "${TMP}/new.yaml" -n "$NS" --dry-run=server
+echo "-- Warn mode on the operation shapes: the ALLOWED cases must not move the warn counter, the others warn"
+WARN_BEFORE=$(warn_count)
+op_allowed_cases
+WARN_AFTER=$(warn_count)
+[[ $WARN_AFTER -eq $WARN_BEFORE ]] && ok "Warn: the allowed operation cases did not move the apiserver warn counter ($WARN_BEFORE -> $WARN_AFTER)" \
+  || bad "Warn: the warn counter moved for ALLOWED operation cases ($WARN_BEFORE -> $WARN_AFTER)"
+WARN_BEFORE=$(warn_count)
+op_denied_cases warn
+WARN_AFTER=$(warn_count)
+[[ $WARN_AFTER -gt $WARN_BEFORE ]] && ok "Warn: the non-plain operation cases moved the warn counter ($WARN_BEFORE -> $WARN_AFTER)" \
+  || bad "Warn: the warn counter did not move for the non-plain operation cases ($WARN_BEFORE -> $WARN_AFTER)"
 expect allow "Warn: the releaser sees no warning"           releaser patch application app-of-apps -n "$NS" --type merge -p "$ROOT_OK" --dry-run=server
 expect allow "Warn: ArgoCD sees no warning"                 argo patch application child -n "$NS" --type merge -p '{"spec":{"source":{"targetRevision":"teknoir-cloud"}}}' --dry-run=server
 expect allow "Warn: annotation-only change, no warning"     admin annotate application child -n "$NS" argocd.argoproj.io/refresh=hard --overwrite --dry-run=server

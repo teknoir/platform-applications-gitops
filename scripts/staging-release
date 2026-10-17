@@ -19,13 +19,15 @@ Guards: kubectl context exactly 'vpro' (names with online|eks|prod are refused);
 the first-parent history of origin/teknoir-cloud and descend from the live release (prefix releases only);
 --yes SHA must equal the dry-run candidate (plan valid 30 min, live unchanged, the dry run checked the registry
 unless --skip-registry-check is repeated on --yes); the lint code and policy are the candidate's, the rollback
-floor is origin/teknoir-cloud's, and --yes/--rollback refuse to run from a checkout whose scripts/ differ from the
-candidate's (rollback: the branch head's, the live release's or the target's); the Lease
+floor is origin/teknoir-cloud's, and --yes/--rollback refuse to run unless scripts/ of the checkout is clean (no
+uncommitted change, no untracked file; __pycache__ aside) and its tree (git rev-parse HEAD:scripts, recorded in the
+plan) equals <candidate>:scripts (rollback: the branch head's, the live release's or the target's); the Lease
 teknoir-system/staging-release-lock is held from apply to converged and everything is checked again under it; an
 existing tag is refused; children must be converged on the live release, also at the cutover (rollback and a re-run
 of the live SHA are exempt). The releaser identity is used only where the release-guard chart installed it, else
-admin with a notice. GitHub Release markers: '[rolled back] TAG' + 'Rolled-Back: true', '[not applied] TAG' +
-'Not-Applied: true' (contract with infra staging-root.sh).
+admin with a notice. GitHub Release markers, matched exactly (no trimming): title '[rolled back] TAG' / body line
+'Rolled-Back: true', title '[not applied] TAG' / body line 'Not-Applied: true' (contract with infra staging-root.sh).
+A failed root patch is read back first; '[not applied]' only when the root is certainly not the new release.
 
 Read-only except for `git fetch`, the render cache under ~/.cache/staging-release, and, with --yes,
 --rollback, --verified and --break-glass-*, the actions described there. Needs kubectl, helm (+ helm
@@ -195,21 +197,36 @@ class Tool:
             return None
         return (yaml.safe_load(r.out) or {}).get("rollback_floor") or None
 
-    def scripts_differ(self, ref: str) -> bool:
-        """scripts/ of this checkout (working tree, uncommitted edits included) differs from `ref`."""
-        return self.sys.run(["git", "-C", self.repo, "diff", "--quiet", ref, "--", "scripts/"], check=False).rc != 0
+    def tooling(self) -> dict:
+        """The identity of the tooling this checkout runs: {'tree': git rev-parse HEAD:scripts, 'dirty': [paths]}.
+        'dirty' lists what makes scripts/ differ from that tree: uncommitted or staged changes AND untracked files
+        (except __pycache__). The tree id is the tooling only when 'dirty' is empty."""
+        r = self.sys.run(["git", "-C", self.repo, "rev-parse", "--verify", "HEAD:scripts"], check=False)
+        if r.rc != 0:
+            raise L.Refuse(f"cannot read scripts/ of HEAD in {self.repo}: {(r.err or r.out).strip()[:200]}")
+        st = self.sys.run(["git", "-C", self.repo, "status", "--porcelain", "--untracked-files=all", "--", "scripts/"], check=False)
+        dirty = [ln[3:] for ln in st.out.splitlines() if ln[3:] and "__pycache__/" not in ln[3:]]
+        return {"tree": r.out.strip(), "dirty": dirty}
 
-    def require_matching_scripts(self, refs: list[tuple[str, str]]) -> None:
+    def require_matching_scripts(self, refs: list[tuple[str, str]]) -> dict:
         """--yes and --rollback act with the tooling that ships with the commit they apply: scripts/ of this
-        checkout must equal that of one of `refs` ([(what, sha)]). Otherwise a stale worktree or a feature branch
-        could change a release gate (the lint, the floor, the checks below)."""
+        checkout must be CLEAN (no uncommitted change, no untracked file; __pycache__ aside) and its tree
+        (git rev-parse HEAD:scripts) must equal `<ref>:scripts` of one of `refs` ([(what, sha)]). Otherwise a stale
+        worktree or a feature branch could change a release gate (the lint, the floor, the checks below).
+        Returns the tooling identity."""
+        t = self.tooling()
+        if t["dirty"]:
+            raise L.Refuse(f"scripts/ of this checkout ({self.repo}) is not clean: {', '.join(t['dirty'][:6])}"
+                           f"{' ...' if len(t['dirty']) > 6 else ''}. A release is applied only by committed tooling: run the "
+                           f"same command from a clean checkout of the commit it ships with")
         for _, ref in refs:
-            if not self.scripts_differ(ref):
-                return
+            r = self.sys.run(["git", "-C", self.repo, "rev-parse", "--verify", f"{ref}:scripts"], check=False)
+            if r.rc == 0 and r.out.strip() == t["tree"]:
+                return t
         what = " or ".join(f"{w} {r[:12]}" for w, r in refs)
         hint = os.path.join(self.cache, "wt", refs[0][1][:12], "scripts", "staging-release")
-        raise L.Refuse(f"scripts/ of this checkout ({self.repo}) differs from that of {what}. A release is applied by the "
-                       f"tooling it ships with: run the same command from a clean checkout of that commit, e.g. "
+        raise L.Refuse(f"scripts/ of this checkout ({self.repo}, tree {t['tree'][:12]}) differs from that of {what}. A release is "
+                       f"applied by the tooling it ships with: run the same command from a clean checkout of that commit, e.g. "
                        f"{hint} (the dry run created that worktree)")
 
     def fetch(self) -> None:
@@ -438,7 +455,12 @@ class Tool:
             for e in rep["errors"]:
                 self.out("  - " + e)
 
+        tooling = self.tooling()
+        if tooling["dirty"]:
+            self.out(f"\nNOTE: scripts/ of this checkout is not clean ({', '.join(tooling['dirty'][:4])}): --yes will refuse "
+                     "plans made by it; commit or remove the changes first")
         plan = {"candidate": cand, "live": live["sha"], "live_tag": live["tag"], "tag": tag, "mode": mode,
+                "tooling": tooling,
                 "created": self.sys.now().isoformat(), "pending": pending, "image_changes": changes,
                 "plugin_version": rep["plugins"].get("version"), "plugin_digests": rep["plugins"].get("digests", {}),
                 "errors": rep["errors"], "added": rep["added"], "removed": rep["removed"],
@@ -504,6 +526,24 @@ class Tool:
         patch = L.build_root_patch(sha, tag, previous)
         self.kube.run(["-n", L.NAMESPACE, "patch", "application", L.ROOT_APP, "--type", "merge", "-p", json.dumps(patch)],
                       as_releaser=as_releaser)
+
+    def root_after_failed_patch(self, sha: str, tag: str) -> tuple[str, str]:
+        """("applied" | "not-applied" | "unknown", what was seen): classify the root after a failed patch call. Applied:
+        BOTH the release annotation and the targetRevision are the new ones. Not applied: NEITHER is. Anything else
+        (a root that cannot be read, a mix) is unknown and must not be marked."""
+        try:
+            root = self.kube.root()
+        except (RuntimeError, ValueError, KeyError) as e:
+            return "unknown", f"cannot read the root: {str(e)[:120]}"
+        ann = ((root.get("metadata") or {}).get("annotations") or {}).get(L.ANN_RELEASE)
+        rev = ((root.get("spec") or {}).get("source") or {}).get("targetRevision")
+        new_ann, new_rev = ann == tag, rev == sha
+        seen = f"annotation {ann or '(none)'}, targetRevision {str(rev)[:12]}"
+        if new_ann and new_rev:
+            return "applied", seen
+        if not new_ann and not new_rev:
+            return "not-applied", seen
+        return "unknown", f"{seen}: only one of them is the new release"
 
     def speed_up(self, sha: str, by: str, as_releaser: bool) -> None:
         """AGENTS.md 'Speeding up rollouts': hard refresh the root, then each child once its spec has the
@@ -660,7 +700,12 @@ class Tool:
         plan = json.load(open(planfile))
         live = self.live()
         L.plan_check(plan, sha, self.sys.now(), live["sha"])
-        self.require_matching_scripts([("the candidate", sha)])
+        ident = self.require_matching_scripts([("the candidate", sha)])
+        planned = (plan.get("tooling") or {})
+        if planned.get("dirty") or planned.get("tree") != ident["tree"]:
+            raise L.Refuse(f"the plan was made by other tooling (scripts tree {str(planned.get('tree'))[:12]}"
+                           f"{', not clean' if planned.get('dirty') else ''}) than this checkout runs ({ident['tree'][:12]}): "
+                           "run the dry run again from this checkout")
         if plan.get("errors"):
             raise L.Refuse("the dry run had preflight errors; fix them and run the dry run again:\n  - " + "\n  - ".join(plan["errors"]))
         if not plan.get("registry_checked", False) and not args.skip_registry_check:
@@ -688,10 +733,25 @@ class Tool:
             try:
                 self.patch_root(sha, tag, previous, as_rel)
             except (RuntimeError, L.Refuse) as e:
-                self.mark_release(tag, L.NOT_APPLIED_MARK, L.NOT_APPLIED_TRAILER,
-                                  f"Not applied: patching the root failed ({str(e)[:200]}). This release never went live.")
-                raise L.Refuse(f"{tag} is tagged and has a GitHub Release, but the root patch FAILED, so it is not live "
-                               f"(the Release is marked {L.NOT_APPLIED_MARK}; the tag stays, tags are immutable). Cause: {str(e)[:300]}")
+                # The patch call failed, but the apiserver may have applied it (timeout, lost response): read the root
+                # again and mark the Release only when it is certainly NOT the new one.
+                state, seen = self.root_after_failed_patch(sha, tag)
+                if state == "applied":
+                    self.out(f"the root patch reported a failure ({str(e)[:160]}) but the root IS {tag} ({sha[:12]}): continuing "
+                             "with the watch")
+                elif state == "unknown":
+                    raise L.Refuse(f"{tag} is tagged and has a GitHub Release (prerelease), and the root patch FAILED "
+                                   f"({str(e)[:200]}), but the root could not be classified ({seen}). It is NOT marked "
+                                   f"{L.NOT_APPLIED_MARK}. Look at it: kubectl --context vpro -n {L.NAMESPACE} get application "
+                                   f"{L.ROOT_APP} -o yaml; if it is not {tag}, mark the Release by hand (title prefix "
+                                   f"'{L.NOT_APPLIED_MARK} ', body line '{L.NOT_APPLIED_TRAILER}'), else run --rollback or "
+                                   "wait for convergence")
+                else:
+                    self.mark_release(tag, L.NOT_APPLIED_MARK, L.NOT_APPLIED_TRAILER,
+                                      f"Not applied: patching the root failed ({str(e)[:200]}). This release never went live.")
+                    raise L.Refuse(f"{tag} is tagged and has a GitHub Release, but the root patch FAILED, so it is not live "
+                                   f"(the root was read again: {seen}; the Release is marked {L.NOT_APPLIED_MARK}; the tag stays, "
+                                   f"tags are immutable). Cause: {str(e)[:300]}")
             self.speed_up(sha, args.by, as_rel)
             ok, problems = self.watch(sha, plan_children=plan.get("children") or [], plugins_changed=plan.get("plugins_changed", False),
                                       timeout=args.timeout, holder=holder, as_releaser=as_rel, by=args.by, since=patched_at,

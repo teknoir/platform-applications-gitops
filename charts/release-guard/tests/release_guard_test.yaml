@@ -95,19 +95,28 @@ tests:
           path: spec.validations[2].expression
           pattern: "!has\\(object.spec.ignoreDifferences\\)"
 
-  - it: a sync operation with its own source or sources is evaluated and denied
+  - it: an operation is judged only when this request sets or changes it, and a plain sync of the own spec is allowed
     template: templates/policy.yaml
     documentIndex: 0
     asserts:
+      # the matchCondition and the variable use the same two expressions
       - matchRegex:
           path: spec.matchConditions[1].expression
-          pattern: "has\\(object.operation.sync.source\\)"
+          pattern: "has\\(object.operation\\) && \\(!has\\(oldObject.operation\\) \\|\\| object.operation != oldObject.operation\\)"
+      - matchRegex:
+          path: spec.variables[4].expression
+          pattern: "object.operation != oldObject.operation"
+      # a copy of spec.source / spec.sources is not an override
       - matchRegex:
           path: spec.matchConditions[1].expression
-          pattern: "has\\(object.operation.sync.sources\\)"
+          pattern: "object.operation.sync.source == object.spec.source"
       - matchRegex:
-          path: spec.validations[1].expression
-          pattern: "!variables.opSourceOverride"
+          path: spec.variables[5].expression
+          pattern: "object.operation.sync.sources == object.spec.sources"
+      - matchRegex:
+          path: spec.variables[5].expression
+          pattern: "object.operation.sync.revision == ''"
+      - equal: {path: "spec.validations[1].expression", value: "variables.breakGlass || !variables.opChanged || variables.opPlain"}
 
   - it: the releaser may not change the spec of a child Application
     template: templates/policy.yaml

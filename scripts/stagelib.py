@@ -33,9 +33,10 @@ SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 LEASE_SECONDS = 120
 STALE_LEASE_SECONDS = 120             # rollback may steal a lease older than this
 PLAN_TTL_SECONDS = 30 * 60
-# Release markers (contract with infra staging-root.sh / PR teknoir/infra#11). A GitHub Release is marked by
-#   - its TITLE starting with the title mark ("[rolled back] staging-20261017.3"), and
-#   - a TRAILER line in its body, on a line of its own: "Rolled-Back: true" / "Not-Applied: true".
+# Release markers (contract with infra staging-root.sh / PR teknoir/infra#11, matched EXACTLY, no trimming). A GitHub
+# Release is marked by
+#   - its TITLE starting with the title mark and a space ("[rolled back] staging-20261017.3"), and
+#   - a TRAILER line in its body that equals exactly "Rolled-Back: true" / "Not-Applied: true".
 # Either one is enough for a reader; `gh release list` carries only the title, so the title is what the
 # selection of rollback targets uses. "rolled back": the release was live and was left by a rollback;
 # "not applied": the tag and Release exist but the root patch failed, so it never went live.
@@ -425,12 +426,20 @@ def converged(apps: list[dict], sha: str, *, plugins_changed: bool = False,
 # ---------------------------------------------------------------------------------------------
 # Releases (GitHub)
 # ---------------------------------------------------------------------------------------------
+def release_body_lines(body: str | None) -> list[str]:
+    """The lines of a Release body, exactly: only carriage returns are removed (gh may return CRLF), nothing is
+    trimmed. The same as staging-root.sh (infra#11): `body=${2//$'\\r'/}` and `grep -x`."""
+    return (body or "").replace("\r", "").split("\n")
+
+
 def is_marked(title: str | None, body: str | None = None) -> bool:
-    """True when a GitHub Release carries the rolled-back or not-applied marker: title prefix or body trailer line."""
-    t = (title or "").lstrip()
-    if t.startswith(ROLLED_BACK_MARK) or t.startswith(NOT_APPLIED_MARK):
+    """True when a GitHub Release carries the rolled-back or not-applied marker, EXACTLY like infra's
+    staging-root.sh: the title starts with '[rolled back] ' or '[not applied] ' (no trimming, no other position), or
+    a body line equals 'Rolled-Back: true' / 'Not-Applied: true' (the whole line, no trimming)."""
+    t = title or ""
+    if t.startswith(ROLLED_BACK_MARK + " ") or t.startswith(NOT_APPLIED_MARK + " "):
         return True
-    lines = {ln.strip() for ln in (body or "").splitlines()}
+    lines = release_body_lines(body)
     return ROLLED_BACK_TRAILER in lines or NOT_APPLIED_TRAILER in lines
 
 
@@ -439,9 +448,9 @@ def marked_title(mark: str, tag: str) -> str:
 
 
 def with_trailer(body: str, trailer: str) -> str:
-    """The Release body with the trailer as its own last line (idempotent)."""
-    lines = (body or "").rstrip().splitlines()
-    if trailer in {ln.strip() for ln in lines}:
+    """The Release body with the trailer as its own last line (idempotent: an exactly equal line counts)."""
+    lines = release_body_lines((body or "").rstrip())
+    if trailer in lines:
         return "\n".join(lines) + "\n"
     return "\n".join(lines + ["", trailer]) + "\n"
 

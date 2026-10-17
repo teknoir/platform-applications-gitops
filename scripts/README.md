@@ -36,9 +36,13 @@ exempt); removing Applications needs `--allow-remove`; the lint, `helm unittest 
 `crane manifest` of every `@sha256` image must pass.
 
 - **Which tooling decides.** The lint code (`check-pins.py`) and the image policy (`release-policy.yaml`) are those of
-  the CANDIDATE commit (its worktree), the rollback floor is read from `origin/teknoir-cloud`. `--yes` refuses to run
-  from a checkout whose `scripts/` differ from the candidate's (the message names the worktree to run it from);
-  `--rollback --yes` accepts the head of `origin/teknoir-cloud`, the live release or the target.
+  the CANDIDATE commit (its worktree), the rollback floor is read from `origin/teknoir-cloud`.
+- **Tooling identity.** The tooling is the tree `git rev-parse HEAD:scripts` of the checkout that runs. `--yes` and
+  `--rollback --yes` refuse unless `scripts/` of the checkout is CLEAN (no uncommitted or staged change and no
+  untracked file, `__pycache__` aside; a file `git diff` cannot see is still a difference) and that tree equals
+  `git rev-parse <candidate>:scripts`. `--rollback --yes` accepts the head of `origin/teknoir-cloud`, the live release or
+  the target instead of the candidate. The dry run records the tree (and any dirty paths) in the plan as `tooling`;
+  `--yes` refuses a plan whose tooling is not the one it runs. The message names the worktree to run it from.
 - **Who applies.** The releaser identity (`staging-releaser`) is used only when the release-guard chart installed it
   (ServiceAccount, RoleBinding, `auth can-i`). Before that (the cutover and release .2, which switches the guard on)
   the release is applied as the operator's own admin identity and the script says `guard not installed: applying as admin`.
@@ -48,10 +52,16 @@ exempt); removing Applications needs `--allow-remove`; the lint, `helm unittest 
   not; Pending beyond 3 minutes is a failure. Deviation from the design (watch, step 7): the logs of the changed
   controllers are NOT scanned by the script (five Go controllers share no error format; a regex would roll good
   releases back). The success output prints the `kubectl logs` commands for the controllers whose render changed.
-- **Release markers** (contract with `teknoir/infra` `staging-root.sh`): a GitHub Release is `[rolled back] <tag>` and
-  its body ends with the line `Rolled-Back: true` after a rollback; `[not applied] <tag>` with `Not-Applied: true`
-  when the root patch failed after the tag and Release were created (the tag stays; it never went live). Either the
-  title prefix or the trailer line marks it; rollback targets, the bootstrap pick and `--verified` skip marked releases.
+- **Release markers** (contract with `teknoir/infra` `staging-root.sh`, matched EXACTLY, nothing is trimmed): a GitHub
+  Release is `[rolled back] <tag>` (title starts with `[rolled back] `) and its body has the line `Rolled-Back: true`
+  after a rollback; `[not applied] <tag>` with `Not-Applied: true` when the root patch failed after the tag and Release
+  were created (the tag stays; it never went live). Either the title prefix or a body line that equals the trailer
+  marks it (` [rolled back] x`, `[rolled back]x`, an indented or trailing-space trailer do not); rollback targets, the
+  bootstrap pick and `--verified` skip marked releases.
+- **A failed root patch** is not taken at its word: the root is read again. Only when neither its release annotation nor
+  its `targetRevision` is the new release is the Release marked `[not applied]`. When both are the new ones the apiserver
+  did apply it and the watch continues; when the root cannot be read, or only one of them is new, the script reports the
+  ambiguity and marks nothing.
 - **`--verified`** needs staging converged on the release and a root exactly as the release writes it.
 - **`--skip-registry-check`** on the dry run makes the plan unusable for `--yes` unless it is repeated on `--yes`; the
   tag message then says `registry check: SKIPPED`. The tag message also records `guard warn count at release`, the

@@ -323,6 +323,20 @@ class Releases(unittest.TestCase):
         self.assertTrue(L.is_marked("staging-20261017.3", "text\n\nRolled-Back: true\n"))
         self.assertTrue(L.is_marked("staging-20261017.3", "text\n\nNot-Applied: true"))
         self.assertFalse(L.is_marked("staging-20261017.3", "Rolled-Back: true but not on its own line"))
+        # EXACT matching, like staging-root.sh (infra#11): no trimming anywhere
+        self.assertFalse(L.is_marked(" [rolled back] staging-20261017.3"))           # leading space in the title
+        self.assertFalse(L.is_marked("[rolled back]staging-20261017.3"))             # the mark needs its space
+        self.assertFalse(L.is_marked("[rolled back]"))
+        self.assertFalse(L.is_marked("[Rolled Back] staging-20261017.3"))
+        self.assertFalse(L.is_marked("x [not applied] staging-20261017.3"))          # only a PREFIX counts
+        self.assertFalse(L.is_marked("staging-20261017.3", "  Rolled-Back: true"))   # indented line
+        self.assertFalse(L.is_marked("staging-20261017.3", "Rolled-Back: true "))    # trailing space
+        self.assertFalse(L.is_marked("staging-20261017.3", "\tNot-Applied: true"))
+        self.assertFalse(L.is_marked("staging-20261017.3", "rolled-back: true"))     # case
+        self.assertFalse(L.is_marked("staging-20261017.3", "Rolled-Back: truely"))
+        self.assertFalse(L.is_marked("staging-20261017.3", "- Rolled-Back: true"))
+        self.assertTrue(L.is_marked("staging-20261017.3", "a\r\nRolled-Back: true\r\nb"))   # CRLF from gh, as in infra
+        self.assertTrue(L.is_marked("staging-20261017.3", "Not-Applied: true"))     # the whole body
         self.assertEqual(L.marked_title(L.ROLLED_BACK_MARK, "staging-20261017.3"), "[rolled back] staging-20261017.3")
         self.assertEqual((L.ROLLED_BACK_TRAILER, L.NOT_APPLIED_TRAILER), ("Rolled-Back: true", "Not-Applied: true"))
 
@@ -330,6 +344,9 @@ class Releases(unittest.TestCase):
         once = L.with_trailer("body\nmore", L.ROLLED_BACK_TRAILER)
         self.assertEqual(once, "body\nmore\n\nRolled-Back: true\n")
         self.assertEqual(L.with_trailer(once, L.ROLLED_BACK_TRAILER), once)
+        # an indented look-alike is not the trailer: a real one is appended
+        self.assertEqual(L.with_trailer("body\n  Rolled-Back: true", L.ROLLED_BACK_TRAILER),
+                         "body\n  Rolled-Back: true\n\nRolled-Back: true\n")
 
     def test_tag_message_records_registry_check_and_guard_baseline(self):
         m = L.tag_message(tag="staging-20261017.2", sha=SHA1, by="s", reason="r", previous=None, live_sha=SHA2, pending=[],
