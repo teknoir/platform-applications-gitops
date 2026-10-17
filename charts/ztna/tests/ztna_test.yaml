@@ -109,7 +109,8 @@ tests:
           content: {name: ALLOWED_AZP, value: teknoir-cli}
       - contains:
           path: spec.template.spec.containers[0].env
-          content: {name: ORG_GATE_MODE, value: enforce}
+          # values.yaml default; staging rolls out audit first (2026-10-17), then enforce.
+          content: {name: ORG_GATE_MODE, value: audit}
       - contains:
           path: spec.template.spec.containers[0].env
           content:
@@ -600,6 +601,18 @@ tests:
       - matchRegex:
           path: spec.variables[4].expression
           pattern: "device-controller-service-account"
+
+  - it: sets ORG_GATE_MODE enforce when asked
+    template: templates/hub.yaml
+    set:
+      hub.orgGate.mode: enforce
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: ORG_GATE_MODE, value: enforce}
 
   - it: sets ORG_GATE_MODE from hub.orgGate.mode (audit, off)
     template: templates/hub.yaml

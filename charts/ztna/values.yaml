@@ -15,7 +15,7 @@ hub:
     # wg-tunnel 41a0c20 (main: rev 3 zero-touch activation, revoke notice, k3s Service
     # discovery, agent race fixes #4): hub + flags watcher, index digest.
     # Previous pin: sha-37fe475@sha256:4a405ccced8b389e254d3f9965b0c2ea35ca1b0a77bb6c42c17b076b7b27f58b
-    tag: "sha-41a0c20@sha256:d0fce785fabfab2026b99a00bc812c864931556c0208322dacadc35a58e43c4f"
+    tag: "sha-9c9bdae@sha256:f9bf658fc8c993054ce2a4cda35aa79d3b7a894ac78ee887136dcdcfdca08c63"
     pullPolicy: IfNotPresent
   imagePullSecrets:
     - name: ghcr-token
@@ -38,7 +38,8 @@ hub:
   # The org gate in the hub (CanOpen): enforce (default, fails closed), audit (log would-be denials,
   # allow) or off. Any other value fails the render.
   orgGate:
-    mode: enforce
+    # Staging rollout 2026-10-17: audit first (logs and counts would_deny), then enforce.
+    mode: "audit"
 
 # The flags watcher (Deployment wg-flags, same image as the hub, command `flags-watcher`): the only
 # component with access to Device objects.

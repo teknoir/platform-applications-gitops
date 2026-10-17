@@ -27,7 +27,7 @@ image:
   # Previous pin: sha-1c98c648@sha256:f9281e6bb3f95e29e0b0b3d0d9370346039dbee8faef9921cdb560c9657b5c6e
   # device-controller b946c7e (applicationset #60, Nextgen: copy org-tree placement from a Robot to its Device on
   # initial placement). Previous pin: sha-41a360fd@sha256:b54bf4d8f1f94e016bd0163ef0de25934c27dbfcbb73617733d6800bc40d3ae1
-  tag: "sha-b946c7ee@sha256:f379e9abe4e2bbcf3b7d18e269d59d54613ecde933017e48792c2e01fce74d5d"
+  tag: "sha-8521b431@sha256:57e692ab60c034cedfa109303ad4179749bcb3e654ff5413b82ce0747b81cf47"
   pullPolicy: IfNotPresent
 
 imagePullSecrets:
@@ -142,7 +142,7 @@ ztna:
   # injects into a device, and the per-device WireGuard web terminal image
   # (SSH_PROXY_MODE=wireguard). '<immutable tag>@sha256:<digest>'.
   agentImage: "ghcr.io/teknoir/wg-agent:sha-41a0c20@sha256:d2437d10d89cc72114ff48631545106219b8e5e49b0aa711aa8e9a004fdb1155"
-  terminalImage: "ghcr.io/teknoir/web-terminal:sha-159c404c@sha256:953c9157ad9b2f42672d88e6be0a915e6cbe143b329ec542c9b8cbe0260bfa7e"
+  terminalImage: "ghcr.io/teknoir/web-terminal:sha-b2eadfdc@sha256:134e0dea0cd2db80ba12159531aed7e827f61dd2b3f6ae0f716fc709dfcbb3ff"
   # Namespace of the hub, the policy ConfigMaps and the web terminals (charts/ztna).
   hubNamespace: teknoir-ztna
   # attestorEnabled is ignored since rev 3 (the agent signs with the device key that
