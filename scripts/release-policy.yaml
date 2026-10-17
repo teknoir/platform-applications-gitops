@@ -30,17 +30,4 @@ rollback_floor: "staging-20261017.3"   # first release with the release guard (.
 #   reason   why it floats
 #   owner    who answers for it
 #   expires  YYYY-MM-DD, the date the exception ends
-exceptions:
-  # The next.teknoir.cloud preview lane: Nextgen iterates by pushing :nextgen and restarting the pod.
-  # Until the Nextgen cut-over it stays a floating tag with pullPolicy Always (design question 1,
-  # default yes). From the cut-over it is pinned with IfNotPresent and every iteration is a pin-image
-  # PR, a merge and a release. EXPIRES at the planned Nextgen cut-over: if the cut-over slips,
-  # extend this date in a reviewed PR rather than letting the lint be switched off.
-  - image: ghcr.io/teknoir/backstage-app:nextgen
-    reason: backstage-next preview lane (next.teknoir.cloud), floats until the Nextgen cut-over
-    owner: Nextgen
-    expires: 2026-11-30
-  - image: ghcr.io/teknoir/backstage:nextgen
-    reason: backstage-next preview lane (next.teknoir.cloud), floats until the Nextgen cut-over
-    owner: Nextgen
-    expires: 2026-11-30
+exceptions: []

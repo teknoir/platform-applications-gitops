@@ -54,8 +54,11 @@ ci:
 # Next-gen robot fleet platform (plans/nextgen-fleet-platform.md): a second Backstage instance at
 # next.teknoir.cloud (templates/backstage-next.yaml), teknoir-cloud only (allowlist in the
 # template). Needs the DNS name and certificate for the host (wildcard *.teknoir.cloud covers it).
+# The next.teknoir.cloud preview instance. Off since the UI cut-over (release B, 2026-10-17): the next-gen pages
+# run on the main backstage Application, and next.teknoir.cloud redirects there (charts/backstage
+# config.redirectHosts, set in templates/backstage.yaml).
 backstageNext:
-  enabled: true
+  enabled: false
 
 # Staging release guard (charts/release-guard, templates/release-guard.yaml): a
 # ValidatingAdmissionPolicy that lets only scripts/staging-release (ServiceAccount

@@ -3,7 +3,7 @@ templates:
   - templates/backstage-next.yaml
 tests:
   - it: renders the Application on teknoir-cloud
-    set: {project: teknoir-cloud}
+    set: {project: teknoir-cloud, backstageNext.enabled: true}
     asserts:
       - hasDocuments: {count: 1}
       - equal: {path: metadata.name, value: backstage-next}
@@ -21,19 +21,19 @@ tests:
       - contains: {path: spec.source.helm.parameters, content: {name: fleet.classicUrl, value: "https://teknoir.cloud"}}
 
   - it: passes the ZTNA switch like the classic Application, and turns Connect on read-only
-    set: {project: teknoir-cloud, ztna.enabled: true}
+    set: {project: teknoir-cloud, backstageNext.enabled: true, ztna.enabled: true}
     asserts:
       - contains: {path: spec.source.helm.parameters, content: {name: ztna.enabled, value: "true"}}
       - contains: {path: spec.source.helm.parameters, content: {name: fleet.access.enabled, value: "true"}}
       - notContains: {path: spec.source.helm.parameters, content: {name: fleet.access.writes, value: "true"}}
 
   - it: deletes its resources when the Application is removed
-    set: {project: teknoir-cloud}
+    set: {project: teknoir-cloud, backstageNext.enabled: true}
     asserts:
       - contains: {path: metadata.finalizers, content: resources-finalizer.argocd.argoproj.io}
 
   - it: leaves ZTNA and Connect out when ZTNA is off
-    set: {project: teknoir-cloud, ztna.enabled: false}
+    set: {project: teknoir-cloud, backstageNext.enabled: true, ztna.enabled: false}
     asserts:
       - notContains: {path: spec.source.helm.parameters, content: {name: ztna.enabled, value: "true"}}
       - notContains: {path: spec.source.helm.parameters, content: {name: fleet.access.enabled, value: "true"}}
@@ -43,12 +43,17 @@ tests:
     asserts:
       - hasDocuments: {count: 0}
 
+  - it: renders nothing by default since the UI cut-over
+    set: {project: teknoir-cloud}
+    asserts:
+      - hasDocuments: {count: 0}
+
   - it: renders nothing on production
-    set: {project: teknoir-online}
+    set: {project: teknoir-online, backstageNext.enabled: true}
     asserts:
       - hasDocuments: {count: 0}
 
   - it: renders nothing on the airgapped environment
-    set: {project: teknoir-local}
+    set: {project: teknoir-local, backstageNext.enabled: true}
     asserts:
       - hasDocuments: {count: 0}

@@ -94,7 +94,7 @@ class Refs(unittest.TestCase):
 
     def test_tsv(self):
         imgs = PI.parse_images_tsv(open(os.path.join(H.SCRIPTS, "images.tsv")).read())
-        for must in ("backstage-app", "backstage-api", "backstage-next-app", "devstudio-controller", "user-controller",
+        for must in ("backstage-app", "backstage-api", "devstudio-controller", "user-controller",
                      "notebook-controller", "keycloak-theme", "device-controller", "profile-controller", "postgres"):
             self.assertIn(must, imgs)
         for c in imgs.values():

@@ -10,6 +10,7 @@ tests:
           path: spec.source.helm.parameters
           content: {name: fleet.prometheusUrlTemplate, value: "http://prometheus.{namespace}.svc.cluster.local/{namespace}/prometheus"}
       - notContains: {path: spec.source.helm.parameters, content: {name: fleet.access.enabled, value: "true"}}
+      - contains: {path: spec.source.helm.parameters, content: {name: "config.redirectHosts[0]", value: next.teknoir.cloud}}
 
   - it: turns Connect on with writes where ZTNA is on
     set: {project: teknoir-cloud, ztna.enabled: true}
