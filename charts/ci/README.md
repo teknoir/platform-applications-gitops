@@ -20,6 +20,16 @@ CronWorkflow ci-github-sync (30 min): disables the Actions workflows a repo's co
 Nothing listens on the internet: there are no webhooks. The UI is
 `https://ci.teknoir.cloud` behind the normal edge login.
 
+## Tags that never change
+
+- `sha-*` image tags are pushed once: the plan reads the `org.opencontainers.image.revision` label of an
+  existing `sha-*` tag (ghcr with the CI GitHub token, Harbor with robot$ci) and leaves that ref out when
+  it is the same commit. A tag it cannot read is pushed, as before. An image whose every tag already
+  exists for the commit is not built.
+- Harbor project `teknoir` makes `{v[0-9]*,adopted-*}` immutable (charts/harbor `immutableTags`), and
+  its retention keeps `adopted-*` (staging-release backups of digests production also runs).
+- Branch, timestamp and `latest` tags stay mutable: production pulls some of them.
+
 ## Adding or changing a repo's pipeline
 
 One file per repo in `files/repos/<repo>.yaml` (defaults in `values.yaml` `pipelines`).

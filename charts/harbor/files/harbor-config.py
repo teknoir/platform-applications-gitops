@@ -7,7 +7,8 @@ that already matches.
 
   - system settings (PUT /configurations)
   - upstream registry endpoints for the proxy-cache projects
-  - projects: visibility, proxy upstream, storage quota, tag-retention policy
+  - projects: visibility, proxy upstream, storage quota, tag-retention policy, immutable-tag
+    rules (exactly the patterns in `immutableTags`; other rules are removed)
   - garbage collection, audit-log purge and scan-all schedules
   - system robot accounts; each robot's credential is delivered as a
     kubernetes.io/dockerconfigjson Secret (extra keys username/password) in the
@@ -256,6 +257,43 @@ def projects(registry_ids):
                     want["id"] = int(rid)
                     call("PUT", f"/retentions/{rid}", want)
                     log(f"project {name}: retention '{pol_name}' updated")
+        # Immutable tags: a pushed tag that matches can never be overwritten or deleted.
+        if "immutableTags" in p:
+            immutable_tags(name, pid, list(p["immutableTags"] or []))
+
+
+def immutable_rule_body(pattern):
+    return {"disabled": False, "action": "immutable", "template": "immutable_template",
+            "tag_selectors": [{"kind": "doublestar", "decoration": "matches", "pattern": pattern}],
+            "scope_selectors": {"repository": [{"kind": "doublestar", "decoration": "repoMatches",
+                                                "pattern": "**"}]}}
+
+
+def immutable_pattern(rule):
+    if rule.get("disabled") or rule.get("action") != "immutable":
+        return None
+    repos = [s.get("pattern") for s in (rule.get("scope_selectors") or {}).get("repository", [])]
+    tags = [s.get("pattern") for s in rule.get("tag_selectors") or []
+            if s.get("decoration", "matches") == "matches"]
+    return tags[0] if repos == ["**"] and len(tags) == 1 else None
+
+
+def immutable_tags(name, pid, patterns):
+    """Converge the project's immutable-tag rules to `patterns` (all repositories)."""
+    path = f"/projects/{pid}/immutabletagrules"
+    have = call("GET", path) or []
+    keep = set()
+    for rule in have:
+        pat = immutable_pattern(rule)
+        if pat in patterns and pat not in keep:
+            keep.add(pat)
+            continue
+        call("DELETE", f"{path}/{rule['id']}")
+        log(f"project {name}: immutable-tag rule {rule.get('id')} removed")
+    for pat in patterns:
+        if pat not in keep:
+            call("POST", path, immutable_rule_body(pat))
+            log(f"project {name}: immutable tags '{pat}'")
 
 
 # ---------------------------------------------------------------- robots + k8s

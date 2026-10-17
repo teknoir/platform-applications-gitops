@@ -1,0 +1,29 @@
+# platform-applications-gitops (public): advisory lint on every branch (plans/staging-releases.md WP9).
+# Commit status `teknoir-ci` only; nothing is built or released, and merging is not gated on it.
+# Merges to teknoir-cloud are not live anyway: staging follows released SHAs (scripts/staging-release).
+#   release-tooling: scripts/tests/run.sh (python unittest of scripts/, helm unittest of app-of-apps and
+#                    release-guard, root render vs origin/teknoir-cloud when that ref exists; the CI's
+#                    shallow clone has none, so that part is skipped)
+#   chart-unittests: helm unittest of every chart with tests/*_test.yaml
+branches: ['**']
+tests:
+  - name: release-tooling
+    image: "docker.io/alpine/helm:3.20.2"
+    memory: 1Gi
+    run: >-
+      apk add --no-cache -q bash git python3 py3-yaml >/dev/null &&
+      helm plugin install https://github.com/helm-unittest/helm-unittest --version v1.1.2 >/dev/null &&
+      git config --global --add safe.directory '*' &&
+      bash scripts/tests/run.sh
+  - name: chart-unittests
+    image: "docker.io/alpine/helm:3.20.2"
+    memory: 1Gi
+    run: >-
+      helm plugin install https://github.com/helm-unittest/helm-unittest --version v1.1.2 >/dev/null &&
+      rc=0 &&
+      for t in charts/*/tests; do
+      ls "$t"/*_test.yaml >/dev/null 2>&1 || continue;
+      c=${t%/tests}; echo "== $c"; helm unittest "$c" || rc=1;
+      done &&
+      exit $rc
+githubActions: keep
