@@ -1,6 +1,6 @@
 component	values_file	key_path	style	repository	note
-backstage-app	charts/backstage/values.yaml	backstage.image	ref	ghcr.io/teknoir/backstage-app	classic Backstage (:robot); retired at the Nextgen cut-over with --allow-remove backstage
-backstage-api	charts/backstage/values.yaml	backstageApi.image	ref	ghcr.io/teknoir/backstage	classic Backstage API (:robot)
+backstage-app	charts/backstage/values.yaml	backstage.image	ref	ghcr.io/teknoir/backstage-app	the staging UI: next-gen (backstage branch nextgen) since the UI cut-over a2 (2026-10-17); was classic :robot
+backstage-api	charts/backstage/values.yaml	backstageApi.image	ref	ghcr.io/teknoir/backstage	the staging UI API: next-gen (nextgen) since the UI cut-over a2; was classic :robot
 backstage-next-app	charts/app-of-apps/values.yaml	backstageNext.appImage	ref	ghcr.io/teknoir/backstage-app	next.teknoir.cloud (:nextgen); key moves out of templates/backstage-next.yaml in the adoption PR; preview-lane exception in release-policy.yaml
 backstage-next-api	charts/app-of-apps/values.yaml	backstageNext.apiImage	ref	ghcr.io/teknoir/backstage	next.teknoir.cloud API (:nextgen); same as above
 device-controller	charts/device-controller/values.yaml	image.tag	tag	ghcr.io/teknoir/device-controller	already tag@digest

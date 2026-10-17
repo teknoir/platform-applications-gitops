@@ -15,12 +15,26 @@ spec:
     path: charts/backstage
     repoURL: https://github.com/teknoir/platform-applications-gitops
     targetRevision: {{ include "app-of-apps.revision" . }}
-{{- if include "app-of-apps.ztnaEnabled" . }}
+{{- /* Staging only: a cherry-pick onto teknoir-online (production) or teknoir-local (airgapped) renders as before. */}}
+{{- if has .Values.project (list "teknoir-cloud") }}
     helm:
       parameters:
+        # Next-gen fleet pages (the UI cut-over a2, plans/nextgen/ui-cutover.md): same in-cluster URL the
+        # device-controller uses (plugin_device_state PROMETHEUS_URL_TEMPLATE).
+        - name: fleet.prometheusUrlTemplate
+          value: "http://prometheus.{namespace}.svc.cluster.local/{namespace}/prometheus"
+{{- if include "app-of-apps.ztnaEnabled" . }}
         # The ZTNA switch (app-of-apps values ztna.enabled), turns the WireGuard UI on (teknoir.ztna.enabled).
         - name: ztna.enabled
           value: "true"
+        # Connect: open the web terminal and device apps over Tunneling, with "enable on first use" (this instance
+        # runs as SA backstage-api, which the ztna Device-annotation VAP admits). Anders, 2026-10-17: "Any developer,
+        # one click", cap 25 per teamspace (plans/nextgen/app-tunnels.md).
+        - name: fleet.access.enabled
+          value: "true"
+        - name: fleet.access.writes
+          value: "true"
+{{- end }}
 {{- end }}
   project: {{ .Values.project }}
   syncPolicy:
