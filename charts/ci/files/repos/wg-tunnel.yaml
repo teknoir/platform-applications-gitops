@@ -6,7 +6,8 @@
 branches: ['**']
 tags: ['**']
 tests:
-  - {name: go-vet, image: "docker.io/library/golang:1.26", run: go vet ./...}
+  # go vet over the hub with client-go dynamic informers needs more than the 2Gi default (OOMKilled, 2026-10-17).
+  - {name: go-vet, image: "docker.io/library/golang:1.26", run: go vet ./..., memory: 4Gi}
   # -race needs a lot of memory per package; -p 4 bounds it on the 14 GB CI node.
   - {name: go-test-race, image: "docker.io/library/golang:1.26", run: go test -race -count=1 -p 4 ./..., cpu: "2", memory: 8Gi}
 images:
