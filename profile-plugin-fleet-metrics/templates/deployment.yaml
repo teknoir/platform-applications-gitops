@@ -33,7 +33,7 @@ spec:
       containers:
         - name: fleet-metrics-metrics-proc
           image: "{{ .Values.metricsProcessor.image.registry }}:{{ .Values.metricsProcessor.image.version }}"
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           env:
             - name: CLIENT_ID
               value: "fleet-metrics"
@@ -67,7 +67,7 @@ spec:
               mountPath: /data/org-config/
         - name: fleet-metrics-metrics-pub
           image: "{{ .Values.metricsPublisher.image.registry }}:{{ .Values.metricsPublisher.image.version }}"
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           livenessProbe:
             httpGet:
               path: /healthz

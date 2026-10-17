@@ -25,7 +25,7 @@ spec:
       containers:
       - name: deadend
         image: "{{ .Values.deadend.image.registry }}:{{ .Values.deadend.image.version }}"
-        imagePullPolicy: Always
+        imagePullPolicy: IfNotPresent
         ports:
           - containerPort: 22
             name: tcp-ssh
@@ -39,6 +39,7 @@ spec:
         {{- end }}
       - name: tls-terminator
         image: "{{ .Values.tlsTerminator.image.registry }}:{{ .Values.tlsTerminator.image.version }}"
+        imagePullPolicy: IfNotPresent
         command: ["/bin/sh", "-c"]
         args:
           - |

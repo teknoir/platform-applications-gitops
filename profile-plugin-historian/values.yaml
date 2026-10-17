@@ -4,7 +4,7 @@ domainPrefix:
 historianApi:
   image:
     registry: ghcr.io/teknoir/historian-api
-    version: latest
+    version: latest@sha256:746a129e64a65c077fca9540f0c407657026a40659af34a4053656f906cb2164
   resources:
     requests:
       cpu: 25m
@@ -13,7 +13,7 @@ historianApi:
 historianMiddleend:
   image:
     registry: ghcr.io/teknoir/historian-middle-end-api
-    version: latest
+    version: latest@sha256:9eff60a54e2a0409aa7ac4b5971606a46278beaa7122e0d33ff5258c21fb1b8e
   resources:
     requests:
       cpu: 25m
@@ -22,7 +22,7 @@ historianMiddleend:
 historianStreams:
   image:
     registry: ghcr.io/teknoir/observatory-event-processing-app
-    version: latest
+    version: latest@sha256:dd13619de2c5ee13c0a1276c7df58598251b9a3b039f66d86ff72d0930c418b5
 
 mongodb:
   image:

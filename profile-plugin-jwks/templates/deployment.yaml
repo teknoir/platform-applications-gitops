@@ -28,7 +28,7 @@ spec:
       containers:
         - name: jwks
           image: "{{ .Values.jwks.image.registry }}:{{ .Values.jwks.image.version }}"
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           env:
             - name: PORT
               value: "8083"

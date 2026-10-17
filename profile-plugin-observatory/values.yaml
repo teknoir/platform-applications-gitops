@@ -4,7 +4,7 @@ domainPrefix:
 observatory:
   image:
     registry: ghcr.io/teknoir/observatory
-    version: latest
+    version: latest@sha256:bf1003a25046c95d4681679aaf9ab5eba205db18cdfb0fb22825edb304f39005
   resources:
     requests:
       cpu: 10m
@@ -12,7 +12,7 @@ observatory:
 wssMqtt:
   image:
     registry: ghcr.io/teknoir/observatory-wss-mqtt
-    version: latest
+    version: latest@sha256:6175610b71afe489d8fbd4c1e46d9100e3eaf62a1bd31909f9d8fd29bd9eeb6f
   resources:
     requests:
       cpu: 10m
@@ -28,7 +28,7 @@ keydb:
 snapshotExporter:
   image:
     registry: ghcr.io/teknoir/observatory-snapshot-exporter
-    version: latest
+    version: latest@sha256:e90016f38c7db769cc5663c4fcc23547ce8db99f963f2300fef48cc7a6fef9f5
   resources:
     requests:
       cpu: 10m
@@ -36,7 +36,7 @@ snapshotExporter:
 mediaService:
   image:
     registry: ghcr.io/teknoir/observatory-media-service
-    version: latest
+    version: latest@sha256:6c7b3c1ff8b5b388e8d6d7132cfa69bc98e9433d02e9b96fadb3860e3dde5ce5
   resources:
     requests:
       cpu: 10m

@@ -2,13 +2,13 @@ domain: teknoir.cloud
 deadend:
   image:
     registry: ghcr.io/teknoir/deadend
-    version: latest
+    version: latest@sha256:1b2902ba84e5f4abd33961d04196228af5e0d784cd9a3df489ecec75ba41fb9b
 tlsTerminator:
   image:
     # stunnel baked in (images/stunnel); no package install at start-up, so
     # the sidecar also works on airgapped clusters
     registry: ghcr.io/teknoir/stunnel
-    version: 3.22.6-5.75
+    version: 3.22.6-5.75@sha256:3803a3c5f1b035ec05212c0bf25c96befea1ee73f203d0fd9b643530dc53bacc
 authorizedKeys: ""
 imagePullSecrets:
   - name: ghcr-token

@@ -15,7 +15,7 @@ authorization:
 jwks:
   image:
     registry: ghcr.io/teknoir/jwks-server
-    version: latest
+    version: latest@sha256:a69bebf5b3b751d438a39b3e8c0f67bdce1b47fef93a40bfd8997f8ec85f6c0d
   resources:
     requests:
       cpu: 25m

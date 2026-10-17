@@ -39,7 +39,7 @@ spec:
       containers:
         - name: observatory
           image: "{{ .Values.observatory.image.registry }}:{{ .Values.observatory.image.version }}"
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           ports:
             - name: http-sdmc
               containerPort: 5173
@@ -47,7 +47,7 @@ spec:
           - name: APP_NAME
             value: "sdmc"
           - name: APP_VERSION
-            value: "{{ .Values.observatory.image.version }}"
+            value: "{{ .Values.observatory.image.version | splitList "@" | first }}"
           - name: NAMESPACE
             value: "{{ .Release.Namespace }}"
           - name: DOMAIN
@@ -118,7 +118,7 @@ spec:
               mountPath: /data
         - name: observatory-wss-mqtt
           image: "{{ .Values.wssMqtt.image.registry }}:{{ .Values.wssMqtt.image.version }}"
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           ports:
             - name: http-ws
               containerPort: 8080
@@ -126,7 +126,7 @@ spec:
           - name: APP_NAME
             value: "wss-mqtt"
           - name: APP_VERSION
-            value: "{{ .Values.wssMqtt.image.version }}"
+            value: "{{ .Values.wssMqtt.image.version | splitList "@" | first }}"
           - name: WSS_PORT
             value: "8080"
           - name: CHECK_ACTIVE_INTERVAL
@@ -159,12 +159,12 @@ spec:
           {{- end }}
         - name: observatory-snapshot-exporter
           image: "{{ .Values.snapshotExporter.image.registry }}:{{ .Values.snapshotExporter.image.version }}"
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           env:
           - name: APP_NAME
             value: "snapshot-exporter"
           - name: APP_VERSION
-            value: "{{ .Values.snapshotExporter.image.version }}"
+            value: "{{ .Values.snapshotExporter.image.version | splitList "@" | first }}"
           - name: SCHEDULER_INTERVAL
             value: "{{ .Values.flushCacheBufferInterval }}"
           - name: LOG_LEVEL
@@ -221,7 +221,7 @@ spec:
       containers:
         - name: observatory-media-service
           image: "{{ .Values.mediaService.image.registry }}:{{ .Values.mediaService.image.version }}"
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           env:
           - name: BASE_URL
             value: "/{{ .Release.Namespace }}/media-service/api"

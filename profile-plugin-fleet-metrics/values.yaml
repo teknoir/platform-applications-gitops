@@ -6,7 +6,7 @@ imagePullSecrets:
 metricsProcessor:
   image:
     registry: ghcr.io/teknoir/fleet-metrics/metrics-processor
-    version: latest
+    version: latest@sha256:8f2712f68ca339dbb32a2af23515c88f06b80f5c76b1c1dca237d762a7c5fac7
   resources:
     requests:
       cpu: 25m
@@ -15,7 +15,7 @@ metricsProcessor:
 metricsPublisher:
   image:
     registry: ghcr.io/teknoir/fleet-metrics/metrics-publisher
-    version: latest
+    version: latest@sha256:b4e75ccbccaa9359909ef453399f327fce533c70e420300b6853e0d362cb9cd6
   resources:
     requests:
       cpu: 25m

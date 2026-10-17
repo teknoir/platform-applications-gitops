@@ -35,7 +35,7 @@ spec:
       containers:
         - name: historian-api
           image: "{{ .Values.historianApi.image.registry }}:{{ .Values.historianApi.image.version }}"
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           ports:
             - name: historian-api
               containerPort: 8000
@@ -99,7 +99,7 @@ spec:
       containers:
         - name: historian-middleend
           image: "{{ .Values.historianMiddleend.image.registry }}:{{ .Values.historianMiddleend.image.version }}"
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 8000
@@ -167,7 +167,7 @@ spec:
       containers:
         - name: historian-{{ .stream }}
           image: "{{ $.Values.historianStreams.image.registry }}:{{ $.Values.historianStreams.image.version }}"
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           env:
             - name: STREAM
               value: {{ .stream }}
