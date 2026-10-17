@@ -63,6 +63,6 @@ backstageNext:
 # teknoir-cloud only (allowlist in templates/_helpers.tpl). OFF until release step 4, then Warn,
 # then Deny (plans/staging-releases.md, rollout order).
 releaseGuard:
-  enabled: false
+  enabled: true
   # Warn | Deny, passed to the chart as guard.mode.
   mode: Warn
