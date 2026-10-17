@@ -26,6 +26,9 @@ kind: Application
 metadata:
   name: gateway-api-crds
   annotations:
+{{- if .Values.releaseName }}
+    teknoir.org/release: {{ .Values.releaseName | quote }}
+{{- end }}
     argocd.argoproj.io/compare-options: ServerSideDiff=true
 spec:
   destination:
@@ -35,7 +38,7 @@ spec:
   source:
     path: charts/gateway-api-crds
     repoURL: https://github.com/teknoir/platform-applications-gitops
-    targetRevision: {{ .Values.project }}
+    targetRevision: {{ include "app-of-apps.revision" . }}
   sources: [ ]
   project: {{ .Values.project }}
   syncPolicy:
@@ -60,6 +63,9 @@ kind: Application
 metadata:
   name: stunner
   annotations:
+{{- if .Values.releaseName }}
+    teknoir.org/release: {{ .Values.releaseName | quote }}
+{{- end }}
     argocd.argoproj.io/compare-options: ServerSideDiff=true
 spec:
   destination:
@@ -68,7 +74,7 @@ spec:
   source:
     path: charts/stunner
     repoURL: https://github.com/teknoir/platform-applications-gitops
-    targetRevision: {{ .Values.project }}
+    targetRevision: {{ include "app-of-apps.revision" . }}
   sources: [ ]
   project: {{ .Values.project }}
   syncPolicy:
@@ -98,6 +104,10 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: ztna
+{{- if .Values.releaseName }}
+  annotations:
+    teknoir.org/release: {{ .Values.releaseName | quote }}
+{{- end }}
 spec:
   destination:
     namespace: teknoir-ztna
@@ -105,7 +115,7 @@ spec:
   source:
     path: charts/ztna
     repoURL: https://github.com/teknoir/platform-applications-gitops
-    targetRevision: {{ .Values.project }}
+    targetRevision: {{ include "app-of-apps.revision" . }}
   sources: [ ]
   project: {{ .Values.project }}
   syncPolicy:

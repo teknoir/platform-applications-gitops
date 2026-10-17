@@ -3,6 +3,10 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: notebook-controller
+{{- if .Values.releaseName }}
+  annotations:
+    teknoir.org/release: {{ .Values.releaseName | quote }}
+{{- end }}
 spec:
   destination:
     namespace: teknoir-system
@@ -10,7 +14,7 @@ spec:
   source:
     path: charts/notebook-controller
     repoURL: https://github.com/teknoir/platform-applications-gitops
-    targetRevision: {{ .Values.project }}
+    targetRevision: {{ include "app-of-apps.revision" . }}
   sources: [ ]
   project: {{ .Values.project }}
   syncPolicy:
@@ -24,6 +28,10 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: devstudio-controller
+{{- if .Values.releaseName }}
+  annotations:
+    teknoir.org/release: {{ .Values.releaseName | quote }}
+{{- end }}
 spec:
   destination:
     namespace: teknoir-system
@@ -31,7 +39,7 @@ spec:
   source:
     path: charts/devstudio-controller
     repoURL: https://github.com/teknoir/platform-applications-gitops
-    targetRevision: {{ .Values.project }}
+    targetRevision: {{ include "app-of-apps.revision" . }}
   sources: [ ]
   project: {{ .Values.project }}
   syncPolicy:
@@ -45,6 +53,10 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: user-controller
+{{- if .Values.releaseName }}
+  annotations:
+    teknoir.org/release: {{ .Values.releaseName | quote }}
+{{- end }}
 spec:
   destination:
     namespace: teknoir-system
@@ -52,7 +64,7 @@ spec:
   source:
     path: charts/user-controller
     repoURL: https://github.com/teknoir/platform-applications-gitops
-    targetRevision: {{ .Values.project }}
+    targetRevision: {{ include "app-of-apps.revision" . }}
   sources: [ ]
   project: {{ .Values.project }}
   syncPolicy:
@@ -82,6 +94,10 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: profile-controller
+{{- if .Values.releaseName }}
+  annotations:
+    teknoir.org/release: {{ .Values.releaseName | quote }}
+{{- end }}
 spec:
   destination:
     namespace: teknoir-system
@@ -89,7 +105,7 @@ spec:
   source:
     path: charts/profile-controller
     repoURL: https://github.com/teknoir/platform-applications-gitops
-    targetRevision: {{ .Values.project }}
+    targetRevision: {{ include "app-of-apps.revision" . }}
   sources: [ ]
   project: {{ .Values.project }}
   syncPolicy:
@@ -103,6 +119,10 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: device-controller
+{{- if .Values.releaseName }}
+  annotations:
+    teknoir.org/release: {{ .Values.releaseName | quote }}
+{{- end }}
 spec:
   destination:
     namespace: teknoir-system
@@ -110,7 +130,7 @@ spec:
   source:
     path: charts/device-controller
     repoURL: https://github.com/teknoir/platform-applications-gitops
-    targetRevision: {{ .Values.project }}
+    targetRevision: {{ include "app-of-apps.revision" . }}
 {{- if include "app-of-apps.ztnaEnabled" . }}
     helm:
       parameters:

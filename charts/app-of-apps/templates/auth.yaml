@@ -3,6 +3,10 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: auth
+{{- if .Values.releaseName }}
+  annotations:
+    teknoir.org/release: {{ .Values.releaseName | quote }}
+{{- end }}
 spec:
   destination:
     namespace: teknoir-auth
@@ -10,7 +14,7 @@ spec:
   source:
     path: charts/auth
     repoURL: https://github.com/teknoir/platform-applications-gitops
-    targetRevision: {{ .Values.project }}
+    targetRevision: {{ include "app-of-apps.revision" . }}
 {{- if include "app-of-apps.ztnaEnabled" . }}
     helm:
       parameters:
