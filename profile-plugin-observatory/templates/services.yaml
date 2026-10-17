@@ -1,3 +1,4 @@
+{{- if .Values.observatory.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -14,11 +15,12 @@ spec:
     - name: http-sdmc
       port: 80
       protocol: TCP
-      targetPort: 5173
+      targetPort: 80
   selector:
     app.kubernetes.io/name: observatory
     app.kubernetes.io/instance: observatory
     owner: teknoir
+{{- end }}
 ---
 apiVersion: v1
 kind: Service

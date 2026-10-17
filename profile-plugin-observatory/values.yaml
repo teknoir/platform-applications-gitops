@@ -2,6 +2,11 @@ domain: teknoir.cloud
 domainPrefix:
 
 observatory:
+  # The standalone Surveillance Dashboard frontend. Off because Backstage's
+  # Observatory page replaces it, and the current image only works at the site
+  # root (it was built without its VITE_* build args since 2026-04); enable
+  # only after rebuilding it.
+  enabled: false
   image:
     registry: ghcr.io/teknoir/observatory
     version: latest@sha256:bf1003a25046c95d4681679aaf9ab5eba205db18cdfb0fb22825edb304f39005
@@ -10,6 +15,11 @@ observatory:
       cpu: 10m
       memory: 20Mi
 wssMqtt:
+  # Backstage backends read device statistics from wss-mqtt in-mesh; user
+  # traffic is allowed by the teamspace's own policies.
+  allowedPrincipals:
+    - cluster.local/ns/teknoir-system/sa/backstage-api
+    - cluster.local/ns/teknoir-system/sa/backstage-next-api
   image:
     registry: ghcr.io/teknoir/observatory-wss-mqtt
     version: latest@sha256:6175610b71afe489d8fbd4c1e46d9100e3eaf62a1bd31909f9d8fd29bd9eeb6f

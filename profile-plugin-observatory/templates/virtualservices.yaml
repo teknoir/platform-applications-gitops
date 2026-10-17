@@ -1,3 +1,4 @@
+{{- if .Values.observatory.enabled }}
 apiVersion: networking.istio.io/v1beta1
 kind: VirtualService
 metadata:
@@ -15,13 +16,15 @@ spec:
   http:
   - match:
     - uri:
-        prefix: /{{ .Release.Namespace }}/observatory
+        prefix: /{{ .Release.Namespace }}/observatory/
+    - uri:
+        exact: /{{ .Release.Namespace }}/observatory
     route:
     - destination:
         host: observatory.{{ .Release.Namespace }}.svc.cluster.local
         port:
           number: 80
-
+{{- end }}
 ---
 apiVersion: networking.istio.io/v1beta1
 kind: VirtualService
@@ -42,6 +45,9 @@ spec:
     match:
     - uri:
         prefix: /{{ .Release.Namespace }}/ws/observatory
+    # legacy path Backstage's usePeripheralData still uses
+    - uri:
+        prefix: /{{ .Release.Namespace }}/observatory-wss-mqtt
     route:
     - destination:
         host: observatory-wss-mqtt.{{ .Release.Namespace }}.svc.cluster.local

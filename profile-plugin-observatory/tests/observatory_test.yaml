@@ -1,0 +1,126 @@
+suite: observatory
+release:
+  name: observatory
+  namespace: teknoir-demo
+set:
+  domain: teknoir.cloud
+templates:
+  - templates/deployments.yaml
+  - templates/services.yaml
+  - templates/virtualservices.yaml
+  - templates/authpolicy.yaml
+tests:
+  - it: renders no standalone frontend by default
+    asserts:
+      - hasDocuments:
+          count: 2
+        template: templates/deployments.yaml
+      - hasDocuments:
+          count: 2
+        template: templates/services.yaml
+      - hasDocuments:
+          count: 2
+        template: templates/virtualservices.yaml
+  - it: default deployments are wss-mqtt and media-service only
+    template: templates/deployments.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: observatory-wss-mqtt
+        documentIndex: 0
+      - equal:
+          path: metadata.name
+          value: observatory-media-service
+        documentIndex: 1
+  - it: default services and virtualservices exclude the frontend
+    asserts:
+      - equal:
+          path: metadata.name
+          value: observatory-wss-mqtt
+        template: templates/services.yaml
+        documentIndex: 0
+      - equal:
+          path: metadata.name
+          value: observatory-wss-mqtt-vsvc
+        template: templates/virtualservices.yaml
+        documentIndex: 0
+  - it: frontend deployment uses port 80 when enabled
+    set:
+      observatory.enabled: true
+    template: templates/deployments.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: metadata.name
+          value: observatory
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 80
+      - notExists:
+          path: spec.template.metadata.annotations
+  - it: frontend service targets port 80 when enabled
+    set:
+      observatory.enabled: true
+    template: templates/services.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: metadata.name
+          value: observatory
+      - equal:
+          path: spec.ports[0].targetPort
+          value: 80
+  - it: frontend virtualservice cannot swallow the wss path
+    set:
+      observatory.enabled: true
+    template: templates/virtualservices.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: metadata.name
+          value: observatory-vsvc
+      - equal:
+          path: spec.http[0].match[0].uri.prefix
+          value: /teknoir-demo/observatory/
+      - equal:
+          path: spec.http[0].match[1].uri.exact
+          value: /teknoir-demo/observatory
+  - it: wss virtualservice keeps the public path and adds the legacy one
+    template: templates/virtualservices.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.http[0].match[0].uri.prefix
+          value: /teknoir-demo/ws/observatory
+      - equal:
+          path: spec.http[0].match[1].uri.prefix
+          value: /teknoir-demo/observatory-wss-mqtt
+  - it: authorization policy allows the Backstage backends on 8080
+    template: templates/authpolicy.yaml
+    asserts:
+      - equal:
+          path: spec.rules[0].from[0].source.principals
+          value:
+            - cluster.local/ns/teknoir-system/sa/backstage-api
+            - cluster.local/ns/teknoir-system/sa/backstage-next-api
+      - equal:
+          path: spec.rules[0].to[0].operation.ports
+          value: ["8080"]
+      - notExists:
+          path: spec.rules[0].to[0].operation.paths
+  - it: authorization policy is not rendered without principals
+    template: templates/authpolicy.yaml
+    set:
+      wssMqtt.allowedPrincipals: []
+    asserts:
+      - hasDocuments:
+          count: 0
+  - it: media-service pod has no prometheus annotations
+    template: templates/deployments.yaml
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: metadata.name
+          value: observatory-media-service
+      - notExists:
+          path: spec.template.metadata.annotations

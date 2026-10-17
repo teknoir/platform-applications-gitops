@@ -1,4 +1,4 @@
----
+{{- if .Values.wssMqtt.allowedPrincipals }}
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
@@ -10,10 +10,14 @@ metadata:
 spec:
   action: ALLOW
   rules:
-    - to:
-      - operation:
-          paths: ["/{{ .Release.Namespace }}/observatory-wss-mqtt"]
-          ports: ["8080"]
+    - from:
+        - source:
+            principals:
+              {{- toYaml .Values.wssMqtt.allowedPrincipals | nindent 14 }}
+      to:
+        - operation:
+            ports: ["8080"]
   selector:
     matchLabels:
       app: observatory-wss-mqtt
+{{- end }}

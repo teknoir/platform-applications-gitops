@@ -1,3 +1,4 @@
+{{- if .Values.observatory.enabled }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -27,10 +28,6 @@ spec:
         app.kubernetes.io/instance: observatory
         app.kubernetes.io/part-of: observatory
         owner: teknoir
-      annotations:
-        prometheus.io/scrape: "true"
-        prometheus.io/path: "/metrics"
-        prometheus.io/port: "8000"
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
@@ -42,7 +39,7 @@ spec:
           imagePullPolicy: IfNotPresent
           ports:
             - name: http-sdmc
-              containerPort: 5173
+              containerPort: 80
           env:
           - name: APP_NAME
             value: "sdmc"
@@ -56,6 +53,7 @@ spec:
           resources:
             {{- toYaml .Values.observatory.resources | nindent 12 }}
           {{- end }}
+{{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -208,10 +206,6 @@ spec:
         app.kubernetes.io/instance: observatory-media-service
         app.kubernetes.io/part-of: observatory
         owner: teknoir
-      annotations:
-        prometheus.io/scrape: "true"
-        prometheus.io/path: "/metrics"
-        prometheus.io/port: "8000"
     spec:
       serviceAccountName: {{ .Values.serviceAccountName }}
       {{- with .Values.imagePullSecrets }}
