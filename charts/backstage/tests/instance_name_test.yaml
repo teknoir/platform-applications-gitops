@@ -190,6 +190,23 @@ tests:
           pattern: "fleet:\\n    prometheusUrlTemplate: \"http://prometheus.{namespace}.svc.cluster.local/{namespace}/prometheus\""
         template: templates/configmap-app-config.yaml
 
+  - it: renders the Connect access config only when enabled, with the domain as tunnel domain
+    set:
+      fleet.access.enabled: true
+      fleet.access.writes: true
+    asserts:
+      - matchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: "fleet:\\n(.*\\n)*    access:\\n      enabled: true\\n      tunnelDomain: \"teknoir.cloud\"\\n      writes: true\\n      maxPerTeamspace: 25"
+        template: templates/configmap-app-config.yaml
+
+  - it: renders no Connect access config by default
+    asserts:
+      - notMatchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: "access:"
+        template: templates/configmap-app-config.yaml
+
   - it: renders no resources by default
     asserts:
       - notExists: {path: 'spec.template.spec.containers[0].resources'}

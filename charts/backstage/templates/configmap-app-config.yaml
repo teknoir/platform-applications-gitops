@@ -49,9 +49,22 @@ data:
           {{- toYaml . | nindent 10 }}
         {{- end }}
 {{- end }}
-{{- with (.Values.fleet).prometheusUrlTemplate }}
+{{- $fleet := .Values.fleet | default dict }}
+{{- $access := $fleet.access | default dict }}
+{{- if or $fleet.prometheusUrlTemplate $access.enabled }}
       fleet:
+{{- with $fleet.prometheusUrlTemplate }}
         prometheusUrlTemplate: {{ . | quote }}
+{{- end }}
+{{- if $access.enabled }}
+        # Connect: web terminal and device apps over Tunneling (wgt-/wgs- hosts), plans/nextgen/app-tunnels.md.
+        # writes turns on "enable on first use"; it needs this instance to run as the SA the ztna VAP admits.
+        access:
+          enabled: true
+          tunnelDomain: {{ $access.tunnelDomain | default .Values.config.domain | quote }}
+          writes: {{ $access.writes | default false }}
+          maxPerTeamspace: {{ $access.maxPerTeamspace | default 25 }}
+{{- end }}
 {{- end }}
 {{- if (.Values.ztna).enabled }}
       # WireGuard (ZTNA) tunnels: charts/app-of-apps passes ztna.enabled to this Application.

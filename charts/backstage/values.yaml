@@ -87,6 +87,14 @@ fleet:
   classicUrl: ""
   # Backend teknoir.fleet.prometheusUrlTemplate ({namespace} is replaced). Empty = the plugin default.
   prometheusUrlTemplate: ""
+  # Connect (teknoir.fleet.access): open the web terminal and device apps over Tunneling from the fleet pages.
+  # Off by default; tunnelDomain defaults to config.domain; writes = enable on first use (needs the SA that the
+  # ztna Device-annotation VAP admits, i.e. the backstage-api instance).
+  access:
+    enabled: false
+    tunnelDomain: ""
+    writes: false
+    maxPerTeamspace: 25
 
 # Catalog behaviour (app-config catalog.*). orphanStrategy delete removes entities that nothing emits any
 # more, e.g. the mock robots (examples/robots) after their location was removed (2026-10-16). Empty = the
