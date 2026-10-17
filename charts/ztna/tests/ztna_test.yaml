@@ -109,8 +109,8 @@ tests:
           content: {name: ALLOWED_AZP, value: teknoir-cli}
       - contains:
           path: spec.template.spec.containers[0].env
-          # values.yaml default; staging rolls out audit first (2026-10-17), then enforce.
-          content: {name: ORG_GATE_MODE, value: audit}
+          # values.yaml default
+          content: {name: ORG_GATE_MODE, value: enforce}
       - contains:
           path: spec.template.spec.containers[0].env
           content:
