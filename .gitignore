@@ -7,3 +7,5 @@ Chart.lock
 !/charts/stunner/Chart.lock
 !/charts/stunner/charts/
 !/charts/stunner/charts/stunner-1.2.1.tgz
+__pycache__/
+*.pyc

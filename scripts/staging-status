@@ -1,0 +1,265 @@
+#!/usr/bin/env python3
+"""staging-status: where staging is and what is pending (kubectl context vpro, READ-ONLY).
+
+  staging-status [--devices] [--no-network]
+
+Reports (plans/staging-releases.md, "enforcement" 6):
+  - the live release, and whether its tag peels to the live SHA
+  - whether the root Application matches the spec scripts/staging-release writes
+  - pending commits since the live release (PR numbers, head branches, age)
+  - gitops Applications not on the release SHA, or not Synced/Healthy
+  - floating images that are running now (user workloads as info)
+  - the profile-plugin chart index digests compared with the record in the release tag
+  - the digests of the production-shared tags compared with the record in the release tag
+  - the release guard (policy, binding, mode) and an open break-glass
+  --devices: non-SHA revisions on DeviceApplicationSets, Robots, RobotTypes and Devices, and unversioned
+             device HelmCharts
+
+Exit status 1 when something needs attention (off-shape root, unconverged children, open break-glass, tag
+not peeling to the live SHA), 0 otherwise. Needs kubectl, git, crane, curl; python3 stdlib + PyYAML.
+"""
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import importlib.machinery
+import importlib.util
+import json
+import os
+import re
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import stagelib as L  # noqa: E402
+
+
+def _load_check_pins():
+    loader = importlib.machinery.SourceFileLoader("check_pins", os.path.join(HERE, "check-pins.py"))
+    spec = importlib.util.spec_from_loader("check_pins", loader)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["check_pins"] = mod
+    loader.exec_module(mod)
+    return mod
+
+
+CP = _load_check_pins()
+
+SHARED_TAGS = L.SHARED_TAGS
+PLUGIN_REPO = "https://teknoir.github.io/profile-plugins-helm"
+
+
+def parse_tag_record(message: str) -> dict:
+    """Plugin version, plugin index digests and shared-tag digests from a release tag message
+    (stagelib.tag_message)."""
+    rec = {"plugin_version": None, "plugin_digests": {}, "shared": {}}
+    section = None
+    for line in message.splitlines():
+        if line.startswith("plugin chart version:"):
+            v = line.split(":", 1)[1].strip()
+            rec["plugin_version"] = None if v.startswith("(") else v
+        elif line.startswith("plugin chart index digests:"):
+            section = "plugin"
+        elif line.startswith("production-shared tag digests:"):
+            section = "shared"
+        elif line.startswith("  ") and section:
+            parts = line.split()
+            if len(parts) == 2:
+                (rec["plugin_digests"] if section == "plugin" else rec["shared"])[parts[0]] = parts[1]
+        elif line.strip() == "":
+            continue
+        else:
+            section = section if line.startswith("  ") else None
+    return rec
+
+
+def compare_digests(recorded: dict, current: dict) -> list[str]:
+    out = []
+    for k in sorted(set(recorded) | set(current)):
+        if k not in recorded:
+            out.append(f"{k}: not in the release record (now {current[k][:19]})")
+        elif k not in current:
+            out.append(f"{k}: recorded {recorded[k][:19]} but not found now")
+        elif recorded[k] != current[k]:
+            out.append(f"{k}: recorded {recorded[k][:19]}, now {current[k][:19]}  MOVED")
+    return out
+
+
+def running_floating(pods: list[dict], prefixes: list[str]) -> tuple[list[str], list[str]]:
+    """(platform, user) floating images of running pods: first-party not '<tag>@sha256', or :latest / untagged."""
+    plat, user = set(), set()
+    platform_ns = {"teknoir-system", "teknoir-auth", "istio-system", "cert-manager", "teknoir-ci", "teknoir-ztna",
+                   "stunner-system", "kubevirt", "cdi", "kube-system"}
+    for p in pods:
+        ns = p["metadata"]["namespace"]
+        for c in (p["spec"].get("containers") or []) + (p["spec"].get("initContainers") or []):
+            img = c["image"]
+            floating = (CP.is_first_party(img, prefixes) and not CP.PINNED.search(img)) or \
+                       (not CP.DIGEST.search(img) and CP.image_tag(img) in ("", "latest"))
+            if floating:
+                (plat if ns in platform_ns else user).add(f"{img} ({ns})")
+    return sorted(plat), sorted(user)
+
+
+def device_findings(kinds: dict[str, list[dict]]) -> list[str]:
+    out = []
+    for kind, items in kinds.items():
+        for d in items:
+            name = f"{kind}/{d['metadata'].get('namespace', '')}/{d['metadata']['name']}"
+            for path, rev in CP._walk_revisions(d.get("spec") or {}):
+                if not CP.SHA40.match(rev):
+                    out.append(f"{name}: revision '{rev}' at spec{path} is not a 40-hex commit")
+            if kind == "Device":
+                out += [f"{name}: HelmChart {c} has no version" for c in _unversioned_charts(d.get("spec") or {})]
+    return out
+
+
+def _unversioned_charts(obj, found=None) -> list[str]:
+    found = [] if found is None else found
+    if isinstance(obj, dict):
+        if obj.get("kind") == "HelmChart" and not (obj.get("spec") or {}).get("version") \
+                and (obj.get("spec") or {}).get("repo"):
+            found.append((obj.get("metadata") or {}).get("name", "?"))
+        for v in obj.values():
+            _unversioned_charts(v, found)
+    elif isinstance(obj, list):
+        for v in obj:
+            _unversioned_charts(v, found)
+    return found
+
+
+def main(argv: list[str] | None = None, sys_: L.Sys | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--devices", action="store_true", help="also check device-side revisions and HelmCharts")
+    ap.add_argument("--no-network", action="store_true", help="skip crane and the plugin chart index")
+    ap.add_argument("--context", default=L.CONTEXT, help=argparse.SUPPRESS)
+    ap.add_argument("--branch", default=L.BRANCH, help=argparse.SUPPRESS)
+    a = ap.parse_args(argv)
+    s = sys_ or L.Sys()
+    try:
+        kube = L.Kube(s, a.context)
+    except L.Refuse as e:
+        print(f"REFUSED: {e}", file=sys.stderr)
+        return 2
+    git = L.Git(s, L.repo_root_of(HERE))
+    attention: list[str] = []
+    s.run(["git", "-C", git.repo, "fetch", "--tags", "--force", "origin", "teknoir-cloud"], check=False)
+
+    root = kube.root()
+    cutover = L.is_cutover_state(root)
+    live_sha = L.root_live_sha(root)
+    live_tag = None if cutover else L.root_release_name(root)
+    print(f"context            {kube.context}")
+    print(f"live commit        {live_sha}")
+    rec = {"plugin_version": None, "plugin_digests": {}, "shared": {}}
+    if cutover:
+        print("live release       NONE: the root still follows the branch (pre-cutover). Every merge to teknoir-cloud is live.")
+        attention.append("pre-cutover: the root follows the branch")
+    else:
+        peeled = s.run(["git", "-C", git.repo, "rev-parse", "--verify", f"refs/tags/{live_tag}^{{commit}}"], check=False)
+        if peeled.rc != 0:
+            print(f"live release       {live_tag}  TAG NOT FOUND locally/remotely")
+            attention.append(f"tag {live_tag} not found")
+        elif peeled.out.strip() != live_sha:
+            print(f"live release       {live_tag}  TAG PEELS TO {peeled.out.strip()[:12]}, NOT THE LIVE SHA")
+            attention.append(f"tag {live_tag} does not peel to the live SHA")
+        else:
+            print(f"live release       {live_tag}  (tag peels to the live SHA)")
+            msg = s.run(["git", "-C", git.repo, "tag", "-l", "--format=%(contents)", live_tag], check=False).out
+            rec = parse_tag_record(msg)
+
+    dev = L.root_deviations(root)
+    print("\nroot Application   " + ("as expected" if not dev and not cutover else "; ".join(dev) if dev else "(branch-following)"))
+    attention += [d for d in dev if not cutover]
+
+    try:
+        head = git.rev(a.branch)
+        pending = git.pending(live_sha, head) if git.is_ancestor(live_sha, head) else []
+    except RuntimeError as e:
+        pending = []
+        print(f"\npending            cannot read {a.branch}: {e}")
+        head = ""
+    print(f"\npending commits    {len(pending)} on {a.branch} not live" + (f" (head {head[:12]})" if head else ""))
+    now = s.now()
+    for c in pending:
+        age = now - dt.datetime.fromisoformat(c["date"])
+        pr = f"#{c['pr']}" if c["pr"] else "-"
+        print(f"  {c['short']} {pr:>5} {c['subject'][:80]}  [{c['branch'] or '?'}]  {int(age.total_seconds() // 3600)}h ago")
+
+    apps = kube.applications()
+    if cutover:
+        bad = [f"{L.app_row(x)['name']}: {L.app_row(x)['sync']}/{L.app_row(x)['health']}" for x in apps
+               if L.is_gitops_app(x) and (L.app_row(x)["sync"], L.app_row(x)["health"]) != ("Synced", "Healthy")]
+    else:
+        bad = L.converged(apps, live_sha)[1]
+    print("\nchildren           " + ("all gitops Applications on the live release, Synced and Healthy" if not bad else ""))
+    for b in bad:
+        print("  - " + b)
+    attention += bad
+
+    pods_r = kube.run(["get", "pods", "-A", "-o", "json"], check=False)
+    prefixes = CP.DEFAULT_PREFIXES
+    if pods_r.rc == 0:
+        plat, user = running_floating(json.loads(pods_r.out).get("items", []), prefixes)
+        print(f"\nfloating images running now: {len(plat)} platform, {len(user)} user workloads (info)")
+        for x in plat:
+            print("  platform  " + x)
+        for x in user[:15]:
+            print("  user      " + x)
+
+    if not a.no_network and not cutover:
+        if rec["plugin_digests"]:
+            idx = s.run(["curl", "-fsS", "-m", "60", f"{PLUGIN_REPO}/index.yaml"], check=False)
+            if idx.rc == 0:
+                import yaml
+                cur = {n: v["digest"] for n, vs in yaml.safe_load(idx.out)["entries"].items() if n.startswith("profile-plugin-")
+                       for v in vs if v["version"] == rec["plugin_version"]}
+                moved = compare_digests(rec["plugin_digests"], cur)
+                print(f"\nplugin charts {rec['plugin_version']}: " + ("index digests match the release record" if not moved else "DIFFER from the release record (republished chart?)"))
+                for m in moved:
+                    print("  - " + m)
+                    attention.append(f"plugin chart {m}")
+        if rec["shared"]:
+            cur = {}
+            for ref in SHARED_TAGS:
+                r = s.run(["crane", "digest", ref], check=False)
+                if r.rc == 0:
+                    cur[ref] = r.out.strip()
+            moved = compare_digests(rec["shared"], cur)
+            print("\nproduction-shared tags: " + ("unchanged since the release" if not moved else "MOVED since the release (production pulls these too)"))
+            for m in moved:
+                print("  - " + m)
+
+    ns = kube.run(["get", "namespace", L.NAMESPACE, "-o", "json"], check=False)
+    bg = ""
+    if ns.rc == 0:
+        ann = json.loads(ns.out)["metadata"].get("annotations") or {}
+        if ann.get(L.NS_GUARD_ANN) == L.NS_GUARD_VALUE:
+            bg = ann.get(L.NS_GUARD_REASON_ANN, "(no reason)")
+    vap = kube.run(["get", "validatingadmissionpolicybinding", "staging-release-guard-binding", "-o", "json"], check=False)
+    if vap.rc == 0:
+        acts = json.loads(vap.out)["spec"].get("validationActions")
+        print(f"\nrelease guard      binding present, actions {acts}")
+    else:
+        print("\nrelease guard      not installed (policy staging-release-guard not found)")
+    if bg:
+        print(f"BREAK-GLASS OPEN   {bg}")
+        attention.append("break-glass is open")
+
+    if a.devices:
+        kinds = {}
+        for kind, res in (("DeviceApplicationSet", "deviceapplicationsets.teknoir.org"), ("Robot", "robots.teknoir.org"),
+                          ("RobotType", "robottypes.teknoir.org"), ("Device", "devices.teknoir.org")):
+            r = kube.run(["get", res, "-A", "-o", "json"], check=False)
+            kinds[kind] = json.loads(r.out).get("items", []) if r.rc == 0 else []
+        f = device_findings(kinds)
+        print(f"\ndevices            {sum(len(v) for v in kinds.values())} objects, {len(f)} finding(s)")
+        for x in f[:60]:
+            print("  - " + x)
+
+    print("\n" + ("OK" if not attention else "NEEDS ATTENTION: " + "; ".join(attention[:6])))
+    return 1 if attention else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,333 @@
+#!/usr/bin/env python3
+"""pin-image: pin a Teknoir-built image in the staging values as '<tag>@sha256:<digest>'.
+
+  pin-image --list
+  pin-image COMPONENT=REF [--write] [--pr]     REF: a tag, repo:tag, or repo:tag@sha256:<digest> to verify
+  pin-image --adopt-running [--write]          adopt the digests running on vpro (zero diff, read-only on the cluster)
+
+images.tsv names every image: component, values file, key path, style (tag: the key holds the tag and a
+sibling `repository` is the repo; ref: the key holds repo:tag), repository. For REF the script
+
+  1. runs `crane digest`           (the index digest for a multi-arch image)
+  2. checks that a linux/amd64 manifest exists
+  3. reads the org.opencontainers.image.revision label and prints the source commit
+  4. rewrites the value in the values file, keeping comments and quoting (only with --write; else prints it)
+  5. with --pr: branch pin/<component>-<tag>, commit, push, `gh pr create` (merge, then scripts/staging-release)
+
+--adopt-running reads .status.containerStatuses[].imageID of the pods whose image is the value in the file
+and cross-checks it with `crane digest`; it writes staging values only and never retags, re-pushes or deletes
+a registry tag (production pulls some of these tags).
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import stagelib as L  # noqa: E402
+
+DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+SCALAR_RE = re.compile(r"""^(?P<indent>\s*)(?P<key>[A-Za-z0-9_.\-]+)\s*:\s*(?P<val>"[^"]*"|'[^']*'|[^\s#][^#]*?)?(?P<sp>\s*)(?P<comment>#.*)?$""")
+
+
+# ---------------------------------------------------------------------------------------------
+# images.tsv
+# ---------------------------------------------------------------------------------------------
+def parse_images_tsv(text: str) -> dict[str, dict]:
+    rows = [l for l in text.splitlines() if l.strip() and not l.startswith("#")]
+    head = rows[0].split("\t")
+    out = {}
+    for r in rows[1:]:
+        cols = r.split("\t")
+        d = dict(zip(head, cols + [""] * (len(head) - len(cols))))
+        if d["style"] not in ("tag", "ref"):
+            raise ValueError(f"images.tsv: style of {d['component']} must be tag or ref")
+        out[d["component"]] = d
+    return out
+
+
+# ---------------------------------------------------------------------------------------------
+# Comment-preserving edit of a nested scalar
+# ---------------------------------------------------------------------------------------------
+def _find_path(lines: list[str], path: list[str]) -> tuple[int, int] | tuple[None, int]:
+    """Index of the line holding the last key of `path`, or (None, index of the last parent line's block end)."""
+    start, indent_min, depth = 0, -1, 0
+    i = 0
+    parent_line = -1
+    while depth < len(path):
+        key = path[depth]
+        found = None
+        j = start
+        base_indent = None
+        while j < len(lines):
+            line = lines[j]
+            if not line.strip() or line.lstrip().startswith("#"):
+                j += 1
+                continue
+            ind = len(line) - len(line.lstrip())
+            if ind <= indent_min:
+                break
+            if base_indent is None:
+                base_indent = ind
+            if ind == base_indent and re.match(rf"^\s*{re.escape(key)}\s*:", line):
+                found = j
+                break
+            j += 1
+        if found is None:
+            return None, parent_line
+        parent_line = found
+        if depth == len(path) - 1:
+            return found, found
+        indent_min = len(lines[found]) - len(lines[found].lstrip())
+        start = found + 1
+        depth += 1
+    return None, parent_line
+
+
+def get_leaf(text: str, keypath: str) -> str | None:
+    lines = text.split("\n")
+    idx, _ = _find_path(lines, keypath.split("."))
+    if idx is None:
+        return None
+    m = SCALAR_RE.match(lines[idx])
+    if not m or m.group("val") is None:
+        return None
+    return m.group("val").strip().strip("\"'")
+
+
+def set_leaf(text: str, keypath: str, value: str) -> str:
+    """Set the scalar at keypath, keeping the quote style and the trailing comment. If the last key is
+    missing but its parent mapping exists, it is added at the end of the parent block."""
+    lines = text.split("\n")
+    path = keypath.split(".")
+    idx, parent = _find_path(lines, path)
+    if idx is not None:
+        m = SCALAR_RE.match(lines[idx])
+        if not m:
+            raise ValueError(f"cannot parse line {lines[idx]!r}")
+        old = (m.group("val") or "")
+        q = old[0] if old[:1] in "\"'" else ""
+        new = f"{q}{value}{q}" if q else (f'"{value}"' if "@" in value or ":" in value else value)
+        comment = f"  {m.group('comment')}" if m.group("comment") else ""
+        lines[idx] = f"{m.group('indent')}{m.group('key')}: {new}{comment}"
+        return "\n".join(lines)
+    # add under the parent
+    pidx, _ = _find_path(lines, path[:-1]) if len(path) > 1 else (None, -1)
+    if len(path) == 1:
+        return text.rstrip("\n") + f'\n{path[0]}: "{value}"\n'
+    if pidx is None:
+        raise ValueError(f"parent of {keypath} not found")
+    pind = len(lines[pidx]) - len(lines[pidx].lstrip())
+    end = pidx + 1
+    child_indent = None
+    while end < len(lines):
+        l = lines[end]
+        if l.strip() and not l.lstrip().startswith("#"):
+            ind = len(l) - len(l.lstrip())
+            if ind <= pind:
+                break
+            if child_indent is None:
+                child_indent = ind
+        end += 1
+    while end > pidx + 1 and not lines[end - 1].strip():
+        end -= 1
+    lines.insert(end, f'{" " * (child_indent or pind + 2)}{path[-1]}: "{value}"')
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------------------------
+# References
+# ---------------------------------------------------------------------------------------------
+def split_ref(ref: str, repository: str) -> tuple[str, str, str | None]:
+    """(repo, tag, digest|None) from 'tag', 'repo:tag' or 'repo:tag@sha256:...'."""
+    digest = None
+    if "@" in ref:
+        ref, digest = ref.split("@", 1)
+    if "/" not in ref and ":" not in ref:
+        return repository, ref, digest
+    last = ref.rsplit("/", 1)[-1]
+    if ":" in last:
+        repo, tag = ref.rsplit(":", 1)
+        return repo, tag, digest
+    raise ValueError(f"'{ref}' has no tag")
+
+
+def build_value(style: str, repo: str, tag: str, digest: str) -> str:
+    return f"{tag}@{digest}" if style == "tag" else f"{repo}:{tag}@{digest}"
+
+
+def current_ref(style: str, repo: str, raw: str | None) -> str | None:
+    """The repo:tag[@digest] a values entry currently stands for."""
+    if raw is None:
+        return None
+    return f"{repo}:{raw}" if style == "tag" else raw
+
+
+class Pin:
+    def __init__(self, sys_: L.Sys, root: str, out=print):
+        self.sys, self.root, self.out = sys_, root, out
+        with open(os.path.join(root, "scripts", "images.tsv")) as fh:
+            self.images = parse_images_tsv(fh.read())
+
+    def crane(self, *args: str) -> str:
+        return self.sys.run(["crane", *args]).out.strip()
+
+    def inspect(self, repo: str, tag: str) -> dict:
+        full = f"{repo}:{tag}"
+        digest = self.crane("digest", full)
+        if not DIGEST_RE.match(digest):
+            raise RuntimeError(f"crane digest {full} returned '{digest}'")
+        manifest = json.loads(self.crane("manifest", full))
+        amd64 = False
+        if "manifests" in manifest:
+            amd64 = any((m.get("platform") or {}).get("os") == "linux" and (m.get("platform") or {}).get("architecture") == "amd64"
+                        for m in manifest["manifests"])
+        else:
+            cfg = json.loads(self.crane("config", full))
+            amd64 = cfg.get("os") == "linux" and cfg.get("architecture") == "amd64"
+        label = None
+        try:
+            cfg = json.loads(self.crane("config", "--platform", "linux/amd64", full))
+            label = ((cfg.get("config") or {}).get("Labels") or {}).get("org.opencontainers.image.revision")
+        except Exception:
+            pass
+        return {"digest": digest, "amd64": amd64, "revision": label}
+
+    def path_of(self, comp: dict) -> str:
+        return os.path.join(self.root, comp["values_file"])
+
+    def pin(self, name: str, ref: str, write: bool) -> dict:
+        if name not in self.images:
+            raise SystemExit(f"unknown component '{name}' (pin-image --list)")
+        comp = self.images[name]
+        repo, tag, given = split_ref(ref, comp["repository"])
+        if repo != comp["repository"]:
+            raise SystemExit(f"{ref}: repository {repo} is not {comp['repository']} of {name}")
+        info = self.inspect(repo, tag)
+        if given and given != info["digest"]:
+            raise SystemExit(f"{repo}:{tag} is {info['digest']} now, not the given {given}")
+        if not info["amd64"]:
+            raise SystemExit(f"{repo}:{tag} has no linux/amd64 manifest (staging is amd64)")
+        value = build_value(comp["style"], repo, tag, info["digest"])
+        path = self.path_of(comp)
+        text = open(path).read()
+        old = get_leaf(text, comp["key_path"])
+        self.out(f"{name}: {comp['values_file']} {comp['key_path']}")
+        self.out(f"  old  {old}")
+        self.out(f"  new  {value}")
+        self.out(f"  source commit {info['revision'] or '(no org.opencontainers.image.revision label)'}")
+        if write:
+            open(path, "w").write(set_leaf(text, comp["key_path"], value))
+            self.out(f"  written to {comp['values_file']}")
+        return {"name": name, "old": old, "new": value, "revision": info["revision"], "tag": tag, "file": comp["values_file"]}
+
+    def open_pr(self, res: dict) -> None:
+        git = L.Git(self.sys, self.root)
+        branch = f"pin/{res['name']}-{re.sub(r'[^A-Za-z0-9._-]', '-', res['tag'])}"
+        git.run("checkout", "-b", branch)
+        git.run("add", res["file"])
+        msg = (f"pin {res['name']} {res['tag']}\n\nvalue: {res['new']}\nsource commit: {res['revision'] or 'unknown'}\n\n"
+               "Merging this queues the pin; staging changes only with the next scripts/staging-release.\n\n"
+               "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>")
+        git.run("commit", "-m", msg)
+        git.run("push", "-u", "origin", branch)
+        self.sys.run(["gh", "pr", "create", "--repo", L.GITHUB_REPO, "--base", "teknoir-cloud", "--head", branch,
+                      "--title", f"pin {res['name']} {res['tag']}",
+                      "--body", f"Pins `{res['name']}` to `{res['new']}` (source commit {res['revision'] or 'unknown'}).\n\n"
+                                "Merging queues the change. Release it with `scripts/staging-release`.\n\n"
+                                "🤖 Generated with [Claude Code](https://claude.com/claude-code)"])
+
+    # ---- adopt what runs now -------------------------------------------------------------------
+    def adopt_running(self, write: bool, context: str = L.CONTEXT) -> list[dict]:
+        kube = L.Kube(self.sys, context)
+        pods = json.loads(kube.run(["get", "pods", "-A", "-o", "json"]).out).get("items", [])
+        results = []
+        for name, comp in self.images.items():
+            path = self.path_of(comp)
+            if not os.path.isfile(path):
+                continue
+            text = open(path).read()
+            raw = get_leaf(text, comp["key_path"])
+            ref = current_ref(comp["style"], comp["repository"], raw)
+            if not ref:
+                self.out(f"{name}: key {comp['key_path']} not set in {comp['values_file']}; skipped")
+                continue
+            if "@sha256:" in ref:
+                results.append({"name": name, "status": "pinned"})
+                continue
+            digests = set()
+            for p in pods:
+                imgs = {c["name"]: c["image"] for c in (p["spec"].get("containers") or []) + (p["spec"].get("initContainers") or [])}
+                for cs in (p["status"].get("containerStatuses") or []) + (p["status"].get("initContainerStatuses") or []):
+                    img = imgs.get(cs["name"], "")
+                    if _same_image(img, ref) and "@sha256:" in cs.get("imageID", ""):
+                        digests.add("sha256:" + cs["imageID"].split("@sha256:")[1])
+            if not digests:
+                self.out(f"{name}: {ref} is not running on {context}; skipped")
+                results.append({"name": name, "status": "not-running"})
+                continue
+            if len(digests) > 1:
+                self.out(f"{name}: {ref} runs {len(digests)} different digests {sorted(digests)}; skipped, pin by hand")
+                results.append({"name": name, "status": "ambiguous"})
+                continue
+            running = digests.pop()
+            repo, tag, _ = split_ref(ref, comp["repository"])
+            now = self.sys.run(["crane", "digest", f"{repo}:{tag}"], check=False)
+            moved = now.rc == 0 and now.out.strip() != running
+            value = build_value(comp["style"], repo, tag, running)
+            self.out(f"{name}: {raw} -> {value}" + (f"   (the tag now points to {now.out.strip()[:19]}: the running digest is kept)" if moved else ""))
+            if write:
+                open(path, "w").write(set_leaf(text, comp["key_path"], value))
+            results.append({"name": name, "status": "adopted", "value": value, "moved": moved})
+        return results
+
+
+def _same_image(spec_image: str, ref: str) -> bool:
+    norm = lambda s: re.sub(r"^docker\.io/(library/)?", "", s.split("@", 1)[0])
+    return norm(spec_image) == norm(ref)
+
+
+def main(argv: list[str] | None = None, sys_: L.Sys | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("pins", nargs="*", metavar="COMPONENT=REF")
+    ap.add_argument("--list", action="store_true")
+    ap.add_argument("--adopt-running", action="store_true")
+    ap.add_argument("--write", action="store_true", help="rewrite the values file(s); the default only prints")
+    ap.add_argument("--pr", action="store_true", help="branch, commit, push and open a PR (implies --write)")
+    ap.add_argument("--context", default=L.CONTEXT, help=argparse.SUPPRESS)
+    a = ap.parse_args(argv)
+    root = L.repo_root_of(HERE)
+    pin = Pin(sys_ or L.Sys(), root)
+    try:
+        if a.list:
+            for n, c in pin.images.items():
+                print(f"{n:<22} {c['values_file']}  {c['key_path']}  [{c['style']}]  {c['repository']}")
+            return 0
+        if a.adopt_running:
+            pin.adopt_running(a.write, a.context)
+            return 0
+        if not a.pins:
+            ap.print_help()
+            return 2
+        for p in a.pins:
+            if "=" not in p:
+                raise SystemExit(f"'{p}': expected COMPONENT=REF")
+            name, ref = p.split("=", 1)
+            res = pin.pin(name, ref, a.write or a.pr)
+            if a.pr:
+                pin.open_pr(res)
+        return 0
+    except L.Refuse as e:
+        print(f"REFUSED: {e}", file=sys.stderr)
+        return 2
+    except RuntimeError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
