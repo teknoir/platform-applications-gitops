@@ -35,21 +35,31 @@ The operation then stays on the object until the controller completes it, so ANY
 has(object.operation) && (!has(oldObject.operation) || object.operation != oldObject.operation)
 {{- end -}}
 
-{{/* the operation is a plain sync of the Application's own spec: no own source(s), revision(s) empty or the
-     Application's own (targetRevision; for a symbolic targetRevision, the revision ArgoCD resolved for it) */}}
+{{/* the operation is a plain sync of the Application's own spec: no own source(s), no manifests, revision(s) empty
+     or the Application's own targetRevision. Nothing is read from oldObject: a status (the CRD has no status
+     subresource, so anyone can write it) must not be able to widen what counts as plain. For a symbolic
+     targetRevision (a branch) argocd-server writes the resolved SHA, which is therefore NOT plain: the guard is
+     enabled only after the cutover, when every gitops child is pinned to a SHA and every plugin app to a chart
+     version. */}}
 {{- define "release-guard.opOk" -}}
 !has(object.operation) || !has(object.operation.sync) || (
 (!has(object.operation.sync.source) || (has(object.spec.source) && object.operation.sync.source == object.spec.source)) &&
 (!has(object.operation.sync.sources) || size(object.operation.sync.sources) == 0 || (has(object.spec.sources) && object.operation.sync.sources == object.spec.sources)) &&
+(!has(object.operation.sync.manifests) || size(object.operation.sync.manifests) == 0) &&
 (!has(object.operation.sync.revision) || object.operation.sync.revision == '' ||
-  object.operation.sync.revision == (has(object.spec.source) && has(object.spec.source.targetRevision) ? object.spec.source.targetRevision : '') ||
-  (!(has(object.spec.source) && has(object.spec.source.targetRevision) && object.spec.source.targetRevision.matches('^[0-9a-f]{40}$')) &&
-   oldObject != null && has(oldObject.status) && has(oldObject.status.sync) && has(oldObject.status.sync.revision) &&
-   object.operation.sync.revision == oldObject.status.sync.revision)) &&
+  object.operation.sync.revision == (has(object.spec.source) && has(object.spec.source.targetRevision) ? object.spec.source.targetRevision : '')) &&
 (!has(object.operation.sync.revisions) || object.operation.sync.revisions.all(r, r == '') ||
   object.operation.sync.revisions == (has(object.spec.sources) && size(object.spec.sources) > 0 ? object.spec.sources.map(s, has(s.targetRevision) ? s.targetRevision : '') :
-                                      [has(object.spec.source) && has(object.spec.source.targetRevision) ? object.spec.source.targetRevision : '']) ||
-  (oldObject != null && has(oldObject.status) && has(oldObject.status.sync) && has(oldObject.status.sync.revisions) &&
-   object.operation.sync.revisions == oldObject.status.sync.revisions &&
-   !(has(object.spec.sources) && object.spec.sources.exists(s, has(s.targetRevision) && s.targetRevision.matches('^[0-9a-f]{40}$'))))))
+                                      [has(object.spec.source) && has(object.spec.source.targetRevision) ? object.spec.source.targetRevision : ''])))
+{{- end -}}
+
+{{/* the root's release annotations (teknoir.org/release, teknoir.org/previous-release) differ between oldObject and
+     object: they name the live release (scripts/staging-status and staging-release read them, rule (c) ties
+     releaseName to the first), so only the releaser (or break-glass) may change them */}}
+{{- define "release-guard.releaseAnnotationChanged" -}}
+object.metadata.name == '{{ .Values.guard.rootApplication }}' && (
+(has(object.metadata.annotations) && 'teknoir.org/release' in object.metadata.annotations ? object.metadata.annotations['teknoir.org/release'] : '') !=
+(has(oldObject.metadata.annotations) && 'teknoir.org/release' in oldObject.metadata.annotations ? oldObject.metadata.annotations['teknoir.org/release'] : '') ||
+(has(object.metadata.annotations) && 'teknoir.org/previous-release' in object.metadata.annotations ? object.metadata.annotations['teknoir.org/previous-release'] : '') !=
+(has(oldObject.metadata.annotations) && 'teknoir.org/previous-release' in oldObject.metadata.annotations ? oldObject.metadata.annotations['teknoir.org/previous-release'] : ''))
 {{- end -}}

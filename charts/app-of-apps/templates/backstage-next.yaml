@@ -75,7 +75,6 @@ spec:
         - name: ztna.enabled
           value: "true"
 {{- end }}
-  sources: [ ]
   project: {{ .Values.project }}
   syncPolicy:
     automated:

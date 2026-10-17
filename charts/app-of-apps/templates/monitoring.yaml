@@ -15,7 +15,6 @@ spec:
     path: charts/monitoring
     repoURL: https://github.com/teknoir/platform-applications-gitops
     targetRevision: {{ include "app-of-apps.revision" . }}
-  sources: [ ]
   project: {{ .Values.project }}
   syncPolicy:
     syncOptions:
@@ -25,8 +24,7 @@ spec:
       selfHeal: true
       enabled: true
   ignoreDifferences:
-    - group: ""
-      kind: Secret
+    - kind: Secret
       name: monitoring-grafana
       jsonPointers:
         - /data

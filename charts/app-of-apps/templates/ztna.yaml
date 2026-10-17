@@ -39,7 +39,6 @@ spec:
     path: charts/gateway-api-crds
     repoURL: https://github.com/teknoir/platform-applications-gitops
     targetRevision: {{ include "app-of-apps.revision" . }}
-  sources: [ ]
   project: {{ .Values.project }}
   syncPolicy:
     syncOptions:
@@ -75,7 +74,6 @@ spec:
     path: charts/stunner
     repoURL: https://github.com/teknoir/platform-applications-gitops
     targetRevision: {{ include "app-of-apps.revision" . }}
-  sources: [ ]
   project: {{ .Values.project }}
   syncPolicy:
     managedNamespaceMetadata:
@@ -116,7 +114,6 @@ spec:
     path: charts/ztna
     repoURL: https://github.com/teknoir/platform-applications-gitops
     targetRevision: {{ include "app-of-apps.revision" . }}
-  sources: [ ]
   project: {{ .Values.project }}
   syncPolicy:
     syncOptions:

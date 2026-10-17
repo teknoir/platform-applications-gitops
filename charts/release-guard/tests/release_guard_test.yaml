@@ -129,3 +129,34 @@ tests:
       - matchRegex:
           path: spec.validations[4].expression
           pattern: "object.spec == oldObject.spec"
+
+  - it: a plain sync takes nothing from the old object's status and no manifests
+    template: templates/policy.yaml
+    documentIndex: 0
+    asserts:
+      - notMatchRegex:
+          path: spec.matchConditions[1].expression
+          pattern: "oldObject.status"
+      - notMatchRegex:
+          path: spec.variables[5].expression
+          pattern: "oldObject.status"
+      - matchRegex:
+          path: spec.matchConditions[1].expression
+          pattern: "size\\(object.operation.sync.manifests\\) == 0"
+      - matchRegex:
+          path: spec.variables[5].expression
+          pattern: "size\\(object.operation.sync.manifests\\) == 0"
+
+  - it: a change of the root's release annotations is a relevant change (releaser or break-glass only)
+    template: templates/policy.yaml
+    documentIndex: 0
+    asserts:
+      - matchRegex:
+          path: spec.matchConditions[1].expression
+          pattern: "object.metadata.name == 'app-of-apps'"
+      - matchRegex:
+          path: spec.matchConditions[1].expression
+          pattern: "'teknoir.org/release' in object.metadata.annotations"
+      - matchRegex:
+          path: spec.matchConditions[1].expression
+          pattern: "'teknoir.org/previous-release' in oldObject.metadata.annotations"

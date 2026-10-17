@@ -1,5 +1,7 @@
 import datetime as dt
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -199,6 +201,58 @@ class Crs(unittest.TestCase):
         prof = ("f", {"kind": "Profile", "apiVersion": "teknoir.org/v1", "metadata": {"name": "p"}, "spec": {"plugins": [
             {"name": "jwks", "spec": {"version": "0.0.1"}, "values": {"jwksVersion": "main", "imageTag": "x", "ok": 1}}]}})
         self.assertEqual(codes(CP.check_profiles([prof])), ["profile-version"] * 3)
+
+
+class Roundtrip(unittest.TestCase):
+    """argocd-server rewrites the Application through its Go types (omitempty), see check_roundtrip."""
+
+    @staticmethod
+    def app(**spec):
+        base = {"project": "p", "destination": {"server": "https://kubernetes.default.svc", "namespace": "n"},
+                "source": {"repoURL": "https://github.com/teknoir/platform-applications-gitops", "path": "charts/x", "targetRevision": SHA}}
+        base.update(spec)
+        return ("a.yaml", {"kind": "Application", "metadata": {"name": "a", "annotations": {"x": ""}}, "spec": base})
+
+    def bad(self, **spec):
+        return [f.message.split(" ")[0] for f in CP.check_roundtrip([self.app(**spec)])]
+
+    def test_a_clean_application_passes(self):
+        self.assertEqual(CP.check_roundtrip([self.app(syncPolicy={"automated": {"prune": False, "selfHeal": True}})]), [])
+
+    def test_empty_sources_list(self):
+        self.assertEqual(self.bad(sources=[]), ["spec.sources"])
+
+    def test_empty_group_in_ignore_differences(self):
+        self.assertEqual(self.bad(ignoreDifferences=[{"group": "", "kind": "Secret"}]), ["spec.ignoreDifferences[0].group"])
+
+    def test_empty_string_null_and_empty_list_are_found_anywhere(self):
+        self.assertEqual(sorted(self.bad(syncPolicy={"syncOptions": [], "retry": None},
+                                         source={"repoURL": "u", "path": "", "helm": {"parameters": [{"name": "a", "value": ""}]}})),
+                         ["spec.source.helm.parameters[0].value", "spec.source.path", "spec.syncPolicy.retry", "spec.syncPolicy.syncOptions"])
+
+    def test_fields_without_omitempty_may_be_empty(self):
+        self.assertEqual(self.bad(project="", source={"repoURL": ""}), [])
+
+    def test_annotation_values_and_free_form_values_are_kept(self):
+        self.assertEqual(self.bad(source={"repoURL": "u", "helm": {"valuesObject": {"a": "", "b": []}}}), [])
+
+    def test_the_release_lint_reports_it_as_an_error(self):
+        f = CP.lint([self.app(sources=[])], policy=policy(), release=SHA, project="teknoir-cloud", repo_root=None, today=TODAY)
+        self.assertEqual(codes(f, "error"), ["app-not-roundtrip-stable"])
+
+    @unittest.skipUnless(shutil.which("helm"), "helm not installed")
+    def test_the_rendered_root_chart_is_stable_for_every_project(self):
+        chart = os.path.join(os.path.dirname(H.SCRIPTS), "charts", "app-of-apps")
+        for project in ("teknoir-cloud", "teknoir-online", "teknoir-local"):
+            out = subprocess.run(["helm", "template", "app-of-apps", chart, "--set", f"project={project}", "--set-string", f"release={SHA}",
+                                  "--set", "releaseGuard.enabled=true", "--set", "virtualDevices.spike.enabled=true"],
+                                 capture_output=True, text=True, check=True).stdout
+            d = tempfile.mkdtemp()
+            with open(os.path.join(d, "root.yaml"), "w") as fh:
+                fh.write(out)
+            apps = [x for x in CP.load_docs([d]) if x[1].get("kind") == "Application"]
+            self.assertGreater(len(apps), 5, project)
+            self.assertEqual([f.line() for f in CP.check_roundtrip(apps)], [], project)
 
 
 class Cli(unittest.TestCase):

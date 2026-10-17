@@ -8,6 +8,8 @@ Checks the rendered manifests of a release (scripts/staging-render.sh output, or
     release-unset          project teknoir-cloud but no release SHA given
     chart-dependency-range a chart dependency that is a range, not an exact version
     exception-expired      an exception of release-policy.yaml past its date
+    app-not-roundtrip-stable  a rendered Application with a field that ArgoCD's Go types drop when they write the
+                           object back (an empty `sources: []`, an empty-string/null/empty-list omitempty field)
   errors once release-policy.yaml has `images: deny`, otherwise warnings
     first-party-unpinned   a first-party image that is not repo:<tag>@sha256:<digest>
     first-party-latest     the same, with :latest or no tag
@@ -273,6 +275,54 @@ def check_applications(docs: list[tuple[str, dict]], release: str | None, projec
     return out
 
 
+# Application fields that ArgoCD's Go types (v3.5.1, pkg/apis/application/v1alpha1) serialize even when empty
+# (no `omitempty`); an empty value there survives a round trip. Everything else empty is dropped.
+_KEEP_EMPTY_STRING = {"project", "repoURL", "kind"}
+# free-form content that is kept as written (map values, raw JSON)
+_OPAQUE = {"annotations", "labels", "valuesObject", "info"}
+
+
+def _roundtrip_unstable(node, path: str, key: str = "") -> list[str]:
+    """Paths in an Application whose value ArgoCD would drop when it writes the object back: null, an empty list,
+    an empty string (except the few non-omitempty keys), an empty labels/annotations map."""
+    bad: list[str] = []
+    if isinstance(node, dict):
+        for k, v in node.items():
+            p = f"{path}.{k}" if path else str(k)
+            if k == "creationTimestamp":
+                continue
+            if v is None or v == [] or (isinstance(v, str) and v == "" and k not in _KEEP_EMPTY_STRING) \
+                    or (v == {} and k in ("labels", "annotations")):
+                bad.append(p)
+            elif k not in _OPAQUE:
+                bad += _roundtrip_unstable(v, p, str(k))
+    elif isinstance(node, list):
+        for i, v in enumerate(node):
+            p = f"{path}[{i}]"
+            if v is None or (isinstance(v, str) and v == "" and key not in _KEEP_EMPTY_STRING):
+                bad.append(p)
+            else:
+                bad += _roundtrip_unstable(v, p, key)
+    return bad
+
+
+def check_roundtrip(docs: list[tuple[str, dict]]) -> list[Finding]:
+    """argocd-server writes Sync and Terminate as a full Update of the Application through its Go types, so every
+    omitempty field that is stored empty is dropped by the first UI/CLI sync. That changes spec on the wire, and
+    the release guard (charts/release-guard) would judge such a sync as a spec change. Hence the rendered
+    Applications must already be what ArgoCD would write back."""
+    out = []
+    for _, d in docs:
+        if d.get("kind") != "Application":
+            continue
+        meta = d.get("metadata") or {}
+        for p in _roundtrip_unstable({k: v for k, v in d.items() if k in ("metadata", "spec")}, ""):
+            out.append(Finding("error", "app-not-roundtrip-stable",
+                               f"{p} is empty; ArgoCD drops it when it writes the Application back, so remove it from the template",
+                               f"Application/{meta.get('name', '?')}"))
+    return out
+
+
 _RANGE = re.compile(r"[\^~<>*|,]|\bx\b|\bX\b|\s-\s|^$|^v?\d+(\.\d+)?$")
 
 
@@ -353,6 +403,7 @@ def lint(docs, *, policy: dict, release: str | None, project: str, repo_root: st
          verbose: bool = False) -> list[Finding]:
     out: list[Finding] = []
     out += check_applications(docs, release, project)
+    out += check_roundtrip(docs)
     out += check_exceptions(policy, today)
     if repo_root:
         out += check_chart_deps(repo_root)

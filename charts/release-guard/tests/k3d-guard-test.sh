@@ -33,7 +33,7 @@ case "$CONTEXT" in
   k3d-*|kind-*) ;;
   *) echo "refusing context '$CONTEXT': this test only runs on a throwaway k3d/kind cluster" >&2; exit 2 ;;
 esac
-for t in kubectl helm; do command -v "$t" >/dev/null || { echo "missing tool: $t" >&2; exit 2; }; done
+for t in kubectl helm jq; do command -v "$t" >/dev/null || { echo "missing tool: $t" >&2; exit 2; }; done
 
 KC=(kubectl --context "$CONTEXT")
 TMP=$(mktemp -d)
@@ -112,6 +112,15 @@ server_sync() { printf '{"operation":{"initiatedBy":{"username":"anders"},"sync"
 server_sync_multi() { printf '{"operation":{"initiatedBy":{"username":"anders"},"sync":{"sources":%s,"revisions":%s,"prune":true}}}' "$1" "$2"; }
 # auto_sync_op <source-json> <revision>: the controller's autoSync operation
 auto_sync_op() { printf '{"sync":{"source":%s,"revision":"%s","prune":true},"initiatedBy":{"automated":true},"retry":{"limit":5}}' "$1" "$2"; }
+
+# full_update <app> <jq-filter> -> file: the live object with ArgoCD's Go round trip applied (argocd-server's Sync and
+# Terminate are Get + a FULL Update through the Go types, util/argo.SetAppOperation / TerminateOperation: omitempty drops
+# an empty spec.sources and ignoreDifferences[].group) and then the filter. Sent with `kubectl replace`, so it is a real
+# UPDATE of the whole object, which a merge patch is not.
+GO_ROUNDTRIP='del(.metadata.managedFields) | del(.spec.sources | select(. == [])) | (.spec.ignoreDifferences[]? |= del(.group | select(. == "")))'
+full_update() { local f="${TMP}/full-$1-$$.json"; "${KC[@]}" get application "$1" -n "$NS" -o json | jq -c "${GO_ROUNDTRIP} | $2" > "$f" && echo "$f"; }
+FULL_SYNC='.operation = {initiatedBy: {username: "anders"}, sync: {source: .spec.source, revision: .spec.source.targetRevision, prune: true}}'
+FULL_TERMINATE='.status.operationState.phase = "Terminating"'
 
 cleanup() {
   "${KC[@]}" delete validatingadmissionpolicybinding staging-release-guard-binding --ignore-not-found >/dev/null 2>&1
@@ -230,7 +239,21 @@ spec:
     - {path: charts/y, repoURL: ${REPO_URL}, targetRevision: "${SHA2}"}
   syncPolicy: {automated: {prune: true, selfHeal: true}}
 E
-for f in busy branchy multi; do
+# legacy: what the app-of-apps templates rendered before this round (empty sources, empty group); ArgoCD's Go types drop both
+cat > "${TMP}/legacy.yaml" <<E2
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata: {name: legacy, namespace: ${NS}}
+spec:
+  project: teknoir-cloud
+  destination: {namespace: x, server: https://kubernetes.default.svc}
+  source: {path: charts/x, repoURL: ${REPO_URL}, targetRevision: "${SHA1}"}
+  sources: []
+  ignoreDifferences:
+    - {group: "", kind: Secret, name: s, jsonPointers: [/data]}
+  syncPolicy: {automated: {prune: true, selfHeal: true}}
+E2
+for f in busy branchy multi legacy; do
   run argo apply -f "${TMP}/${f}.yaml" >/dev/null && ok "setup: argocd controller created ${f}" || bad "setup: argocd controller cannot create ${f}"
 done
 [[ $failn -eq 0 ]] || { echo "setup failed, stopping" >&2; exit 1; }
@@ -288,10 +311,14 @@ op_allowed_cases() {
     argosrv patch application child -n "$NS" --type merge -p "$(server_sync "$(src_of child)" "$SHA1")" --dry-run=server
   expect allow "argocd-server: plain sync with an empty revision" \
     argosrv patch application child -n "$NS" --type merge -p "$(server_sync "$(src_of child)" "")" --dry-run=server
-  expect allow "argocd-server: plain UI sync of a symbolic targetRevision (revision = the one ArgoCD resolved, status.sync.revision)" \
-    argosrv patch application branchy -n "$NS" --type merge -p "$(server_sync "$(src_of branchy)" "$SHA1")" --dry-run=server
   expect allow "argocd-server: plain UI sync of a multi-source Application (sources = spec.sources, revisions = the targetRevisions)" \
     argosrv patch application multi -n "$NS" --type merge -p "$(server_sync_multi "$(srcs_of multi)" '["'$SHA1'","'$SHA2'"]')" --dry-run=server
+  expect allow "argocd-server: FULL Update (kubectl replace, the Go round trip of SetAppOperation) setting a plain sync on a stable spec" \
+    argosrv replace -f "$(full_update child "$FULL_SYNC")" --dry-run=server
+  expect allow "argocd-server: FULL Update setting a plain sync on a multi-source app" \
+    argosrv replace -f "$(full_update multi '.operation = {initiatedBy: {username: "anders"}, sync: {sources: .spec.sources, revisions: [.spec.sources[].targetRevision], prune: true}}')" --dry-run=server
+  expect allow "argocd-server: FULL Update terminating a running operation (TerminateOperation)" \
+    argosrv replace -f "$(full_update busy "$FULL_TERMINATE")" --dry-run=server
   expect allow "admin: the same plain sync (the verdict does not depend on who clicks)" \
     admin patch application child -n "$NS" --type merge -p "$(server_sync "$(src_of child)" "$SHA1")" --dry-run=server
   expect allow "releaser: patches the root while an AUTOSYNC operation is Running on it (the operation is not this request's)" \
@@ -316,8 +343,20 @@ op_denied_cases() {
     argosrv patch application child -n "$NS" --type merge -p "$(server_sync "$(src_of child)" "main")" --dry-run=server
   expect "$b" "argocd-server: sync with another commit SHA than the pinned targetRevision" \
     argosrv patch application child -n "$NS" --type merge -p "$(server_sync "$(src_of child)" "$SHA2")" --dry-run=server
-  expect "$b" "argocd-server: sync of a symbolic targetRevision to a commit that is not the resolved one" \
+  expect "$b" "argocd-server: sync of a symbolic targetRevision (branch) to a commit that is not the resolved one" \
     argosrv patch application branchy -n "$NS" --type merge -p "$(server_sync "$(src_of branchy)" "$SHA2")" --dry-run=server
+  expect "$b" "argocd-server: sync of a symbolic targetRevision (branch) to the SHA ArgoCD resolved (not plain: no status is trusted; the guard is for pinned apps, after the cutover)" \
+    argosrv patch application branchy -n "$NS" --type merge -p "$(server_sync "$(src_of branchy)" "$SHA1")" --dry-run=server
+  expect "$b" "admin forges status.sync.revision=SHA2 first (status writes are not evaluated), then a sync with SHA2 on the branch-following app" \
+    admin patch application branchy -n "$NS" --type merge -p "$(server_sync "$(src_of branchy)" "$SHA2" | jq -c --arg r "$SHA2" '. + {status:{sync:{revision:$r}}}')" --dry-run=server
+  expect "$b" "admin: a sync that carries operation.sync.manifests (a pinned app, source and revision are its own)" \
+    admin patch application child -n "$NS" --type merge -p '{"operation":{"sync":{"source":'"$(src_of child)"',"revision":"'$SHA1'","manifests":["apiVersion: v1\nkind: ConfigMap\nmetadata: {name: x}"]}}}' --dry-run=server
+  expect "$b" "argocd-server: a sync that carries operation.sync.manifests" \
+    argosrv patch application child -n "$NS" --type merge -p '{"operation":{"sync":{"manifests":["apiVersion: v1\nkind: ConfigMap\nmetadata: {name: x}"]}}}' --dry-run=server
+  expect "$b" "admin: the root's teknoir.org/release annotation changed by hand" \
+    admin annotate application app-of-apps -n "$NS" teknoir.org/release=staging-20261017.9 --overwrite --dry-run=server
+  expect "$b" "admin: the root's teknoir.org/previous-release annotation changed by hand" \
+    admin annotate application app-of-apps -n "$NS" teknoir.org/previous-release=staging-20261017.9 --overwrite --dry-run=server
   expect "$b" "argocd-server: sync with an overriding source (another targetRevision), revision == targetRevision" \
     argosrv patch application child -n "$NS" --type merge -p "$(server_sync '{"path":"charts/x","repoURL":"'$REPO_URL'","targetRevision":"teknoir-cloud"}' "$SHA1")" --dry-run=server
   expect "$b" "argocd-server: sync with an overriding source (another path)" \
@@ -328,6 +367,10 @@ op_denied_cases() {
     argosrv patch application multi -n "$NS" --type merge -p "$(server_sync_multi "$(srcs_of multi)" '["'$SHA2'","'$SHA1'"]')" --dry-run=server
   expect "$b" "argocd-server: multi-source sync with overriding sources" \
     argosrv patch application multi -n "$NS" --type merge -p "$SRCS_OVERRIDE" --dry-run=server
+  expect "$b" "argocd-server: FULL Update on a LEGACY spec (stored 'sources: []' and group '') - the Go round trip changes spec; this is why the templates must not render them (check-pins app-not-roundtrip-stable)" \
+    argosrv replace -f "$(full_update legacy "$FULL_SYNC")" --dry-run=server
+  expect "$b" "argocd-server: FULL Update setting a sync with a foreign revision" \
+    argosrv replace -f "$(full_update child '.operation = {sync: {source: .spec.source, revision: "main"}}')" --dry-run=server
   expect "$b" "releaser: replaces the running operation of a child with a foreign revision" \
     releaser patch application busy -n "$NS" --type merge -p '{"operation":{"sync":{"revision":"main"}}}' --dry-run=server
   expect "$b" "admin: replaces the running operation of a child with an overriding source" \
@@ -378,7 +421,9 @@ expect deny  "releaser: patch a child syncPolicy" releaser patch application chi
 expect deny  "releaser: change a child's finalizers" releaser patch application child -n "$NS" --type merge -p '{"metadata":{"finalizers":["resources-finalizer.argocd.argoproj.io"]}}' --dry-run=server
 expect deny  "releaser: sync a child with an override source" releaser patch application child -n "$NS" --type merge -p "$SRC_OVERRIDE" --dry-run=server
 expect_rbac_deny "releaser: delete the root (no delete verb; the policy denies it too)" releaser delete application app-of-apps -n "$NS" --dry-run=server
-expect allow "releaser: annotation-only change of the root is not evaluated" releaser annotate application app-of-apps -n "$NS" teknoir.org/previous-release=staging-20261016.9 --overwrite --dry-run=server
+expect allow "releaser: annotation-only change of the root (not a release annotation) is not evaluated" releaser annotate application app-of-apps -n "$NS" teknoir.org/other=x --overwrite --dry-run=server
+expect allow "releaser: a release-annotation change that keeps the root shape (the release patch)" releaser patch application app-of-apps -n "$NS" --type merge -p "$ROOT_OK" --dry-run=server
+expect deny  "releaser: a release-annotation change on its own is evaluated, so rule (c) applies (releaseName != annotation)" releaser annotate application app-of-apps -n "$NS" teknoir.org/release=staging-20261017.7 --overwrite --dry-run=server
 echo "-- the releaser's Role is minimal"
 expect_rbac_deny "releaser: create an Application"   releaser create -f "${TMP}/new.yaml" -n "$NS" --dry-run=server
 expect_rbac_deny "releaser: delete a child"          releaser delete application child -n "$NS" --dry-run=server
@@ -419,6 +464,8 @@ expect allow "break-glass: admin patches a child"           admin patch applicat
 expect allow "break-glass: admin creates an Application"    admin create -f "${TMP}/new.yaml" -n "$NS" --dry-run=server
 expect allow "break-glass: admin sync --revision other"     admin patch application child -n "$NS" --type merge -p '{"operation":{"sync":{"revision":"main"}}}' --dry-run=server
 expect allow "break-glass: admin sync with an override source" admin patch application child -n "$NS" --type merge -p "$SRC_OVERRIDE" --dry-run=server
+expect allow "break-glass: admin changes the root's release annotation" admin annotate application app-of-apps -n "$NS" teknoir.org/release=staging-20261017.9 --overwrite --dry-run=server
+expect allow "break-glass: admin sync with operation.sync.manifests" admin patch application child -n "$NS" --type merge -p '{"operation":{"sync":{"manifests":["apiVersion: v1\nkind: ConfigMap\nmetadata: {name: x}"]}}}' --dry-run=server
 expect deny  "break-glass: the releaser still cannot change a child's spec" releaser patch application child -n "$NS" --type merge -p '{"spec":{"source":{"targetRevision":"teknoir-cloud"}}}' --dry-run=server
 expect deny  "break-glass: the releaser still cannot change the root's destination" releaser patch application app-of-apps -n "$NS" --type merge -p '{"spec":{"destination":{"server":"https://elsewhere.example"}}}' --dry-run=server
 expect allow "break-glass: admin deletes the root"          admin delete application app-of-apps -n "$NS" --dry-run=server

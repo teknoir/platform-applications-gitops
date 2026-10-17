@@ -35,7 +35,6 @@ spec:
       parameters:
         - name: guard.mode
           value: {{ (.Values.releaseGuard).mode | default "Warn" | quote }}
-  sources: [ ]
   project: {{ .Values.project }}
   syncPolicy:
     automated:

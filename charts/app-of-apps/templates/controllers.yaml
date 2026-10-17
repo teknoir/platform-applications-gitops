@@ -15,7 +15,6 @@ spec:
     path: charts/notebook-controller
     repoURL: https://github.com/teknoir/platform-applications-gitops
     targetRevision: {{ include "app-of-apps.revision" . }}
-  sources: [ ]
   project: {{ .Values.project }}
   syncPolicy:
     automated:
@@ -40,7 +39,6 @@ spec:
     path: charts/devstudio-controller
     repoURL: https://github.com/teknoir/platform-applications-gitops
     targetRevision: {{ include "app-of-apps.revision" . }}
-  sources: [ ]
   project: {{ .Values.project }}
   syncPolicy:
     automated:
@@ -65,7 +63,6 @@ spec:
     path: charts/user-controller
     repoURL: https://github.com/teknoir/platform-applications-gitops
     targetRevision: {{ include "app-of-apps.revision" . }}
-  sources: [ ]
   project: {{ .Values.project }}
   syncPolicy:
     automated:
@@ -106,7 +103,6 @@ spec:
     path: charts/profile-controller
     repoURL: https://github.com/teknoir/platform-applications-gitops
     targetRevision: {{ include "app-of-apps.revision" . }}
-  sources: [ ]
   project: {{ .Values.project }}
   syncPolicy:
     automated:
@@ -143,7 +139,6 @@ spec:
         - name: ztna.defaultOn
           value: "true"
 {{- end }}
-  sources: [ ]
   project: {{ .Values.project }}
   syncPolicy:
     automated:
