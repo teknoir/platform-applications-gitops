@@ -15,7 +15,7 @@ hub:
     # wg-tunnel 41a0c20 (main: rev 3 zero-touch activation, revoke notice, k3s Service
     # discovery, agent race fixes #4): hub + flags watcher, index digest.
     # Previous pin: sha-37fe475@sha256:4a405ccced8b389e254d3f9965b0c2ea35ca1b0a77bb6c42c17b076b7b27f58b
-    tag: "sha-41a0c20@sha256:d0fce785fabfab2026b99a00bc812c864931556c0208322dacadc35a58e43c4f"
+    tag: "sha-9c9bdae@sha256:f9bf658fc8c993054ce2a4cda35aa79d3b7a894ac78ee887136dcdcfdca08c63"
     pullPolicy: IfNotPresent
   imagePullSecrets:
     - name: ghcr-token
@@ -35,6 +35,11 @@ hub:
   statusPrincipal: cluster.local/ns/teknoir-system/sa/backstage-api
   keycloak:
     realm: master
+  # The org gate in the hub (CanOpen): enforce (default, fails closed), audit (log would-be denials,
+  # allow) or off. Any other value fails the render.
+  orgGate:
+    # Staging rollout 2026-10-17: audit first (logs and counts would_deny), then enforce.
+    mode: "audit"
 
 # The flags watcher (Deployment wg-flags, same image as the hub, command `flags-watcher`): the only
 # component with access to Device objects.
@@ -64,6 +69,15 @@ deviceController:
 # (admission policy ztna-device-annotations).
 backstage:
   serviceAccount: system:serviceaccount:teknoir-system:backstage-api
+
+# Who may add, change or remove the org-tree annotations on Users (teknoir.org/org-tree-member-* and
+# org-tree-units-*), the inputs of the hub org gate (admission policy ztna-user-org-annotations),
+# besides system:masters. Backstage backend (Settings > Members), ArgoCD (platformUsers/orgUnits in
+# charts/user-controller) and user-controller. backstage.serviceAccount is always added by the policy.
+userOrgAnnotations:
+  writers:
+    - system:serviceaccount:teknoir-system:argocd-application-controller
+    - system:serviceaccount:teknoir-system:user-controller
 
 # Identities (besides device-controller, the ArgoCD application controller and anything in
 # kube-system, i.e. the replicaset/job controllers) that may create or update pods and workloads

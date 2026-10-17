@@ -96,8 +96,18 @@ assert st["managedNamespaceMetadata"]["labels"] == {"istio-injection": "disabled
 # the switch reaches the two charts that need it, and only them
 SWITCHED = ("device-controller", "virtual-devices", "auth", "backstage")
 for n in SWITCHED:
-    assert on[n]["spec"]["source"]["helm"] == {"parameters": [{"name": "ztna.enabled", "value": "true"}]}, (n, on[n]["spec"]["source"])
-    assert "helm" not in off[n]["spec"]["source"], n
+    zon = [p for p in on[n]["spec"]["source"].get("helm", {}).get("parameters", []) if p["name"].startswith("ztna.")]
+    want = [{"name": "ztna.enabled", "value": "true"}]
+    if n == "device-controller":  # WireGuard on by default for devices (ssh-tunnel removal, 2026-10-16)
+        want.append({"name": "ztna.defaultOn", "value": "true"})
+    assert zon == want, (n, on[n]["spec"]["source"])
+    zoff = [p for p in off[n]["spec"]["source"].get("helm", {}).get("parameters", []) if p["name"].startswith("ztna.")]
+    assert zoff == [], (n, off[n]["spec"]["source"])  # other charts' parameters (e.g. backstage fleet.*) are not this test's business
+    # exact on-minus-off parameter set per switched app, and off is a subset of on
+    pset = lambda app: {(p["name"], p["value"]) for p in app["spec"]["source"].get("helm", {}).get("parameters", [])}
+    extra = {"backstage": {("fleet.access.enabled", "true"), ("fleet.access.writes", "true")}}.get(n, set())
+    assert pset(on[n]) - pset(off[n]) == {(w["name"], w["value"]) for w in want} | extra, (n, pset(on[n]) - pset(off[n]))
+    assert pset(off[n]) <= pset(on[n]), (n, pset(off[n]) - pset(on[n]))
 assert "sync-wave" not in str(on["device-controller"]["metadata"]), "device-controller has no wave (retry covers the missing namespace)"
 assert on["device-controller"]["spec"]["syncPolicy"]["retry"]["limit"] == 10
 for n in on:
@@ -298,7 +308,8 @@ for d in by(z, "ClusterRole") + by(z, "Role"):
 fl, = by(z, "Role", "wg-flags")
 assert fl["rules"] == [{"apiGroups": [""], "resources": ["configmaps"], "verbs": ["get", "list", "watch", "create", "update", "patch", "delete"]}]
 fcr, = by(z, "ClusterRole", "wg-flags")
-assert fcr["rules"] == [{"apiGroups": ["teknoir.org"], "resources": ["devices"], "verbs": ["get", "list", "watch"]}]
+assert fcr["rules"] == [{"apiGroups": ["teknoir.org"], "resources": ["devices"], "verbs": ["get", "list", "watch"]},
+                        {"apiGroups": ["teknoir.org"], "resources": ["users"], "verbs": ["get", "list", "watch"]}], fcr["rules"]
 for b in by(z, "ClusterRoleBinding", "wg-flags") + by(z, "RoleBinding", "wg-flags"):
     assert b["subjects"] == [{"kind": "ServiceAccount", "name": "wg-flags", "namespace": "teknoir-ztna"}]
 vs = by(z, "VirtualService")
@@ -352,9 +363,11 @@ want = {"enabled": "boolean", "state": "string", "reasons": "array", "note": "st
         "enrollUntil": "string", "lastReenrollRequest": "string", "lastFlagsSet": "boolean", "identityFingerprint": "string",
         "enrolledAt": "string", "enrollmentConflicts": "integer", "webTerminalURL": "string", "policyUpdatedAt": "string", "message": "string",
         "approvedFingerprint": "string", "approvedEpoch": "string", "identityApproved": "boolean", "identityVoided": "boolean",
-        "services": "array", "activation": "object", "p2p": "boolean", "agentCapabilities": "array"}
+        "services": "array", "activation": "object", "p2p": "boolean", "agentCapabilities": "array",
+        "deviceKey": "object", "terminal": "object"}
 assert set(w["activation"]["properties"]) == {"mode", "verifiedBy", "trustedHostKey", "attestedHostKey", "attestedHostKeyType", "at", "forcedManual", "duplicateHostKey"}
-assert set(w["services"]["items"]["properties"]) == {"id", "kind", "url"}
+assert set(w["services"]["items"]["properties"]) == {"id", "kind", "url", "state", "message"}
+assert set(w["terminal"]["properties"]) == {"url", "ready", "message"}
 assert {k: v["type"] for k, v in w.items()} == want, {k: v["type"] for k, v in w.items()}
 assert w["enrollmentGeneration"]["format"] == "int64" and w["reasons"]["items"]["type"] == "string"
 assert "required" not in st["wireguard"], "all fields optional"

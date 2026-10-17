@@ -76,6 +76,9 @@ spec:
             # per-subject caps limit requests. Re-enable it (value X-Envoy-External-Address)
             # only after verifying on r415 that the hub logs the real, distinct client
             # addresses (README, "Client IP and rate limits").
+            # Org gate (wg-tunnel CanOpen): enforce | audit | off. Fails the render for anything else.
+            - name: ORG_GATE_MODE
+              value: {{ include "ztna.orgGateMode" . | quote }}
             - name: ALLOWED_AZP
               value: {{ .Values.hub.allowedAZP | quote }}
             # Live status listener (Backstage only; AuthorizationPolicy + exact TokenReview username).

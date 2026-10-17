@@ -109,6 +109,10 @@ tests:
           content: {name: ALLOWED_AZP, value: teknoir-cli}
       - contains:
           path: spec.template.spec.containers[0].env
+          # values.yaml default; staging rolls out audit first (2026-10-17), then enforce.
+          content: {name: ORG_GATE_MODE, value: audit}
+      - contains:
+          path: spec.template.spec.containers[0].env
           content:
             name: POD_IP
             valueFrom:
@@ -207,7 +211,7 @@ tests:
           pattern: devices
         documentIndex: 0
 
-  - it: gives only the flags watcher read access to Devices
+  - it: gives only the flags watcher read access to Devices and Users
     template: templates/rbac.yaml
     asserts:
       - equal:
@@ -219,6 +223,9 @@ tests:
           value:
             - apiGroups: [teknoir.org]
               resources: [devices]
+              verbs: [get, list, watch]
+            - apiGroups: [teknoir.org]
+              resources: [users]
               verbs: [get, list, watch]
         documentIndex: 6
       - equal:
@@ -493,10 +500,10 @@ tests:
           path: spec.validations[1].expression
           pattern: "isRevoked.*username == 'system:serviceaccount:teknoir-system:device-controller-service-account'"
       - matchRegex:
-          path: spec.variables[3].expression
+          path: spec.variables[4].expression
           pattern: "ztna-revoked-"
       - matchRegex:
-          path: spec.variables[3].expression
+          path: spec.variables[4].expression
           pattern: "ztna.teknoir.org/revoked"
 
   - it: names the flags watcher as the only writer of flags ConfigMaps
@@ -512,8 +519,8 @@ tests:
           path: spec.variables[2].expression
           pattern: "ztna-flags-"
       - matchRegex:
-          path: spec.validations[5].expression
-          pattern: "wg-flags.*variables.isFlags"
+          path: spec.validations[6].expression
+          pattern: "wg-flags.*variables.isFlags \\|\\| variables.isOrg"
 
   - it: limits who may create or update pods and workloads in the ZTNA namespaces
     template: templates/admission.yaml
@@ -589,8 +596,109 @@ tests:
           path: spec.matchConstraints.resourceRules[0].operations
           value: ["CREATE", "UPDATE"]
       - matchRegex:
-          path: spec.variables[3].expression
+          path: spec.variables[4].expression
           pattern: "system:serviceaccount:teknoir-system:backstage-api"
       - matchRegex:
-          path: spec.variables[3].expression
+          path: spec.variables[4].expression
           pattern: "device-controller-service-account"
+
+  - it: sets ORG_GATE_MODE enforce when asked
+    template: templates/hub.yaml
+    set:
+      hub.orgGate.mode: enforce
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: ORG_GATE_MODE, value: enforce}
+
+  - it: sets ORG_GATE_MODE from hub.orgGate.mode (audit, off)
+    template: templates/hub.yaml
+    set:
+      hub.orgGate.mode: audit
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: ORG_GATE_MODE, value: audit}
+
+  - it: fails the render for an unquoted YAML boolean mode (off parses as false)
+    template: templates/hub.yaml
+    set:
+      hub.orgGate.mode: false
+    asserts:
+      - failedTemplate:
+          errorPattern: "quote it"
+
+  - it: fails the render for an unknown org gate mode
+    template: templates/hub.yaml
+    set:
+      hub.orgGate.mode: permissive
+    asserts:
+      - failedTemplate:
+          errorPattern: "hub.orgGate.mode must be enforce, audit or off"
+
+  - it: makes the wg-flags watcher the only writer of ztna-org ConfigMaps
+    template: templates/admission.yaml
+    documentSelector:
+      path: metadata.name
+      value: ztna-policy-store
+    asserts:
+      - matchRegex:
+          path: spec.variables[3].expression
+          pattern: "(?s)ztna-org-.*ztna.teknoir.org/org"
+      - matchRegex:
+          path: spec.validations[4].expression
+          pattern: "(?s)!variables.isOrg \\|\\| variables.teardown.*username == 'system:serviceaccount:teknoir-ztna:wg-flags'"
+
+  - it: guards the org-tree placement keys on Devices
+    template: templates/admission.yaml
+    documentSelector:
+      path: metadata.name
+      value: ztna-device-annotations
+    asserts:
+      - matchRegex:
+          path: spec.variables[1].expression
+          pattern: "teknoir.org/org-tree-path.*teknoir.org/org-tree-node-id"
+      - matchRegex:
+          path: spec.validations[0].expression
+          pattern: "k in variables.orgKeys"
+
+  - it: protects the org-tree annotations on Users
+    template: templates/admission.yaml
+    documentSelector:
+      path: metadata.name
+      value: ztna-user-org-annotations
+    asserts:
+      - equal:
+          path: spec.matchConstraints.resourceRules[0].resources
+          value: [users]
+      - equal:
+          path: spec.matchConstraints.resourceRules[0].operations
+          value: [CREATE, UPDATE]
+      - equal:
+          path: spec.failurePolicy
+          value: Fail
+      - matchRegex:
+          path: spec.variables[2].expression
+          pattern: "'system:serviceaccount:teknoir-system:backstage-api', 'system:serviceaccount:teknoir-system:argocd-application-controller', 'system:serviceaccount:teknoir-system:user-controller'.*system:masters"
+      - matchRegex:
+          path: spec.validations[0].expression
+          pattern: "org-tree-member-.*org-tree-units-"
+
+  - it: binds the user org annotation policy with Deny
+    template: templates/admission.yaml
+    documentSelector:
+      path: metadata.name
+      value: ztna-user-org-annotations-binding
+    asserts:
+      - equal:
+          path: spec.policyName
+          value: ztna-user-org-annotations
+      - equal:
+          path: spec.validationActions
+          value: [Deny, Audit]
