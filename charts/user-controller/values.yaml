@@ -67,3 +67,8 @@ platformUsers:
     role: ""
     claimSet:
       - {name: developer, namespace: teknoir-demo}
+    # Org-tree member of Karlstad in teknoir-demo, so the org gate can be tested: it sees
+    # the Karlstad lab and warehouse robots and devices, not Stockholm's (demo org seeded by
+    # ~/git/ai/plans/nextgen/staging-demo/org-tree.sh).
+    orgUnits:
+      teknoir-demo: [se-karlstad]
