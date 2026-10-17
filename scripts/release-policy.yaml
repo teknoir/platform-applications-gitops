@@ -18,7 +18,7 @@ first_party_prefixes:
 # Roll back no further than this release (the first release containing the release guard and the
 # helper). Empty until that release exists (rollout step 4); set it in the PR that follows. Rolling
 # back before the floor is a break-glass action for Anders.
-rollback_floor: ""
+rollback_floor: "staging-20261017.3"   # first release with the release guard (.2 was rolled back)
 
 # Dated exceptions to the first-party digest rule. An expired exception fails the lint from day 1.
 #   image    exact image reference without digest, or a prefix ending in *
