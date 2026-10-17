@@ -134,6 +134,8 @@ spec:
           - {name: scripts, mountPath: /scripts}
           - {name: repos, mountPath: /repos}
           - {name: github, mountPath: /github}
+          # robot$ci: plan reads the revision label of existing sha-* tags in Harbor
+          - {name: harbor, mountPath: /harbor}
           - {name: out, mountPath: /out}
 
     # ---------------------------------------------------------------- tests

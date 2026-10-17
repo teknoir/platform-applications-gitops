@@ -97,6 +97,107 @@ def github(path, accept="application/vnd.github+json"):
         return r.read()
 
 
+# -- registry: read the revision label of an existing tag (sha-* tags are never re-pushed)
+MANIFEST_TYPES = ", ".join([
+    "application/vnd.oci.image.index.v1+json",
+    "application/vnd.docker.distribution.manifest.list.v2+json",
+    "application/vnd.oci.image.manifest.v1+json",
+    "application/vnd.docker.distribution.manifest.v2+json"])
+GITHUB_USER_FILE = os.environ.get("GITHUB_USER_FILE", "/github/username")
+HARBOR_USER_FILE = os.environ.get("HARBOR_USER_FILE", "/harbor/username")
+HARBOR_PASSWORD_FILE = os.environ.get("HARBOR_PASSWORD_FILE", "/harbor/password")
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None  # blob redirects are followed by hand, without the registry token
+
+
+_opener = urllib.request.build_opener(_NoRedirect)
+
+
+def _registry_get(url, token, accept=None):
+    req = urllib.request.Request(url)
+    if token:
+        req.add_header("Authorization", "Bearer " + token)
+    if accept:
+        req.add_header("Accept", accept)
+    try:
+        with _opener.open(req, timeout=20) as r:
+            return r.read()
+    except urllib.error.HTTPError as e:
+        if e.code in (301, 302, 303, 307, 308) and e.headers.get("Location"):
+            with urllib.request.urlopen(e.headers["Location"], timeout=20) as r:
+                return r.read()
+        raise
+
+
+def _registry_token(registry, repo):
+    """A pull token for registry/repo: ghcr with the CI GitHub credentials, Harbor with the robot
+    robot$ci (its projects are private), anything else anonymously."""
+    try:
+        _opener.open(urllib.request.Request(f"https://{registry}/v2/"), timeout=20)
+        return ""
+    except urllib.error.HTTPError as e:
+        challenge = e.headers.get("WWW-Authenticate", "")
+    params = dict(re.findall(r'(\w+)="([^"]*)"', challenge))
+    if not challenge.lower().startswith("bearer") or "realm" not in params:
+        raise RuntimeError(f"{registry}: unexpected auth challenge")
+    url = f"{params['realm']}?service={params.get('service', registry)}&scope=repository:{repo}:pull"
+    req = urllib.request.Request(url)
+    user = password = ""
+    if registry == "ghcr.io" and os.path.exists(TOKEN_FILE):
+        user = open(GITHUB_USER_FILE).read().strip() if os.path.exists(GITHUB_USER_FILE) else "ci"
+        password = open(TOKEN_FILE).read().strip()
+    elif registry == HARBOR and os.path.exists(HARBOR_PASSWORD_FILE) and os.path.exists(HARBOR_USER_FILE):
+        user, password = open(HARBOR_USER_FILE).read().strip(), open(HARBOR_PASSWORD_FILE).read().strip()
+    if password:
+        cred = base64.b64encode(f"{user}:{password}".encode()).decode()
+        req.add_header("Authorization", "Basic " + cred)
+    with urllib.request.urlopen(req, timeout=20) as r:
+        body = json.load(r)
+    return body.get("token") or body.get("access_token") or ""
+
+
+def existing_revision(ref):
+    """The org.opencontainers.image.revision label of an existing image ref, "" if the tag does
+    not exist. Raises on any other problem (the caller then pushes, as before)."""
+    name, tag = ref.rsplit(":", 1)
+    registry, repo = name.split("/", 1)
+    token = _registry_token(registry, repo)
+    try:
+        manifest = json.loads(_registry_get(f"https://{registry}/v2/{repo}/manifests/{tag}", token, MANIFEST_TYPES))
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return ""
+        raise
+    if "manifests" in manifest:  # an index: the first image manifest (attestations are "unknown")
+        digest = next(m["digest"] for m in manifest["manifests"]
+                      if (m.get("platform") or {}).get("os", "linux") != "unknown")
+        manifest = json.loads(_registry_get(f"https://{registry}/v2/{repo}/manifests/{digest}", token, MANIFEST_TYPES))
+    config = json.loads(_registry_get(f"https://{registry}/v2/{repo}/blobs/{manifest['config']['digest']}", token))
+    labels = (config.get("config") or {}).get("Labels") or {}
+    return labels.get("org.opencontainers.image.revision", "")
+
+
+def keep_ref(ref):
+    """False for a sha-* ref that already exists with this commit's revision label: a sha-* tag is
+    pushed once and never changes (plans/staging-releases.md WP9). Anything else is pushed."""
+    if not ref.rsplit(":", 1)[1].startswith("sha-"):
+        return True
+    try:
+        rev = existing_revision(ref)
+    except Exception as e:  # registry unreachable or unexpected: push, as before this check
+        print(f"plan: {ref}: could not read the existing tag ({e}); pushing it")
+        return True
+    if rev == SHA:
+        print(f"plan: {ref} exists with revision {SHA[:8]}; not pushed again")
+        return False
+    if rev:
+        print(f"plan: {ref} exists with another revision ({rev[:8]}); pushing over it")
+    return True
+
+
 def changed_files():
     """Files changed by this push, or None for 'treat everything as changed'."""
     if not BEFORE or BEFORE == ZERO:
@@ -222,7 +323,10 @@ def main():
         repos = [f"{HARBOR}/{HARBOR_PROJECT}/{img['name']}"] if HARBOR else []  # HARBOR "" = Harbor off
         if img.get("ghcr", cfg.get("ghcr", True)) or not HARBOR:
             repos.append(f"ghcr.io/{ORG}/{img['name']}")
-        refs = [f"{r}:{t}" for r in repos for t in tags]
+        refs = [ref for ref in (f"{r}:{t}" for r in repos for t in tags) if keep_ref(ref)]
+        if not refs:
+            print(f"plan: image {img['name']}: every tag exists for this commit; not built")
+            continue
         context = img.get("context", ".").strip("/") or "."
         dockerfile = img.get("dockerfile", f"{context}/Dockerfile" if context != "." else "Dockerfile")
         dfdir, dfname = os.path.split(dockerfile)
