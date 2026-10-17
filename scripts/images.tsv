@@ -8,7 +8,7 @@ profile-controller	charts/profile-controller/values.yaml	image.tag	tag	ghcr.io/t
 devstudio-controller	charts/devstudio-controller/values.yaml	image.tag	tag	ghcr.io/teknoir/devstudio-controller	dormant; production pulls :teknoir-cloud of this repo
 user-controller	charts/user-controller/values.yaml	image.tag	tag	ghcr.io/teknoir/user-controller	timestamp tag, built by legacy GitHub Actions
 notebook-controller	charts/notebook-controller/values.yaml	image.tag	tag	ghcr.io/teknoir/notebook-controller	timestamp tag, built by legacy GitHub Actions
-keycloak-theme	charts/auth/values.yaml	keycloak.image.tag	tag	ghcr.io/teknoir/keycloak-theme	StatefulSet and keycloak-config Job; production pulls :latest of this repo
+keycloak-theme	charts/auth/values.yaml	keycloak.image.digest	digest	ghcr.io/teknoir/keycloak-theme	StatefulSet and keycloak-config Job; production pulls :latest of this repo
 wg-hub	charts/ztna/values.yaml	hub.image.tag	tag	ghcr.io/teknoir/wg-hub	already tag@digest; also the wg-flags watcher
 wg-agent	charts/device-controller/values.yaml	ztna.agentImage	ref	ghcr.io/teknoir/wg-agent	already tag@digest
 web-terminal	charts/device-controller/values.yaml	ztna.terminalImage	ref	ghcr.io/teknoir/web-terminal	already tag@digest

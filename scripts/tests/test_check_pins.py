@@ -38,6 +38,10 @@ class Images(unittest.TestCase):
     def test_pinned_first_party_is_fine(self):
         self.assertEqual(self.check([deploy("ghcr.io/teknoir/device-controller:sha-abc" + D)]), [])
 
+    def test_digest_without_tag_is_pinned(self):
+        # charts with a separate digest value (keycloakx) render repo@sha256:<digest> with no tag
+        self.assertEqual(self.check([deploy("ghcr.io/teknoir/keycloak-theme" + D)]), [])
+
     def test_first_party_tag_without_digest_warns_by_default(self):
         f = self.check([deploy("ghcr.io/teknoir/user-controller:teknoir-cloud-20260413-054338")])
         self.assertIn("first-party-unpinned", codes(f, "warn"))
@@ -55,9 +59,11 @@ class Images(unittest.TestCase):
         f = self.check([deploy("docker.io/tekn0ir/a:t", "harbor.teknoir.cloud/teknoir/b:t", "ghcr.io/teknoir/c:t")], images="deny")
         self.assertEqual(len(codes(f, "error")), 3)
 
-    def test_digest_without_a_tag_is_not_a_valid_pin(self):
-        f = self.check([deploy("ghcr.io/teknoir/a" + D)], images="deny")
-        self.assertEqual(codes(f, "error"), ["first-party-latest"])
+    # A digest without a tag IS a valid pin (2026-10-17): the keycloakx chart takes a separate image.digest and
+    # renders repo@sha256:<digest>, because its image.tag also feeds the app.kubernetes.io/version label, where
+    # tag@digest is invalid. The tag stays a human label in the values file (scripts/pin-image style "digest").
+    def test_digest_without_a_tag_is_a_valid_pin_even_in_deny(self):
+        self.assertEqual(self.check([deploy("ghcr.io/teknoir/a" + D)], images="deny"), [])
 
     def test_malformed_digest_is_not_a_pin(self):
         f = self.check([deploy("ghcr.io/teknoir/a:t@sha256:abc")], images="deny")

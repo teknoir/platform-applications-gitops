@@ -44,8 +44,8 @@ def parse_images_tsv(text: str) -> dict[str, dict]:
     for r in rows[1:]:
         cols = r.split("\t")
         d = dict(zip(head, cols + [""] * (len(head) - len(cols))))
-        if d["style"] not in ("tag", "ref"):
-            raise ValueError(f"images.tsv: style of {d['component']} must be tag or ref")
+        if d["style"] not in ("tag", "ref", "digest"):
+            raise ValueError(f"images.tsv: style of {d['component']} must be tag, ref or digest")
         out[d["component"]] = d
     return out
 
@@ -157,11 +157,21 @@ def split_ref(ref: str, repository: str) -> tuple[str, str, str | None]:
 
 
 def build_value(style: str, repo: str, tag: str, digest: str) -> str:
+    if style == "digest":                      # the key holds only the digest; its sibling `tag` keeps the tag
+        return digest
     return f"{tag}@{digest}" if style == "tag" else f"{repo}:{tag}@{digest}"
 
 
-def current_ref(style: str, repo: str, raw: str | None) -> str | None:
-    """The repo:tag[@digest] a values entry currently stands for."""
+def sibling_tag_path(key_path: str) -> str:
+    return key_path.rsplit(".", 1)[0] + ".tag"
+
+
+def current_ref(style: str, repo: str, raw: str | None, tag: str | None = None) -> str | None:
+    """The repo:tag[@digest] a values entry currently stands for (style digest: raw is the digest, tag the sibling)."""
+    if style == "digest":
+        if not tag:
+            return None
+        return f"{repo}:{tag}@{raw}" if raw else f"{repo}:{tag}"
     if raw is None:
         return None
     return f"{repo}:{raw}" if style == "tag" else raw
@@ -252,7 +262,8 @@ class Pin:
                 continue
             text = open(path).read()
             raw = get_leaf(text, comp["key_path"])
-            ref = current_ref(comp["style"], comp["repository"], raw)
+            sib = get_leaf(text, sibling_tag_path(comp["key_path"])) if comp["style"] == "digest" else None
+            ref = current_ref(comp["style"], comp["repository"], raw, sib)
             if not ref:
                 self.out(f"{name}: key {comp['key_path']} not set in {comp['values_file']}; skipped")
                 continue

@@ -7,7 +7,10 @@ keycloak:
   fullnameOverride: keycloak
   image:
     repository: ghcr.io/teknoir/keycloak-theme
-    tag: "latest@sha256:cb44f58c427e2064f21a0a1d2f8de242befcfd2ba5ceae9ef9874d00ca622a9c"
+    # The keycloakx chart puts image.tag into the app.kubernetes.io/version label, so the pin is the
+    # separate digest value (tag@digest in a label is invalid). scripts/pin-image style "digest".
+    tag: "latest"
+    digest: "sha256:cb44f58c427e2064f21a0a1d2f8de242befcfd2ba5ceae9ef9874d00ca622a9c"
     pullPolicy: Always
   imagePullSecrets:
     - name: ghcr-token

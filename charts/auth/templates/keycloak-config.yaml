@@ -106,7 +106,7 @@ spec:
             - {name: state, mountPath: /state}
       containers:
         - name: bootstrap
-          image: "{{ .Values.keycloak.image.repository }}:{{ .Values.keycloak.image.tag }}"
+          image: "{{ .Values.keycloak.image.repository }}:{{ .Values.keycloak.image.tag }}{{ with .Values.keycloak.image.digest }}@{{ . }}{{ end }}"
           imagePullPolicy: {{ .Values.keycloak.image.pullPolicy }}
           command: ["/bin/bash", "-c"]
           args:
