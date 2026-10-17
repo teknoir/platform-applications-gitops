@@ -128,9 +128,17 @@ class PinFlow(unittest.TestCase):
         self.root = tempfile.mkdtemp()
         shutil.copytree(os.path.join(os.path.dirname(H.SCRIPTS), "scripts"), os.path.join(self.root, "scripts"),
                         ignore=shutil.ignore_patterns("tests", "__pycache__"))
-        for f in ("charts/devstudio-controller/values.yaml", "charts/backstage/values.yaml"):
+        # Self-contained fixtures (unpinned on purpose): the real values files get pinned by releases.
+        fixtures = {
+            "charts/devstudio-controller/values.yaml":
+                "# fixture\nimage:\n  repository: ghcr.io/teknoir/devstudio-controller\n  tag: \"teknoir-cloud\"\n  pullPolicy: Always\n",
+            "charts/backstage/values.yaml":
+                "# fixture\nbackstage:\n  image: ghcr.io/teknoir/backstage-app:robot\nbackstageApi:\n  image: ghcr.io/teknoir/backstage:robot\n",
+        }
+        for f, text in fixtures.items():
             os.makedirs(os.path.dirname(os.path.join(self.root, f)), exist_ok=True)
-            shutil.copy(os.path.join(os.path.dirname(H.SCRIPTS), f), os.path.join(self.root, f))
+            with open(os.path.join(self.root, f), "w") as fh:
+                fh.write(text)
         self.out = []
 
     def pin(self, sys_):

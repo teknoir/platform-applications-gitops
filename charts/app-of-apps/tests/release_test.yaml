@@ -692,13 +692,25 @@ tests:
       - notMatchRegexRaw: {pattern: "targetRevision: teknoir-cloud"}
       - notMatchRegexRaw: {pattern: "targetRevision: \\{\\{"}
 
-  - it: release-guard renders nothing unless enabled, and only on teknoir-cloud
-    template: templates/release-guard.yaml
-    asserts:
-      - hasDocuments: {count: 0}
-  - it: release-guard is off on teknoir-cloud by default (flag false)
+  - it: release-guard is on for teknoir-cloud by default (release 2) in Warn
     template: templates/release-guard.yaml
     set: {project: teknoir-cloud}
+    asserts:
+      - hasDocuments: {count: 1}
+      - contains: {path: spec.source.helm.parameters, content: {name: guard.mode, value: Warn}}
+  - it: release-guard renders nothing when the flag is false
+    template: templates/release-guard.yaml
+    set: {project: teknoir-cloud, releaseGuard: {enabled: false}}
+    asserts:
+      - hasDocuments: {count: 0}
+  - it: release-guard renders nothing outside teknoir-cloud, even when enabled
+    template: templates/release-guard.yaml
+    set: {project: teknoir-online, releaseGuard: {enabled: true}}
+    asserts:
+      - hasDocuments: {count: 0}
+  - it: release-guard renders nothing on the airgapped line, even when enabled
+    template: templates/release-guard.yaml
+    set: {project: teknoir-local, releaseGuard: {enabled: true}}
     asserts:
       - hasDocuments: {count: 0}
   - it: release-guard passes the mode to the chart

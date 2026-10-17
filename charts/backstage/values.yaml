@@ -17,7 +17,7 @@ config:
 # Backstage frontend deployment
 backstage:
   replicas: 1
-  image: ghcr.io/teknoir/backstage-app:robot
+  image: "ghcr.io/teknoir/backstage-app:robot@sha256:40f312f902e02f0037c1f99dc5bf9e13bde66e82f8f0cd7508a5cb749c035c05"
   imagePullPolicy: Always
   imagePullSecrets:
     - name: ghcr-token
@@ -26,7 +26,7 @@ backstage:
 # Backstage API deployment
 backstageApi:
   replicas: 1
-  image: ghcr.io/teknoir/backstage:robot
+  image: "ghcr.io/teknoir/backstage:robot@sha256:a0820ab1fe2ac8a286753eb6fbb80e3db7db42a5f2dd2c318fa8f883324310a5"
   imagePullPolicy: Always
   imagePullSecrets:
     - name: ghcr-token
@@ -46,7 +46,7 @@ backstageApi:
 # PostgreSQL database configuration
 postgres:
   replicas: 1
-  image: postgres:17-alpine
+  image: "postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24"
   imagePullPolicy: Always
   storage: 10Gi
   resources: {}

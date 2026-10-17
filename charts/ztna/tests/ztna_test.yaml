@@ -403,7 +403,7 @@ tests:
           pattern: "username == 'system:serviceaccount:teknoir-system:device-controller-service-account'"
         documentIndex: 0
       - matchRegex:
-          path: spec.validations[1].expression
+          path: spec.validations[2].expression
           pattern: "username == 'system:serviceaccount:teknoir-ztna:wg-hub'"
         documentIndex: 0
       - equal:
@@ -483,6 +483,22 @@ tests:
       - hasDocuments:
           count: 0
 
+  - it: names device-controller as the only writer of revocation tombstones (ztna-revoked-*)
+    template: templates/admission.yaml
+    documentSelector:
+      path: metadata.name
+      value: ztna-policy-store
+    asserts:
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "isRevoked.*username == 'system:serviceaccount:teknoir-system:device-controller-service-account'"
+      - matchRegex:
+          path: spec.variables[3].expression
+          pattern: "ztna-revoked-"
+      - matchRegex:
+          path: spec.variables[3].expression
+          pattern: "ztna.teknoir.org/revoked"
+
   - it: names the flags watcher as the only writer of flags ConfigMaps
     template: templates/admission.yaml
     documentSelector:
@@ -490,13 +506,13 @@ tests:
       value: ztna-policy-store
     asserts:
       - matchRegex:
-          path: spec.validations[2].expression
+          path: spec.validations[3].expression
           pattern: "username == 'system:serviceaccount:teknoir-ztna:wg-flags'"
       - matchRegex:
           path: spec.variables[2].expression
           pattern: "ztna-flags-"
       - matchRegex:
-          path: spec.validations[4].expression
+          path: spec.validations[5].expression
           pattern: "wg-flags.*variables.isFlags"
 
   - it: limits who may create or update pods and workloads in the ZTNA namespaces
