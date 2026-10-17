@@ -1,0 +1,37 @@
+suite: child Applications are stable through ArgoCD's Go types
+# argocd-server writes every UI/CLI Sync and Terminate as a full Update of the Application, serialized through
+# its Go types (v3.5.1: util/argo.SetAppOperation, Get + Update). omitempty drops a stored empty `sources: []` or
+# `group: ""`, so such an Application changes spec on its first UI sync and the release guard
+# (charts/release-guard) would judge that sync as a spec change. Every rendered Application therefore
+# carries no empty omitempty field. scripts/check-pins.py (app-not-roundtrip-stable) checks the full list on every
+# release render; this suite pins the two that existed.
+templates:
+  - templates/auth.yaml
+  - templates/backstage.yaml
+  - templates/backstage-next.yaml
+  - templates/cert-manager.yaml
+  - templates/ci.yaml
+  - templates/controllers.yaml
+  - templates/istio.yaml
+  - templates/monitoring.yaml
+  - templates/platform-secrets.yaml
+  - templates/virtual-device-spike.yaml
+  - templates/virtual-devices.yaml
+  - templates/ztna.yaml
+  - templates/release-guard.yaml
+set:
+  project: teknoir-cloud
+  release: "0123456789abcdef0123456789abcdef01234567"
+  releaseName: staging-20261017.1
+  virtualDevices: {enabled: true, spike: {enabled: true}}
+  releaseGuard: {enabled: true}
+  ztna: {enabled: true}
+tests:
+  - it: no Application has an (empty) spec.sources
+    asserts:
+      - notExists: {path: spec.sources}
+  - it: monitoring ignoreDifferences carries no empty group
+    template: templates/monitoring.yaml
+    asserts:
+      - notExists: {path: "spec.ignoreDifferences[0].group"}
+      - equal: {path: "spec.ignoreDifferences[0].kind", value: Secret}

@@ -1,0 +1,711 @@
+suite: staging release revision (plans/staging-releases.md)
+# Every Application that reads platform-applications-gitops follows `release` (a full commit SHA)
+# on teknoir-cloud, and the branch (`project`) everywhere else. The document counts per template
+# make a missed replacement or a new Application without the helper fail here: add the new
+# Application to the count AND to the targetRevision asserts of its file.
+templates:
+  - templates/auth.yaml
+  - templates/backstage.yaml
+  - templates/backstage-next.yaml
+  - templates/cert-manager.yaml
+  - templates/ci.yaml
+  - templates/controllers.yaml
+  - templates/istio.yaml
+  - templates/monitoring.yaml
+  - templates/platform-secrets.yaml
+  - templates/virtual-device-spike.yaml
+  - templates/virtual-devices.yaml
+  - templates/ztna.yaml
+  - templates/release-guard.yaml
+tests:
+
+  - it: "auth: 1 Application(s), all on the release SHA with the release annotation"
+    template: templates/auth.yaml
+    set:
+      project: teknoir-cloud
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      virtualDevices: {enabled: true, spike: {enabled: true}}
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+    asserts:
+      - hasDocuments: {count: 1}
+      - isKind: {of: Application, documentIndex: 0}
+      - equal: {path: spec.source.repoURL, value: https://github.com/teknoir/platform-applications-gitops, documentIndex: 0}
+      - equal: {path: spec.source.targetRevision, value: "0123456789abcdef0123456789abcdef01234567", documentIndex: 0}
+      - equal: {path: 'metadata.annotations["teknoir.org/release"]', value: staging-20261017.1, documentIndex: 0}
+
+  - it: "backstage: 1 Application(s), all on the release SHA with the release annotation"
+    template: templates/backstage.yaml
+    set:
+      project: teknoir-cloud
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      virtualDevices: {enabled: true, spike: {enabled: true}}
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+    asserts:
+      - hasDocuments: {count: 1}
+      - isKind: {of: Application, documentIndex: 0}
+      - equal: {path: spec.source.repoURL, value: https://github.com/teknoir/platform-applications-gitops, documentIndex: 0}
+      - equal: {path: spec.source.targetRevision, value: "0123456789abcdef0123456789abcdef01234567", documentIndex: 0}
+      - equal: {path: 'metadata.annotations["teknoir.org/release"]', value: staging-20261017.1, documentIndex: 0}
+
+  - it: "backstage-next: 1 Application(s), all on the release SHA with the release annotation"
+    template: templates/backstage-next.yaml
+    set:
+      project: teknoir-cloud
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      virtualDevices: {enabled: true, spike: {enabled: true}}
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+    asserts:
+      - hasDocuments: {count: 1}
+      - isKind: {of: Application, documentIndex: 0}
+      - equal: {path: spec.source.repoURL, value: https://github.com/teknoir/platform-applications-gitops, documentIndex: 0}
+      - equal: {path: spec.source.targetRevision, value: "0123456789abcdef0123456789abcdef01234567", documentIndex: 0}
+      - equal: {path: 'metadata.annotations["teknoir.org/release"]', value: staging-20261017.1, documentIndex: 0}
+
+  - it: "cert-manager: 1 Application(s), all on the release SHA with the release annotation"
+    template: templates/cert-manager.yaml
+    set:
+      project: teknoir-cloud
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      virtualDevices: {enabled: true, spike: {enabled: true}}
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+    asserts:
+      - hasDocuments: {count: 1}
+      - isKind: {of: Application, documentIndex: 0}
+      - equal: {path: spec.source.repoURL, value: https://github.com/teknoir/platform-applications-gitops, documentIndex: 0}
+      - equal: {path: spec.source.targetRevision, value: "0123456789abcdef0123456789abcdef01234567", documentIndex: 0}
+      - equal: {path: 'metadata.annotations["teknoir.org/release"]', value: staging-20261017.1, documentIndex: 0}
+
+  - it: "ci: 2 Application(s), all on the release SHA with the release annotation"
+    template: templates/ci.yaml
+    set:
+      project: teknoir-cloud
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      virtualDevices: {enabled: true, spike: {enabled: true}}
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+    asserts:
+      - hasDocuments: {count: 2}
+      - isKind: {of: Application, documentIndex: 0}
+      - equal: {path: spec.source.repoURL, value: https://github.com/teknoir/platform-applications-gitops, documentIndex: 0}
+      - equal: {path: spec.source.targetRevision, value: "0123456789abcdef0123456789abcdef01234567", documentIndex: 0}
+      - equal: {path: 'metadata.annotations["teknoir.org/release"]', value: staging-20261017.1, documentIndex: 0}
+      - isKind: {of: Application, documentIndex: 1}
+      - equal: {path: spec.source.repoURL, value: https://github.com/teknoir/platform-applications-gitops, documentIndex: 1}
+      - equal: {path: spec.source.targetRevision, value: "0123456789abcdef0123456789abcdef01234567", documentIndex: 1}
+      - equal: {path: 'metadata.annotations["teknoir.org/release"]', value: staging-20261017.1, documentIndex: 1}
+
+  - it: "controllers: 5 Application(s), all on the release SHA with the release annotation"
+    template: templates/controllers.yaml
+    set:
+      project: teknoir-cloud
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      virtualDevices: {enabled: true, spike: {enabled: true}}
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+    asserts:
+      - hasDocuments: {count: 5}
+      - isKind: {of: Application, documentIndex: 0}
+      - equal: {path: spec.source.repoURL, value: https://github.com/teknoir/platform-applications-gitops, documentIndex: 0}
+      - equal: {path: spec.source.targetRevision, value: "0123456789abcdef0123456789abcdef01234567", documentIndex: 0}
+      - equal: {path: 'metadata.annotations["teknoir.org/release"]', value: staging-20261017.1, documentIndex: 0}
+      - isKind: {of: Application, documentIndex: 1}
+      - equal: {path: spec.source.repoURL, value: https://github.com/teknoir/platform-applications-gitops, documentIndex: 1}
+      - equal: {path: spec.source.targetRevision, value: "0123456789abcdef0123456789abcdef01234567", documentIndex: 1}
+      - equal: {path: 'metadata.annotations["teknoir.org/release"]', value: staging-20261017.1, documentIndex: 1}
+      - isKind: {of: Application, documentIndex: 2}
+      - equal: {path: spec.source.repoURL, value: https://github.com/teknoir/platform-applications-gitops, documentIndex: 2}
+      - equal: {path: spec.source.targetRevision, value: "0123456789abcdef0123456789abcdef01234567", documentIndex: 2}
+      - equal: {path: 'metadata.annotations["teknoir.org/release"]', value: staging-20261017.1, documentIndex: 2}
+      - isKind: {of: Application, documentIndex: 3}
+      - equal: {path: spec.source.repoURL, value: https://github.com/teknoir/platform-applications-gitops, documentIndex: 3}
+      - equal: {path: spec.source.targetRevision, value: "0123456789abcdef0123456789abcdef01234567", documentIndex: 3}
+      - equal: {path: 'metadata.annotations["teknoir.org/release"]', value: staging-20261017.1, documentIndex: 3}
+      - isKind: {of: Application, documentIndex: 4}
+      - equal: {path: spec.source.repoURL, value: https://github.com/teknoir/platform-applications-gitops, documentIndex: 4}
+      - equal: {path: spec.source.targetRevision, value: "0123456789abcdef0123456789abcdef01234567", documentIndex: 4}
+      - equal: {path: 'metadata.annotations["teknoir.org/release"]', value: staging-20261017.1, documentIndex: 4}
+
+  - it: "istio: 1 Application(s), all on the release SHA with the release annotation"
+    template: templates/istio.yaml
+    set:
+      project: teknoir-cloud
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      virtualDevices: {enabled: true, spike: {enabled: true}}
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+    asserts:
+      - hasDocuments: {count: 1}
+      - isKind: {of: Application, documentIndex: 0}
+      - equal: {path: spec.source.repoURL, value: https://github.com/teknoir/platform-applications-gitops, documentIndex: 0}
+      - equal: {path: spec.source.targetRevision, value: "0123456789abcdef0123456789abcdef01234567", documentIndex: 0}
+      - equal: {path: 'metadata.annotations["teknoir.org/release"]', value: staging-20261017.1, documentIndex: 0}
+
+  - it: "monitoring: 1 Application(s), all on the release SHA with the release annotation"
+    template: templates/monitoring.yaml
+    set:
+      project: teknoir-cloud
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      virtualDevices: {enabled: true, spike: {enabled: true}}
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+    asserts:
+      - hasDocuments: {count: 1}
+      - isKind: {of: Application, documentIndex: 0}
+      - equal: {path: spec.source.repoURL, value: https://github.com/teknoir/platform-applications-gitops, documentIndex: 0}
+      - equal: {path: spec.source.targetRevision, value: "0123456789abcdef0123456789abcdef01234567", documentIndex: 0}
+      - equal: {path: 'metadata.annotations["teknoir.org/release"]', value: staging-20261017.1, documentIndex: 0}
+
+  - it: "platform-secrets: 1 Application(s), all on the release SHA with the release annotation"
+    template: templates/platform-secrets.yaml
+    set:
+      project: teknoir-cloud
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      virtualDevices: {enabled: true, spike: {enabled: true}}
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+    asserts:
+      - hasDocuments: {count: 1}
+      - isKind: {of: Application, documentIndex: 0}
+      - equal: {path: spec.source.repoURL, value: https://github.com/teknoir/platform-applications-gitops, documentIndex: 0}
+      - equal: {path: spec.source.targetRevision, value: "0123456789abcdef0123456789abcdef01234567", documentIndex: 0}
+      - equal: {path: 'metadata.annotations["teknoir.org/release"]', value: staging-20261017.1, documentIndex: 0}
+
+  - it: "virtual-device-spike: 1 Application(s), all on the release SHA with the release annotation"
+    template: templates/virtual-device-spike.yaml
+    set:
+      project: teknoir-cloud
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      virtualDevices: {enabled: true, spike: {enabled: true}}
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+    asserts:
+      - hasDocuments: {count: 1}
+      - isKind: {of: Application, documentIndex: 0}
+      - equal: {path: spec.source.repoURL, value: https://github.com/teknoir/platform-applications-gitops, documentIndex: 0}
+      - equal: {path: spec.source.targetRevision, value: "0123456789abcdef0123456789abcdef01234567", documentIndex: 0}
+      - equal: {path: 'metadata.annotations["teknoir.org/release"]', value: staging-20261017.1, documentIndex: 0}
+
+  - it: "virtual-devices: 1 Application(s), all on the release SHA with the release annotation"
+    template: templates/virtual-devices.yaml
+    set:
+      project: teknoir-cloud
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      virtualDevices: {enabled: true, spike: {enabled: true}}
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+    asserts:
+      - hasDocuments: {count: 1}
+      - isKind: {of: Application, documentIndex: 0}
+      - equal: {path: spec.source.repoURL, value: https://github.com/teknoir/platform-applications-gitops, documentIndex: 0}
+      - equal: {path: spec.source.targetRevision, value: "0123456789abcdef0123456789abcdef01234567", documentIndex: 0}
+      - equal: {path: 'metadata.annotations["teknoir.org/release"]', value: staging-20261017.1, documentIndex: 0}
+
+  - it: "ztna: 3 Application(s), all on the release SHA with the release annotation"
+    template: templates/ztna.yaml
+    set:
+      project: teknoir-cloud
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      virtualDevices: {enabled: true, spike: {enabled: true}}
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+    asserts:
+      - hasDocuments: {count: 3}
+      - isKind: {of: Application, documentIndex: 0}
+      - equal: {path: spec.source.repoURL, value: https://github.com/teknoir/platform-applications-gitops, documentIndex: 0}
+      - equal: {path: spec.source.targetRevision, value: "0123456789abcdef0123456789abcdef01234567", documentIndex: 0}
+      - equal: {path: 'metadata.annotations["teknoir.org/release"]', value: staging-20261017.1, documentIndex: 0}
+      - isKind: {of: Application, documentIndex: 1}
+      - equal: {path: spec.source.repoURL, value: https://github.com/teknoir/platform-applications-gitops, documentIndex: 1}
+      - equal: {path: spec.source.targetRevision, value: "0123456789abcdef0123456789abcdef01234567", documentIndex: 1}
+      - equal: {path: 'metadata.annotations["teknoir.org/release"]', value: staging-20261017.1, documentIndex: 1}
+      - isKind: {of: Application, documentIndex: 2}
+      - equal: {path: spec.source.repoURL, value: https://github.com/teknoir/platform-applications-gitops, documentIndex: 2}
+      - equal: {path: spec.source.targetRevision, value: "0123456789abcdef0123456789abcdef01234567", documentIndex: 2}
+      - equal: {path: 'metadata.annotations["teknoir.org/release"]', value: staging-20261017.1, documentIndex: 2}
+
+  - it: "release-guard: 1 Application(s), all on the release SHA with the release annotation"
+    template: templates/release-guard.yaml
+    set:
+      project: teknoir-cloud
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      virtualDevices: {enabled: true, spike: {enabled: true}}
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+    asserts:
+      - hasDocuments: {count: 1}
+      - isKind: {of: Application, documentIndex: 0}
+      - equal: {path: spec.source.repoURL, value: https://github.com/teknoir/platform-applications-gitops, documentIndex: 0}
+      - equal: {path: spec.source.targetRevision, value: "0123456789abcdef0123456789abcdef01234567", documentIndex: 0}
+      - equal: {path: 'metadata.annotations["teknoir.org/release"]', value: staging-20261017.1, documentIndex: 0}
+
+  - it: "auth: follows the branch and has no release annotation while release is unset"
+    template: templates/auth.yaml
+    set:
+      project: teknoir-cloud
+      virtualDevices: {enabled: true, spike: {enabled: true}}
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+    asserts:
+      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 0}
+      - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 0}
+
+  - it: "backstage: follows the branch and has no release annotation while release is unset"
+    template: templates/backstage.yaml
+    set:
+      project: teknoir-cloud
+      virtualDevices: {enabled: true, spike: {enabled: true}}
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+    asserts:
+      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 0}
+      - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 0}
+
+  - it: "backstage-next: follows the branch and has no release annotation while release is unset"
+    template: templates/backstage-next.yaml
+    set:
+      project: teknoir-cloud
+      virtualDevices: {enabled: true, spike: {enabled: true}}
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+    asserts:
+      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 0}
+      - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 0}
+
+  - it: "cert-manager: follows the branch and has no release annotation while release is unset"
+    template: templates/cert-manager.yaml
+    set:
+      project: teknoir-cloud
+      virtualDevices: {enabled: true, spike: {enabled: true}}
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+    asserts:
+      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 0}
+      - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 0}
+
+  - it: "ci: follows the branch and has no release annotation while release is unset"
+    template: templates/ci.yaml
+    set:
+      project: teknoir-cloud
+      virtualDevices: {enabled: true, spike: {enabled: true}}
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+    asserts:
+      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 0}
+      - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 0}
+      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 1}
+      - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 1}
+
+  - it: "controllers: follows the branch and has no release annotation while release is unset"
+    template: templates/controllers.yaml
+    set:
+      project: teknoir-cloud
+      virtualDevices: {enabled: true, spike: {enabled: true}}
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+    asserts:
+      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 0}
+      - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 0}
+      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 1}
+      - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 1}
+      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 2}
+      - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 2}
+      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 3}
+      - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 3}
+      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 4}
+      - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 4}
+
+  - it: "istio: follows the branch and has no release annotation while release is unset"
+    template: templates/istio.yaml
+    set:
+      project: teknoir-cloud
+      virtualDevices: {enabled: true, spike: {enabled: true}}
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+    asserts:
+      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 0}
+      - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 0}
+
+  - it: "monitoring: follows the branch and has no release annotation while release is unset"
+    template: templates/monitoring.yaml
+    set:
+      project: teknoir-cloud
+      virtualDevices: {enabled: true, spike: {enabled: true}}
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+    asserts:
+      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 0}
+      - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 0}
+
+  - it: "platform-secrets: follows the branch and has no release annotation while release is unset"
+    template: templates/platform-secrets.yaml
+    set:
+      project: teknoir-cloud
+      virtualDevices: {enabled: true, spike: {enabled: true}}
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+    asserts:
+      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 0}
+      - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 0}
+
+  - it: "virtual-device-spike: follows the branch and has no release annotation while release is unset"
+    template: templates/virtual-device-spike.yaml
+    set:
+      project: teknoir-cloud
+      virtualDevices: {enabled: true, spike: {enabled: true}}
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+    asserts:
+      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 0}
+      - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 0}
+
+  - it: "virtual-devices: follows the branch and has no release annotation while release is unset"
+    template: templates/virtual-devices.yaml
+    set:
+      project: teknoir-cloud
+      virtualDevices: {enabled: true, spike: {enabled: true}}
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+    asserts:
+      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 0}
+      - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 0}
+
+  - it: "ztna: follows the branch and has no release annotation while release is unset"
+    template: templates/ztna.yaml
+    set:
+      project: teknoir-cloud
+      virtualDevices: {enabled: true, spike: {enabled: true}}
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+    asserts:
+      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 0}
+      - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 0}
+      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 1}
+      - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 1}
+      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 2}
+      - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 2}
+
+  - it: "release-guard: follows the branch and has no release annotation while release is unset"
+    template: templates/release-guard.yaml
+    set:
+      project: teknoir-cloud
+      virtualDevices: {enabled: true, spike: {enabled: true}}
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+    asserts:
+      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 0}
+      - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 0}
+
+  - it: "teknoir-online: auth follows the branch even when release and releaseName are set"
+    template: templates/auth.yaml
+    set:
+      project: teknoir-online
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+      harbor: {enabled: true}
+      ci: {enabled: true}
+    asserts:
+      - equal: {path: spec.source.targetRevision, value: teknoir-online, documentIndex: 0}
+
+  - it: "teknoir-online: controllers follows the branch even when release and releaseName are set"
+    template: templates/controllers.yaml
+    set:
+      project: teknoir-online
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+      harbor: {enabled: true}
+      ci: {enabled: true}
+    asserts:
+      - equal: {path: spec.source.targetRevision, value: teknoir-online, documentIndex: 0}
+      - equal: {path: spec.source.targetRevision, value: teknoir-online, documentIndex: 1}
+      - equal: {path: spec.source.targetRevision, value: teknoir-online, documentIndex: 2}
+      - equal: {path: spec.source.targetRevision, value: teknoir-online, documentIndex: 3}
+      - equal: {path: spec.source.targetRevision, value: teknoir-online, documentIndex: 4}
+
+  - it: "teknoir-online: ci follows the branch even when release and releaseName are set"
+    template: templates/ci.yaml
+    set:
+      project: teknoir-online
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+      harbor: {enabled: true}
+      ci: {enabled: true}
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: "teknoir-online: ztna follows the branch even when release and releaseName are set"
+    template: templates/ztna.yaml
+    set:
+      project: teknoir-online
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+      harbor: {enabled: true}
+      ci: {enabled: true}
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: "teknoir-online: istio follows the branch even when release and releaseName are set"
+    template: templates/istio.yaml
+    set:
+      project: teknoir-online
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+      harbor: {enabled: true}
+      ci: {enabled: true}
+    asserts:
+      - equal: {path: spec.source.targetRevision, value: teknoir-online, documentIndex: 0}
+
+  - it: "teknoir-online: monitoring follows the branch even when release and releaseName are set"
+    template: templates/monitoring.yaml
+    set:
+      project: teknoir-online
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+      harbor: {enabled: true}
+      ci: {enabled: true}
+    asserts:
+      - equal: {path: spec.source.targetRevision, value: teknoir-online, documentIndex: 0}
+
+  - it: "teknoir-online: platform-secrets follows the branch even when release and releaseName are set"
+    template: templates/platform-secrets.yaml
+    set:
+      project: teknoir-online
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+      harbor: {enabled: true}
+      ci: {enabled: true}
+    asserts:
+      - equal: {path: spec.source.targetRevision, value: teknoir-online, documentIndex: 0}
+
+  - it: "teknoir-online: cert-manager follows the branch even when release and releaseName are set"
+    template: templates/cert-manager.yaml
+    set:
+      project: teknoir-online
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+      harbor: {enabled: true}
+      ci: {enabled: true}
+    asserts:
+      - equal: {path: spec.source.targetRevision, value: teknoir-online, documentIndex: 0}
+
+  - it: "teknoir-online: backstage follows the branch even when release and releaseName are set"
+    template: templates/backstage.yaml
+    set:
+      project: teknoir-online
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+      harbor: {enabled: true}
+      ci: {enabled: true}
+    asserts:
+      - equal: {path: spec.source.targetRevision, value: teknoir-online, documentIndex: 0}
+
+  - it: "teknoir-online: release-guard follows the branch even when release and releaseName are set"
+    template: templates/release-guard.yaml
+    set:
+      project: teknoir-online
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+      harbor: {enabled: true}
+      ci: {enabled: true}
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: "teknoir-local: auth follows the branch even when release and releaseName are set"
+    template: templates/auth.yaml
+    set:
+      project: teknoir-local
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+      harbor: {enabled: true}
+      ci: {enabled: true}
+    asserts:
+      - equal: {path: spec.source.targetRevision, value: teknoir-local, documentIndex: 0}
+
+  - it: "teknoir-local: controllers follows the branch even when release and releaseName are set"
+    template: templates/controllers.yaml
+    set:
+      project: teknoir-local
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+      harbor: {enabled: true}
+      ci: {enabled: true}
+    asserts:
+      - equal: {path: spec.source.targetRevision, value: teknoir-local, documentIndex: 0}
+      - equal: {path: spec.source.targetRevision, value: teknoir-local, documentIndex: 1}
+      - equal: {path: spec.source.targetRevision, value: teknoir-local, documentIndex: 2}
+      - equal: {path: spec.source.targetRevision, value: teknoir-local, documentIndex: 3}
+      - equal: {path: spec.source.targetRevision, value: teknoir-local, documentIndex: 4}
+
+  - it: "teknoir-local: ci follows the branch even when release and releaseName are set"
+    template: templates/ci.yaml
+    set:
+      project: teknoir-local
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+      harbor: {enabled: true}
+      ci: {enabled: true}
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: "teknoir-local: ztna follows the branch even when release and releaseName are set"
+    template: templates/ztna.yaml
+    set:
+      project: teknoir-local
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+      harbor: {enabled: true}
+      ci: {enabled: true}
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: "teknoir-local: istio follows the branch even when release and releaseName are set"
+    template: templates/istio.yaml
+    set:
+      project: teknoir-local
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+      harbor: {enabled: true}
+      ci: {enabled: true}
+    asserts:
+      - equal: {path: spec.source.targetRevision, value: teknoir-local, documentIndex: 0}
+
+  - it: "teknoir-local: monitoring follows the branch even when release and releaseName are set"
+    template: templates/monitoring.yaml
+    set:
+      project: teknoir-local
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+      harbor: {enabled: true}
+      ci: {enabled: true}
+    asserts:
+      - equal: {path: spec.source.targetRevision, value: teknoir-local, documentIndex: 0}
+
+  - it: "teknoir-local: platform-secrets follows the branch even when release and releaseName are set"
+    template: templates/platform-secrets.yaml
+    set:
+      project: teknoir-local
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+      harbor: {enabled: true}
+      ci: {enabled: true}
+    asserts:
+      - equal: {path: spec.source.targetRevision, value: teknoir-local, documentIndex: 0}
+
+  - it: "teknoir-local: cert-manager follows the branch even when release and releaseName are set"
+    template: templates/cert-manager.yaml
+    set:
+      project: teknoir-local
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+      harbor: {enabled: true}
+      ci: {enabled: true}
+    asserts:
+      - equal: {path: spec.source.targetRevision, value: teknoir-local, documentIndex: 0}
+
+  - it: "teknoir-local: backstage follows the branch even when release and releaseName are set"
+    template: templates/backstage.yaml
+    set:
+      project: teknoir-local
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+      harbor: {enabled: true}
+      ci: {enabled: true}
+    asserts:
+      - equal: {path: spec.source.targetRevision, value: teknoir-local, documentIndex: 0}
+
+  - it: "teknoir-local: release-guard follows the branch even when release and releaseName are set"
+    template: templates/release-guard.yaml
+    set:
+      project: teknoir-local
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+      harbor: {enabled: true}
+      ci: {enabled: true}
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: no Application of any file keeps a branch targetRevision when release is set
+    set:
+      project: teknoir-cloud
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      virtualDevices: {enabled: true, spike: {enabled: true}}
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+    asserts:
+      - notMatchRegexRaw: {pattern: "targetRevision: teknoir-cloud"}
+      - notMatchRegexRaw: {pattern: "targetRevision: \\{\\{"}
+
+  - it: release-guard renders nothing unless enabled, and only on teknoir-cloud
+    template: templates/release-guard.yaml
+    asserts:
+      - hasDocuments: {count: 0}
+  - it: release-guard is off on teknoir-cloud by default (flag false)
+    template: templates/release-guard.yaml
+    set: {project: teknoir-cloud}
+    asserts:
+      - hasDocuments: {count: 0}
+  - it: release-guard passes the mode to the chart
+    template: templates/release-guard.yaml
+    set: {project: teknoir-cloud, releaseGuard: {enabled: true, mode: Deny}}
+    asserts:
+      - contains: {path: spec.source.helm.parameters, content: {name: guard.mode, value: Deny}}
+      - equal: {path: spec.source.path, value: charts/release-guard}
+      - equal: {path: spec.destination.namespace, value: teknoir-system}
+

@@ -1,0 +1,50 @@
+{{- /*
+Staging release guard (charts/release-guard): ValidatingAdmissionPolicy staging-release-guard, the
+staging-releaser ServiceAccount and its Role. Gated by app-of-apps.releaseGuardEnabled (see
+_helpers.tpl): values flag releaseGuard.enabled AND the project allowlist (teknoir-cloud only), so
+nothing renders on any other environment, and nothing renders at all until the flag is set (release
+step 4 in plans/staging-releases.md).
+
+releaseGuard.mode (Warn | Deny) is passed to the chart as guard.mode. Break-glass is an annotation on
+the Namespace (charts/release-guard/values.yaml), which is not part of this Application, so selfHeal
+has nothing to revert.
+
+No resources-finalizer, like ztna: removing the flag removes the Application but leaves the policy and
+binding in the cluster. Disarm first (mode Warn in a release, or break-glass), delete the binding by
+hand under break-glass, then drop the flag (charts/release-guard/README.md, "Removing").
+*/ -}}
+{{- if include "app-of-apps.releaseGuardEnabled" . }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: release-guard
+{{- if .Values.releaseName }}
+  annotations:
+    teknoir.org/release: {{ .Values.releaseName | quote }}
+{{- end }}
+spec:
+  destination:
+    namespace: teknoir-system
+    server: https://kubernetes.default.svc
+  source:
+    path: charts/release-guard
+    repoURL: https://github.com/teknoir/platform-applications-gitops
+    targetRevision: {{ include "app-of-apps.revision" . }}
+    helm:
+      parameters:
+        - name: guard.mode
+          value: {{ (.Values.releaseGuard).mode | default "Warn" | quote }}
+  project: {{ .Values.project }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      enabled: true
+    retry:
+      limit: 10
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
+{{- end }}

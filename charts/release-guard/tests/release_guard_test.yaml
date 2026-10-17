@@ -1,0 +1,162 @@
+suite: release-guard chart
+templates:
+  - templates/policy.yaml
+  - templates/rbac.yaml
+tests:
+  - it: Warn is the default mode and Audit is always on
+    template: templates/policy.yaml
+    documentIndex: 1
+    asserts:
+      - isKind: {of: ValidatingAdmissionPolicyBinding}
+      - equal: {path: spec.validationActions, value: [Warn, Audit]}
+
+  - it: Deny mode
+    template: templates/policy.yaml
+    set: {guard.mode: Deny}
+    documentIndex: 1
+    asserts:
+      - equal: {path: spec.validationActions, value: [Deny, Audit]}
+
+  - it: a bad mode fails the render of this chart only
+    template: templates/policy.yaml
+    set: {guard.mode: Maybe}
+    asserts:
+      - failedTemplate: {}
+
+  - it: the policy fails closed and is keyed on the real ArgoCD and profile-controller identities
+    template: templates/policy.yaml
+    documentIndex: 0
+    asserts:
+      - equal: {path: spec.failurePolicy, value: Fail}
+      - matchRegex:
+          path: spec.matchConditions[0].expression
+          pattern: "system:serviceaccount:teknoir-system:argocd-application-controller"
+      - matchRegex:
+          path: spec.matchConditions[0].expression
+          pattern: "system:serviceaccount:teknoir-system:profile-controller"
+      - matchRegex:
+          path: spec.matchConditions[0].expression
+          pattern: "system:serviceaccount:kube-system:generic-garbage-collector"
+      - matchRegex:
+          path: spec.matchConditions[0].expression
+          pattern: "system:serviceaccount:kube-system:namespace-controller"
+      - matchRegex:
+          path: spec.variables[0].expression
+          pattern: "system:serviceaccount:teknoir-system:staging-releaser"
+
+  - it: no param ConfigMap is used (break-glass is the namespace annotation)
+    template: templates/policy.yaml
+    asserts:
+      - notExists: {path: spec.paramKind, documentIndex: 0}
+      - notExists: {path: spec.paramRef, documentIndex: 1}
+      - matchRegex:
+          path: spec.variables[1].expression
+          pattern: "namespaceObject.metadata.annotations.'teknoir.org/release-guard'. == 'break-glass'"
+        documentIndex: 0
+
+  - it: the binding is limited to the guarded namespace
+    template: templates/policy.yaml
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: spec.matchResources.namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
+          value: teknoir-system
+
+  - it: the releaser Role is minimal
+    template: templates/rbac.yaml
+    documentIndex: 1
+    asserts:
+      - isKind: {of: Role}
+      - contains:
+          path: rules
+          content: {apiGroups: [argoproj.io], resources: [applications], verbs: [get, list, patch]}
+      - notContains:
+          path: rules
+          content: {apiGroups: [""], resources: [secrets], verbs: [get]}
+      - lengthEqual: {path: rules, count: 3}
+
+  - it: the root shape pins the tag format, destination, prune and ignoreDifferences
+    template: templates/policy.yaml
+    documentIndex: 0
+    asserts:
+      - matchRegex:
+          path: spec.validations[2].expression
+          pattern: "\\^staging-\\[0-9\\]\\{8\\}\\[\\.\\]\\[1-9\\]\\[0-9\\]\\*\\$"
+      - matchRegex:
+          path: spec.validations[2].expression
+          pattern: "object.spec.destination.server == 'https://kubernetes.default.svc'"
+      - matchRegex:
+          path: spec.validations[2].expression
+          pattern: "object.spec.destination.namespace == 'teknoir-system'"
+      - matchRegex:
+          path: spec.validations[2].expression
+          pattern: "automated.prune == true"
+      - matchRegex:
+          path: spec.validations[2].expression
+          pattern: "!has\\(object.spec.ignoreDifferences\\)"
+
+  - it: an operation is judged only when this request sets or changes it, and a plain sync of the own spec is allowed
+    template: templates/policy.yaml
+    documentIndex: 0
+    asserts:
+      # the matchCondition and the variable use the same two expressions
+      - matchRegex:
+          path: spec.matchConditions[1].expression
+          pattern: "has\\(object.operation\\) && \\(!has\\(oldObject.operation\\) \\|\\| object.operation != oldObject.operation\\)"
+      - matchRegex:
+          path: spec.variables[4].expression
+          pattern: "object.operation != oldObject.operation"
+      # a copy of spec.source / spec.sources is not an override
+      - matchRegex:
+          path: spec.matchConditions[1].expression
+          pattern: "object.operation.sync.source == object.spec.source"
+      - matchRegex:
+          path: spec.variables[5].expression
+          pattern: "object.operation.sync.sources == object.spec.sources"
+      - matchRegex:
+          path: spec.variables[5].expression
+          pattern: "object.operation.sync.revision == ''"
+      - equal: {path: "spec.validations[1].expression", value: "variables.breakGlass || !variables.opChanged || variables.opPlain"}
+
+  - it: the releaser may not change the spec of a child Application
+    template: templates/policy.yaml
+    documentIndex: 0
+    asserts:
+      - lengthEqual: {path: spec.validations, count: 5}
+      - matchRegex:
+          path: spec.validations[4].expression
+          pattern: "!variables.isReleaser \\|\\| variables.isRoot \\|\\| request.operation != 'UPDATE'"
+      - matchRegex:
+          path: spec.validations[4].expression
+          pattern: "object.spec == oldObject.spec"
+
+  - it: a plain sync takes nothing from the old object's status and no manifests
+    template: templates/policy.yaml
+    documentIndex: 0
+    asserts:
+      - notMatchRegex:
+          path: spec.matchConditions[1].expression
+          pattern: "oldObject.status"
+      - notMatchRegex:
+          path: spec.variables[5].expression
+          pattern: "oldObject.status"
+      - matchRegex:
+          path: spec.matchConditions[1].expression
+          pattern: "size\\(object.operation.sync.manifests\\) == 0"
+      - matchRegex:
+          path: spec.variables[5].expression
+          pattern: "size\\(object.operation.sync.manifests\\) == 0"
+
+  - it: a change of the root's release annotations is a relevant change (releaser or break-glass only)
+    template: templates/policy.yaml
+    documentIndex: 0
+    asserts:
+      - matchRegex:
+          path: spec.matchConditions[1].expression
+          pattern: "object.metadata.name == 'app-of-apps'"
+      - matchRegex:
+          path: spec.matchConditions[1].expression
+          pattern: "'teknoir.org/release' in object.metadata.annotations"
+      - matchRegex:
+          path: spec.matchConditions[1].expression
+          pattern: "'teknoir.org/previous-release' in oldObject.metadata.annotations"

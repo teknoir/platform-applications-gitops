@@ -1,0 +1,17 @@
+component	values_file	key_path	style	repository	note
+backstage-app	charts/backstage/values.yaml	backstage.image	ref	ghcr.io/teknoir/backstage-app	classic Backstage (:robot); retired at the Nextgen cut-over with --allow-remove backstage
+backstage-api	charts/backstage/values.yaml	backstageApi.image	ref	ghcr.io/teknoir/backstage	classic Backstage API (:robot)
+backstage-next-app	charts/app-of-apps/values.yaml	backstageNext.appImage	ref	ghcr.io/teknoir/backstage-app	next.teknoir.cloud (:nextgen); key moves out of templates/backstage-next.yaml in the adoption PR; preview-lane exception in release-policy.yaml
+backstage-next-api	charts/app-of-apps/values.yaml	backstageNext.apiImage	ref	ghcr.io/teknoir/backstage	next.teknoir.cloud API (:nextgen); same as above
+device-controller	charts/device-controller/values.yaml	image.tag	tag	ghcr.io/teknoir/device-controller	already tag@digest
+profile-controller	charts/profile-controller/values.yaml	image.tag	tag	ghcr.io/teknoir/profile-controller	already tag@digest; production pulls :latest of this repo
+devstudio-controller	charts/devstudio-controller/values.yaml	image.tag	tag	ghcr.io/teknoir/devstudio-controller	dormant; production pulls :teknoir-cloud of this repo
+user-controller	charts/user-controller/values.yaml	image.tag	tag	ghcr.io/teknoir/user-controller	timestamp tag, built by legacy GitHub Actions
+notebook-controller	charts/notebook-controller/values.yaml	image.tag	tag	ghcr.io/teknoir/notebook-controller	timestamp tag, built by legacy GitHub Actions
+keycloak-theme	charts/auth/values.yaml	keycloak.image.tag	tag	ghcr.io/teknoir/keycloak-theme	StatefulSet and keycloak-config Job; production pulls :latest of this repo
+wg-hub	charts/ztna/values.yaml	hub.image.tag	tag	ghcr.io/teknoir/wg-hub	already tag@digest; also the wg-flags watcher
+wg-agent	charts/device-controller/values.yaml	ztna.agentImage	ref	ghcr.io/teknoir/wg-agent	already tag@digest
+web-terminal	charts/device-controller/values.yaml	ztna.terminalImage	ref	ghcr.io/teknoir/web-terminal	already tag@digest
+wg-gateway	charts/device-controller/values.yaml	ztna.gatewayImage	ref	ghcr.io/teknoir/wg-gateway	already tag@digest
+postgres	charts/backstage/values.yaml	postgres.image	ref	postgres	third party; the design pins the running digest (17-alpine)
+httpbin	charts/auth/values.yaml	httpbin.image.tag	tag	docker.io/kennethreitz/httpbin	third party :latest; remove if unused, else pin

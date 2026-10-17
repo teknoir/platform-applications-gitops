@@ -1,0 +1,7 @@
+---
+apiVersion: v2
+name: release-guard
+description: Admission guard for staging releases - only scripts/staging-release (ServiceAccount staging-releaser), ArgoCD and profile-controller may change ArgoCD Applications
+type: application
+version: 0.0.1
+appVersion: "0.0.1"

@@ -1,0 +1,176 @@
+{{- /*
+staging-release-guard: ArgoCD Applications in the staging namespace are changed only by
+scripts/staging-release (impersonating ServiceAccount staging-releaser), ArgoCD and profile-controller.
+Design: plans/staging-releases.md, "enforcement" 2 and 4. The style follows charts/ztna/templates/admission.yaml
+(the policy is keyed on WHO writes, request.userInfo.username).
+
+NOT evaluated at all (matchConditions): the identities in values `identities` (ArgoCD's application
+controller, profile-controller, kube-system GC and namespace controller) and UPDATEs that change none of
+spec, metadata.finalizers, the root's teknoir.org/release or teknoir.org/previous-release annotation, or the
+operation in a way that is not a plain sync of the Application's own spec: status writes (terminate, health),
+refresh annotations, break-glass annotations, and a plain sync from the UI or CLI (argocd-server, a full Update
+of the object through its Go types) pass. failurePolicy: Fail is safe only because those identities are excluded; a wrong name
+in values would block ArgoCD itself (tested on k3d with the real names: charts/release-guard/tests/k3d-guard-test.sh).
+
+Operations (ArgoCD v3.5.1 shapes, see _helpers.tpl "release-guard.opOk"): argocd-server's Sync and the
+controller's autoSync both write operation.sync.source as a COPY of spec.source (and sources = spec.sources,
+revision = the resolved revision), and the operation stays on the object until it completes. The policy therefore
+judges an operation only when THIS request sets or changes it (oldObject has none, or a different one), never
+when it merely rides along on another write (the releaser patching the root while an autosync is Running), and
+treats it as a plain sync, not an override, when source/sources equal spec.source/sources, there are no
+manifests, and revision(s) are empty or the Application's own targetRevision. Nothing is read from the old
+object's status (the CRD has no status subresource: anyone can write one), so a branch-following Application is
+not plain-syncable by argocd-server (it writes the resolved SHA); the guard is enabled only after the cutover,
+when every gitops child is pinned to a SHA and every plugin app to a chart version.
+
+Validations, for everything that is evaluated:
+  (a) the requester is the releaser ServiceAccount, or the Namespace is annotated break-glass;
+  (b) an UPDATE that SETS OR CHANGES an operation which is not a plain sync of the Application's own spec (a
+      foreign operation.sync.revision(s), its own source / sources that differ from spec.source / sources,
+      which is what a rollback operation carries, or operation.sync.manifests) is denied (blocks `argocd app sync --revision <branch>`),
+      unless break-glass;
+  (c) when the releaser writes the root Application: exact shape (repoURL, path, project, a 40-hex
+      targetRevision, exactly the helm parameters release (== targetRevision) and releaseName (== the
+      teknoir.org/release annotation, staging-YYYYMMDD.N, no leading zero), no values, destination
+      server/namespace unchanged, automated selfHeal and prune on, no ignoreDifferences). Applies even in
+      break-glass: the releaser cannot write a different root;
+  (d) DELETE of the root is denied, unless break-glass;
+  (e) the releaser changes only the operation and status of CHILD Applications (terminating a running
+      operation), never their spec or finalizers. Applies even in break-glass.
+
+Break-glass: annotation `breakGlass.annotation` = `breakGlass.value` on the Namespace (read as
+namespaceObject; a missing annotation or any other value means enforce). See values.yaml and README.
+
+The Warn binding evaluates the same rules but only warns (kubectl prints the warning, the request goes
+through); both modes write audit annotations.
+*/ -}}
+{{- $ns := .Values.namespace -}}
+{{- $excluded := list .Values.identities.argocdController .Values.identities.profileController -}}
+{{- $excluded = concat $excluded .Values.identities.kubeSystem -}}
+{{- $sourceKeys := list "chart" "directory" "kustomize" "name" "plugin" "ref" "tagPrefix" -}}
+{{- $helmKeys := list "apiVersions" "fileParameters" "ignoreMissingValueFiles" "kubeVersion" "namespace" "passCredentials" "releaseName" "skipCrds" "skipSchemaValidation" "skipTests" "valueFiles" "values" "valuesObject" "version" -}}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: staging-release-guard
+  labels:
+    {{- include "release-guard.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["argoproj.io"]
+        apiVersions: ["v1alpha1"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["applications"]
+  matchConditions:
+    - name: not-an-excluded-identity
+      expression: >-
+        !(request.userInfo.username in [{{ range $i, $u := $excluded }}{{ if $i }}, {{ end }}'{{ $u }}'{{ end }}])
+    # Only a change of what an Application deploys is evaluated. object/oldObject: oldObject is null on
+    # CREATE and object is null on DELETE, both are always evaluated. An UPDATE is evaluated when it changes the
+    # spec or the finalizers, or sets/changes an operation that is not a plain sync of the Application's own spec
+    # (the same expressions as the variables opChanged/opOk; matchConditions cannot reference variables).
+    - name: relevant-change
+      expression: >-
+        request.operation != 'UPDATE' ||
+        object.spec != oldObject.spec ||
+        has(object.metadata.finalizers) != has(oldObject.metadata.finalizers) ||
+        (has(object.metadata.finalizers) && object.metadata.finalizers != oldObject.metadata.finalizers) ||
+        (({{ include "release-guard.opChanged" . }}) &&
+         !({{ include "release-guard.opOk" . | nindent 10 }})) ||
+        ({{ include "release-guard.releaseAnnotationChanged" . | nindent 10 }})
+  variables:
+    - name: isReleaser
+      expression: request.userInfo.username == '{{ include "release-guard.releaserUser" . }}'
+    - name: breakGlass
+      expression: >-
+        namespaceObject != null && has(namespaceObject.metadata.annotations) &&
+        '{{ .Values.breakGlass.annotation }}' in namespaceObject.metadata.annotations &&
+        namespaceObject.metadata.annotations['{{ .Values.breakGlass.annotation }}'] == '{{ .Values.breakGlass.value }}'
+    - name: appName
+      expression: >-
+        request.operation == 'DELETE' ? oldObject.metadata.name : object.metadata.name
+    - name: isRoot
+      expression: variables.appName == '{{ .Values.guard.rootApplication }}'
+    # the request sets or changes an operation (UPDATE; on CREATE an operation is always new)
+    - name: opChanged
+      expression: >-
+        request.operation == 'CREATE' ? has(object.operation) :
+        (request.operation == 'UPDATE' && ({{ include "release-guard.opChanged" . }}))
+    # the operation is a plain sync of the Application's own spec
+    - name: opPlain
+      expression: >-
+        request.operation == 'DELETE' || ({{ include "release-guard.opOk" . | nindent 8 }})
+  validations:
+    # (a)
+    - expression: variables.isReleaser || variables.breakGlass
+      messageExpression: >-
+        'Applications in {{ $ns }} change only through scripts/staging-release (or ArgoCD and profile-controller); ' +
+        request.userInfo.username + ' may not ' + request.operation + ' application ' + variables.appName +
+        '. Stop and ask Anders.'
+      reason: Forbidden
+    # (b)
+    - expression: variables.breakGlass || !variables.opChanged || variables.opPlain
+      message: "a sync may only use the Application's own spec (argocd app sync --revision <other>, and an operation with its own source or sources, are not allowed). Stop and ask Anders."
+      reason: Forbidden
+    # (c)
+    - expression: >-
+        !(variables.isRoot && variables.isReleaser && request.operation != 'DELETE') ||
+        (has(object.spec.source) && has(object.spec.source.helm) && has(object.spec.source.helm.parameters) &&
+         object.spec.project == '{{ .Values.guard.rootProject }}' &&
+         object.spec.source.repoURL == '{{ .Values.guard.rootRepoURL }}' &&
+         object.spec.source.path == '{{ .Values.guard.rootPath }}' &&
+         object.spec.source.targetRevision.matches('^[0-9a-f]{40}$') &&
+         {{- range $sourceKeys }}
+         !has(object.spec.source.{{ . }}) &&
+         {{- end }}
+         {{- range $helmKeys }}
+         !has(object.spec.source.helm.{{ . }}) &&
+         {{- end }}
+         (!has(object.spec.sources) || size(object.spec.sources) == 0) &&
+         object.spec.source.helm.parameters.size() == 2 &&
+         object.spec.source.helm.parameters.exists(p, p.name == 'release' && p.value == object.spec.source.targetRevision) &&
+         has(object.metadata.annotations) && 'teknoir.org/release' in object.metadata.annotations &&
+         object.metadata.annotations['teknoir.org/release'].matches('^staging-[0-9]{8}[.][1-9][0-9]*$') &&
+         object.spec.source.helm.parameters.exists(p, p.name == 'releaseName' && p.value == object.metadata.annotations['teknoir.org/release']) &&
+         has(object.spec.syncPolicy) && has(object.spec.syncPolicy.automated) &&
+         has(object.spec.syncPolicy.automated.selfHeal) && object.spec.syncPolicy.automated.selfHeal == true &&
+         has(object.spec.syncPolicy.automated.prune) && object.spec.syncPolicy.automated.prune == true &&
+         (!has(object.spec.syncPolicy.automated.enabled) || object.spec.syncPolicy.automated.enabled == true) &&
+         has(object.spec.destination) && has(object.spec.destination.server) && has(object.spec.destination.namespace) &&
+         object.spec.destination.server == '{{ .Values.guard.rootDestinationServer }}' &&
+         object.spec.destination.namespace == '{{ $ns }}' &&
+         !has(object.spec.ignoreDifferences))
+      message: "the root Application must keep its release shape: repoURL, path, project, destination, a 40-hex targetRevision, helm parameters exactly release (== targetRevision) and releaseName (== annotation teknoir.org/release, staging-YYYYMMDD.N), no values, no ignoreDifferences, automated selfHeal and prune"
+      reason: Invalid
+    # (d)
+    - expression: >-
+        !(variables.isRoot && request.operation == 'DELETE') || variables.breakGlass
+      message: "the root Application {{ .Values.guard.rootApplication }} cannot be deleted. Stop and ask Anders."
+      reason: Forbidden
+    # (e)
+    - expression: >-
+        !variables.isReleaser || variables.isRoot || request.operation != 'UPDATE' ||
+        (object.spec == oldObject.spec && has(object.metadata.finalizers) == has(oldObject.metadata.finalizers) &&
+         (!has(object.metadata.finalizers) || object.metadata.finalizers == oldObject.metadata.finalizers))
+      message: "the releaser changes only the operation and status of child Applications, never their spec or finalizers. Stop and ask Anders."
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: staging-release-guard-binding
+  labels:
+    {{- include "release-guard.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  policyName: staging-release-guard
+  validationActions: {{ include "release-guard.actions" . }}
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: {{ $ns }}

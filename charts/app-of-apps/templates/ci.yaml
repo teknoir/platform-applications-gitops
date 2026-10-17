@@ -16,6 +16,10 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: harbor
+{{- if .Values.releaseName }}
+  annotations:
+    teknoir.org/release: {{ .Values.releaseName | quote }}
+{{- end }}
 spec:
   destination:
     namespace: teknoir-system
@@ -23,8 +27,7 @@ spec:
   source:
     path: charts/harbor
     repoURL: https://github.com/teknoir/platform-applications-gitops
-    targetRevision: {{ .Values.project }}
-  sources: [ ]
+    targetRevision: {{ include "app-of-apps.revision" . }}
   project: {{ .Values.project }}
   syncPolicy:
     automated:
@@ -45,6 +48,9 @@ kind: Application
 metadata:
   name: ci
   annotations:
+{{- if .Values.releaseName }}
+    teknoir.org/release: {{ .Values.releaseName | quote }}
+{{- end }}
     argocd.argoproj.io/compare-options: ServerSideDiff=true
 spec:
   destination:
@@ -53,8 +59,7 @@ spec:
   source:
     path: charts/ci
     repoURL: https://github.com/teknoir/platform-applications-gitops
-    targetRevision: {{ .Values.project }}
-  sources: [ ]
+    targetRevision: {{ include "app-of-apps.revision" . }}
   project: {{ .Values.project }}
   syncPolicy:
     managedNamespaceMetadata:

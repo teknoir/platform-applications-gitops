@@ -3,6 +3,10 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: monitoring
+{{- if .Values.releaseName }}
+  annotations:
+    teknoir.org/release: {{ .Values.releaseName | quote }}
+{{- end }}
 spec:
   destination:
     namespace: teknoir-system
@@ -10,8 +14,7 @@ spec:
   source:
     path: charts/monitoring
     repoURL: https://github.com/teknoir/platform-applications-gitops
-    targetRevision: {{ .Values.project }}
-  sources: [ ]
+    targetRevision: {{ include "app-of-apps.revision" . }}
   project: {{ .Values.project }}
   syncPolicy:
     syncOptions:
@@ -21,8 +24,7 @@ spec:
       selfHeal: true
       enabled: true
   ignoreDifferences:
-    - group: ""
-      kind: Secret
+    - kind: Secret
       name: monitoring-grafana
       jsonPointers:
         - /data

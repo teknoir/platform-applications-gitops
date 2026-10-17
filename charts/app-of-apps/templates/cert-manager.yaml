@@ -3,6 +3,10 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: cert-manager
+{{- if .Values.releaseName }}
+  annotations:
+    teknoir.org/release: {{ .Values.releaseName | quote }}
+{{- end }}
 spec:
   destination:
     namespace: cert-manager
@@ -10,8 +14,7 @@ spec:
   source:
     path: charts/cert-manager
     repoURL: https://github.com/teknoir/platform-applications-gitops
-    targetRevision: {{ .Values.project }}
-  sources: [ ]
+    targetRevision: {{ include "app-of-apps.revision" . }}
   project: {{ .Values.project }}
   syncPolicy:
     automated:

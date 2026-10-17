@@ -1,6 +1,14 @@
 # GitOps values
 project: teknoir-cloud
 
+# Staging releases (plans/staging-releases.md). On teknoir-cloud every Application that reads this
+# repository follows `release` (a full commit SHA) instead of the branch; with `release` empty they
+# follow the branch as before (see app-of-apps.revision in templates/_helpers.tpl). Both values are set
+# ONLY on the root Application, as helm parameters, by scripts/staging-release; never commit them here.
+# releaseName is the tag (staging-YYYYMMDD.N) and is rendered as annotation teknoir.org/release.
+release: ""
+releaseName: ""
+
 # Virtual-device runtime (charts/virtual-devices: KubeVirt, CDI) for the S1 spike on
 # r415. The Application also needs this project in the allowlist in
 # templates/virtual-devices.yaml, which is teknoir-cloud only, so this flag does
@@ -48,3 +56,13 @@ ci:
 # template). Needs the DNS name and certificate for the host (wildcard *.teknoir.cloud covers it).
 backstageNext:
   enabled: true
+
+# Staging release guard (charts/release-guard, templates/release-guard.yaml): a
+# ValidatingAdmissionPolicy that lets only scripts/staging-release (ServiceAccount
+# teknoir-system/staging-releaser), ArgoCD and profile-controller write ArgoCD Applications.
+# teknoir-cloud only (allowlist in templates/_helpers.tpl). OFF until release step 4, then Warn,
+# then Deny (plans/staging-releases.md, rollout order).
+releaseGuard:
+  enabled: false
+  # Warn | Deny, passed to the chart as guard.mode.
+  mode: Warn

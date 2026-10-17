@@ -29,6 +29,9 @@ kind: Application
 metadata:
   name: virtual-devices
   annotations:
+{{- if .Values.releaseName }}
+    teknoir.org/release: {{ .Values.releaseName | quote }}
+{{- end }}
     # Diff with a server-side dry-run apply, matching ServerSideApply: fields the
     # API server or the CRD schema default (KubeVirt/CDI CRs, CRDs) are not
     # reported as drift.
@@ -40,7 +43,7 @@ spec:
   source:
     path: charts/virtual-devices
     repoURL: https://github.com/teknoir/platform-applications-gitops
-    targetRevision: {{ .Values.project }}
+    targetRevision: {{ include "app-of-apps.revision" . }}
 {{- if include "app-of-apps.ztnaEnabled" . }}
     helm:
       parameters:
@@ -48,7 +51,6 @@ spec:
         - name: ztna.enabled
           value: "true"
 {{- end }}
-  sources: [ ]
   project: {{ .Values.project }}
   syncPolicy:
     syncOptions:

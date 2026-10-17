@@ -1,0 +1,56 @@
+# Values for the release-guard chart (staging, teknoir-cloud only). Deployed by the Application
+# release-guard in charts/app-of-apps (templates/release-guard.yaml), which is gated by
+# releaseGuard.enabled AND the teknoir-cloud allowlist. Design: plans/staging-releases.md,
+# "enforcement" 2 and 4.
+
+# Namespace of the ArgoCD Applications (the guarded namespace) and of the guard's own objects.
+namespace: teknoir-system
+
+guard:
+  # Warn | Deny. Warn: kubectl users see the denial as a warning and the request goes through
+  # (Audit annotations are written in both modes). Deny: the request is refused.
+  mode: Warn
+  # Name of the root Application (the hand-applied app-of-apps). Its shape is checked when the
+  # releaser writes it, and it cannot be deleted.
+  rootApplication: app-of-apps
+  rootRepoURL: https://github.com/teknoir/platform-applications-gitops
+  # The root deploys into the cluster it runs in (destination.server); destination.namespace is `namespace`.
+  rootDestinationServer: https://kubernetes.default.svc
+  rootPath: charts/app-of-apps
+  rootProject: default
+
+# Identities that are NOT evaluated (the policy is keyed on WHO writes). Wrong names here would
+# block ArgoCD itself, hence failurePolicy: Fail is only safe with these confirmed against the live
+# cluster (kubectl --context vpro -n teknoir-system get sa; managedFields of an Application) and on
+# k3d (charts/release-guard/tests/k3d-guard-test.sh) and with a real ArgoCD (tests/k3d-argocd-real-test.sh, which passes
+# these identities explicitly for its namespace).
+identities:
+  # ArgoCD's application controller: syncs, status, child Applications of the root.
+  argocdController: system:serviceaccount:teknoir-system:argocd-application-controller
+  # profile-controller creates and updates the per-teamspace plugin Applications.
+  profileController: system:serviceaccount:teknoir-system:profile-controller
+  # kube-system controllers: garbage collection (ownerReference cascades) and namespace teardown.
+  # The finalizer removal of a deleted Application comes from these.
+  kubeSystem:
+    - system:serviceaccount:kube-system:generic-garbage-collector
+    - system:serviceaccount:kube-system:namespace-controller
+
+# The one identity scripts/staging-release uses (impersonated with --as). The chart creates it.
+releaser:
+  serviceAccount: staging-releaser
+  # Lease that serialises releases (scripts/staging-release, held from apply to converged).
+  leaseName: staging-release-lock
+
+# Break-glass: the annotation below on the Namespace `namespace` set to "break-glass" lifts rules (a),
+# (b) and (d) for any identity. scripts/staging-release --break-glass-begin/-end sets and removes it.
+# It is read through the policy's namespaceObject, not through a paramRef ConfigMap: the namespace
+# is always there (a missing annotation means enforce, so there is no fail-open case and no state that
+# can be deleted by accident), and ArgoCD does not fight it (the annotation is not in the manifest of
+# the Application that owns the Namespace, so it is not drift). A paramRef ConfigMap was tried first
+# and dropped: on k3s v1.34.5 the binding's param lookup stopped finding the ConfigMap ("no params
+# found") after the first namespace deletion and never recovered, and with
+# parameterNotFoundAction: Deny a missing/unfound param also blocks ArgoCD's own writes
+# (README, "Why not a ConfigMap").
+breakGlass:
+  annotation: teknoir.org/release-guard
+  value: break-glass
