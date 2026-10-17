@@ -18,6 +18,11 @@ first_party_prefixes:
 # Roll back no further than this release (the first release containing the release guard and the
 # helper). Empty until that release exists (rollout step 4); set it in the PR that follows. Rolling
 # back before the floor is a break-glass action for Anders.
+# Rendered teknoir.org CRs (the gitops-rendered DeviceApplicationSets) must pin a 40-hex commit of their
+# repo: deny since 2026-10-17 (staging-20261017.6 pinned demo-test, gpu-nvidia, gpu-jetson; Nextgen).
+# Hand-applied CRs (mock-* DAS, Robots, RobotTypes) are not rendered here; staging-status --devices lists them.
+cr_revisions: deny
+
 rollback_floor: "staging-20261017.3"   # first release with the release guard (.2 was rolled back)
 
 # Dated exceptions to the first-party digest rule. An expired exception fails the lint from day 1.

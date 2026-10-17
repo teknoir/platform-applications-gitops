@@ -276,5 +276,22 @@ class Cli(unittest.TestCase):
         self.assertEqual(len(CP.load_docs([d])), 1)
 
 
+
+class CrRevisions(unittest.TestCase):
+    def das(self, rev):
+        return [("x.yaml", {"apiVersion": "teknoir.org/v1", "kind": "DeviceApplicationSet", "metadata": {"name": "d"},
+                            "spec": {"applications": [{"repoUrl": "https://github.com/teknoir/x", "revision": rev}]}})]
+
+    def test_branch_revision_warns_by_default_and_fails_in_deny(self):
+        self.assertEqual(codes(CP.check_crs(self.das("main")), "warn"), ["cr-revision"])
+        self.assertEqual(codes(CP.check_crs(self.das("main"), "error"), "error"), ["cr-revision"])
+
+    def test_sha_revision_passes(self):
+        self.assertEqual(CP.check_crs(self.das("a" * 40), "error"), [])
+
+    def test_shipped_policy_denies_cr_revisions(self):
+        self.assertEqual(CP.load_policy(os.path.join(H.SCRIPTS, "release-policy.yaml"))["cr_revisions"], "deny")
+
+
 if __name__ == "__main__":
     unittest.main()
