@@ -110,12 +110,14 @@ def load_docs(paths: list[str]) -> list[tuple[str, dict]]:
 
 
 def load_policy(path: str | None) -> dict:
-    pol = {"images": "warn", "first_party_prefixes": DEFAULT_PREFIXES, "exceptions": [], "rollback_floor": ""}
+    pol = {"images": "warn", "cr_revisions": "warn", "first_party_prefixes": DEFAULT_PREFIXES, "exceptions": [], "rollback_floor": ""}
     if path:
         with open(path) as fh:
             pol.update(yaml.safe_load(fh) or {})
     if pol["images"] not in ("warn", "deny"):
         raise SystemExit(f"release-policy: images must be warn or deny, got {pol['images']!r}")
+    if pol["cr_revisions"] not in ("warn", "deny"):
+        raise SystemExit(f"release-policy: cr_revisions must be warn or deny, got {pol['cr_revisions']!r}")
     return pol
 
 
@@ -362,13 +364,15 @@ def _walk_revisions(obj, path=""):
             yield from _walk_revisions(v, f"{path}[{i}]")
 
 
-def check_crs(docs: list[tuple[str, dict]]) -> list[Finding]:
+def check_crs(docs: list[tuple[str, dict]], level: str = "warn") -> list[Finding]:
+    """Rendered teknoir.org CRs (DeviceApplicationSet, Device, Robot, RobotType) must name a 40-hex commit.
+    level is "warn" or "error" (policy cr_revisions: deny). Hand-applied CRs are not in the render."""
     out = []
     for _, d in docs:
         if d.get("kind") in CR_KINDS and str(d.get("apiVersion", "")).startswith("teknoir.org/"):
             for p, rev in _walk_revisions(d.get("spec") or {}):
                 if not SHA40.match(rev):
-                    out.append(Finding("warn", "cr-revision", f"revision '{rev}' at spec{p} is not a 40-hex commit",
+                    out.append(Finding(level, "cr-revision", f"revision '{rev}' at spec{p} is not a 40-hex commit",
                                        f"{d['kind']}/{d['metadata'].get('name')}"))
     return out
 
@@ -409,7 +413,7 @@ def lint(docs, *, policy: dict, release: str | None, project: str, repo_root: st
     if repo_root:
         out += check_chart_deps(repo_root)
     out += check_images(collect_images(docs), policy, today, verbose)
-    out += check_crs(docs)
+    out += check_crs(docs, "error" if policy.get("cr_revisions") == "deny" else "warn")
     out += check_profiles(docs)
     return out
 
