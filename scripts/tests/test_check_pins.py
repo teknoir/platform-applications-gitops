@@ -130,7 +130,7 @@ class Exceptions(unittest.TestCase):
 
     def test_shipped_policy_has_the_nextgen_lane_expiring_2026_11_30(self):
         pol = CP.load_policy(os.path.join(H.SCRIPTS, "release-policy.yaml"))
-        self.assertEqual(pol["images"], "warn")
+        self.assertEqual(pol["images"], "deny")   # since 2026-10-17: every first-party image is pinned
         exc = {e["image"]: e for e in pol["exceptions"]}
         self.assertEqual(set(exc), {"ghcr.io/teknoir/backstage-app:nextgen", "ghcr.io/teknoir/backstage:nextgen"})
         for e in exc.values():
