@@ -14,6 +14,8 @@ guard:
   # releaser writes it, and it cannot be deleted.
   rootApplication: app-of-apps
   rootRepoURL: https://github.com/teknoir/platform-applications-gitops
+  # The root deploys into the cluster it runs in (destination.server); destination.namespace is `namespace`.
+  rootDestinationServer: https://kubernetes.default.svc
   rootPath: charts/app-of-apps
   rootProject: default
 

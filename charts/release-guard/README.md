@@ -26,19 +26,24 @@ The policy is keyed on WHO writes (`request.userInfo.username`), following `char
   teardown). The names were confirmed on vpro (`kubectl --context vpro -n teknoir-system get sa`, managedFields of
   the Applications) and the GC and namespace-controller ones on k3d with the real controllers
   (`tests/k3d-guard-test.sh`, section 4 and 7);
-- UPDATEs that change none of `spec`, `metadata.finalizers` or a foreign `operation.sync.revision(s)`: status writes,
-  refresh annotations, the break-glass annotation, a plain `argocd app sync`.
+- UPDATEs that change none of `spec`, `metadata.finalizers`, a foreign `operation.sync.revision(s)` or an
+  `operation.sync.source(s)` override: status writes, refresh annotations, the break-glass annotation, a plain
+  `argocd app sync`.
 
 ### Rules, for everything else
 
 - (a) the requester is `staging-releaser`, or break-glass is open;
 - (b) `operation.sync.revision(s)` may only be the Application's own `spec.source.targetRevision` (blocks
-  `argocd app sync --revision <branch>`), unless break-glass;
+  `argocd app sync --revision <branch>`), and an operation may not carry its own `source` / `sources` (an override
+  with another targetRevision, which is what a rollback operation carries), unless break-glass;
 - (c) when the releaser writes the root `app-of-apps`: repoURL, path and project fixed, `targetRevision` 40-hex, helm
   parameters exactly `release` (== targetRevision) and `releaseName` (== annotation `teknoir.org/release`,
-  `staging-YYYYMMDD.N`), none of the other helm or source keys, `syncPolicy.automated.selfHeal` on. Applies even in
-  break-glass;
-- (d) DELETE of the root is denied, unless break-glass.
+  `staging-YYYYMMDD.N` with N >= 1 and no leading zero), none of the other helm or source keys, `destination`
+  (server and namespace) unchanged, `syncPolicy.automated.selfHeal` and `prune` on, no `ignoreDifferences`. Applies
+  even in break-glass;
+- (d) DELETE of the root is denied, unless break-glass;
+- (e) the releaser changes only the `operation` and status of CHILD Applications (the rollback terminates running
+  operations), never their `spec` or finalizers. Applies even in break-glass.
 
 What it blocks: hand `kubectl patch|edit|apply|delete` of the root, children and plugin Applications, `argocd app set`,
 `argocd app sync --revision`, hand-created Applications, applying the old branch root. What it does not block: a

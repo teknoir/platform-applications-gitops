@@ -74,3 +74,49 @@ tests:
           path: rules
           content: {apiGroups: [""], resources: [secrets], verbs: [get]}
       - lengthEqual: {path: rules, count: 3}
+
+  - it: the root shape pins the tag format, destination, prune and ignoreDifferences
+    template: templates/policy.yaml
+    documentIndex: 0
+    asserts:
+      - matchRegex:
+          path: spec.validations[2].expression
+          pattern: "\\^staging-\\[0-9\\]\\{8\\}\\[\\.\\]\\[1-9\\]\\[0-9\\]\\*\\$"
+      - matchRegex:
+          path: spec.validations[2].expression
+          pattern: "object.spec.destination.server == 'https://kubernetes.default.svc'"
+      - matchRegex:
+          path: spec.validations[2].expression
+          pattern: "object.spec.destination.namespace == 'teknoir-system'"
+      - matchRegex:
+          path: spec.validations[2].expression
+          pattern: "automated.prune == true"
+      - matchRegex:
+          path: spec.validations[2].expression
+          pattern: "!has\\(object.spec.ignoreDifferences\\)"
+
+  - it: a sync operation with its own source or sources is evaluated and denied
+    template: templates/policy.yaml
+    documentIndex: 0
+    asserts:
+      - matchRegex:
+          path: spec.matchConditions[1].expression
+          pattern: "has\\(object.operation.sync.source\\)"
+      - matchRegex:
+          path: spec.matchConditions[1].expression
+          pattern: "has\\(object.operation.sync.sources\\)"
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "!variables.opSourceOverride"
+
+  - it: the releaser may not change the spec of a child Application
+    template: templates/policy.yaml
+    documentIndex: 0
+    asserts:
+      - lengthEqual: {path: spec.validations, count: 5}
+      - matchRegex:
+          path: spec.validations[4].expression
+          pattern: "!variables.isReleaser \\|\\| variables.isRoot \\|\\| request.operation != 'UPDATE'"
+      - matchRegex:
+          path: spec.validations[4].expression
+          pattern: "object.spec == oldObject.spec"

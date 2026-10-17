@@ -120,7 +120,7 @@ def merge_patch(dst, patch):
 
 
 class FakeSys(L.Sys):
-    def __init__(self, root, children=("a",), releases=None, crane_fail=()):
+    def __init__(self, root, children=("a",), releases=None, crane_fail=(), releaser_installed=True):
         self.real = L.Sys()
         self.root = root
         self.children = {n: app(n, target=L.root_live_sha(root), revision=L.root_live_sha(root)) for n in children}
@@ -133,6 +133,14 @@ class FakeSys(L.Sys):
         self.converge_on_patch = True
         self.removed_children_in_render = ()
         self.render_children = list(children)
+        # The release-guard chart creates the staging-releaser ServiceAccount, its RoleBinding and Role. Without it
+        # (before release .2) impersonating it fails, exactly like the real apiserver.
+        self.releaser_installed = releaser_installed
+        self.pods = []
+        self.metrics = ""
+        self.patch_fails = False
+        self.releaser_can_i = True
+        self.guard_binding = None            # a dict (the binding's spec) when the guard is installed
 
     # clock
     def now(self):
@@ -150,6 +158,11 @@ class FakeSys(L.Sys):
             as_user = a[0][5:]
             a = a[1:]
         self.last_as = as_user
+        known_sas = {f"system:serviceaccount:{L.NAMESPACE}:{L.RELEASER_NAME}"} if self.releaser_installed else set()
+        if as_user is not None and as_user not in known_sas:
+            if a[0] == "auth":                     # impersonating is allowed for the admin; the answer is just "no"
+                return L.Result(1, "no\n", "")
+            return L.Result(1, "", f'Error from server (Forbidden): User "{as_user}" cannot {a[0]} resource: serviceaccount "{as_user.rsplit(":", 1)[-1]}" not found')
         while "-n" in a:                      # the namespace is always teknoir-system here
             i = a.index("-n")
             del a[i:i + 2]
@@ -167,12 +180,20 @@ class FakeSys(L.Sys):
             if rest[0] == "lease":
                 return j(self.lease) if self.lease else out("", 1, "NotFound")
             if rest[0] == "pods":
-                return j({"items": []})
+                return j({"items": self.pods})
+            if rest[0] == "validatingadmissionpolicybinding":
+                return j({"spec": self.guard_binding}) if self.guard_binding else out("", 1, "NotFound")
+            if rest[0] == "--raw":
+                return out(self.metrics)
+            if rest[0] in ("serviceaccount", "rolebinding"):
+                return out({"metadata": {"name": rest[1]}}) if self.releaser_installed else out("", 1, "NotFound")
             if rest[0] == "namespaces":
                 return out("namespace/teknoir-system\n")
             if rest[0] == "namespace":
                 return j({"metadata": {"annotations": self.ns_annotations}})
             return out("", 1, "NotFound")
+        if verb == "auth":
+            return out("yes\n") if self.releaser_can_i else out("no\n", 1)
         if verb == "create" and rest[:2] == ["-f", "-"]:
             self.lease = json.loads(kw_input(self)); self.lease["metadata"]["resourceVersion"] = "1"; return out("created")
         if verb == "replace":
@@ -183,6 +204,8 @@ class FakeSys(L.Sys):
             name = rest[1]
             patch = json.loads(rest[rest.index("-p") + 1])
             if name == L.ROOT_APP:
+                if self.patch_fails:
+                    return out("", 1, "Error from server (InternalError): webhook timed out")
                 self.root = merge_patch(self.root, patch)
                 sha = patch.get("spec", {}).get("source", {}).get("targetRevision")
                 ok = self.converge_on_patch(sha) if callable(self.converge_on_patch) else self.converge_on_patch
@@ -235,10 +258,28 @@ class FakeSys(L.Sys):
         return r
 
     def _gh(self, argv):
+        flag = lambda f: argv[argv.index(f) + 1] if f in argv else None
+        read = lambda path: open(path).read() if path else ""
         if argv[1:3] == ["release", "list"]:
-            return L.Result(0, json.dumps(self.releases), "")
+            return L.Result(0, json.dumps([{k: v for k, v in r.items() if k != "body"} for r in self.releases]), "")
+        if argv[1:3] == ["release", "view"]:
+            r = next((r for r in self.releases if r["tagName"] == argv[3]), None)
+            return L.Result(0, (r or {}).get("body", ""), "") if r else L.Result(1, "", "release not found")
         if argv[1:3] == ["release", "create"]:
-            self.releases.append({"tagName": argv[3], "isPrerelease": "--prerelease" in argv, "name": argv[3]})
+            self.releases.append({"tagName": argv[3], "isPrerelease": "--prerelease" in argv, "name": flag("--title") or argv[3],
+                                  "body": read(flag("--notes-file"))})
+        if argv[1:3] == ["release", "edit"]:
+            r = next(r for r in self.releases if r["tagName"] == argv[3])
+            if flag("--title"):
+                r["name"] = flag("--title")
+            if flag("--notes-file"):
+                r["body"] = read(flag("--notes-file"))
+            if flag("--notes"):
+                r["body"] = flag("--notes")
+            if "--prerelease" in argv:
+                r["isPrerelease"] = True
+            if "--prerelease=false" in argv:
+                r["isPrerelease"] = False
         return L.Result(0, "", "")
 
     def _render(self, argv):
@@ -252,7 +293,7 @@ class FakeSys(L.Sys):
         names = self.render_children
         for n in names:
             with open(os.path.join(out, "apps", f"{n}.yaml"), "w") as fh:
-                fh.write(json.dumps({"kind": "Deployment", "metadata": {"name": n, "namespace": "ns"},
+                fh.write(json.dumps({"kind": "Deployment", "metadata": {"name": n, "namespace": "teknoir-system"},
                                      "spec": {"template": {"spec": {"containers": [{"name": "c", "image": "ghcr.io/teknoir/x:t@sha256:" + "a" * 64}]}}}}))
         with open(os.path.join(out, "apps.tsv"), "w") as fh:
             fh.write("".join(f"{n}\tcharts/{n}\tns\n" for n in names))

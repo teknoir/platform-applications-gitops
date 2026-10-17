@@ -1,5 +1,6 @@
 """End-to-end tests of scripts/staging-release against a fake cluster, a fake GitHub and a REAL throwaway git
 repository with a bare origin: tagging, pushing, the root patch, lease, convergence, rollback, break-glass."""
+import datetime
 import json
 import os
 import subprocess
@@ -38,10 +39,30 @@ class Base(unittest.TestCase):
             setattr(a, k, v)
         return a
 
-    def plan(self, fake, ref=None):
+    def plan(self, fake, ref=None, **kw):
         t = self.tool(fake)
-        rc = t.cmd_plan(self.args(ref=ref))
+        rc = t.cmd_plan(self.args(ref=ref, **kw))
         return t, rc
+
+    def add_commit(self, name, fname, content):
+        """A new head of origin/teknoir-cloud (the throwaway repo's working tree is on that branch)."""
+        sha = self.repo.commit(name, fname, content)
+        self.repo.c[name] = sha
+        H.git(self.repo.work, "push", "-q", "origin", "teknoir-cloud")
+        H.git(self.repo.work, "fetch", "-q", "origin")
+        return sha
+
+    def edit_policy_uncommitted(self, text):
+        with open(os.path.join(self.repo.work, "scripts", "release-policy.yaml"), "a") as fh:
+            fh.write(text)
+
+    def pod(self, name, *, ns="teknoir-system", owner=("ReplicaSet", "a-5d9f7c"), created="2026-10-17T11:00:00Z", phase="Running",
+            waiting=None, labels=None):
+        st = {"phase": phase, "containerStatuses": [{"name": "c", "state": {"waiting": {"reason": waiting}} if waiting else {"running": {"startedAt": created}}}]}
+        md = {"name": name, "namespace": ns, "creationTimestamp": created, "labels": labels or {}}
+        if owner:
+            md["ownerReferences"] = [{"kind": owner[0], "name": owner[1], "controller": True}]
+        return {"metadata": md, "status": st, "spec": {"containers": [{"name": "c", "image": "ghcr.io/teknoir/x:t@sha256:" + "a" * 64}]}}
 
     def remote_tags(self):
         return subprocess.run(["git", "-C", self.repo.origin, "tag", "-l"], capture_output=True, text=True).stdout.split()
@@ -60,14 +81,14 @@ class DryRun(Base):
         self.assertTrue(os.path.isfile(L.plan_path(self.cache, self.repo.sha("c4"))))
 
     def test_cutover_is_announced(self):
-        fake = H.FakeSys(self.root_branch())
+        fake = H.FakeSys(self.root_branch(), releaser_installed=False)
         self.plan(fake, self.repo.sha("c4"))
         text = "\n".join(self.out)
         self.assertIn("PRE-CUTOVER", text)
         self.assertIn("--bootstrap --yes " + self.repo.sha("c4"), text)
         self.assertIn("pending commits (2)", text)
         self.assertIn("#3", text)
-        self.assertIn("staging-20261017.1", text.replace("proposed tag   staging", "staging-20261017.1") if False else text) if False else None
+        self.assertIn("proposed tag   staging-%s.1   mode cutover" % fake.now().strftime("%Y%m%d"), text)
 
     def test_proposed_tag_follows_existing_tags(self):
         fake = H.FakeSys(self.root_pinned("c2"))
@@ -108,7 +129,7 @@ class DryRun(Base):
 
 class Release(Base):
     def test_cutover_applies_as_admin_tags_and_converges(self):
-        fake = H.FakeSys(self.root_branch())
+        fake = H.FakeSys(self.root_branch(), releaser_installed=False)
         t, _ = self.plan(fake, self.repo.sha("c4"))
         with self.assertRaisesRegex(L.Refuse, "bootstrap"):
             self.tool(fake).cmd_yes(self.args(yes=self.repo.sha("c4"), by="sess", reason="first"))
@@ -132,6 +153,7 @@ class Release(Base):
         self.assertLess(create, patch)
         # cutover: no --as (the releaser SA does not exist yet), merge patch of the right shape
         self.assertFalse(any(x.startswith("--as=") for x in calls[patch]))
+        self.assertIn("guard not installed: applying as admin", "\n".join(self.out))
         body = json.loads(calls[patch][calls[patch].index("-p") + 1])
         self.assertEqual(body, L.build_root_patch(self.repo.sha("c4"), tag, None))
         self.assertEqual(fake.root["spec"]["source"]["targetRevision"], self.repo.sha("c4"))
@@ -240,15 +262,230 @@ class Release(Base):
         self.assertTrue([c for c, _ in fake.calls if c[:3] == ["gh", "release", "edit"] and any(L.ROLLED_BACK_MARK in x for x in c)])
 
 
+class IdentityAndGuards(Base):
+    def test_the_fake_refuses_an_unknown_serviceaccount(self):
+        fake = H.FakeSys(self.root_pinned("c2"), releaser_installed=False)
+        r = fake.run(["kubectl", "--context", "vpro", "--as=" + L.RELEASER_SA, "-n", L.NAMESPACE, "patch", "application", L.ROOT_APP,
+                      "--type", "merge", "-p", "{}"], check=False)
+        self.assertEqual(r.rc, 1)
+        self.assertIn("Forbidden", r.err)
+
+    def test_release_2_without_the_guard_installed_applies_as_admin_with_a_notice(self):
+        # the blocker of the review: the releaser SA/RoleBinding are created by the release-guard chart, which release
+        # .2 itself switches on, so release .2 must not impersonate them
+        fake = H.FakeSys(self.root_pinned("c2"), releaser_installed=False)
+        self.plan(fake, self.repo.sha("c4"))
+        rc = self.tool(fake).cmd_yes(self.args(yes=self.repo.sha("c4"), by="s", reason="r", timeout=60))
+        self.assertEqual(rc, 0, "\n".join(self.out))
+        self.assertIn("guard not installed: applying as admin", "\n".join(self.out))
+        self.assertFalse([c for c, _ in fake.calls if any(x.startswith("--as=") for x in c) and "auth" not in c])
+        self.assertEqual(fake.root["spec"]["source"]["targetRevision"], self.repo.sha("c4"))
+        self.assertFalse(fake.lease["spec"].get("holderIdentity"))
+
+    def test_releaser_present_but_without_rights_falls_back_to_admin(self):
+        fake = H.FakeSys(self.root_pinned("c2"))
+        fake.releaser_can_i = False
+        self.plan(fake, self.repo.sha("c4"))
+        rc = self.tool(fake).cmd_yes(self.args(yes=self.repo.sha("c4"), by="s", reason="r", timeout=60))
+        self.assertEqual(rc, 0, "\n".join(self.out))
+        self.assertIn("cannot patch applications", "\n".join(self.out))
+
+    def test_rollback_without_the_guard_applies_as_admin(self):
+        fake = Rollback.prep(self, releaser_installed=False)
+        rc = self.tool(fake).cmd_rollback(self.args(rollback="-", yes=self.repo.sha("c2"), by="s", reason="r", timeout=60))
+        self.assertEqual(rc, 0, "\n".join(self.out))
+        self.assertIn("guard not installed", "\n".join(self.out))
+
+    def test_cutover_runs_the_convergence_guard_when_the_candidate_is_the_synced_revision(self):
+        # at the cutover the candidate (branch head) == the commit the branch-following root has synced == 'live': noop
+        c4 = self.repo.sha("c4")
+        root = H.root_app(target="teknoir-cloud", sync_rev=c4)
+        fake = H.FakeSys(root, releaser_installed=False)
+        fake.children["a"]["status"]["health"]["status"] = "Degraded"
+        self.plan(fake, c4)
+        with self.assertRaisesRegex(L.Refuse, "not converged"):
+            self.tool(fake).cmd_yes(self.args(yes=c4, by="s", reason="first", bootstrap=True, timeout=30))
+        self.assertEqual(self.remote_tags(), [])
+        self.assertEqual(fake.root["spec"]["source"]["targetRevision"], "teknoir-cloud")
+        # healthy: the same cutover goes through
+        fake2 = H.FakeSys(root, releaser_installed=False)
+        self.plan(fake2, c4)
+        rc = self.tool(fake2).cmd_yes(self.args(yes=c4, by="s", reason="first", bootstrap=True, timeout=60))
+        self.assertEqual(rc, 0, "\n".join(self.out))
+
+    def test_a_rerun_of_the_live_sha_after_the_cutover_is_still_exempt(self):
+        fake = H.FakeSys(self.root_pinned("c4"))
+        fake.children["a"]["status"]["health"]["status"] = "Degraded"
+        self.plan(fake, self.repo.sha("c4"))
+        rc = self.tool(fake).cmd_yes(self.args(yes=self.repo.sha("c4"), by="s", reason="re-run", timeout=30))
+        self.assertIn(rc, (0, 3))
+
+    def test_the_live_release_is_read_again_under_the_lease(self):
+        class Moving(H.FakeSys):
+            def _kube(self, argv):
+                r = super()._kube(argv)
+                if "create" in argv and "-" in argv and self.lease and not getattr(self, "moved", False):
+                    self.moved = True          # another release lands right after our lease
+                    self.root = H.root_app(target=SHA("e"), release_name="staging-20261017.7",
+                                           params=[{"name": "release", "value": SHA("e")}, {"name": "releaseName", "value": "staging-20261017.7"}])
+                return r
+        fake = Moving(self.root_pinned("c2"))
+        self.plan(fake, self.repo.sha("c4"))
+        with self.assertRaisesRegex(L.Refuse, "live release moved"):
+            self.tool(fake).cmd_yes(self.args(yes=self.repo.sha("c4"), by="s", reason="r", timeout=30))
+        self.assertEqual(self.remote_tags(), [])
+        self.assertFalse(fake.lease["spec"].get("holderIdentity"))          # the lease is released again
+
+    def test_registry_check_skipped_in_the_dry_run_blocks_yes_unless_repeated(self):
+        fake = H.FakeSys(self.root_pinned("c2"))
+        self.plan(fake, self.repo.sha("c4"), skip_registry_check=True)
+        plan = json.load(open(L.plan_path(self.cache, self.repo.sha("c4"))))
+        self.assertFalse(plan["registry_checked"])
+        with self.assertRaisesRegex(L.Refuse, "registry"):
+            self.tool(fake).cmd_yes(self.args(yes=self.repo.sha("c4"), by="s", reason="r"))
+        self.assertEqual(self.remote_tags(), [])
+        rc = self.tool(fake).cmd_yes(self.args(yes=self.repo.sha("c4"), by="s", reason="r", timeout=60, skip_registry_check=True))
+        self.assertEqual(rc, 0, "\n".join(self.out))
+        day = fake.now().strftime("%Y%m%d")
+        msg = subprocess.run(["git", "-C", self.repo.origin, "tag", "-l", "--format=%(contents)", f"staging-{day}.1"], capture_output=True, text=True).stdout
+        self.assertIn("registry check: SKIPPED", msg)
+
+    def test_a_checked_plan_records_it_and_the_tag_records_the_guard_warn_baseline(self):
+        fake = H.FakeSys(self.root_pinned("c2"))
+        fake.metrics = ('apiserver_validating_admission_policy_check_total{enforcement_action="warn",error_type="invalid_error",'
+                        'policy="staging-release-guard",policy_binding="staging-release-guard-binding"} 7\n')
+        self.plan(fake, self.repo.sha("c4"))
+        self.assertTrue(json.load(open(L.plan_path(self.cache, self.repo.sha("c4"))))["registry_checked"])
+        self.tool(fake).cmd_yes(self.args(yes=self.repo.sha("c4"), by="s", reason="r", timeout=60))
+        day = fake.now().strftime("%Y%m%d")
+        msg = subprocess.run(["git", "-C", self.repo.origin, "tag", "-l", "--format=%(contents)", f"staging-{day}.1"], capture_output=True, text=True).stdout
+        self.assertIn("registry check: every digest-pinned image resolved", msg)
+        self.assertIn("guard warn count at release: 7", msg)
+
+    def test_a_failed_root_patch_marks_the_release_not_applied(self):
+        fake = H.FakeSys(self.root_pinned("c2"))
+        self.plan(fake, self.repo.sha("c4"))
+        fake.patch_fails = True
+        with self.assertRaisesRegex(L.Refuse, "root patch FAILED"):
+            self.tool(fake).cmd_yes(self.args(yes=self.repo.sha("c4"), by="s", reason="r", timeout=30))
+        day = fake.now().strftime("%Y%m%d")
+        tag = f"staging-{day}.1"
+        self.assertEqual(self.remote_tags(), [tag])                      # tags are immutable: it stays
+        rel = next(r for r in fake.releases if r["tagName"] == tag)
+        self.assertTrue(rel["name"].startswith(L.NOT_APPLIED_MARK + " "), rel["name"])
+        self.assertIn(L.NOT_APPLIED_TRAILER, rel["body"].splitlines())
+        self.assertIn("by: s", rel["body"])                              # the original body is kept
+        self.assertTrue(L.is_marked(rel["name"], rel["body"]))
+        self.assertEqual(fake.root["spec"]["source"]["targetRevision"], self.repo.sha("c2"))
+        self.assertFalse(fake.lease["spec"].get("holderIdentity"))
+
+    def test_policy_and_lint_come_from_the_candidate_not_the_checkout(self):
+        c5 = self.add_commit("c5", "scripts/release-policy.yaml", open(os.path.join(self.repo.work, "scripts", "release-policy.yaml")).read() + "\nrollback_floor: staging-20261017.3\n")
+        # the checkout (what the operator runs) says something else, uncommitted
+        self.edit_policy_uncommitted("\nimages: deny\n")
+        t = self.tool(H.FakeSys(self.root_pinned("c2")))
+        cp, pol, notes = t.lint_tools(t.worktree(c5), c5)
+        self.assertEqual(pol["rollback_floor"], "staging-20261017.3")
+        self.assertEqual(pol["images"], "warn")                          # not the checkout's 'deny'
+        self.assertTrue(any("check-pins.py" in n for n in notes))        # the throwaway candidate has no lint code: ours, said so
+
+    def test_the_candidates_lint_code_is_the_one_that_runs(self):
+        marker = os.path.join(self.repo.tmp, "lint-ran")
+        lint = open(os.path.join(H.SCRIPTS, "check-pins.py")).read() + f"\n\n_orig_lint = lint\ndef lint(*a, **k):\n    open({marker!r}, 'w').write('candidate')\n    return _orig_lint(*a, **k)\n"
+        c5 = self.add_commit("c5", "scripts/check-pins.py", lint)
+        fake = H.FakeSys(self.root_pinned("c2"))
+        t, rc = self.plan(fake, c5)
+        self.assertEqual(rc, 0, "\n".join(self.out))
+        self.assertTrue(os.path.isfile(marker))
+
+    def test_the_rollback_floor_comes_from_origin_not_the_checkout(self):
+        fake = Rollback.prep(self)
+        self.add_commit("c6", "scripts/release-policy.yaml", open(os.path.join(self.repo.work, "scripts", "release-policy.yaml")).read() + "\nrollback_floor: staging-20261017.3\n")
+        # the operator's checkout has an empty floor (uncommitted)
+        path = os.path.join(self.repo.work, "scripts", "release-policy.yaml")
+        txt = open(path).read().replace("rollback_floor: staging-20261017.3", 'rollback_floor: ""')
+        open(path, "w").write(txt)
+        self.assertEqual(self.tool(fake).rollback_floor(), "staging-20261017.3")
+        with self.assertRaisesRegex(L.Refuse, "floor"):
+            self.tool(fake).cmd_rollback(self.args(rollback="staging-20261017.1", yes=self.repo.sha("c2"), by="s", reason="r"))
+
+    def test_yes_is_refused_from_a_checkout_whose_scripts_differ_from_the_candidates(self):
+        fake = H.FakeSys(self.root_pinned("c2"))
+        self.plan(fake, self.repo.sha("c4"))
+        self.edit_policy_uncommitted("# stale or edited checkout\n")
+        with self.assertRaisesRegex(L.Refuse, "differs from that of the candidate"):
+            self.tool(fake).cmd_yes(self.args(yes=self.repo.sha("c4"), by="s", reason="r", timeout=30))
+        self.assertEqual(self.remote_tags(), [])
+        self.assertNotIn("create", fake.verbs())                         # nothing was touched, not even the lease
+
+    def test_rollback_is_refused_from_a_checkout_with_unrelated_scripts(self):
+        fake = Rollback.prep(self)
+        self.edit_policy_uncommitted("# edited\n")
+        with self.assertRaisesRegex(L.Refuse, "differs from that of"):
+            self.tool(fake).cmd_rollback(self.args(rollback="-", yes=self.repo.sha("c2"), by="s", reason="r", timeout=30))
+        self.assertNotIn("patch", fake.verbs())
+
+
+class WatchPods(Base):
+    def run_release(self, pods, timeout=30):
+        fake = H.FakeSys(self.root_pinned("c2"))
+        fake.pods = pods
+        self.plan(fake, self.repo.sha("c4"))
+        rc = self.tool(fake).cmd_yes(self.args(yes=self.repo.sha("c4"), by="s", reason="r", timeout=timeout))
+        return rc, fake
+
+    def test_an_old_unrelated_failing_pod_does_not_fail_the_release(self):
+        rc, _ = self.run_release([self.pod("old-job-x", owner=("Job", "some-job"), waiting="CrashLoopBackOff")])
+        self.assertEqual(rc, 0, "\n".join(self.out))
+
+    def test_argo_workflow_pods_are_ignored_even_when_new(self):
+        rc, _ = self.run_release([self.pod("wf-1", ns="teknoir-ci", owner=("Workflow", "wf"), created="2026-10-17T12:30:00Z",
+                                            waiting="ImagePullBackOff", labels={"workflows.argoproj.io/workflow": "wf"})])
+        self.assertEqual(rc, 0, "\n".join(self.out))
+
+    def test_a_failing_pod_of_a_rendered_workload_fails_it(self):
+        rc, _ = self.run_release([self.pod("a-5d9f7c-x", waiting="CrashLoopBackOff")])
+        self.assertEqual(rc, 3)
+        self.assertIn("a-5d9f7c-x: CrashLoopBackOff", "\n".join(self.out))
+
+    def test_a_pod_started_after_the_patch_counts_even_when_its_workload_is_not_rendered(self):
+        rc, _ = self.run_release([self.pod("new-x", owner=("ReplicaSet", "other-7f"), created="2026-10-17T12:30:00Z", waiting="ErrImagePull")])
+        self.assertEqual(rc, 3)
+
+    def test_pending_beyond_the_grace_period_fails_it(self):
+        rc, _ = self.run_release([self.pod("a-5d9f7c-y", phase="Pending", created="2026-10-17T11:00:00Z")])
+        self.assertEqual(rc, 3)
+        self.assertIn("Pending for", "\n".join(self.out))
+
+    def test_pod_problems_unit(self):
+        P = SR.pod_problems
+        now = datetime.datetime(2026, 10, 17, 12, 0, tzinfo=datetime.timezone.utc)
+        since = now
+        rendered = {"teknoir-system/Deployment/a", "/StatefulSet/db"}
+        # Pending but young
+        self.assertEqual(P([self.pod("a-1", phase="Pending", created="2026-10-17T11:59:00Z")], now=now, since=since, rendered=rendered), [])
+        # a StatefulSet pod matched through a namespace-less render entry
+        self.assertEqual(len(P([self.pod("db-0", owner=("StatefulSet", "db"), waiting="CreateContainerConfigError")], now=now, since=since, rendered=rendered)), 1)
+        # a CronJob run (Job <cronjob>-<timestamp>) of a rendered CronJob
+        self.assertEqual(len(P([self.pod("cj-1", owner=("Job", "backup-29412345"), waiting="ImagePullBackOff")], now=now, since=since,
+                               rendered={"teknoir-system/CronJob/backup"})), 1)
+        # a restart after the patch of a pod that predates it
+        pod = self.pod("o-1", owner=("ReplicaSet", "other-1"), waiting="CrashLoopBackOff")
+        pod["status"]["containerStatuses"][0]["lastState"] = {"terminated": {"finishedAt": "2026-10-17T12:00:20Z"}}
+        self.assertEqual(len(P([pod], now=now, since=since, rendered=rendered)), 1)
+        # other namespaces are not platform namespaces
+        self.assertEqual(P([self.pod("a-1", ns="teknoir-demo", waiting="CrashLoopBackOff")], now=now, since=since, rendered=rendered), [])
+
+
 class Rollback(Base):
-    def prep(self, live_sha="c4", live_tag="staging-20261017.5"):
-        fake = H.FakeSys(self.root_pinned(live_sha, live_tag))
+    def prep(self, live_sha="c4", live_tag="staging-20261017.5", **kw):
+        fake = H.FakeSys(self.root_pinned(live_sha, live_tag), **kw)
         for tag, c in (("staging-20261017.1", "c2"), ("staging-20261017.3", "m3"), ("staging-20261017.5", "c4")):
             H.git(self.repo.work, "tag", "-a", "-m", tag, tag, self.repo.sha(c))
         H.git(self.repo.work, "push", "-q", "origin", "--tags")
-        fake.releases = [{"tagName": "staging-20261017.1", "isPrerelease": False, "name": "staging-20261017.1"},
-                         {"tagName": "staging-20261017.3", "isPrerelease": True, "name": "staging-20261017.3"},
-                         {"tagName": "staging-20261017.5", "isPrerelease": True, "name": "staging-20261017.5"}]
+        fake.releases = [{"tagName": "staging-20261017.1", "isPrerelease": False, "name": "staging-20261017.1", "body": "first"},
+                         {"tagName": "staging-20261017.3", "isPrerelease": True, "name": "staging-20261017.3", "body": "third"},
+                         {"tagName": "staging-20261017.5", "isPrerelease": True, "name": "staging-20261017.5", "body": "original body of five"}]
         return fake
 
     def test_default_target_is_the_newest_verified_release_and_needs_yes(self):
@@ -270,6 +507,12 @@ class Rollback(Base):
         self.assertEqual(len(edit), 1)
         self.assertIn("staging-20261017.5", edit[0])
         self.assertTrue(any(L.ROLLED_BACK_MARK in x for x in edit[0]))
+        # the marker contract (with infra staging-root.sh): title PREFIX and a body trailer line, original body kept
+        rel = next(r for r in fake.releases if r["tagName"] == "staging-20261017.5")
+        self.assertEqual(rel["name"], "[rolled back] staging-20261017.5")
+        self.assertIn("Rolled-Back: true", rel["body"].splitlines())
+        self.assertIn("original body of five", rel["body"])
+        self.assertTrue(L.is_marked(rel["name"]))
         self.assertFalse([c for c, _ in fake.calls if c[:3] == ["gh", "release", "create"]])
         for c in fake.kubectl_calls():
             if "patch" in c and "application" in c:
@@ -278,7 +521,7 @@ class Rollback(Base):
     def test_rollback_is_exempt_from_the_convergence_guard_and_steals_a_stale_lease(self):
         fake = self.prep()
         fake.children["a"]["status"]["health"]["status"] = "Degraded"
-        fake.lease = L.lease_manifest("dead@host:9", fake.now() - __import__("datetime").timedelta(minutes=10))
+        fake.lease = L.lease_manifest("dead@host:9", fake.now() - datetime.timedelta(minutes=10))
         fake.lease["metadata"]["resourceVersion"] = "3"
         rc = self.tool(fake).cmd_rollback(self.args(rollback="staging-20261017.1", yes=self.repo.sha("c2"), by="s", reason="r", timeout=60))
         self.assertEqual(rc, 0, "\n".join(self.out))
@@ -293,9 +536,8 @@ class Rollback(Base):
 
     def test_floor(self):
         fake = self.prep()
-        open(os.path.join(self.repo.work, "scripts", "release-policy.yaml"), "a").write("")
         t = self.tool(fake)
-        t.policy = lambda: {"rollback_floor": "staging-20261017.3"}
+        t.rollback_floor = lambda: "staging-20261017.3"
         with self.assertRaisesRegex(L.Refuse, "floor"):
             t.cmd_rollback(self.args(rollback="staging-20261017.1", yes=self.repo.sha("c2"), by="s", reason="r"))
 
@@ -329,6 +571,7 @@ class Rollback(Base):
 class VerifiedAndBreakGlass(Base):
     def test_verified_flips_the_release_of_the_live_tag_only(self):
         fake = H.FakeSys(self.root_pinned("c2", "staging-20261017.1"))
+        fake.releases = [{"tagName": "staging-20261017.1", "isPrerelease": True, "name": "staging-20261017.1", "body": ""}]
         self.assertEqual(self.tool(fake).cmd_verified("staging-20261017.1"), 0)
         edit = [c for c, _ in fake.calls if c[:3] == ["gh", "release", "edit"]][0]
         self.assertIn("--prerelease=false", edit)
@@ -337,6 +580,20 @@ class VerifiedAndBreakGlass(Base):
             self.tool(fake).cmd_verified("staging-20261017.9")
         with self.assertRaises(L.Refuse):
             self.tool(fake).cmd_verified("v1")
+
+    def test_verified_needs_convergence_and_a_root_as_the_release_wrote_it(self):
+        fake = H.FakeSys(self.root_pinned("c2", "staging-20261017.1"))
+        fake.releases = [{"tagName": "staging-20261017.1", "isPrerelease": True, "name": "staging-20261017.1", "body": ""}]
+        fake.children["a"]["status"]["health"]["status"] = "Degraded"
+        with self.assertRaisesRegex(L.Refuse, "does not match it"):
+            self.tool(fake).cmd_verified("staging-20261017.1")
+        fake.children["a"]["status"]["health"]["status"] = "Healthy"
+        fake.root["spec"]["syncPolicy"]["automated"]["prune"] = False
+        with self.assertRaisesRegex(L.Refuse, "prune"):
+            self.tool(fake).cmd_verified("staging-20261017.1")
+        fake.root["spec"]["syncPolicy"]["automated"]["prune"] = True
+        self.assertEqual(self.tool(fake).cmd_verified("staging-20261017.1"), 0)
+        self.assertFalse(fake.releases[0]["isPrerelease"])
 
     def test_break_glass_is_scripted_and_needs_anders(self):
         fake = H.FakeSys(self.root_pinned("c2"))

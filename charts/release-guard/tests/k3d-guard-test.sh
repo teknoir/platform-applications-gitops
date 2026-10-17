@@ -91,6 +91,8 @@ expect_rbac_deny() {
   [[ $rc -ne 0 && "$out" == *"forbidden"* && "$out" != *staging-release-guard* ]] && ok "rbac   $desc" || bad "rbac $desc (rc=$rc) ${out:0:200}"
 }
 
+SRC_OVERRIDE='{"operation":{"sync":{"source":{"repoURL":"https://github.com/teknoir/platform-applications-gitops","path":"charts/x","targetRevision":"teknoir-cloud"}}}}'
+SRCS_OVERRIDE='{"operation":{"sync":{"sources":[{"repoURL":"https://github.com/teknoir/platform-applications-gitops","path":"charts/x","targetRevision":"teknoir-cloud"}]}}}'
 SHA1=1111111111111111111111111111111111111111
 SHA2=2222222222222222222222222222222222222222
 TAG=staging-20261017.1
@@ -184,6 +186,9 @@ expect deny  "admin: delete the root"                      admin delete applicat
 expect deny  "admin: remove the finalizers of a child"     admin patch application child -n "$NS" --type merge -p '{"metadata":{"finalizers":["resources-finalizer.argocd.argoproj.io"]}}' --dry-run=server
 expect deny  "admin: argocd app sync --revision teknoir-cloud (operation, foreign revision)" admin patch application child -n "$NS" --type merge -p '{"operation":{"sync":{"revision":"teknoir-cloud"}}}' --dry-run=server
 expect deny  "admin: sync with a revisions list that differs" admin patch application child -n "$NS" --type merge -p '{"operation":{"sync":{"revisions":["main"]}}}' --dry-run=server
+expect deny  "admin: sync with an override operation.sync.source (another targetRevision, no revision)" admin patch application child -n "$NS" --type merge -p "$SRC_OVERRIDE" --dry-run=server
+expect deny  "admin: sync with an override operation.sync.sources" admin patch application child -n "$NS" --type merge -p "$SRCS_OVERRIDE" --dry-run=server
+expect deny  "admin: sync with an override source AND revision == targetRevision" admin patch application child -n "$NS" --type merge -p '{"operation":{"sync":{"revision":"'$SHA1'","source":{"repoURL":"https://github.com/teknoir/platform-applications-gitops","path":"charts/x","targetRevision":"teknoir-cloud"}}}}' --dry-run=server
 echo "-- not evaluated (status-only and no-spec updates)"
 expect allow "admin: annotate a child (refresh)"           admin annotate application child -n "$NS" argocd.argoproj.io/refresh=hard --overwrite --dry-run=server
 expect allow "admin: annotate the root teknoir.org/break-glass" admin annotate application app-of-apps -n "$NS" teknoir.org/break-glass=reason --overwrite --dry-run=server
@@ -197,6 +202,7 @@ echo "== 2. ArgoCD's controller, profile-controller, and the argocd-server (not 
 expect allow "argocd controller: change a child spec"      argo patch application child -n "$NS" --type merge -p '{"spec":{"source":{"targetRevision":"teknoir-cloud"}}}' --dry-run=server
 expect allow "argocd controller: create an Application"    argo create -f "${TMP}/new.yaml" -n "$NS" --dry-run=server
 expect allow "argocd controller: sync with a foreign revision" argo patch application child -n "$NS" --type merge -p '{"operation":{"sync":{"revision":"teknoir-cloud"}}}' --dry-run=server
+expect allow "argocd controller: sync with an override source" argo patch application child -n "$NS" --type merge -p "$SRC_OVERRIDE" --dry-run=server
 expect allow "argocd controller: delete a child"            argo delete application child -n "$NS" --dry-run=server
 expect allow "argocd controller: write the root status"     argo patch application app-of-apps -n "$NS" --type merge -p '{"status":{"sync":{"status":"Synced"}}}' --dry-run=server
 expect allow "profile-controller: change a plugin Application" pc patch application pc-child -n "$NS" --type merge -p '{"spec":{"source":{"targetRevision":"0.0.105"}}}' --dry-run=server
@@ -205,6 +211,7 @@ expect allow "profile-controller: create a plugin Application" pc create -f "${T
 expect allow "argocd-server: plain sync / hard refresh (no spec change)" argosrv annotate application child -n "$NS" argocd.argoproj.io/refresh=hard --overwrite --dry-run=server
 expect deny  "argocd-server: app set --revision (spec change)" argosrv patch application child -n "$NS" --type merge -p '{"spec":{"source":{"targetRevision":"main"}}}' --dry-run=server
 expect deny  "argocd-server: app sync --revision main"      argosrv patch application child -n "$NS" --type merge -p '{"operation":{"sync":{"revision":"main"}}}' --dry-run=server
+expect deny  "argocd-server: a sync operation with its own source" argosrv patch application child -n "$NS" --type merge -p "$SRC_OVERRIDE" --dry-run=server
 expect deny  "argocd-server: app delete"                    argosrv delete application child -n "$NS" --dry-run=server
 
 echo "== 3. the releaser (real Role, no system:masters)"
@@ -230,6 +237,17 @@ bad_root "selfHeal off" '{"metadata":{"annotations":{"teknoir.org/release":"'$TA
 bad_root "wrong repoURL" '{"spec":{"source":{"repoURL":"https://github.com/evil/repo"}}}'
 bad_root "wrong path" '{"spec":{"source":{"path":"charts/auth"}}}'
 bad_root "project changed" '{"spec":{"project":"teknoir-cloud"}}'
+bad_root "destination server changed" '{"spec":{"destination":{"server":"https://elsewhere.example"}}}'
+bad_root "destination namespace changed" '{"spec":{"destination":{"namespace":"other"}}}'
+bad_root "prune off" '{"spec":{"syncPolicy":{"automated":{"prune":false}}}}'
+bad_root "ignoreDifferences added" '{"spec":{"ignoreDifferences":[{"group":"argoproj.io","kind":"Application","jsonPointers":["/spec"]}]}}'
+bad_root "tag number 0" '{"metadata":{"annotations":{"teknoir.org/release":"staging-20261017.0"}},"spec":{"source":{"targetRevision":"'$SHA2'","helm":{"parameters":[{"name":"release","value":"'$SHA2'"},{"name":"releaseName","value":"staging-20261017.0"}]}}}}'
+bad_root "tag number with a leading zero" '{"metadata":{"annotations":{"teknoir.org/release":"staging-20261017.08"}},"spec":{"source":{"targetRevision":"'$SHA2'","helm":{"parameters":[{"name":"release","value":"'$SHA2'"},{"name":"releaseName","value":"staging-20261017.08"}]}}}}'
+echo "-- the releaser may not change a child's spec or finalizers (it only terminates operations)"
+expect deny  "releaser: patch a child targetRevision" releaser patch application child -n "$NS" --type merge -p '{"spec":{"source":{"targetRevision":"teknoir-cloud"}}}' --dry-run=server
+expect deny  "releaser: patch a child syncPolicy" releaser patch application child -n "$NS" --type merge -p '{"spec":{"syncPolicy":{"automated":{"selfHeal":false}}}}' --dry-run=server
+expect deny  "releaser: change a child's finalizers" releaser patch application child -n "$NS" --type merge -p '{"metadata":{"finalizers":["resources-finalizer.argocd.argoproj.io"]}}' --dry-run=server
+expect deny  "releaser: sync a child with an override source" releaser patch application child -n "$NS" --type merge -p "$SRC_OVERRIDE" --dry-run=server
 expect_rbac_deny "releaser: delete the root (no delete verb; the policy denies it too)" releaser delete application app-of-apps -n "$NS" --dry-run=server
 expect allow "releaser: annotation-only change of the root is not evaluated" releaser annotate application app-of-apps -n "$NS" teknoir.org/previous-release=staging-20261016.9 --overwrite --dry-run=server
 echo "-- the releaser's Role is minimal"
@@ -271,6 +289,9 @@ setmode break-glass
 expect allow "break-glass: admin patches a child"           admin patch application child -n "$NS" --type merge -p '{"spec":{"source":{"targetRevision":"teknoir-cloud"}}}' --dry-run=server
 expect allow "break-glass: admin creates an Application"    admin create -f "${TMP}/new.yaml" -n "$NS" --dry-run=server
 expect allow "break-glass: admin sync --revision other"     admin patch application child -n "$NS" --type merge -p '{"operation":{"sync":{"revision":"main"}}}' --dry-run=server
+expect allow "break-glass: admin sync with an override source" admin patch application child -n "$NS" --type merge -p "$SRC_OVERRIDE" --dry-run=server
+expect deny  "break-glass: the releaser still cannot change a child's spec" releaser patch application child -n "$NS" --type merge -p '{"spec":{"source":{"targetRevision":"teknoir-cloud"}}}' --dry-run=server
+expect deny  "break-glass: the releaser still cannot change the root's destination" releaser patch application app-of-apps -n "$NS" --type merge -p '{"spec":{"destination":{"server":"https://elsewhere.example"}}}' --dry-run=server
 expect allow "break-glass: admin deletes the root"          admin delete application app-of-apps -n "$NS" --dry-run=server
 expect deny  "break-glass: the releaser still cannot write a bad root shape" releaser patch application app-of-apps -n "$NS" --type merge -p '{"spec":{"source":{"targetRevision":"teknoir-cloud"}}}' --dry-run=server
 expect allow "break-glass: the releaser still writes a valid root" releaser patch application app-of-apps -n "$NS" --type merge -p "$ROOT_OK" --dry-run=server
@@ -286,7 +307,12 @@ expect allow "no state to lose: ArgoCD works with no annotation" argo patch appl
 
 echo "== 6. Warn mode"
 render --set guard.mode=Warn | "${KC[@]}" apply -f - >/dev/null; sleep 3
+warn_count() { "${KC[@]}" get --raw /metrics 2>/dev/null | awk '/^apiserver_validating_admission_policy_check_total\{/ && /enforcement_action="warn"/ && /policy="staging-release-guard"/ {n+=$NF} END {print n+0}'; }
+WARN_BEFORE=$(warn_count)
 expect warn  "Warn: admin patch goes through with a warning" admin patch application child -n "$NS" --type merge -p '{"spec":{"source":{"targetRevision":"teknoir-cloud"}}}' --dry-run=server
+WARN_AFTER=$(warn_count)
+[[ $WARN_AFTER -gt $WARN_BEFORE ]] && ok "apiserver metrics count the warning (apiserver_validating_admission_policy_check_total warn: $WARN_BEFORE -> $WARN_AFTER; staging-status reads this)" \
+  || bad "the warn counter did not move ($WARN_BEFORE -> $WARN_AFTER)"
 expect warn  "Warn: admin create goes through with a warning" admin create -f "${TMP}/new.yaml" -n "$NS" --dry-run=server
 expect allow "Warn: the releaser sees no warning"           releaser patch application app-of-apps -n "$NS" --type merge -p "$ROOT_OK" --dry-run=server
 expect allow "Warn: ArgoCD sees no warning"                 argo patch application child -n "$NS" --type merge -p '{"spec":{"source":{"targetRevision":"teknoir-cloud"}}}' --dry-run=server

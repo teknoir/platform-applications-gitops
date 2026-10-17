@@ -17,9 +17,15 @@ Application app-of-apps. This script is the only thing that changes it.
 
 Guards: kubectl context exactly 'vpro' (names with online|eks|prod are refused); the candidate must be on
 the first-parent history of origin/teknoir-cloud and descend from the live release (prefix releases only);
---yes SHA must equal the dry-run candidate (plan valid 30 min, live unchanged); the Lease
-teknoir-system/staging-release-lock is held from apply to converged; an existing tag is refused; children
-must be converged on the live release (rollback and a re-run of the live SHA are exempt).
+--yes SHA must equal the dry-run candidate (plan valid 30 min, live unchanged, the dry run checked the registry
+unless --skip-registry-check is repeated on --yes); the lint code and policy are the candidate's, the rollback
+floor is origin/teknoir-cloud's, and --yes/--rollback refuse to run from a checkout whose scripts/ differ from the
+candidate's (rollback: the branch head's, the live release's or the target's); the Lease
+teknoir-system/staging-release-lock is held from apply to converged and everything is checked again under it; an
+existing tag is refused; children must be converged on the live release, also at the cutover (rollback and a re-run
+of the live SHA are exempt). The releaser identity is used only where the release-guard chart installed it, else
+admin with a notice. GitHub Release markers: '[rolled back] TAG' + 'Rolled-Back: true', '[not applied] TAG' +
+'Not-Applied: true' (contract with infra staging-root.sh).
 
 Read-only except for `git fetch`, the render cache under ~/.cache/staging-release, and, with --yes,
 --rollback, --verified and --break-glass-*, the actions described there. Needs kubectl, helm (+ helm
@@ -40,16 +46,18 @@ import socket
 import sys
 import tempfile
 
+import yaml
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import stagelib as L  # noqa: E402
 
 
-def _load_check_pins():
-    loader = importlib.machinery.SourceFileLoader("check_pins", os.path.join(HERE, "check-pins.py"))
-    spec = importlib.util.spec_from_loader("check_pins", loader)
+def _load_check_pins(path: str | None = None, name: str = "check_pins"):
+    loader = importlib.machinery.SourceFileLoader(name, path or os.path.join(HERE, "check-pins.py"))
+    spec = importlib.util.spec_from_loader(name, loader)
     mod = importlib.util.module_from_spec(spec)
-    sys.modules["check_pins"] = mod          # dataclasses need the module registered
+    sys.modules[name] = mod                  # dataclasses need the module registered
     loader.exec_module(mod)
     return mod
 
@@ -62,6 +70,91 @@ BAD_WAITING = {"CrashLoopBackOff", "ImagePullBackOff", "ErrImagePull", "CreateCo
                "CreateContainerError", "InvalidImageName"}
 CONTROLLER_APPS = ["device-controller", "profile-controller", "user-controller", "devstudio-controller",
                    "notebook-controller"]
+WORKLOAD_KINDS = {"Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob"}
+PENDING_GRACE_SECONDS = 180          # a counted pod that is still Pending after this long is a problem
+SKEW_SECONDS = 10                    # tolerated clock skew between this host and the apiserver
+
+
+def workloads_of(docs) -> list[str]:
+    """'namespace/Kind/name' of every workload in the rendered documents (namespace may be empty)."""
+    out = set()
+    for _, d in docs:
+        if d.get("kind") in WORKLOAD_KINDS:
+            md = d.get("metadata") or {}
+            out.add(f"{md.get('namespace', '')}/{d['kind']}/{md.get('name', '')}")
+    return sorted(out)
+
+
+def pod_workloads(pod: dict) -> set[tuple[str, str]]:
+    """Candidate (Kind, name) pairs of the workload a Pod belongs to: a Deployment through its ReplicaSet
+    (<deployment>-<pod-template-hash>), a CronJob through its Job (<cronjob>-<timestamp>), else the owner itself."""
+    md = pod["metadata"]
+    owners = md.get("ownerReferences") or []
+    o = next((o for o in owners if o.get("controller")), owners[0] if owners else None)
+    if not o:
+        return {("Pod", md["name"])}
+    kind, name = o["kind"], o["name"]
+    res = {(kind, name)}
+    if kind == "ReplicaSet":
+        res.add(("Deployment", name.rsplit("-", 1)[0]))
+    elif kind == "Job":
+        res.add(("CronJob", re.sub(r"-[0-9]{6,}$", "", name)))
+    return res
+
+
+def is_workflow_pod(pod: dict) -> bool:
+    md = pod["metadata"]
+    return "workflows.argoproj.io/workflow" in (md.get("labels") or {}) or \
+        any(o.get("kind") == "Workflow" for o in md.get("ownerReferences") or [])
+
+
+def started_after(pod: dict, since: dt.datetime) -> bool:
+    """The pod was created, or one of its containers (re)started or terminated, at or after `since`."""
+    def after(ts):
+        t = L.parse_time(ts)
+        return bool(t and t >= since)
+    if after(pod["metadata"].get("creationTimestamp")):
+        return True
+    st = pod.get("status") or {}
+    for cs in (st.get("containerStatuses") or []) + (st.get("initContainerStatuses") or []):
+        s_ = cs.get("state") or {}
+        if after((s_.get("running") or {}).get("startedAt")) or after((s_.get("terminated") or {}).get("finishedAt")) \
+                or after(((cs.get("lastState") or {}).get("terminated") or {}).get("finishedAt")):
+            return True
+    return False
+
+
+def pod_problems(pods: list[dict], *, now: dt.datetime, since: dt.datetime, rendered: set[str] | None) -> list[str]:
+    """Problems of the pods that belong to this release: pods of workloads in the render, or pods created or
+    (re)started after the patch (`since`). Argo Workflow pods and anything else that predates the release are
+    not this release's doing and are ignored. A counted pod is a problem when a container waits on an image or
+    config error, or when it has been Pending for more than PENDING_GRACE_SECONDS."""
+    rendered = rendered or set()
+    rendered_nsless = {w.split("/", 1)[1] for w in rendered if w.startswith("/")}
+    out = []
+    for p in pods:
+        ns, name = p["metadata"]["namespace"], p["metadata"]["name"]
+        if ns not in PLATFORM_NAMESPACES or is_workflow_pod(p):
+            continue
+        owned = any(f"{ns}/{k}/{n}" in rendered or f"{k}/{n}" in rendered_nsless for k, n in pod_workloads(p))
+        if not (owned or started_after(p, since)):
+            continue
+        st = p.get("status") or {}
+        reason = None
+        for cs in (st.get("containerStatuses") or []) + (st.get("initContainerStatuses") or []):
+            w = (cs.get("state") or {}).get("waiting") or {}
+            if w.get("reason") in BAD_WAITING:
+                reason = w["reason"]
+                break
+        if not reason and st.get("phase") == "Pending":
+            created = L.parse_time(p["metadata"].get("creationTimestamp"))
+            age = (now - created).total_seconds() if created else 0
+            if age > PENDING_GRACE_SECONDS:
+                cond = next((c for c in st.get("conditions") or [] if c.get("type") == "PodScheduled" and c.get("status") == "False"), {})
+                reason = f"Pending for {int(age)}s" + (f" ({cond.get('reason')}: {(cond.get('message') or '')[:80]})" if cond else "")
+        if reason:
+            out.append(f"{ns}/{name}: {reason}")
+    return out
 
 
 class Tool:
@@ -77,8 +170,47 @@ class Tool:
         self.branch = branch
 
     # ---- helpers ------------------------------------------------------------------------------
-    def policy(self) -> dict:
-        return CP.load_policy(os.path.join(self.repo, "scripts", "release-policy.yaml"))
+    def lint_tools(self, wt: str, sha: str) -> tuple[object, dict, list[str]]:
+        """(check-pins module, policy, notes) of the CANDIDATE: the lint code and the image gate travel with the
+        commit that is released, never with whichever checkout the operator happens to run from. A candidate
+        that predates the tooling is linted with ours (a note says so)."""
+        notes: list[str] = []
+        cand_cp = os.path.join(wt, "scripts", "check-pins.py")
+        if os.path.isfile(cand_cp) and os.path.realpath(cand_cp) != os.path.realpath(os.path.join(HERE, "check-pins.py")):
+            cp = _load_check_pins(cand_cp, f"check_pins_{sha[:12]}")
+        else:
+            cp = CP
+            if not os.path.isfile(cand_cp):
+                notes.append(f"{sha[:12]} has no scripts/check-pins.py: linted with the lint code of this checkout")
+        pol_path = os.path.join(wt, "scripts", "release-policy.yaml")
+        if not os.path.isfile(pol_path):
+            notes.append(f"{sha[:12]} has no scripts/release-policy.yaml: policy of this checkout used")
+            pol_path = os.path.join(self.repo, "scripts", "release-policy.yaml")
+        return cp, cp.load_policy(pol_path), notes
+
+    def rollback_floor(self) -> str | None:
+        """The rollback floor as merged on origin/teknoir-cloud (never from the working tree)."""
+        r = self.sys.run(["git", "-C", self.repo, "show", f"{L.BRANCH}:scripts/release-policy.yaml"], check=False)
+        if r.rc != 0:
+            return None
+        return (yaml.safe_load(r.out) or {}).get("rollback_floor") or None
+
+    def scripts_differ(self, ref: str) -> bool:
+        """scripts/ of this checkout (working tree, uncommitted edits included) differs from `ref`."""
+        return self.sys.run(["git", "-C", self.repo, "diff", "--quiet", ref, "--", "scripts/"], check=False).rc != 0
+
+    def require_matching_scripts(self, refs: list[tuple[str, str]]) -> None:
+        """--yes and --rollback act with the tooling that ships with the commit they apply: scripts/ of this
+        checkout must equal that of one of `refs` ([(what, sha)]). Otherwise a stale worktree or a feature branch
+        could change a release gate (the lint, the floor, the checks below)."""
+        for _, ref in refs:
+            if not self.scripts_differ(ref):
+                return
+        what = " or ".join(f"{w} {r[:12]}" for w, r in refs)
+        hint = os.path.join(self.cache, "wt", refs[0][1][:12], "scripts", "staging-release")
+        raise L.Refuse(f"scripts/ of this checkout ({self.repo}) differs from that of {what}. A release is applied by the "
+                       f"tooling it ships with: run the same command from a clean checkout of that commit, e.g. "
+                       f"{hint} (the dry run created that worktree)")
 
     def fetch(self) -> None:
         self.git.run("fetch", "--tags", "--force", "origin", "teknoir-cloud")
@@ -129,8 +261,14 @@ class Tool:
             warnings.append("render of the live release failed: no per-application diff")
 
         docs = CP.load_docs([cand_dir]) if os.path.isdir(cand_dir) else []
-        findings = CP.lint(docs, policy=self.policy(), release=cand, project="teknoir-cloud",
-                           repo_root=self.worktree(cand), today=dt.date.today())
+        findings = []
+        try:
+            cp, policy, notes = self.lint_tools(self.worktree(cand), cand)
+            warnings += notes
+            findings = cp.lint(docs, policy=policy, release=cand, project="teknoir-cloud",
+                               repo_root=self.worktree(cand), today=dt.date.today())
+        except Exception as e:                       # a broken or incompatible lint in the candidate must fail the dry run
+            errors.append(f"lint of the candidate could not run: {type(e).__name__}: {e}")
         for f in findings:
             if f.level == "error":
                 errors.append(f.line())
@@ -153,12 +291,15 @@ class Tool:
                 errors.append("kubeconform failed:\n" + (r.out + r.err)[-1200:])
 
         refs = sorted({im.image for im in CP.collect_images(docs) if "@sha256:" in im.image})
+        registry_checked = True
         if refs and not getattr(args, "skip_registry_check", False):
             bad = self.check_registry(refs)
             for ref, msg in bad:
                 errors.append(f"crane manifest {ref}: {msg}")
         elif refs:
-            warnings.append(f"registry check skipped for {len(refs)} digest-pinned image(s)")
+            registry_checked = False
+            warnings.append(f"registry check skipped for {len(refs)} digest-pinned image(s): --yes will refuse this plan "
+                            "unless --skip-registry-check is repeated on --yes")
 
         plugins = {"version": None, "digests": {}}
         pj = os.path.join(cand_dir, "plugins.json")
@@ -180,8 +321,16 @@ class Tool:
                           f"and PVCs): pass --allow-remove {','.join(sorted(set(removed) - allow))} if intended")
 
         return {"errors": errors, "warnings": warnings, "findings": [vars(f) for f in findings],
-                "added": added, "removed": removed, "plugins": plugins, "cand_dir": cand_dir,
+                "registry_checked": registry_checked, "added": added, "removed": removed, "plugins": plugins, "cand_dir": cand_dir,
                 "live_dir": live_dir if live_ok else None, "docs": docs, "ok": ok}
+
+    def controller_workloads(self, cand_dir: str, apps: list[str]) -> dict[str, list[str]]:
+        out = {}
+        for n in apps:
+            f = os.path.join(cand_dir, "apps", f"{n}.yaml")
+            if os.path.isfile(f):
+                out[n] = [w for w in workloads_of(CP.load_docs([f])) if "/Deployment/" in w or "/StatefulSet/" in w]
+        return out
 
     def check_registry(self, refs: list[str]) -> list[tuple[str, str]]:
         def one(ref):
@@ -296,6 +445,9 @@ class Tool:
                 "children": sorted(n for n in (line.split("\t")[0] for line in open(os.path.join(rep["cand_dir"], "apps.tsv"))
                                                if line.strip())) if rep["ok"] else [],
                 "controllers_changed": sorted(n for n in diffs if n in CONTROLLER_APPS),
+                "controller_workloads": self.controller_workloads(rep["cand_dir"], sorted(n for n in diffs if n in CONTROLLER_APPS)),
+                "rendered_workloads": workloads_of(rep["docs"]),
+                "registry_checked": rep["registry_checked"],
                 "rendered_images": sorted({i.image for i in CP.collect_images(rep["docs"])}),
                 "kind": kind, "shared_digests": self.shared_digests() if not getattr(args, "skip_registry_check", False) else {},
                 "plugins_changed": self.plugins_changed(rep["plugins"].get("version"))}
@@ -385,21 +537,12 @@ class Tool:
                        json.dumps({"operation": {"initiatedBy": {"username": by}, "sync": {"revision": sha, "prune": True}}})],
                       as_releaser=as_releaser, check=False)
 
-    def bad_pods(self) -> list[str]:
+    def bad_pods(self, since: dt.datetime, rendered: set[str] | None) -> list[str]:
         r = self.kube.run(["get", "pods", "-A", "-o", "json"], check=False)
         if r.rc != 0:
             return [f"cannot list pods: {r.err[:100]}"]
-        bad = []
-        for p in json.loads(r.out).get("items", []):
-            ns = p["metadata"]["namespace"]
-            if ns not in PLATFORM_NAMESPACES:
-                continue
-            name = p["metadata"]["name"]
-            for cs in (p.get("status", {}).get("containerStatuses") or []) + (p.get("status", {}).get("initContainerStatuses") or []):
-                w = (cs.get("state") or {}).get("waiting") or {}
-                if w.get("reason") in BAD_WAITING:
-                    bad.append(f"{ns}/{name}: {w['reason']}")
-        return bad
+        return pod_problems(json.loads(r.out).get("items", []), now=self.sys.now(),
+                            since=since - dt.timedelta(seconds=SKEW_SECONDS), rendered=rendered)
 
     def missing_namespaces(self, apps: list[dict]) -> set[str]:
         r = self.kube.run(["get", "namespaces", "-o", "name"], check=False)
@@ -407,7 +550,7 @@ class Tool:
         return {(a.get("spec") or {}).get("destination", {}).get("namespace", "") for a in apps} - have - {""}
 
     def watch(self, sha: str, *, plan_children: list[str], plugins_changed: bool, timeout: int, holder: str,
-              as_releaser: bool, by: str) -> tuple[bool, list[str]]:
+              as_releaser: bool, by: str, since: dt.datetime, rendered: set[str] | None) -> tuple[bool, list[str]]:
         deadline = self.sys.now().timestamp() + timeout
         sped = 0
         problems: list[str] = ["not started"]
@@ -416,7 +559,7 @@ class Tool:
             problems_apps = L.converged(apps, sha, plugins_changed=plugins_changed,
                                         missing_namespaces=self.missing_namespaces(apps) if plugins_changed else None,
                                         expected=set(plan_children) | {L.ROOT_APP})[1]
-            pods = self.bad_pods()
+            pods = self.bad_pods(since, rendered)
             problems = problems_apps + pods
             self.lease_renew(holder, as_releaser)
             if not problems:
@@ -464,6 +607,48 @@ class Tool:
                 return True
         return False
 
+    # ---- identity -----------------------------------------------------------------------------
+    def releaser_ready(self) -> tuple[bool, str]:
+        """The releaser identity is usable only when the release-guard chart installed it: the ServiceAccount, its
+        RoleBinding, and `auth can-i` for what a release does. Before release .2 enables the chart (rollout step
+        4) nothing of that exists, and impersonating it would fail Forbidden."""
+        k = self.kube
+        for kind in ("serviceaccount", "rolebinding"):
+            if k.run(["-n", L.NAMESPACE, "get", kind, L.RELEASER_NAME], check=False).rc != 0:
+                return False, f"{kind} {L.NAMESPACE}/{L.RELEASER_NAME} not found: the release guard is not installed yet"
+        for verb, res in (("patch", "applications.argoproj.io"), ("create", "leases.coordination.k8s.io")):
+            r = k.run(["-n", L.NAMESPACE, "auth", "can-i", verb, res], as_releaser=True, check=False)
+            if r.rc != 0 or r.out.strip() != "yes":
+                return False, f"{L.RELEASER_NAME} cannot {verb} {res}"
+        return True, ""
+
+    def choose_identity(self) -> bool:
+        """True: act as the releaser. False: act as the operator's own (admin) identity, with a notice."""
+        ready, why = self.releaser_ready()
+        if ready:
+            self.out(f"identity: {L.RELEASER_SA}")
+        else:
+            self.out(f"guard not installed: applying as admin ({why})")
+        return ready
+
+    # ---- yes ----------------------------------------------------------------------------------
+    def check_release(self, plan: dict, sha: str, args, live: dict) -> str:
+        """The conditions under which a release may be applied. Run before the Lease and again under it."""
+        L.plan_check(plan, sha, self.sys.now(), live["sha"])
+        kind = L.validate_candidate(self.git.first_parent(L.BRANCH), self.git.is_ancestor, sha, live["sha"])
+        if live["cutover"] and not args.bootstrap:
+            raise L.Refuse("the root still follows the branch (pre-cutover): the first release needs --bootstrap")
+        if args.bootstrap and not live["cutover"]:
+            raise L.Refuse("--bootstrap is for the cutover only; the root already follows a release")
+        # A re-run of the live SHA is exempt, EXCEPT at the cutover: there the candidate (the branch head) equals
+        # the commit the branch-following root has synced, so it always looks like 'noop', and it is the one
+        # moment the design calls risky.
+        if kind != "noop" or live["cutover"]:
+            problems = self.convergence_problems(self.kube.applications(), live)
+            if problems:
+                raise L.Refuse("staging is not converged on the live release; fix that first (rollback is exempt):\n  - " + "\n  - ".join(problems))
+        return kind
+
     def cmd_yes(self, args) -> int:
         if not args.by or not args.reason:
             raise L.Refuse("--yes needs --by <session> and --reason <why>")
@@ -475,43 +660,49 @@ class Tool:
         plan = json.load(open(planfile))
         live = self.live()
         L.plan_check(plan, sha, self.sys.now(), live["sha"])
+        self.require_matching_scripts([("the candidate", sha)])
         if plan.get("errors"):
             raise L.Refuse("the dry run had preflight errors; fix them and run the dry run again:\n  - " + "\n  - ".join(plan["errors"]))
-        kind = L.validate_candidate(self.git.first_parent(L.BRANCH), self.git.is_ancestor, sha, live["sha"])
-        if live["cutover"] and not args.bootstrap:
-            raise L.Refuse("the root still follows the branch (pre-cutover): the first release needs --bootstrap")
-        if args.bootstrap and not live["cutover"]:
-            raise L.Refuse("--bootstrap is for the cutover only; the root already follows a release")
+        if not plan.get("registry_checked", False) and not args.skip_registry_check:
+            raise L.Refuse("the dry run did not check the digest-pinned images against the registry (crane manifest). Run the "
+                           "dry run again without --skip-registry-check, or repeat --skip-registry-check on --yes to accept "
+                           "it (it is then written into the tag message)")
         removed = set(plan.get("removed") or [])
         allow = set(filter(None, (args.allow_remove or "").split(",")))
         if removed - allow:
             raise L.Refuse(f"Applications {sorted(removed - allow)} would be removed: pass --allow-remove {','.join(sorted(removed - allow))}")
+        self.check_release(plan, sha, args, live)
 
-        if kind != "noop":
-            problems = self.convergence_problems(self.kube.applications(), live)
-            if problems:
-                raise L.Refuse("staging is not converged on the live release; fix that first (rollback is exempt):\n  - " + "\n  - ".join(problems))
-
-        as_rel = not live["cutover"]
+        as_rel = self.choose_identity()
         holder = self.holder(args.by)
         self.lease_acquire(holder, steal_stale=False, as_releaser=as_rel)
-        tag = None
+        tag = previous = None
         try:
+            live = self.live()                      # under the Lease: another release may have landed since the reads above
+            self.check_release(plan, sha, args, live)
             tag = self.create_tag(sha, plan, args)
             self.github_release(tag, plan, args)
             previous = live["tag"]
-            self.out(f"\napplying {tag} ({sha[:12]}) to the root {'as admin (cutover)' if not as_rel else 'as the releaser'} ...")
-            self.patch_root(sha, tag, previous, as_rel)
+            self.out(f"\napplying {tag} ({sha[:12]}) to the root as {'the releaser' if as_rel else 'admin'} ...")
+            patched_at = self.sys.now()
+            try:
+                self.patch_root(sha, tag, previous, as_rel)
+            except (RuntimeError, L.Refuse) as e:
+                self.mark_release(tag, L.NOT_APPLIED_MARK, L.NOT_APPLIED_TRAILER,
+                                  f"Not applied: patching the root failed ({str(e)[:200]}). This release never went live.")
+                raise L.Refuse(f"{tag} is tagged and has a GitHub Release, but the root patch FAILED, so it is not live "
+                               f"(the Release is marked {L.NOT_APPLIED_MARK}; the tag stays, tags are immutable). Cause: {str(e)[:300]}")
             self.speed_up(sha, args.by, as_rel)
             ok, problems = self.watch(sha, plan_children=plan.get("children") or [], plugins_changed=plan.get("plugins_changed", False),
-                                      timeout=args.timeout, holder=holder, as_releaser=as_rel, by=args.by)
+                                      timeout=args.timeout, holder=holder, as_releaser=as_rel, by=args.by, since=patched_at,
+                                      rendered=set(plan.get("rendered_workloads") or []))
         finally:
             self.lease_release(as_rel)
         self.out("\n" + self.status_table())
         if ok:
             self.report_unexpected_images(plan)
             self.out(f"\nCONVERGED: {tag} ({sha[:12]}) is live.")
-            self.out(CHECKLIST.format(tag=tag))
+            self.out(CHECKLIST.format(tag=tag) + controller_log_hints(plan))
             return 0
         self.out(f"\nNOT CONVERGED after {args.timeout}s:\n  - " + "\n  - ".join(problems))
         prev = previous
@@ -553,7 +744,9 @@ class Tool:
                                 live_sha=plan["live"], pending=plan.get("pending") or [],
                                 image_changes=plan.get("image_changes") or [], plugin_digests=plan.get("plugin_digests") or {},
                                 plugin_version=plan.get("plugin_version"), mode=plan.get("mode", "release"),
-                                shared_digests=plan.get("shared_digests") or {})
+                                shared_digests=plan.get("shared_digests") or {},
+                                registry_checked=bool(plan.get("registry_checked", False)),
+                                guard_warn_count=self.guard_warn_count())
             with tempfile.NamedTemporaryFile("w", suffix=".msg", delete=False) as fh:
                 fh.write(msg)
                 mf = fh.name
@@ -570,6 +763,14 @@ class Tool:
             self.out(f"push of {tag} rejected ({(r.err or '').strip().splitlines()[-1:]}); the number is taken, retrying")
             self.git.run("fetch", "--tags", "--force", "origin", "teknoir-cloud")
         raise L.Refuse("could not push a release tag after 5 attempts")
+
+    def guard_warn_count(self) -> int | None:
+        """Warnings the release guard has issued since the apiserver started (the baseline staging-status
+        subtracts to tell whether the guard warned about anything since this release)."""
+        r = self.kube.run(["get", "--raw", "/metrics"], check=False)
+        if r.rc != 0:
+            return None
+        return L.guard_action_counts(r.out).get("warn", 0)
 
     def github_release(self, tag: str, plan: dict, args) -> None:
         notes = getattr(self, "release_notes", tag)
@@ -599,7 +800,7 @@ class Tool:
         live = self.live()
         if live["cutover"]:
             raise L.Refuse("the root still follows the branch: there is no release to roll back from")
-        floor = self.policy().get("rollback_floor") or None
+        floor = self.rollback_floor()
         target = args.rollback if isinstance(args.rollback, str) and args.rollback != "-" else None
         if not target:
             target = L.pick_rollback_target(self.releases(), live["tag"], floor)
@@ -613,6 +814,11 @@ class Tool:
             return 0
         if args.yes != target_sha:
             raise L.Refuse(f"--yes {args.yes[:12]} does not match the rollback target {target_sha[:12]}")
+        # A rollback applies an OLDER commit, whose own scripts/ may predate fixes of the tooling, so the tooling
+        # must match the newest reviewed release tooling instead: the head of origin/teknoir-cloud, the live
+        # release or the target.
+        self.require_matching_scripts([("the head of " + L.BRANCH, self.git.rev(L.BRANCH)), ("the live release", live["sha"]),
+                                       ("the rollback target", target_sha)])
         tmp = os.path.join(self.cache, "out", "rb-" + target_sha[:12])
         shutil.rmtree(tmp, ignore_errors=True)
         if not self.render(target_sha, target, tmp):
@@ -634,9 +840,14 @@ class Tool:
         if set(removed) - allow:
             raise L.Refuse(f"the rollback would remove Applications {sorted(set(removed) - allow)}: pass --allow-remove if intended")
 
+        as_rel = self.choose_identity()
         holder = self.holder(args.by)
-        self.lease_acquire(holder, steal_stale=True, as_releaser=True)
+        self.lease_acquire(holder, steal_stale=True, as_releaser=as_rel)
         try:
+            fresh = self.live()                     # under the Lease: the live release may have moved since the reads above
+            if (fresh["sha"], fresh["tag"]) != (live["sha"], live["tag"]):
+                raise L.Refuse(f"the live release moved while the rollback was prepared ({live['tag']} -> {fresh['tag']}): "
+                               "look at it and plan the rollback again")
             # outdated operations first, root first, then children
             for name in [L.ROOT_APP] + sorted(a["metadata"]["name"] for a in self.kube.applications() if L.is_gitops_app(a) and a["metadata"]["name"] != L.ROOT_APP):
                 a = self.kube.get_json(["-n", L.NAMESPACE, "application", name])
@@ -645,14 +856,16 @@ class Tool:
                 if op.get("phase") == "Running" and rev != target_sha:
                     self.out(f"  terminating the running operation of {name} ({rev[:12]})")
                     self.kube.run(["-n", L.NAMESPACE, "patch", "application", name, "--type", "merge", "-p",
-                                   json.dumps({"status": {"operationState": {"phase": "Terminating"}}})], as_releaser=True, check=False)
-            self.patch_root(target_sha, target, live["tag"], True)
-            self.speed_up(target_sha, args.by, True)
+                                   json.dumps({"status": {"operationState": {"phase": "Terminating"}}})], as_releaser=as_rel, check=False)
+            patched_at = self.sys.now()
+            self.patch_root(target_sha, target, live["tag"], as_rel)
+            self.speed_up(target_sha, args.by, as_rel)
             ok, problems = self.watch(target_sha, plan_children=sorted(cand_apps), plugins_changed=self.plugins_changed(
                 json.load(open(pj)).get("version") if os.path.isfile(pj) else None), timeout=args.timeout,
-                                      holder=holder, as_releaser=True, by=args.by)
+                                      holder=holder, as_releaser=as_rel, by=args.by, since=patched_at,
+                                      rendered=set(workloads_of(docs)))
         finally:
-            self.lease_release(True)
+            self.lease_release(as_rel)
         self.out("\n" + self.status_table())
         self.mark_rolled_back(live["tag"], target, args)
         if ok:
@@ -663,9 +876,27 @@ class Tool:
         return 3
 
     def mark_rolled_back(self, abandoned: str, target: str, args) -> None:
-        notes = f"{L.ROLLED_BACK_MARK} by {args.by}: {args.reason}. Rolled back to {target}."
-        self.sys.run(["gh", "release", "edit", abandoned, "--repo", L.GITHUB_REPO, "--title", f"{abandoned} {L.ROLLED_BACK_MARK}",
-                      "--prerelease", "--notes", notes], check=False)
+        self.mark_release(abandoned, L.ROLLED_BACK_MARK, L.ROLLED_BACK_TRAILER,
+                          f"Rolled back by {args.by}: {args.reason}. Rolled back to {target}.")
+
+    def mark_release(self, tag: str, mark: str, trailer: str, note: str) -> None:
+        """Mark a GitHub Release (contract with infra staging-root.sh, stagelib.is_marked): the title gets the
+        prefix `mark`, the body keeps its text and ends with the trailer line. Never raises."""
+        r = self.sys.run(["gh", "release", "view", tag, "--repo", L.GITHUB_REPO, "--json", "body", "-q", ".body"], check=False)
+        body = r.out if r.rc == 0 and r.out.strip() else (self.release_notes or tag)
+        with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as fh:
+            fh.write(L.with_trailer(f"{body.rstrip()}\n\n{note}", trailer))
+            nf = fh.name
+        try:
+            e = self.sys.run(["gh", "release", "edit", tag, "--repo", L.GITHUB_REPO, "--title", L.marked_title(mark, tag),
+                              "--prerelease", "--latest=false", "--notes-file", nf], check=False)
+        finally:
+            os.unlink(nf)
+        if e.rc != 0:
+            self.out(f"WARNING: could not mark the GitHub Release {tag} {mark}: {(e.err or e.out).strip()[:200]}. Do it by hand "
+                     f"(title prefix '{mark}', body line '{trailer}')")
+        else:
+            self.out(f"GitHub Release {tag} marked {mark}")
 
     # ---- verified / break-glass ---------------------------------------------------------------
     def cmd_verified(self, tag: str) -> int:
@@ -674,6 +905,12 @@ class Tool:
         live = self.live()
         if live["tag"] != tag:
             raise L.Refuse(f"{tag} is not the live release ({live['tag']}): verify what is live, or roll forward first")
+        # Verified means: the browser check passed AND staging is what the release says it is.
+        problems = L.root_deviations(live["root"])
+        problems += L.converged(self.kube.applications(), live["sha"])[1]
+        if problems:
+            raise L.Refuse(f"{tag} is live but staging does not match it; fix that before marking it verified:\n  - "
+                           + "\n  - ".join(problems))
         r = self.sys.run(["gh", "release", "edit", tag, "--repo", L.GITHUB_REPO, "--prerelease=false", "--latest"], check=False)
         if r.rc != 0:
             raise L.Refuse(f"could not mark the GitHub Release verified: {(r.err or r.out).strip()[:200]}")
@@ -706,6 +943,21 @@ Next: the browser check (CLAUDE.md, 'Verifying rollouts in the browser') against
 Then mark the release verified:  scripts/staging-release --verified {tag}
 Also: kubectl --context vpro -n teknoir-system get applications -o custom-columns=N:.metadata.name,REV:.status.sync.revision,SYNC:.status.sync.status,HEALTH:.status.health.status
       scripts/staging-status"""
+
+
+def controller_log_hints(plan: dict) -> str:
+    """Documented deviation from the design (watch, step 7): the controller logs are NOT scanned by the script.
+    Five Go controllers share no error format, and a regex over their logs would roll good releases back, so the
+    operator gets the exact commands for the controllers whose render changed."""
+    wl = plan.get("controller_workloads") or {}
+    if not wl:
+        return ""
+    lines = ["\nControllers whose render changed: read their logs for new errors (not scanned by the script):"]
+    for app, ws in sorted(wl.items()):
+        for w in ws:
+            ns, kind, name = w.split("/")
+            lines.append(f"  kubectl --context vpro -n {ns or 'teknoir-system'} logs {kind.lower()}/{name} --since=15m | grep -iE 'error|panic'")
+    return "\n".join(lines)
 
 
 def build_parser() -> argparse.ArgumentParser:

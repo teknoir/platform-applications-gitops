@@ -52,10 +52,13 @@ PLUGIN_REPO = "https://teknoir.github.io/profile-plugins-helm"
 def parse_tag_record(message: str) -> dict:
     """Plugin version, plugin index digests and shared-tag digests from a release tag message
     (stagelib.tag_message)."""
-    rec = {"plugin_version": None, "plugin_digests": {}, "shared": {}}
+    rec = {"plugin_version": None, "plugin_digests": {}, "shared": {}, "guard_warn": None}
     section = None
     for line in message.splitlines():
-        if line.startswith("plugin chart version:"):
+        if line.startswith("guard warn count at release:"):
+            v = line.split(":", 1)[1].strip()
+            rec["guard_warn"] = int(v) if v.isdigit() else None
+        elif line.startswith("plugin chart version:"):
             v = line.split(":", 1)[1].strip()
             rec["plugin_version"] = None if v.startswith("(") else v
         elif line.startswith("plugin chart index digests:"):
@@ -151,7 +154,7 @@ def main(argv: list[str] | None = None, sys_: L.Sys | None = None) -> int:
     live_tag = None if cutover else L.root_release_name(root)
     print(f"context            {kube.context}")
     print(f"live commit        {live_sha}")
-    rec = {"plugin_version": None, "plugin_digests": {}, "shared": {}}
+    rec = {"plugin_version": None, "plugin_digests": {}, "shared": {}, "guard_warn": None}
     if cutover:
         print("live release       NONE: the root still follows the branch (pre-cutover). Every merge to teknoir-cloud is live.")
         attention.append("pre-cutover: the root follows the branch")
@@ -240,6 +243,21 @@ def main(argv: list[str] | None = None, sys_: L.Sys | None = None) -> int:
     if vap.rc == 0:
         acts = json.loads(vap.out)["spec"].get("validationActions")
         print(f"\nrelease guard      binding present, actions {acts}")
+        # The gate for Warn -> Deny is "a day with no unexpected guard warnings": the apiserver counts the requests the
+        # policy warned about (a counter since the apiserver started). The release tag records the counter at release.
+        m = kube.run(["get", "--raw", "/metrics"], check=False)
+        if m.rc != 0:
+            print("guard decisions    cannot read the apiserver metrics (get --raw /metrics)")
+        else:
+            counts = L.guard_action_counts(m.out)
+            delta, reset = L.warn_delta(counts.get("warn", 0), rec["guard_warn"])
+            since = f"since release {live_tag}" if rec["guard_warn"] is not None and not reset else \
+                ("since the apiserver started (counter was reset after the release)" if reset else
+                 "since the apiserver started (the release recorded no baseline)")
+            print(f"guard decisions    {delta} warning(s) {since}; denied {counts.get('deny', 0)} in total")
+            if delta:
+                attention.append(f"the release guard warned {delta} time(s) {since}: someone changed an Application outside "
+                                 "scripts/staging-release")
     else:
         print("\nrelease guard      not installed (policy staging-release-guard not found)")
     if bg:

@@ -27,12 +27,35 @@ Cutover (once): `scripts/staging-release --bootstrap` (the dry run must show no 
 
 ## Guards
 
-Context exactly `vpro` (names with online|eks|prod are refused); the candidate is a first-parent commit of
+Context exactly `vpro` (names with online|eks|prod are refused); the tag is `staging-YYYYMMDD.N`
+(`^staging-[0-9]{8}\.[1-9][0-9]*$`, the same expression as the guard policy); the candidate is a first-parent commit of
 `origin/teknoir-cloud` that descends from the live release; `--yes` equals the dry-run SHA and the plan is fresh and
 live has not moved; the Lease `teknoir-system/staging-release-lock` is held from apply to converged; an existing tag is
 refused (push rejection retries with N+1); children must be converged on live (rollback and a re-run of the live SHA are
 exempt); removing Applications needs `--allow-remove`; the lint, `helm unittest charts/app-of-apps`, kubeconform and
 `crane manifest` of every `@sha256` image must pass.
+
+- **Which tooling decides.** The lint code (`check-pins.py`) and the image policy (`release-policy.yaml`) are those of
+  the CANDIDATE commit (its worktree), the rollback floor is read from `origin/teknoir-cloud`. `--yes` refuses to run
+  from a checkout whose `scripts/` differ from the candidate's (the message names the worktree to run it from);
+  `--rollback --yes` accepts the head of `origin/teknoir-cloud`, the live release or the target.
+- **Who applies.** The releaser identity (`staging-releaser`) is used only when the release-guard chart installed it
+  (ServiceAccount, RoleBinding, `auth can-i`). Before that (the cutover and release .2, which switches the guard on)
+  the release is applied as the operator's own admin identity and the script says `guard not installed: applying as admin`.
+- **Under the Lease** the live release is read again and the plan, the candidate and the convergence guard are checked
+  again. At the cutover the convergence guard runs too (the candidate then equals the synced revision).
+- **Watching.** Only pods of workloads in the render, or pods (re)started after the patch, count; Argo Workflow pods do
+  not; Pending beyond 3 minutes is a failure. Deviation from the design (watch, step 7): the logs of the changed
+  controllers are NOT scanned by the script (five Go controllers share no error format; a regex would roll good
+  releases back). The success output prints the `kubectl logs` commands for the controllers whose render changed.
+- **Release markers** (contract with `teknoir/infra` `staging-root.sh`): a GitHub Release is `[rolled back] <tag>` and
+  its body ends with the line `Rolled-Back: true` after a rollback; `[not applied] <tag>` with `Not-Applied: true`
+  when the root patch failed after the tag and Release were created (the tag stays; it never went live). Either the
+  title prefix or the trailer line marks it; rollback targets, the bootstrap pick and `--verified` skip marked releases.
+- **`--verified`** needs staging converged on the release and a root exactly as the release writes it.
+- **`--skip-registry-check`** on the dry run makes the plan unusable for `--yes` unless it is repeated on `--yes`; the
+  tag message then says `registry check: SKIPPED`. The tag message also records `guard warn count at release`, the
+  baseline `staging-status` uses to report guard warnings since the release.
 
 ## Notes for operators
 

@@ -204,6 +204,20 @@ class RootSpec(unittest.TestCase):
                         params=[{"name": "release", "value": SHA1}, {"name": "releaseName", "value": "staging-20261017.1"}])
         self.assertTrue(any("break-glass" in d for d in L.root_deviations(bg)))
 
+    def pinned(self, mut):
+        r = H.root_app(target=SHA1, release_name="staging-20261017.1",
+                       params=[{"name": "release", "value": SHA1}, {"name": "releaseName", "value": "staging-20261017.1"}])
+        mut(r["spec"])
+        return L.root_deviations(r)
+
+    def test_deviations_cover_destination_prune_and_ignore_differences(self):
+        self.assertTrue(any("destination" in d for d in self.pinned(lambda s: s["destination"].update(server="https://elsewhere"))))
+        self.assertTrue(any("destination" in d for d in self.pinned(lambda s: s["destination"].update(namespace="other"))))
+        self.assertTrue(any("prune" in d for d in self.pinned(lambda s: s["syncPolicy"]["automated"].update(prune=False))))
+        self.assertTrue(any("ignoreDifferences" in d for d in self.pinned(lambda s: s.update(ignoreDifferences=[{"kind": "Application", "jsonPointers": ["/spec"]}]))))
+        self.assertTrue(any("sources" in d for d in self.pinned(lambda s: s.update(sources=[{"repoURL": "x"}]))))
+        self.assertEqual(self.pinned(lambda s: s.update(sources=[])), [])
+
 
 class Convergence(unittest.TestCase):
     def test_all_on_sha_and_healthy(self):
@@ -240,12 +254,48 @@ class Convergence(unittest.TestCase):
         self.assertEqual(pr, ["new: Application not found yet"])
 
 
+class TagFormat(unittest.TestCase):
+    def test_tightened_regex(self):
+        for ok in ("staging-20261017.1", "staging-20261017.10", "staging-20261017.123"):
+            self.assertTrue(L.TAG_RE.match(ok), ok)
+        for bad in ("staging-20261017.0", "staging-20261017.08", "staging-20261017.01", "staging-2026101.1", "staging-20261017.",
+                    "staging-20261017.1a", "xstaging-20261017.1", "staging-20261017.1\n", "staging-٢٠٢٦١٠١٧.1"):
+            self.assertIsNone(L.TAG_RE.match(bad) if not bad.endswith("\n") else L.TAG_RE.fullmatch(bad), repr(bad))
+
+    def test_the_guard_policy_uses_the_same_expression(self):
+        pol = open(os.path.join(H.SCRIPTS, "..", "charts", "release-guard", "templates", "policy.yaml")).read()
+        self.assertTrue(r"'^staging-[0-9]{8}[.][1-9][0-9]*$'" in pol)
+        self.assertEqual(L.TAG_RE.pattern, r"^staging-([0-9]{8})\.([1-9][0-9]*)$")
+
+
+class GuardMetrics(unittest.TestCase):
+    TEXT = """# TYPE apiserver_validating_admission_policy_check_total counter
+apiserver_validating_admission_policy_check_total{enforcement_action="audit",error_type="invalid_error",policy="staging-release-guard",policy_binding="b"} 328
+apiserver_validating_admission_policy_check_total{enforcement_action="warn",error_type="invalid_error",policy="staging-release-guard",policy_binding="b"} 9
+apiserver_validating_admission_policy_check_total{enforcement_action="warn",error_type="invalid_error",policy="staging-release-guard",policy_binding="b2"} 1
+apiserver_validating_admission_policy_check_total{enforcement_action="deny",error_type="invalid_error",policy="staging-release-guard",policy_binding="b"} 319
+apiserver_validating_admission_policy_check_total{enforcement_action="warn",error_type="invalid_error",policy="other-policy",policy_binding="o"} 55
+apiserver_validating_admission_policy_check_duration_seconds_count{enforcement_action="warn",policy="staging-release-guard"} 99
+"""
+
+    def test_counts_of_the_guard_policy_only(self):
+        self.assertEqual(L.guard_action_counts(self.TEXT), {"audit": 328, "warn": 10, "deny": 319})
+        self.assertEqual(L.guard_action_counts(""), {})
+
+    def test_delta_and_counter_reset(self):
+        self.assertEqual(L.warn_delta(10, 7), (3, False))
+        self.assertEqual(L.warn_delta(10, None), (10, False))
+        self.assertEqual(L.warn_delta(2, 7), (2, True))            # the apiserver restarted
+        self.assertEqual(L.warn_delta(None, 7), (None, False))
+
+
 class Releases(unittest.TestCase):
     R = [{"tagName": "staging-20261017.1", "isPrerelease": False, "name": "staging-20261017.1"},
          {"tagName": "staging-20261017.2", "isPrerelease": True, "name": "staging-20261017.2"},
-         {"tagName": "staging-20261017.3", "isPrerelease": False, "name": "staging-20261017.3 [rolled back]"},
+         {"tagName": "staging-20261017.3", "isPrerelease": False, "name": "[rolled back] staging-20261017.3"},
          {"tagName": "staging-20261017.4", "isPrerelease": False, "name": "staging-20261017.4"},
          {"tagName": "staging-20261018.1", "isPrerelease": False, "name": "staging-20261018.1"},
+         {"tagName": "staging-20261018.2", "isPrerelease": False, "name": "[not applied] staging-20261018.2"},
          {"tagName": "other", "isPrerelease": False, "name": "other"}]
 
     def test_rollback_target_is_the_newest_verified_older_one(self):
@@ -258,8 +308,35 @@ class Releases(unittest.TestCase):
         self.assertIsNone(L.pick_rollback_target(self.R, "staging-20261017.4", "staging-20261017.2"))
 
     def test_bootstrap_takes_the_newest_verified_not_the_newest_tag(self):
-        self.assertEqual(L.newest_verified_release(self.R), "staging-20261018.1")
+        self.assertEqual(L.newest_verified_release(self.R), "staging-20261018.1")        # .2 is not applied
         self.assertEqual(L.newest_verified_release(self.R[:3]), "staging-20261017.1")
+
+    def test_not_applied_is_skipped_for_rollback_and_bootstrap(self):
+        self.assertEqual(L.pick_rollback_target(self.R, "staging-20261018.3", None), "staging-20261018.1")
+
+    def test_marker_contract(self):
+        # contract with infra staging-root.sh (teknoir/infra#11): title PREFIX, or a body trailer line of its own
+        self.assertTrue(L.is_marked("[rolled back] staging-20261017.3"))
+        self.assertTrue(L.is_marked("[not applied] staging-20261017.3"))
+        self.assertFalse(L.is_marked("staging-20261017.3 [rolled back]"))     # the old suffix form is not the contract
+        self.assertFalse(L.is_marked("staging-20261017.3", "we rolled back the day before"))
+        self.assertTrue(L.is_marked("staging-20261017.3", "text\n\nRolled-Back: true\n"))
+        self.assertTrue(L.is_marked("staging-20261017.3", "text\n\nNot-Applied: true"))
+        self.assertFalse(L.is_marked("staging-20261017.3", "Rolled-Back: true but not on its own line"))
+        self.assertEqual(L.marked_title(L.ROLLED_BACK_MARK, "staging-20261017.3"), "[rolled back] staging-20261017.3")
+        self.assertEqual((L.ROLLED_BACK_TRAILER, L.NOT_APPLIED_TRAILER), ("Rolled-Back: true", "Not-Applied: true"))
+
+    def test_with_trailer_keeps_the_body_and_is_idempotent(self):
+        once = L.with_trailer("body\nmore", L.ROLLED_BACK_TRAILER)
+        self.assertEqual(once, "body\nmore\n\nRolled-Back: true\n")
+        self.assertEqual(L.with_trailer(once, L.ROLLED_BACK_TRAILER), once)
+
+    def test_tag_message_records_registry_check_and_guard_baseline(self):
+        m = L.tag_message(tag="staging-20261017.2", sha=SHA1, by="s", reason="r", previous=None, live_sha=SHA2, pending=[],
+                          image_changes=[], plugin_digests={}, plugin_version=None, mode="release", registry_checked=False,
+                          guard_warn_count=4)
+        self.assertIn("registry check: SKIPPED", m)
+        self.assertIn("guard warn count at release: 4", m)
 
     def test_tag_message_contents(self):
         m = L.tag_message(tag="staging-20261017.2", sha=SHA1, by="sess", reason="why", previous="staging-20261017.1", live_sha=SHA2,

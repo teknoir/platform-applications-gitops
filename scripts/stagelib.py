@@ -20,18 +20,29 @@ from dataclasses import dataclass, field
 CONTEXT = "vpro"                      # the only kubectl context these scripts act on
 NAMESPACE = "teknoir-system"
 ROOT_APP = "app-of-apps"
-RELEASER_SA = "system:serviceaccount:teknoir-system:staging-releaser"
+RELEASER_NAME = "staging-releaser"
+RELEASER_SA = f"system:serviceaccount:teknoir-system:{RELEASER_NAME}"
 LEASE_NAME = "staging-release-lock"
 GITHUB_REPO = "teknoir/platform-applications-gitops"
 REPO_URL = "https://github.com/teknoir/platform-applications-gitops"
 ROOT_PATH = "charts/app-of-apps"
 BRANCH = "origin/teknoir-cloud"
-TAG_RE = re.compile(r"^staging-(\d{8})\.(\d+)$")
+# staging-YYYYMMDD.N: N has no leading zero and is at least 1 (the guard policy uses the same expression).
+TAG_RE = re.compile(r"^staging-([0-9]{8})\.([1-9][0-9]*)$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 LEASE_SECONDS = 120
 STALE_LEASE_SECONDS = 120             # rollback may steal a lease older than this
 PLAN_TTL_SECONDS = 30 * 60
+# Release markers (contract with infra staging-root.sh / PR teknoir/infra#11). A GitHub Release is marked by
+#   - its TITLE starting with the title mark ("[rolled back] staging-20261017.3"), and
+#   - a TRAILER line in its body, on a line of its own: "Rolled-Back: true" / "Not-Applied: true".
+# Either one is enough for a reader; `gh release list` carries only the title, so the title is what the
+# selection of rollback targets uses. "rolled back": the release was live and was left by a rollback;
+# "not applied": the tag and Release exist but the root patch failed, so it never went live.
 ROLLED_BACK_MARK = "[rolled back]"
+ROLLED_BACK_TRAILER = "Rolled-Back: true"
+NOT_APPLIED_MARK = "[not applied]"
+NOT_APPLIED_TRAILER = "Not-Applied: true"
 # Tags production pulls too ("Production coupling"): a push to these repos moves production on its next restart.
 SHARED_TAGS = ["ghcr.io/teknoir/keycloak-theme:latest", "ghcr.io/teknoir/devstudio-controller:teknoir-cloud",
                "ghcr.io/teknoir/profile-controller:latest"]
@@ -294,6 +305,15 @@ def root_deviations(root: dict) -> list[str]:
     auto = (spec.get("syncPolicy") or {}).get("automated") or {}
     if not auto.get("selfHeal"):
         out.append("syncPolicy.automated.selfHeal is off")
+    if auto.get("prune") is not True:
+        out.append("syncPolicy.automated.prune is not true")
+    dest = spec.get("destination") or {}
+    if dest.get("server") != exp["destination"]["server"] or dest.get("namespace") != exp["destination"]["namespace"]:
+        out.append(f"destination is {dest.get('server')}/{dest.get('namespace')}")
+    if spec.get("ignoreDifferences"):
+        out.append("spec.ignoreDifferences is set")
+    if spec.get("sources"):
+        out.append("spec.sources is not empty")
     if ANN_BREAK_GLASS in ann:
         out.append(f"break-glass is open: {ann[ANN_BREAK_GLASS]}")
     return out
@@ -405,15 +425,36 @@ def converged(apps: list[dict], sha: str, *, plugins_changed: bool = False,
 # ---------------------------------------------------------------------------------------------
 # Releases (GitHub)
 # ---------------------------------------------------------------------------------------------
+def is_marked(title: str | None, body: str | None = None) -> bool:
+    """True when a GitHub Release carries the rolled-back or not-applied marker: title prefix or body trailer line."""
+    t = (title or "").lstrip()
+    if t.startswith(ROLLED_BACK_MARK) or t.startswith(NOT_APPLIED_MARK):
+        return True
+    lines = {ln.strip() for ln in (body or "").splitlines()}
+    return ROLLED_BACK_TRAILER in lines or NOT_APPLIED_TRAILER in lines
+
+
+def marked_title(mark: str, tag: str) -> str:
+    return f"{mark} {tag}"
+
+
+def with_trailer(body: str, trailer: str) -> str:
+    """The Release body with the trailer as its own last line (idempotent)."""
+    lines = (body or "").rstrip().splitlines()
+    if trailer in {ln.strip() for ln in lines}:
+        return "\n".join(lines) + "\n"
+    return "\n".join(lines + ["", trailer]) + "\n"
+
+
 def pick_rollback_target(releases: list[dict], live_tag: str | None, floor: str | None) -> str | None:
-    """Newest release that is verified (not a prerelease), not marked rolled back, older than live and
+    """Newest release that is verified (not a prerelease), not marked rolled back / not applied, older than live and
     not older than the floor. `releases` are `gh release list --json tagName,isPrerelease,name` rows."""
     cands = []
     for r in releases:
         t = r.get("tagName", "")
         if not TAG_RE.match(t):
             continue
-        if r.get("isPrerelease") or ROLLED_BACK_MARK in (r.get("name") or ""):
+        if r.get("isPrerelease") or is_marked(r.get("name")):
             continue
         if live_tag and tag_key(t) >= tag_key(live_tag):
             continue
@@ -424,19 +465,24 @@ def pick_rollback_target(releases: list[dict], live_tag: str | None, floor: str 
 
 
 def newest_verified_release(releases: list[dict]) -> str | None:
-    """For the bootstrap: newest release that is not a prerelease and not marked rolled back."""
+    """For the bootstrap: newest release that is not a prerelease and not marked rolled back / not applied."""
     ok = [r["tagName"] for r in releases
           if TAG_RE.match(r.get("tagName", "")) and not r.get("isPrerelease")
-          and ROLLED_BACK_MARK not in (r.get("name") or "")]
+          and not is_marked(r.get("name"))]
     return max(ok, key=tag_key) if ok else None
 
 
 def tag_message(*, tag: str, sha: str, by: str, reason: str, previous: str | None, live_sha: str,
                 pending: list[dict], image_changes: list[str], plugin_digests: dict[str, str],
-                plugin_version: str | None, mode: str, shared_digests: dict[str, str] | None = None) -> str:
+                plugin_version: str | None, mode: str, shared_digests: dict[str, str] | None = None,
+                registry_checked: bool = True, guard_warn_count: int | None = None) -> str:
     lines = [f"{tag}", "",
              f"commit: {sha}", f"previous: {previous or '(none: first release)'} ({live_sha[:12]})",
-             f"by: {by}", f"reason: {reason}", f"kind: {mode}", "", f"pending ({len(pending)}):"]
+             f"by: {by}", f"reason: {reason}", f"kind: {mode}",
+             "registry check: " + ("every digest-pinned image resolved" if registry_checked else
+                                   "SKIPPED (--skip-registry-check on the dry run and on --yes)"),
+             f"guard warn count at release: {guard_warn_count if guard_warn_count is not None else '(unknown)'}",
+             "", f"pending ({len(pending)}):"]
     for c in pending:
         pr = f"#{c['pr']} " if c.get("pr") else ""
         br = f" [{c['branch']}]" if c.get("branch") else ""
@@ -446,6 +492,41 @@ def tag_message(*, tag: str, sha: str, by: str, reason: str, previous: str | Non
     lines += [f"  {k} {v}" for k, v in sorted(plugin_digests.items())]
     lines += ["", "production-shared tag digests:"] + [f"  {k} {v}" for k, v in sorted((shared_digests or {}).items())]
     return "\n".join(lines) + "\n"
+
+
+# ---------------------------------------------------------------------------------------------
+# Guard decisions from the apiserver metrics
+# ---------------------------------------------------------------------------------------------
+GUARD_POLICY = "staging-release-guard"
+_METRIC_RE = re.compile(r'^apiserver_validating_admission_policy_check_total\{([^}]*)\}\s+([0-9.eE+-]+)\s*$')
+
+
+def guard_action_counts(metrics_text: str, policy: str = GUARD_POLICY) -> dict[str, int]:
+    """{'warn': n, 'deny': n, 'audit': n}: how often the policy found a violation, per enforcement action,
+    since the apiserver started (apiserver_validating_admission_policy_check_total counts failed validations)."""
+    out: dict[str, int] = {}
+    for line in metrics_text.splitlines():
+        m = _METRIC_RE.match(line)
+        if not m:
+            continue
+        labels = dict(re.findall(r'(\w+)="([^"]*)"', m.group(1)))
+        if labels.get("policy") != policy:
+            continue
+        act = labels.get("enforcement_action", "")
+        out[act] = out.get(act, 0) + int(float(m.group(2)))
+    return out
+
+
+def warn_delta(now: int | None, baseline: int | None) -> tuple[int | None, bool]:
+    """(warnings since the baseline, counter_was_reset). The counter lives in the apiserver process: lower than
+    the baseline means the apiserver restarted, then the count since the restart is all that is known."""
+    if now is None:
+        return None, False
+    if baseline is None:
+        return now, False
+    if now < baseline:
+        return now, True
+    return now - baseline, False
 
 
 # ---------------------------------------------------------------------------------------------

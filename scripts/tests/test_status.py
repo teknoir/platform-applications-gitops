@@ -64,6 +64,57 @@ class Main(unittest.TestCase):
         self.assertTrue(all(v == "get" for v in fake.verbs()), fake.verbs())
 
 
+class GuardWarnings(unittest.TestCase):
+    METRIC = ('apiserver_validating_admission_policy_check_total{enforcement_action="%s",error_type="invalid_error",'
+              'policy="staging-release-guard",policy_binding="staging-release-guard-binding"} %d\n')
+
+    def run_status(self, warn_now, baseline):
+        repo = H.Repo()
+        sha = repo.sha("c2")
+        tag = "staging-20261017.1"
+        root = H.root_app(target=sha, release_name=tag, params=[{"name": "release", "value": sha}, {"name": "releaseName", "value": tag}])
+        fake = H.FakeSys(root)
+        fake.guard_binding = {"validationActions": ["Warn", "Audit"]}
+        fake.metrics = self.METRIC % ("warn", warn_now) + self.METRIC % ("deny", 3)
+        msg = L.tag_message(tag=tag, sha=sha, by="s", reason="r", previous=None, live_sha=sha, pending=[], image_changes=[],
+                            plugin_digests={}, plugin_version=None, mode="release", guard_warn_count=baseline)
+        H.git(repo.work, "tag", "-a", "-m", msg, tag, sha)
+        real = L.repo_root_of
+        L.repo_root_of = lambda p: repo.work
+        import contextlib, io
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                rc = ST.main(["--no-network", "--branch", "origin/teknoir-cloud"], sys_=fake)
+        finally:
+            L.repo_root_of = real
+        return rc, buf.getvalue(), fake
+
+    def test_no_new_warnings_since_the_release(self):
+        rc, out, fake = self.run_status(warn_now=5, baseline=5)
+        self.assertIn("0 warning(s) since release staging-20261017.1", out)
+        self.assertNotIn("the release guard warned", out)
+        self.assertTrue(all(v == "get" for v in fake.verbs()), fake.verbs())
+
+    def test_warnings_since_the_release_need_attention(self):
+        rc, out, _ = self.run_status(warn_now=9, baseline=5)
+        self.assertIn("4 warning(s) since release staging-20261017.1", out)
+        self.assertIn("the release guard warned 4 time(s)", out)
+        self.assertEqual(rc, 1)
+
+    def test_a_restarted_apiserver_is_reported_as_a_reset_counter(self):
+        _, out, _ = self.run_status(warn_now=2, baseline=50)
+        self.assertIn("counter was reset", out)
+
+    def test_parse_tag_record_reads_the_baseline(self):
+        m = L.tag_message(tag="staging-20261017.2", sha="1" * 40, by="s", reason="r", previous=None, live_sha="2" * 40, pending=[],
+                          image_changes=[], plugin_digests={}, plugin_version=None, mode="release", guard_warn_count=12)
+        self.assertEqual(ST.parse_tag_record(m)["guard_warn"], 12)
+        m = L.tag_message(tag="staging-20261017.2", sha="1" * 40, by="s", reason="r", previous=None, live_sha="2" * 40, pending=[],
+                          image_changes=[], plugin_digests={}, plugin_version=None, mode="release")
+        self.assertIsNone(ST.parse_tag_record(m)["guard_warn"])
+
+
 class Scripts(unittest.TestCase):
     def test_every_script_is_executable_and_has_help(self):
         for n in ("staging-release", "staging-status", "pin-image", "check-pins.py", "staging-render.sh"):
