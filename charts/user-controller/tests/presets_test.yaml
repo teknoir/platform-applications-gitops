@@ -1,0 +1,37 @@
+suite: presets
+templates:
+  - templates/presets.yaml
+tests:
+  - it: keeps the namespace placeholder literal in the observatory claim paths
+    documentSelector:
+      path: metadata.name
+      value: observatory
+      matchMany: true
+    asserts:
+      - isKind:
+          of: Claim
+        documentIndex: 0
+      - equal:
+          path: spec.authpolicy[0].rules[0].to[0].operation.paths[0]
+          value: "/{{.namespace}}/observatory*"
+        documentIndex: 0
+      - equal:
+          path: spec.authpolicy[0].rules[0].to[0].operation.paths[1]
+          value: "/{{.namespace}}/ws*"
+        documentIndex: 0
+      - equal:
+          path: spec.authpolicy[0].rules[0].to[0].operation.paths[2]
+          value: "/{{.namespace}}/media-service*"
+        documentIndex: 0
+      - equal:
+          path: spec.authpolicy[1].rules[0].to[0].operation.paths[0]
+          value: "/{{.namespace}}/observatory*"
+        documentIndex: 0
+      - equal:
+          path: spec.authpolicy[1].rules[0].to[0].operation.paths[1]
+          value: "/{{.namespace}}/ws*"
+        documentIndex: 0
+      - equal:
+          path: spec.authpolicy[1].rules[0].to[0].operation.paths[2]
+          value: "/{{.namespace}}/media-service*"
+        documentIndex: 0

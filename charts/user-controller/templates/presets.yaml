@@ -176,9 +176,9 @@ spec:
           methods:
           - GET
           paths:
-          - /{{.namespace}}/observatory*
-          - /{{.namespace}}/ws*
-          - /{{.namespace}}/media-service*
+          - /{{ "{{.namespace}}" }}/observatory*
+          - /{{ "{{.namespace}}" }}/ws*
+          - /{{ "{{.namespace}}" }}/media-service*
           - /retrieve_events*
           - /events*
           - /feedbacks*
@@ -194,9 +194,9 @@ spec:
           - POST
           - DELETE
           paths:
-          - /{{.namespace}}/observatory*
-          - /{{.namespace}}/ws*
-          - /{{.namespace}}/media-service*
+          - /{{ "{{.namespace}}" }}/observatory*
+          - /{{ "{{.namespace}}" }}/ws*
+          - /{{ "{{.namespace}}" }}/media-service*
           - /retrieve_events*
           - /events*
           - /feedbacks*
