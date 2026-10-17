@@ -38,8 +38,8 @@ hub:
   # The org gate in the hub (CanOpen): enforce (default, fails closed), audit (log would-be denials,
   # allow) or off. Any other value fails the render.
   orgGate:
-    # Staging rollout 2026-10-17: audit first (logs and counts would_deny), then enforce.
-    mode: "audit"
+    # Staging: audit in staging-20261017.14 (only would_deny: claude-agent on virtual-2cpu-4gb), enforce since.
+    mode: "enforce"
 
 # The flags watcher (Deployment wg-flags, same image as the hub, command `flags-watcher`): the only
 # component with access to Device objects.
