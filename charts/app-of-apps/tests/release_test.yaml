@@ -696,11 +696,16 @@ tests:
       - notMatchRegexRaw: {pattern: "targetRevision: teknoir-cloud"}
       - notMatchRegexRaw: {pattern: "targetRevision: \\{\\{"}
 
-  - it: release-guard is on for teknoir-cloud by default (release 2) in Warn
+  - it: release-guard is on for teknoir-cloud by default in Deny (Warn from release 2 until 2026-10-18)
     template: templates/release-guard.yaml
     set: {project: teknoir-cloud}
     asserts:
       - hasDocuments: {count: 1}
+      - contains: {path: spec.source.helm.parameters, content: {name: guard.mode, value: Deny}}
+  - it: release-guard can still be set to Warn (rollback of the Deny step)
+    template: templates/release-guard.yaml
+    set: {project: teknoir-cloud, releaseGuard: {enabled: true, mode: Warn}}
+    asserts:
       - contains: {path: spec.source.helm.parameters, content: {name: guard.mode, value: Warn}}
   - it: release-guard renders nothing when the flag is false
     template: templates/release-guard.yaml
