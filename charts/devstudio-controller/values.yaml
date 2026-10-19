@@ -4,7 +4,8 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/teknoir/devstudio-controller
-  tag: teknoir-cloud
+  # Pinned 2026-10-19: '<tag>@sha256:<digest>' = the image production ran (adopted, no change).
+  tag: "teknoir-cloud@sha256:ff890f902a687dda295811676d6447d7ea8ceafbd5edadc8b390e8a27d211777"
   pullPolicy: Always
 
 imagePullSecrets:
