@@ -17,7 +17,7 @@ Keycloak admin.
   `$(env:...)` substitution of the client secrets from
   `teknoir-auth/keycloak-client-secrets` (platform-secrets chart). Keycloak and
   every consumer therefore share one value.
-- Clients: `teknoir` (oauth2-proxy, PKCE S256, redirect
+- Clients: `teknoir-cli` (tnctl, device flow, below), `teknoir` (oauth2-proxy, PKCE S256, redirect
   `https://<domain>/oauth2/callback` and `https://*.<domain>/oauth2/callback`),
   `argocd` (`https://argocd.<domain>/auth/callback`), `harbor`
   (`https://harbor.<domain>/c/oidc/callback`), `user-controller` (service account
@@ -107,10 +107,34 @@ it sets the admin's password to `password` through the admin REST API. So:
   oauth2-proxy is down, ext_authz fails closed on every protected vhost.
 - `--extra-jwt-issuers` is off by default (`oauth2Proxy.oidc.cliClientId`): it
   makes oauth2-proxy run OIDC discovery at startup, which cannot succeed before
-  the PostSync import has created the realm.
+  the PostSync import has created the realm. On a fresh install oauth2-proxy
+  would crash-loop, ArgoCD would never reach PostSync, and the realm would
+  never be imported (a deadlock). So the first sync leaves it off.
 - Client secret and cookie secret from `oauth2-proxy-secret`; the client secret
   is a platform-secrets copy of `keycloak-client-secrets[teknoir]` and
   platform-secrets restarts oauth2-proxy when it changes.
+
+### tnctl (client `teknoir-cli`)
+
+Realm `teknoir` has the public client `teknoir-cli` (OAuth device flow only: no
+password grant, no browser code flow; the access token carries the audience
+`teknoir-cli`). `tnctl login --domain <domain> --realm teknoir` uses it; install
+the install's `teknoir-root-ca.crt` on the client first.
+
+To let tnctl through the gateway, turn the extra issuer on in a **second sync**,
+after the first install has converged and `keycloak-config` has run:
+
+1. Check the client exists: log in to the Keycloak admin console (realm
+   `teknoir`, Clients, `teknoir-cli`) or look at the `keycloak-config` Job log.
+2. Release the auth chart with `oauth2Proxy.oidc.cliClientId: teknoir-cli` as
+   its default (bump the chart version, pin it in app-of-apps; the Applications
+   take no Helm value overrides) and let ArgoCD sync `auth`. oauth2-proxy rolls
+   and then runs OIDC discovery of the realm.
+3. Backstage restricts what that token may do (`config.externalAccess.accessRestrictions`
+   in the backstage chart: the `device` plugin and read-only catalog). Roll out
+   the backstage chart with the restriction **before** step 2.
+
+Turn it off again by setting `cliClientId: ""`.
 
 ## Dependencies
 
@@ -138,6 +162,8 @@ it sets the admin's password to `password` through the admin REST API. So:
 
 ## Tests
 
+`helm unittest charts/auth` (oauth2-proxy extra issuer, realm client `teknoir-cli`, gateway filters).
+
 `tests/realm-docker-test.sh` (not packaged) runs the rendered realm file and
 admin check against Keycloak 26.5.3 in docker: admin rotation from
 `previous-password`, a full import, user-controller's service-account rights
@@ -145,5 +171,6 @@ admin check against Keycloak 26.5.3 in docker: admin rotation from
 (`sub`, `email`, `email_verified`, `groups`), a no-op second import, a secret
 change on re-import, platform-admin (group admin, complete profile, a scripted
 browser login that meets exactly the Update Password form, and a changed
-password that survives re-imports with no second forced change), and a scan of
-every log for every secret value. The import runs with the Job's rendered env.
+password that survives re-imports with no second forced change), a real tnctl
+device-flow login (client `teknoir-cli`: no password grant, no code flow, token
+audience `teknoir-cli`), and a scan of every log for every secret value. The import runs with the Job's rendered env.
