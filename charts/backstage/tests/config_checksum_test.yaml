@@ -1,0 +1,23 @@
+suite: backstage-api rolls when the app-config changes
+templates:
+  - templates/deployment.yaml
+  - templates/configmap-app-config.yaml
+tests:
+  - it: puts a sha256 of the app-config ConfigMap on the backstage-api pod template
+    template: templates/deployment.yaml
+    documentSelector:
+      path: metadata.name
+      value: backstage-api
+    asserts:
+      - matchRegex:
+          path: spec.template.metadata.annotations["checksum/app-config"]
+          pattern: "^[0-9a-f]{64}$"
+
+  - it: leaves the frontend pods alone (they do not read the app-config)
+    template: templates/deployment.yaml
+    documentSelector:
+      path: metadata.name
+      value: backstage
+    asserts:
+      - notExists:
+          path: spec.template.metadata.annotations

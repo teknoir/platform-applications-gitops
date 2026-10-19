@@ -48,6 +48,9 @@ spec:
     metadata:
       labels:
         app: backstage-api
+      annotations:
+        # Backstage reads its config only at start: roll the pods when the app-config changes.
+        checksum/app-config: {{ include (print $.Template.BasePath "/configmap-app-config.yaml") . | sha256sum }}
     spec:
       {{- with .Values.backstageApi.podSecurityContext }}
       securityContext:
