@@ -1,0 +1,7 @@
+# toe-app (private), the TOE device agent. Translated from .github/workflows/build.yml (branch toe_v4) on 2026-10-19.
+branches: ['**']
+images:
+- name: toe-app
+  platforms: [linux/amd64, linux/arm64/v8]
+githubActions: disable
+actionsWorkflows: [build.yml]

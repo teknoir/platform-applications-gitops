@@ -1,0 +1,10 @@
+# devstudio-controller (private). Translated from .github/workflows/build.yml (branch teknoir-cloud) on 2026-10-19.
+# The plain {branch} tag is left out on purpose: production (gitops teknoir-online) pulls the mutable
+# :teknoir-cloud tag without a digest, so a CI push of {branch} on the teknoir-cloud branch would change
+# production at its next restart. Staging pins tag@digest; pin new builds with scripts/pin-image.
+branches: ['**']
+images:
+- name: devstudio-controller
+  tagTemplates: ["{branch}-{ts}", "sha-{sha8}"]
+githubActions: disable
+actionsWorkflows: [build.yml]

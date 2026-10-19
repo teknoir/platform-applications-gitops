@@ -1,0 +1,11 @@
+# documentation (private): MkDocs/TechDocs site. Tests only, added 2026-10-19: the two checks AGENTS.md
+# requires before a change (mkdocs build --strict, node --test tests/*.test.js). Backstage TechDocs builds
+# the published site itself.
+branches: ['**']
+tests:
+  - name: mkdocs-strict
+    image: "docker.io/library/python:3.13"
+    run: pip install -q mkdocs==1.6.1 mkdocs-techdocs-core==1.5.4 && mkdocs build --strict --site-dir /tmp/site
+  - name: node-test
+    image: "docker.io/library/node:22.14.0"
+    run: node --test tests/*.test.js
