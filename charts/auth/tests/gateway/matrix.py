@@ -5,6 +5,7 @@ Every case is checked against an oracle written from the contract (charts/auth/R
 the Lua. Exit code 1 if any check fails; a summary table is printed either way.
 """
 import collections
+import hashlib
 import itertools
 import os
 import select
@@ -21,6 +22,9 @@ HOST = "app.teknoir.test"
 SHARED = "teknoir.test"
 COOKIE = "_teknoir_oauth2_proxy_v2"
 PAYLOAD = '{"error":"unauthorized","message":"Authentication required: run tnctl login or sign in in the browser."}'
+BLOCK = bytes(range(256)) * 4  # same as stubs.py
+BIG, BIG_403 = 20 * 1024 * 1024, 5 * 1024 * 1024  # both well above the 32 KiB buffer limit of the harness listeners
+SHA = {n: hashlib.sha256(BLOCK * (n // len(BLOCK))).hexdigest() for n in (BIG, BIG_403)}
 OK_BODY = "backend-ok\n"
 results = collections.OrderedDict()  # group -> [passed, failed]
 failures = []
@@ -272,6 +276,29 @@ def run_targeted():
                f"status {st} events {body.count(b'event')} ttfb {ttfb:.2f}s total {total:.2f}s")
 
 
+def run_large():
+    """Bodies far above the listener buffer limit (32 KiB) must stream through untouched: the Lua may only buffer a denial."""
+    g = "large bodies not buffered"
+    auth = ["Authorization: Bearer good-token"]
+    for proto in ("h1", "h2"):
+        st, ver, h, body, rc, err, _ = curl(proto, "/big", auth)
+        expect(g, f"{proto} allowed 20 MiB download arrives complete", st == 200 and rc == 0 and len(body) == BIG
+               and hashlib.sha256(body).hexdigest() == SHA[BIG], f"{st} rc {rc} {len(body)} bytes {err}")
+        st, ver, h, body, rc, err, _ = curl(proto, "/big403", auth)
+        expect(g, f"{proto} 5 MiB backend 403 (marker set) passes untouched", st == 403 and rc == 0 and len(body) == BIG_403
+               and hashlib.sha256(body).hexdigest() == SHA[BIG_403] and "www-authenticate" not in h and "location" not in h,
+               f"{st} rc {rc} {len(body)} bytes {err}")
+        # without credentials the large path is still a small denial, not the backend body
+        st, ver, h, body, rc, err, _ = curl(proto, "/big", [])
+        expect(g, f"{proto} denied request for the 20 MiB path gets the 401 JSON", st == 401 and body.decode(errors="replace") == PAYLOAD, f"{st} {len(body)}")
+    # Fallback (marker patch lost): a backend 403 body over the buffer limit is buffered by the denial branch. That fails the
+    # response (500 on HTTP/1.1, the 401 JSON on HTTP/2) but never exposes the backend body; documented in the README.
+    for proto in ("h1", "h2"):
+        st, ver, h, body, rc, err, _ = curl(proto, "/big403", auth, port=NOMARKER)
+        expect("marker lost (fallback)", f"{proto} 5 MiB backend 403 without the marker is never passed through", st != 200 and len(body) < BIG_403
+               and not body.startswith(BLOCK[:64]), f"{st} rc {rc} {len(body)} bytes")
+
+
 # ---------------------------------------------------------------- raw HTTP/1.1 sockets
 
 def raw_exchange(sock, request, head=False):
@@ -312,15 +339,12 @@ def run_raw():
         ("browser denial", ["Sec-Fetch-Mode: navigate", "Accept: text/html"], 302),
         ("api denial", ["Accept: application/json"], 401),
         ("api denial, bad bearer", ["Authorization: Bearer junk"], 401),
-        ("websocket upgrade denial", ["Sec-Fetch-Mode: websocket", "Connection: Upgrade", "Upgrade: websocket"], 401),
     ]
     for name, hdrs, want in cases:
         raw = socket.create_connection(("127.0.0.1", GW), timeout=10)
         s = ctx.wrap_socket(raw, server_hostname=HOST)
         try:
             req1 = f"GET /private HTTP/1.1\r\nHost: {HOST}\r\n" + "".join(h + "\r\n" for h in hdrs) + "\r\n"
-            if "Upgrade" in " ".join(hdrs):
-                req1 = req1.replace("Connection: Upgrade\r\n", "").replace("Upgrade: websocket\r\n", "")
             st, h, body, extra = raw_exchange(s, req1)
             ok = st == want and not extra and len(body) == int(one(h, "content-length") or -1)
             expect(g, f"{name}: {st}, body {len(body)} == content-length {one(h, 'content-length')}, no stray bytes", ok,
@@ -335,10 +359,72 @@ def run_raw():
             s.close()
 
 
+def ws_connect(extra_headers):
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    ctx.set_alpn_protocols(["http/1.1"])
+    s = ctx.wrap_socket(socket.create_connection(("127.0.0.1", GW), timeout=10), server_hostname=HOST)
+    req = (f"GET /ws HTTP/1.1\r\nHost: {HOST}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n"
+           "Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+           + "".join(h + "\r\n" for h in extra_headers) + "\r\n")
+    return s, req
+
+
+def run_websocket():
+    """Real upgrades (Connection: Upgrade, Upgrade: websocket kept): allowed ones switch protocols and echo, denied ones get the 401."""
+    g = "websocket upgrade"
+    # allowed: 101, then bytes flow both ways through the Lua and ext_authz filters
+    s, req = ws_connect(["Sec-Fetch-Mode: websocket", "Authorization: Bearer good-token"])
+    try:
+        s.sendall(req.encode())
+        buf = b""
+        while b"\r\n\r\n" not in buf:
+            chunk = s.recv(65536)
+            if not chunk:
+                break
+            buf += chunk
+        head, _, rest = buf.partition(b"\r\n\r\n")
+        status = int(head.split(b" ")[1]) if head else 0
+        expect(g, "allowed upgrade gets 101", status == 101 and b"upgrade: websocket" in head.lower(), head[:80])
+        for msg in (b"ping", os.urandom(100000)):  # the second one is above the 32 KiB buffer limit
+            s.sendall(msg)
+            got = rest
+            rest = b""
+            while len(got) < len(msg):
+                chunk = s.recv(65536)
+                if not chunk:
+                    break
+                got += chunk
+            expect(g, f"allowed upgrade echoes {len(msg)} bytes", got == msg, f"got {len(got)} bytes")
+    except Exception as e:  # noqa: BLE001
+        expect(g, "allowed upgrade", False, repr(e))
+    finally:
+        s.close()
+    # denied: the contract's 401 with a consistent body and no stray bytes, not a half-switched connection
+    for name, hdrs, want, want_challenge in (
+        ("no credentials", ["Sec-Fetch-Mode: websocket"], 401, 'Bearer realm="teknoir"'),
+        ("bad bearer", ["Sec-Fetch-Mode: websocket", "Authorization: Bearer junk"], 401, 'Bearer realm="teknoir", error="invalid_token"'),
+    ):
+        s, req = ws_connect(hdrs)
+        try:
+            st, h, body, extra = raw_exchange(s, req)
+            ok = (st == want and not extra and len(body) == int(one(h, "content-length") or -1) and body.decode(errors="replace") == PAYLOAD
+                  and one(h, "www-authenticate") == want_challenge)
+            expect(g, f"denied upgrade ({name}): {st}, body {len(body)} == content-length {one(h, 'content-length')}, 401 JSON, no stray bytes", ok,
+                   f"status {st} cl {one(h, 'content-length')} body {len(body)} extra {len(extra)} wa {one(h, 'www-authenticate')!r}")
+        except Exception as e:  # noqa: BLE001
+            expect(g, f"denied upgrade ({name})", False, repr(e))
+        finally:
+            s.close()
+
+
 def main():
     run_matrix()
     run_targeted()
+    run_large()
     run_raw()
+    run_websocket()
     w = max(len(k) for k in results)
     print()
     print(f"{'group':<{w}}  {'checks':>6}  {'pass':>5}  {'fail':>5}")

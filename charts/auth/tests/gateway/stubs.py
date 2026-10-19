@@ -7,7 +7,7 @@ authz  (oauth2-proxy lookalike): called by ext_authz as GET /oauth2/auth<origina
   otherwise -> 403 + 8492-byte HTML sign-in page + expired Set-Cookie (what oauth2-proxy v7.6.0 sends)
   an original path starting /ext401 is denied with 401 {} instead of 403.
 backend: 200 everywhere, except /forbidden (403), /backend401 (401 + own challenge), /oauth2/unauth (401, 13 bytes),
-  /stream (chunked, slow).
+  /stream (chunked, slow), /ws (WebSocket upgrade, then echo), /big (BIG bytes, 200), /big403 (BIG_403 bytes, 403).
 """
 import sys
 import threading
@@ -18,6 +18,13 @@ COOKIE = "_teknoir_oauth2_proxy_v2"
 SIGNIN = ("<html><head><title>Sign In</title></head><body>" + "x" * 8400).encode()
 SIGNIN += b"</body></html>" + b"\n" * (8492 - len(SIGNIN) - len(b"</body></html>"))
 assert len(SIGNIN) == 8492
+BLOCK = bytes(range(256)) * 4  # 1 KiB, repeated to make the large bodies (matrix.py recomputes them)
+BIG = 20 * 1024 * 1024
+BIG_403 = 5 * 1024 * 1024
+
+
+def big_body(n):
+    return BLOCK * (n // len(BLOCK))
 
 
 class Quiet(BaseHTTPRequestHandler):
@@ -33,7 +40,10 @@ class Quiet(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         if not head:
-            self.wfile.write(body)
+            try:
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):  # peer gave up (e.g. Envoy failing a buffered response)
+                self.close_connection = True
 
     do_HEAD = do_GET = do_POST = do_PUT = do_DELETE = lambda self: self.handle_any()
 
@@ -72,6 +82,22 @@ class Backend(Quiet):
             return self.reply(401, b"backend-unauthorized", [("content-type", "text/plain"), ("www-authenticate", 'Basic realm="backend"')], head)
         if p == "/oauth2/unauth":
             return self.reply(401, b"Unauthorized", [], head)
+        if p == "/big":
+            return self.reply(200, big_body(BIG), [("content-type", "application/octet-stream")], head)
+        if p == "/big403":
+            return self.reply(403, big_body(BIG_403), [("content-type", "application/octet-stream")], head)
+        if p == "/ws" and self.headers.get("upgrade", "").lower() == "websocket":
+            self.send_response(101)
+            self.send_header("Upgrade", "websocket")
+            self.send_header("Connection", "Upgrade")
+            self.end_headers()
+            self.wfile.flush()
+            self.close_connection = True
+            while True:  # echo until the peer closes
+                data = self.connection.recv(4096)
+                if not data:
+                    return
+                self.connection.sendall(data)
         if p == "/stream":
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")

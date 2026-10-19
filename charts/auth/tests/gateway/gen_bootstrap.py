@@ -6,6 +6,9 @@ The HTTP_FILTER patches are taken verbatim from it, in the order Istio applies t
   ext_authz (INSERT_FIRST) -> denial Lua (INSERT_BEFORE ext_authz) -> marker Lua (INSERT_AFTER ext_authz).
 Result chain: lua, ext_authz, lua.authz_passed, router.
 
+Both listeners allow WebSocket upgrades and use a 32 KiB per-connection buffer limit, so the harness
+notices when a change starts buffering normal responses or breaks upgrades.
+
 Two listeners: "gw" with the full chain, "nomarker" without the marker filter (checks the documented
 fallback when the marker patch is lost).
 """
@@ -33,6 +36,8 @@ assert lua and lua[0] == "INSERT_BEFORE", lua and lua[0]
 marker = filters.get("envoy.filters.http.lua.authz_passed")
 if marker:
     assert marker[0] == "INSERT_AFTER", marker[0]
+
+BUFFER_LIMIT = 32768
 
 AUTHZ_CLUSTER = ext[1]["typed_config"]["http_service"]["server_uri"]["cluster"]
 
@@ -93,6 +98,8 @@ def listener(name, port, with_marker):
     return {
         "name": name,
         "address": {"socket_address": {"address": "127.0.0.1", "port_value": port}},
+        # small on purpose: anything the Lua (or Envoy) buffered beyond this would fail the large-body checks
+        "per_connection_buffer_limit_bytes": BUFFER_LIMIT,
         "filter_chains": [
             {
                 "transport_socket": {
@@ -117,6 +124,8 @@ def listener(name, port, with_marker):
                             "@type": "type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager",
                             "stat_prefix": name,
                             "codec_type": "AUTO",
+                            # as on the real gateway: WebSocket upgrades are allowed
+                            "upgrade_configs": [{"upgrade_type": "websocket"}],
                             "use_remote_address": True,
                             "route_config": route_config,
                             "http_filters": chain(with_marker),

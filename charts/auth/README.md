@@ -56,7 +56,13 @@ The body is fixed: it never says why the request was denied and never echoes the
 
 ### 4. Client guidance
 
-- `tnctl` and other API clients: `401` means "not logged in or token rejected, log in again"; `403` means "not allowed for this
+- `tnctl` and other API clients: `401` means "not logged in, token rejected, or the auth service is unavailable; log in again, and
+  retry later if that does not help". The gateway cannot tell these apart: when oauth2-proxy is down, times out or answers `5xx`,
+  Envoy ext_authz denies with its default `403` (`status_on_error` is not set, and the ext_authz block is deliberately unchanged),
+  and that denial is shaped like any other (`401` JSON for an API client, `302` for a browser; before this change always `302`).
+  Client messages must not claim more than that the token was rejected or authentication is unavailable. Setting ext_authz
+  `status_on_error: 503` would let outages pass through as `503`; that touches the golden ext_authz block and is left to a
+  separate reviewed change. `403` means "not allowed for this
   account or teamspace" and carries the backend's message. Old gateways (production, airgapped until they get this change) still
   answer a login redirect (`302`) for both; clients must keep handling that.
 - Scripts that relied on a `302` from a non-browser request now see `401` (release note).
@@ -72,7 +78,10 @@ The body is fixed: it never says why the request was denied and never echoes the
 - "The backend answered" is known from dynamic metadata (`oauth2_proxy_authz.passed`) set by a second tiny Lua filter placed
   **after** ext_authz (`envoy.filters.http.lua.authz_passed`), which only runs for requests ext_authz let through. Clients cannot
   write dynamic metadata. If that patch is ever lost, the code falls back to rewriting (the old behaviour), never to exposing a denial
-  as a backend answer.
+  as a backend answer. In that fallback the denial branch cannot tell a backend `401`/`403` from ext_authz's, so it buffers the
+  body of every backend `401`/`403` (never of other statuses). A backend `401`/`403` body larger than the connection buffer limit then
+  fails (HTTP/1.1: `500`, HTTP/2: the `401` JSON) instead of passing through. Auth is not weakened, but this is not exactly "today's
+  behaviour" (the old Lua never called `body()`). The harness covers it (`marker lost (fallback)`).
 - `rd` and the `/oauth2` exemption are built from `:authority`/`:path` and `x-forwarded-proto` (scheme, `http`/`https` only), not from
   client-supplied `X-Forwarded-Host`/`X-Forwarded-Uri`.
 - The Lua touches the response body only on a denial (the small sign-in page). Normal responses are never buffered, so SSE,
@@ -100,5 +109,7 @@ charts/auth/tests/gateway/run.sh          # offline Envoy harness, needs docker 
 python stub that mimics oauth2-proxy (allow a known bearer or cookie, otherwise `403` + an 8492-byte HTML page) and a backend stub.
 It runs a curl matrix over HTTP/1.1 and HTTP/2 (`Sec-Fetch-Mode` x `Accept` x `Authorization` x cookie x path, plus HEAD, POST and
 `X-Requested-With`), raw keep-alive sockets for HTTP/1.1 framing, spoofed forwarding headers, backend `401`/`403` pass-through, a
-listener without the marker filter and a streaming response, then prints a summary table and exits non-zero on any failure.
+listener without the marker filter, a streaming response, real WebSocket upgrades (allowed: `101` and echo both ways; denied: the `401`
+JSON with consistent framing) and bodies far above the harness's 32 KiB per-connection buffer limit (20 MiB allowed download and a
+5 MiB backend `403`, over HTTP/1.1 and HTTP/2), then prints a summary table and exits non-zero on any failure.
 `RENDERED=<file>` runs it against any already rendered EnvoyFilter (for example the old template, to see what it catches).
