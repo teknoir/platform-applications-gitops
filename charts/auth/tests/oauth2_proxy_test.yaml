@@ -1,0 +1,68 @@
+suite: oauth2-proxy extra JWT issuer (tnctl)
+templates:
+  - templates/oauth2-proxy.yaml
+tests:
+  - it: accepts tnctl bearer tokens by default, issuer derived from the domain
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --extra-jwt-issuers=https://auth.teknoir.cloud/auth/realms/master=teknoir-cli
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --skip-jwt-bearer-tokens=true
+
+  - it: follows the domain
+    set:
+      domain: example.test
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --extra-jwt-issuers=https://auth.example.test/auth/realms/master=teknoir-cli
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[1]
+          pattern: teknoir\.cloud
+
+  - it: trims the trailing slash of an explicit issuerUrl
+    set:
+      oauth2Proxy.oidc.issuerUrl: https://auth.x.test/auth/realms/foo/
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --extra-jwt-issuers=https://auth.x.test/auth/realms/foo=teknoir-cli
+
+  - it: uses another client id
+    set:
+      oauth2Proxy.oidc.cliClientId: other-cli
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --extra-jwt-issuers=https://auth.teknoir.cloud/auth/realms/master=other-cli
+
+  - it: renders no extra issuer when cliClientId is empty, bearer skip stays on
+    set:
+      oauth2Proxy.oidc.cliClientId: ""
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --extra-jwt-issuers=https://auth.teknoir.cloud/auth/realms/master=teknoir-cli
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: ^--skip-jwt-bearer-tokens=true$
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[1]
+          pattern: extra-jwt-issuers

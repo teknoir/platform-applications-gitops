@@ -65,6 +65,11 @@ oauth2Proxy:
   oidc:
     issuerUrl: ""
     clientId: teknoir
+    # Bearer tokens of this realm client (tnctl) are accepted too, via
+    # --extra-jwt-issuers (same issuer as the flags above). Empty disables.
+    # An extra issuer makes oauth2-proxy run OIDC discovery at startup, so the
+    # realm must have the client before it starts.
+    cliClientId: teknoir-cli
   cookie:
     domain: ""
     # Renamed when staging moved to vpro (2026-10-16): sessions from r415 were signed with
