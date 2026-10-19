@@ -151,6 +151,129 @@ spec:
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
                 type: object
+              overrides:
+                description: |-
+                  Overrides are the per-device changes on top of every other configuration
+                  layer (the override layer): chart values, chart versions and container
+                  images of single resources, and another revision of an application. They
+                  are for testing on one robot; what lasts belongs in git. The backend and
+                  tnctl write them, the DeviceConfig plugin applies them and reports a state
+                  per override in status.config.overrides.
+                properties:
+                  applications:
+                    description: |-
+                      Applications are the overrides of the revision of an application from any
+                      layer ("try another revision").
+                    items:
+                      description: |-
+                        ApplicationOverride runs another revision of an application, wherever the
+                        layers list it.
+                      properties:
+                        note:
+                          description: Note says why the override is there.
+                          maxLength: 512
+                          type: string
+                        path:
+                          description: |-
+                            Path limits the override to the application at this path. Empty: every
+                            application from the repository.
+                          maxLength: 255
+                          type: string
+                        repo_url:
+                          description: |-
+                            RepoURL is the repository of the application (compared without a
+                            trailing ".git" or "/" and with the host in lower case).
+                          maxLength: 255
+                          type: string
+                        revision:
+                          description: Revision is the branch, tag or commit to run
+                            instead.
+                          maxLength: 255
+                          minLength: 1
+                          type: string
+                        setAt:
+                          description: SetAt is when the override was set (RFC 3339).
+                            The backend stamps it.
+                          maxLength: 255
+                          type: string
+                        setBy:
+                          description: SetBy is the user who set the override. The
+                            backend stamps it.
+                          maxLength: 255
+                          type: string
+                      required:
+                      - repo_url
+                      - revision
+                      type: object
+                    maxItems: 32
+                    type: array
+                  resources:
+                    additionalProperties:
+                      description: |-
+                        ResourceOverride changes one resource of the device's configuration. Values
+                        and version apply to a HelmChart, images to a workload (a kind with a pod
+                        template).
+                      properties:
+                        images:
+                          additionalProperties:
+                            type: string
+                          description: |-
+                            Images maps a container (or init container) name of a workload to the
+                            image it runs.
+                          maxProperties: 32
+                          type: object
+                        note:
+                          description: Note says why the override is there.
+                          maxLength: 512
+                          type: string
+                        setAt:
+                          description: SetAt is when the override was set (RFC 3339).
+                            The backend stamps it.
+                          maxLength: 255
+                          type: string
+                        setBy:
+                          description: SetBy is the user who set the override. The
+                            backend stamps it.
+                          maxLength: 255
+                          type: string
+                        valuesContent:
+                          description: |-
+                            ValuesContent is a YAML overlay deep-merged over the HelmChart's values of
+                            every other layer: maps merge, lists and scalars replace, null removes the
+                            key (and the chart's default for it).
+                          maxLength: 65536
+                          type: string
+                        version:
+                          description: Version is the chart version of a HelmChart.
+                          maxLength: 255
+                          type: string
+                      type: object
+                      x-kubernetes-validations:
+                      - message: container names and images are at most 255 characters
+                        rule: '!has(self.images) || self.images.all(k, size(k) <=
+                          255 && size(self.images[k]) <= 255)'
+                    description: |-
+                      Resources are the overrides of single resources, keyed by
+                      "Kind/namespace/name" (namespace "default" when the manifest has none).
+                    maxProperties: 64
+                    type: object
+                  revision:
+                    description: |-
+                      Revision is an opaque token the writer sets on every change. The
+                      controller copies it to status.config.overridesRevision once it has
+                      evaluated and published that spec, so a writer can tell when its change
+                      has been seen.
+                    maxLength: 255
+                    type: string
+                type: object
+                x-kubernetes-validations:
+                - message: resource keys are at most 255 characters
+                  rule: '!has(self.resources) || self.resources.all(k, size(k) <=
+                    255)'
+                - message: the valuesContent of all resource overrides together is
+                    at most 256 KiB
+                  rule: '!has(self.resources) || self.resources.map(k, has(self.resources[k].valuesContent)
+                    ? size(self.resources[k].valuesContent) : 0).sum() <= 262144'
               plugins:
                 items:
                   properties:
@@ -344,6 +467,40 @@ spec:
                       published config because TOE v4 cannot apply them faithfully (a top-level
                       field other than apiVersion, kind, metadata, data, binaryData, type, spec
                       and status), and which fields it would drop. Empty when none.
+                    type: string
+                  overrides:
+                    description: |-
+                      Overrides holds the state of every override of spec.overrides, resources
+                      first (sorted by key), then applications in spec order.
+                    items:
+                      description: OverrideStatus is the controller's verdict on one
+                        override.
+                      properties:
+                        message:
+                          description: Message says what is wrong, empty when nothing
+                            is.
+                          type: string
+                        state:
+                          description: State is active, redundant, no-target, invalid
+                            or not-applicable.
+                          type: string
+                        target:
+                          description: |-
+                            Target is "Kind/namespace/name" of a resource override, or
+                            "app:<repo_url>#<path>" of an application override.
+                          type: string
+                      required:
+                      - state
+                      - target
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - target
+                    x-kubernetes-list-type: map
+                  overridesRevision:
+                    description: |-
+                      OverridesRevision is spec.overrides.revision of the spec the plugin last
+                      evaluated and published (empty without overrides).
                     type: string
                 type: object
               encryption_key_gen_info:
