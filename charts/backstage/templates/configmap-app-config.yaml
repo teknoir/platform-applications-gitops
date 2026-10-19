@@ -18,6 +18,17 @@ data:
               algorithm: RS256
               audience: teknoir-cli
               subjectPrefix: keycloak
+{{- with .Values.config.externalAccess.accessRestrictions }}
+{{- $seen := dict }}
+{{- range . }}
+{{- if hasKey $seen .plugin }}
+{{- fail (printf "config.externalAccess.accessRestrictions: plugin %q listed twice; Backstage refuses a duplicate at start (use one entry with a permission list)" .plugin) }}
+{{- end }}
+{{- $_ := set $seen .plugin true }}
+{{- end }}
+            accessRestrictions:
+{{- toYaml . | nindent 14 }}
+{{- end }}
         keys:
           - $include: /app/secrets/backend-auth-backstage-secrets.yaml
       baseUrl: https://{{ .Values.config.domain }}
