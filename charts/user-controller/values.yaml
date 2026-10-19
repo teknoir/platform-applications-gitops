@@ -4,7 +4,8 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/teknoir/user-controller
-  tag: teknoir-cloud-20260413-054338
+  # Pinned 2026-10-19: '<tag>@sha256:<digest>' = the image production ran (adopted, no change).
+  tag: "teknoir-cloud-20260413-054338@sha256:7fb5a7cdc4995a0dd11e462499d1d2d76d73e7774a31991f8004fc02be3041cb"
   pullPolicy: Always
 
 imagePullSecrets:

@@ -10,6 +10,8 @@ keycloak:
   image:
     repository: ghcr.io/teknoir/keycloak-theme
     tag: latest
+    # Pinned 2026-10-19 by digest (keycloakx copies image.tag into a label, so tag@digest is invalid there).
+    digest: "sha256:cb44f58c427e2064f21a0a1d2f8de242befcfd2ba5ceae9ef9874d00ca622a9c"
     pullPolicy: Always
   imagePullSecrets:
     - name: ghcr-token
@@ -68,7 +70,7 @@ oauth2Proxy:
     existingName: "oauth2-proxy-secret"
   image:
     repository: quay.io/oauth2-proxy/oauth2-proxy
-    tag: v7.6.0
+    tag: "v7.6.0@sha256:dcb6ff8dd21bf3058f6a22c6fa385fa5b897a9cd3914c88a2cc2bb0a85f8065d"
   oidc:
     issuerUrl: ""
     clientId: teknoir
@@ -149,7 +151,7 @@ istio:
 httpbin:
   image:
     repository: docker.io/kennethreitz/httpbin
-    tag: latest
+    tag: "latest@sha256:599fe5e5073102dbb0ee3dbb65f049dab44fa9fc251f6835c9990f8fb196a72b"
   resources:
     limits:
       cpu: 200m

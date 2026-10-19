@@ -892,8 +892,8 @@ spec:
             fieldRef:
               fieldPath: spec.serviceAccountName
         - name: DEFAULT_JOB_IMAGE
-          value: ghcr.io/k3s-io/klipper-helm:v0.9.10-build20251111
-        image: rancher/helm-controller:v0.17.1
+          value: ghcr.io/k3s-io/klipper-helm:v0.9.10-build20251111@sha256:251a6a3983934f1026c34f4337fc5a87e093a142438c7d16f7b31c179162176e
+        image: rancher/helm-controller:v0.17.1@sha256:05a95e71ea5b61e7016c8b64835eaf49b0712a685b5bc14fe61e6087cc6ac1fd
         name: helm-controller
         resources:
           limits:

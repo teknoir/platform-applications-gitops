@@ -2,6 +2,17 @@
 domain: "teknoir.online"
 
 cert-manager:
+  acmesolver:
+    image:
+      digest: "sha256:8ac8b9eaf0b41018f9f5a17a91da0c577f7e9f6f6921bfd189ed0e48628941bd"
+      tag: "v1.20.1"
+  startupapicheck:
+    image:
+      digest: "sha256:70859153f82a241c3a40ac581fb5a25f73db16851adc801f0c8a9c9b220ae4ee"
+      tag: "v1.20.1"
+  image:
+    digest: "sha256:9f9556b4b131554694c67c8229d231b1f7d69b882b5f061a56bafa465f3b22fc"
+    tag: "v1.20.1"
   fullnameOverride: cert-manager
   crds:
     enabled: true
@@ -12,6 +23,9 @@ cert-manager:
     limits:
       memory: "1Gi"
   webhook:
+    image:
+      digest: "sha256:b876bcaf46ace2a5e860e8371539a6e1c8ccca54b1988a97c8a7483b3815d985"
+      tag: "v1.20.1"
     resources:
       requests:
         cpu: "250m"
@@ -19,6 +33,9 @@ cert-manager:
       limits:
         memory: "1Gi"
   cainjector:
+    image:
+      digest: "sha256:a3ff773a577d8ff6ad1fe9ab4ea0b74873e0341e0aac5d9411f3fc235f51bdf8"
+      tag: "v1.20.1"
     resources:
       requests:
         cpu: "250m"
@@ -27,6 +44,9 @@ cert-manager:
         memory: "1Gi"
 
 godaddy-webhook:
+  image:
+    tag: "0.7.0@sha256:9f9f69fd9855be7f3bcbabe307f47255ec592c941050e660be8886b183208d3b"
+    repository: "quay.io/snowdrop/cert-manager-webhook-godaddy"
   fullnameOverride: godaddy-webhook
   groupName: acme.webhook.godaddy.com
   resources:

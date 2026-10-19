@@ -1,6 +1,9 @@
 # Gitops values
 
 aws-load-balancer-controller:
+  image:
+    tag: "v3.2.2@sha256:427b998b1e07cbf0a564f95c4215a9b039b8d784f1fbb36e6e4012051a75ff95"
+    repository: "public.ecr.aws/eks/aws-load-balancer-controller"
   fullnameOverride: aws-load-balancer-controller
   clusterName: teknoir-poc-eks
   region: us-east-1
