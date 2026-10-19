@@ -81,6 +81,33 @@ clients:
     defaultClientScopes: {{ toJson $r.defaultClientScopes }}
     optionalClientScopes: {{ toJson $r.optionalClientScopes }}
 
+  # tnctl (cli): public client, OAuth device flow; tokens carry audience teknoir-cli, which
+  # oauth2-proxy (--extra-jwt-issuers, oauth2Proxy.oidc.cliClientId) and Backstage externalAccess
+  # (audience teknoir-cli) accept. Declared here so the realm has it before oauth2-proxy is told to
+  # discover the issuer; no token is accepted at the gateway until cliClientId is set.
+  - clientId: teknoir-cli
+    name: tnctl
+    enabled: true
+    protocol: openid-connect
+    publicClient: true
+    standardFlowEnabled: false
+    implicitFlowEnabled: false
+    directAccessGrantsEnabled: false
+    serviceAccountsEnabled: false
+    attributes:
+      oauth2.device.authorization.grant.enabled: "true"
+    protocolMappers:
+      - name: audience-teknoir-cli
+        protocol: openid-connect
+        protocolMapper: oidc-audience-mapper
+        consentRequired: false
+        config:
+          included.client.audience: teknoir-cli
+          access.token.claim: "true"
+          id.token.claim: "false"
+    defaultClientScopes: {{ toJson $r.defaultClientScopes }}
+    optionalClientScopes: {{ toJson $r.optionalClientScopes }}
+
   # ArgoCD SSO (oidc.config clientID argocd).
   - clientId: argocd
     name: Argo CD

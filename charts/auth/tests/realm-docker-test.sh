@@ -28,6 +28,9 @@
 #       browser login with the initial password gets exactly one form (Update
 #       Password, no profile form) and a code; after re-imports the changed
 #       password still logs in with no form, the initial one is rejected
+#   R11 tnctl client teknoir-cli: public, device flow only (no password grant,
+#       no browser code flow); a device-flow login as platform-admin yields an
+#       access token with aud teknoir-cli and the realm teknoir issuer
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -288,6 +291,78 @@ cat "$WORK/r10c.log"
 	ok "R10 changed password survives 2 re-imports, no required action re-added" || bad "R10 after re-import"
 browser "$PA_PW" >"$WORK/r10d.log" 2>&1 || true
 grep -q '^login-rejected' "$WORK/r10d.log" && ok "R10 initial password no longer works" || { bad "R10 initial password"; cat "$WORK/r10d.log"; }
+
+echo "== R11 tnctl device flow (client teknoir-cli)"
+cat >"$WORK/kc-device.sh" <<'SH'
+set -eu
+cd /tmp
+J=/tmp/jar P=/tmp/page H=/tmp/hdr CODE='' LOC=''
+req() {
+	_u=$1
+	shift
+	CODE=$(curl -sS --connect-to "$CONNECT" -c "$J" -b "$J" -D "$H" -o "$P" -w '%{http_code}' "$@" "$_u") || CODE=000
+	LOC=$(awk 'tolower($1) == "location:" { print $2 }' "$H" | tr -d '\r')
+}
+follow() {
+	while [ "${CODE#3}" != "$CODE" ]; do
+		case $LOC in "$BASE"*) req "$LOC" ;; *) return 0 ;; esac
+	done
+}
+action() {
+	tr '\n' ' ' <"$P" | grep -oE "<form[^>]*id=\"$1\"[^>]*>" | head -1 |
+		grep -oE 'action="[^"]*"' | sed -e 's/^action="//' -e 's/"$//' -e 's/&amp;/\&/g'
+}
+TOKEN="$BASE/realms/teknoir/protocol/openid-connect/token"
+# the client allows neither the password grant nor the browser code flow
+req "$TOKEN" --data-urlencode grant_type=password --data-urlencode client_id=teknoir-cli --data-urlencode username=platform-admin --data-urlencode "password=$PW"
+echo "password-grant $CODE"
+req "$BASE/realms/teknoir/protocol/openid-connect/auth?client_id=teknoir-cli&response_type=code&scope=openid&redirect_uri=https%3A%2F%2Ftnctl.invalid%2Fcb"
+echo "code-flow-form $(grep -c kc-form-login "$P" || true)"
+# device authorization
+req "$BASE/realms/teknoir/protocol/openid-connect/auth/device" --data-urlencode client_id=teknoir-cli --data-urlencode scope=openid
+echo "device-authorization $CODE"
+cp "$P" /tmp/dev.json
+uri=$(jq -r .verification_uri_complete /tmp/dev.json)
+jq -r .device_code /tmp/dev.json >/tmp/dc
+req "$TOKEN" --data-urlencode grant_type=urn:ietf:params:oauth:grant-type:device_code --data-urlencode client_id=teknoir-cli --data-urlencode "device_code=$(cat /tmp/dc)"
+echo "pending-poll $CODE $(jq -r .error "$P")"
+# approve as platform-admin
+req "$uri"
+follow
+a=$(action kc-form-login) || a=''
+[ -n "$a" ] || { echo "no-login-form $CODE"; exit 1; }
+req "$a" --data-urlencode "username=platform-admin" --data-urlencode "password=$PW" --data-urlencode credentialId=
+follow
+# device flow: Keycloak asks for consent once, then shows a success page
+if a=$(action kc-oauth-grant-form 2>/dev/null) && [ -n "$a" ] || a=$(tr '\n' ' ' <"$P" | grep -oE '<form[^>]*action="[^"]*login-actions/consent[^"]*"[^>]*>' | head -1 | grep -oE 'action="[^"]*"' | sed -e 's/^action="//' -e 's/"$//' -e 's/&amp;/\&/g') && [ -n "$a" ]; then
+	echo "form consent"
+	case $a in /*) a=${BASE%/auth}$a ;; esac
+	code=$(tr '\n' ' ' <"$P" | grep -oE '<input[^>]*name="code"[^>]*>' | head -1 | grep -oE 'value="[^"]*"' | sed -e 's/^value="//' -e 's/"$//')
+	req "$a" --data-urlencode "code=$code" --data-urlencode accept=Yes
+	follow
+fi
+grep -qiE 'Device Login Successful|login successful|successfully' "$P" && echo "device-approved" || echo "device-not-approved $CODE"
+# Keycloak answers slow_down to a poll faster than the interval: poll like tnctl, a few times
+for _ in 1 2 3 4 5 6; do
+	sleep 6
+	req "$TOKEN" --data-urlencode grant_type=urn:ietf:params:oauth:grant-type:device_code --data-urlencode client_id=teknoir-cli --data-urlencode "device_code=$(cat /tmp/dc)"
+	[ "$CODE" = 200 ] && break
+	echo "token-poll-wait $CODE $(jq -r .error "$P")"
+done
+echo "token-poll $CODE"
+at=$(jq -r .access_token "$P")
+[ "$at" != null ] || exit 1
+echo "$at" | cut -d. -f2 | tr '_-' '/+' | jq -R '@base64d | fromjson | {iss, azp, aud, groups}' -c | sed 's/^/claims /'
+SH
+chmod a+r "$WORK/kc-device.sh"
+toolbox BASE=http://auth.teknoir.airgapped:8080/auth CONNECT=auth.teknoir.airgapped:8080:$KC:8080 PW="$PA_NEW" -- 'sh /w/kc-device.sh' >"$WORK/r11.log" 2>&1 || true
+cat "$WORK/r11.log"
+grep -q '^password-grant 400' "$WORK/r11.log" && ok "R11 teknoir-cli: no password grant" || bad "R11 password grant"
+grep -q '^code-flow-form 0' "$WORK/r11.log" && ok "R11 teknoir-cli: no browser code flow" || bad "R11 code flow"
+grep -q '^device-authorization 200' "$WORK/r11.log" && grep -q '^pending-poll 400 authorization_pending' "$WORK/r11.log" && ok "R11 device authorization works, poll pending" || bad "R11 device authorization"
+grep -q '^token-poll 200' "$WORK/r11.log" && grep -q '^claims .*"aud":.*teknoir-cli' "$WORK/r11.log" &&
+	grep -q '^claims .*"iss":"http://auth.teknoir.airgapped:8080/auth/realms/teknoir"' "$WORK/r11.log" &&
+	ok "R11 device-flow token: aud teknoir-cli, issuer realm teknoir" || bad "R11 device-flow token"
 
 echo "== R9 never print"
 docker logs "$KC" >"$WORK/kc.log" 2>&1 || true

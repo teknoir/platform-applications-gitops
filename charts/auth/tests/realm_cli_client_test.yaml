@@ -1,0 +1,20 @@
+suite: realm teknoir has the tnctl client (device flow, audience teknoir-cli)
+templates:
+  - templates/keycloak-config.yaml
+tests:
+  - it: renders the public device-flow client teknoir-cli with the audience mapper
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - matchRegex:
+          path: data["teknoir.yaml"]
+          pattern: "- clientId: teknoir-cli\\n    name: tnctl\\n    enabled: true\\n    protocol: openid-connect\\n    publicClient: true\\n    standardFlowEnabled: false\\n    implicitFlowEnabled: false\\n    directAccessGrantsEnabled: false\\n    serviceAccountsEnabled: false\\n"
+      - matchRegex:
+          path: data["teknoir.yaml"]
+          pattern: "oauth2.device.authorization.grant.enabled: \"true\""
+      - matchRegex:
+          path: data["teknoir.yaml"]
+          pattern: "included.client.audience: teknoir-cli"

@@ -88,9 +88,13 @@ oauth2Proxy:
     caSecretName: teknoir-root-ca-bundle
     caSecretKey: ca.crt
     # When set, bearer tokens of this client (tnctl) are accepted too, via
-    # --extra-jwt-issuers. Off: the client is not in the realm yet, and an
-    # extra issuer makes oauth2-proxy run OIDC discovery at startup, so it
-    # could not start before the PostSync realm import has created the realm.
+    # --extra-jwt-issuers. Realm teknoir has the client teknoir-cli
+    # (files/realm/teknoir.yaml), but this stays off by default: an extra
+    # issuer makes oauth2-proxy run OIDC discovery at startup, so on a fresh
+    # install it could not start before the PostSync realm import has created
+    # the realm, and ArgoCD would never reach PostSync. Set it to teknoir-cli
+    # in a second sync once the install is up (auth chart README). Backstage
+    # restricts the resulting principal (backstage config.externalAccess).
     cliClientId: ""
   cookie:
     domain: ""

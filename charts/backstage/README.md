@@ -22,6 +22,13 @@ The chart creates no credentials. They come from the platform-secrets chart:
 - `backend.auth.externalAccess` (jwks, audience `teknoir-cli`) uses the same
   realm. Node.js trusts the Teknoir CA through `NODE_EXTRA_CA_CERTS` from the
   optional Secret `teknoir-root-ca-bundle` (`backstageApi.caBundle`).
+- `config.externalAccess.accessRestrictions` restricts that tnctl principal
+  (Backstage service principals otherwise skip the permission policy): default
+  the plugin `device` plus `catalog.entity.read`. Target once tnctl uses the
+  fleet routes: `[{plugin: device}]` only. A plugin listed twice is refused at
+  template time (Backstage would stop at start). The app-config is read only
+  at start; backstage-api carries a `checksum/app-config` annotation so a
+  change rolls it.
 - Sign-in needs a catalog user `default/<email with @ replaced by -at->`,
   i.e. a User CR with that name (`teknoir-airgap admin-user` creates the first).
 
