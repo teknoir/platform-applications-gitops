@@ -55,6 +55,10 @@ spec:
                   patterns:
                     - exact: set-cookie
                     - exact: location
+    # Denied-request shaping. Runs AFTER ext_authz decided: it never changes who is let in.
+    # Only a 401/403 that ext_authz itself produced is rewritten (a browser navigation gets the
+    # login redirect, everything else gets a 401 challenge); a 401/403 from the backend passes
+    # unchanged. Contract: charts/auth/README.md ("Denied requests").
     - applyTo: HTTP_FILTER
       match:
         context: GATEWAY
@@ -75,16 +79,9 @@ spec:
                 if str == nil then
                   return ""
                 end
-                return string.gsub(str, "([^%w%-_%.~])", function(c)
+                return (string.gsub(str, "([^%w%-_%.~])", function(c)
                   return string.format("%%%02X", string.byte(c))
-                end)
-              end
-
-              local function build_rd(h)
-                local scheme = h:get("x-forwarded-proto") or "https"
-                local host = h:get("x-forwarded-host") or h:get(":authority") or h:get("host") or ""
-                local path = h:get("x-forwarded-uri") or h:get(":path") or "/"
-                return scheme .. "://" .. host .. path, path
+                end))
               end
 
               local function has_session_cookie(h)
@@ -92,39 +89,127 @@ spec:
                 if cookie == "" then
                   return false
                 end
-                return string.find(cookie, "{{ $cookieName }}=") ~= nil
+                return string.find(cookie, "{{ $cookieName }}=", 1, true) ~= nil
+              end
+
+              -- "browser" = a top-level navigation that can follow a login redirect.
+              -- Everything else (fetch/XHR/WebSocket/CLI/curl) is "api". Never classify by path.
+              local function classify(h)
+                local mode = h:get("sec-fetch-mode")
+                if mode ~= nil then
+                  -- Sec-* request headers cannot be set by page scripts: authoritative.
+                  if mode == "navigate" then
+                    return "browser"
+                  end
+                  return "api"
+                end
+                if h:get("authorization") ~= nil or h:get("x-requested-with") ~= nil then
+                  return "api"
+                end
+                local method = h:get(":method")
+                local accept = string.lower(h:get("accept") or "")
+                if (method == "GET" or method == "HEAD") and string.find(accept, "text/html", 1, true) ~= nil then
+                  return "browser"
+                end
+                return "api"
               end
 
               function envoy_on_request(handle)
                 local h = handle:headers()
-                local rd, path = build_rd(h)
+                -- rd and the /oauth2 exemption come from :authority/:path (what Envoy routes on),
+                -- never from client-supplied x-forwarded-host/-uri. The scheme comes from
+                -- x-forwarded-proto, which the edge Envoy sets.
+                local scheme = h:get("x-forwarded-proto")
+                if scheme ~= "http" and scheme ~= "https" then
+                  scheme = "https"
+                end
+                local path = h:get(":path") or "/"
+                local rd = scheme .. "://" .. (h:get(":authority") or h:get("host") or "") .. path
                 local md = handle:streamInfo():dynamicMetadata()
                 md:set("oauth2_proxy", "rd", rd)
                 md:set("oauth2_proxy", "path", path)
+                md:set("oauth2_proxy", "client", classify(h))
                 md:set("oauth2_proxy", "has_session", has_session_cookie(h) and "true" or "false")
+                md:set("oauth2_proxy", "has_auth", h:get("authorization") ~= nil and "true" or "false")
               end
 
               function envoy_on_response(handle)
-                local status = handle:headers():get(":status")
+                local rh = handle:headers()
+                local status = rh:get(":status")
                 if status ~= "401" and status ~= "403" then
                   return
                 end
-                local md = handle:streamInfo():dynamicMetadata():get("oauth2_proxy") or {}
-                local path = md["path"] or ""
+                local md = handle:streamInfo():dynamicMetadata()
+                -- The marker filter (below) runs only when ext_authz let the request through or was
+                -- disabled for the route, so this 401/403 is the backend's own: pass it unchanged.
+                -- A missing marker falls back to rewriting (today's behaviour), never to exposure.
+                local authz = md:get("oauth2_proxy_authz")
+                if authz ~= nil and authz["passed"] == "true" then
+                  return
+                end
+                local info = md:get("oauth2_proxy") or {}
+                local path = info["path"] or ""
                 if string.sub(path, 1, 7) == "/oauth2" then
                   return
                 end
-                if md["has_session"] == "true" then
+                if info["has_session"] == "true" then
                   return
                 end
-                local rd = md["rd"] or ""
-                if rd == "" then
-                  rd, _ = build_rd(handle:headers())
+                -- body() is only touched here, on a denial (a small sign-in page); never on normal
+                -- responses, where it would buffer SSE, WebSocket and downloads.
+                if info["client"] == "browser" then
+                  local body = handle:body(true)
+                  if body ~= nil then
+                    body:setBytes("")
+                  end
+                  -- body() yields: a headers object taken before it is out of scope, take it again.
+                  rh = handle:headers()
+                  local rd = info["rd"] or ""
+                  rh:replace(":status", "302")
+                  rh:replace("location", "https://{{ $oauth2SharedHost }}/oauth2/start?rd=" .. urlencode(rd))
+                  rh:replace("content-length", "0")
+                  rh:replace("cache-control", "no-store")
+                  rh:remove("content-type")
+                  return
                 end
-                local location = "https://{{ $oauth2SharedHost }}/oauth2/start?rd=" .. urlencode(rd)
-                handle:headers():replace(":status", "302")
-                handle:headers():replace("location", location)
-                handle:headers():replace("content-length", "0")
+                local payload = '{"error":"unauthorized","message":"Authentication required: run tnctl login or sign in in the browser."}'
+                local body = handle:body(true)
+                if body ~= nil then
+                  body:setBytes(payload)
+                end
+                rh = handle:headers()
+                local challenge = 'Bearer realm="teknoir"'
+                if info["has_auth"] == "true" then
+                  challenge = challenge .. ', error="invalid_token"'
+                end
+                rh:replace(":status", "401")
+                rh:replace("content-type", "application/json")
+                rh:replace("content-length", tostring(#payload))
+                rh:replace("www-authenticate", challenge)
+                rh:replace("cache-control", "no-store")
+                rh:remove("location")
+                rh:remove("set-cookie")
+              end
+    - applyTo: HTTP_FILTER
+      match:
+        context: GATEWAY
+        listener:
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+              subFilter:
+                name: envoy.filters.http.ext_authz
+      patch:
+        operation: INSERT_AFTER
+        value:
+          name: envoy.filters.http.lua.authz_passed
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+            # Marker: only requests that ext_authz let through (or that skip it per route) reach this
+            # filter. Clients cannot write dynamic metadata.
+            inlineCode: |
+              function envoy_on_request(handle)
+                handle:streamInfo():dynamicMetadata():set("oauth2_proxy_authz", "passed", "true")
               end
     - applyTo: VIRTUAL_HOST
       match:
