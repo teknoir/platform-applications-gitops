@@ -13,6 +13,9 @@ spec:
     metadata:
       labels:
         app: {{ .Values.name }}
+      annotations:
+        # Backstage reads its config only at start: roll the pods when the app-config changes.
+        checksum/app-config: {{ include (print $.Template.BasePath "/configmap-app-config.yaml") . | sha256sum }}
     spec:
       imagePullSecrets:
         {{- toYaml .Values.backstage.imagePullSecrets | nindent 8 }}
@@ -66,6 +69,9 @@ spec:
     metadata:
       labels:
         app: {{ .Values.name }}-api
+      annotations:
+        # Backstage reads its config only at start: roll the pods when the app-config changes.
+        checksum/app-config: {{ include (print $.Template.BasePath "/configmap-app-config.yaml") . | sha256sum }}
     spec:
       {{- with .Values.backstageApi.podSecurityContext }}
       securityContext:
