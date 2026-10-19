@@ -1,0 +1,6 @@
+# user-controller (private). Translated from .github/workflows/build.yml (branch teknoir-cloud) on 2026-10-19.
+branches: ['**']
+images:
+- {name: user-controller}
+githubActions: disable
+actionsWorkflows: [build.yml]

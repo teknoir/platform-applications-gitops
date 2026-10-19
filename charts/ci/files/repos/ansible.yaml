@@ -1,0 +1,15 @@
+# ansible (private): playbooks run through tnctl ansible-playbook. Tests only, added 2026-10-19.
+# The release stays on GitHub Actions (release.yml, v* tags: a tarball of the deprecated inventory
+# plugin as a GitHub release asset); a release step here would need the org-wide CI token in repo code.
+branches: ['**']
+tests:
+  - name: lint-and-toe-image
+    image: "docker.io/library/python:3.13"
+    memory: 2Gi
+    run: >-
+      pip install -q ansible-core==2.19.14 ansible-lint==26.10.1 &&
+      ansible-galaxy collection install -q -r requirements.yml &&
+      for p in playbooks/*.yml; do ansible-playbook --syntax-check -i localhost, "$p"; done &&
+      ansible-lint --profile production playbooks/toe-image.yml &&
+      bash tests/toe-image/run.sh
+githubActions: keep
