@@ -18,6 +18,9 @@ config:
   # Without them a service principal passes every plugin and permission check.
   # P0 (now): the device plugin plus read-only catalog (tnctl still lists teamspaces/devices from the catalog).
   # P2 target, once tnctl uses the user-scoped fleet routes: [{plugin: device}] only.
+  # Ship a backstage image that keeps rsa_private, userpassword and wifipassword out of the catalog Device entity
+  # (DeviceEntityProvider catalogSettingsOf) before or with P0: until then a tnctl token reads every teamspace's
+  # device logins through the catalog, whatever the fleet credentials route checks.
   # Plugin ids must be unique in the list (a duplicate stops backstage-api at start). Empty list = no restriction.
   externalAccess:
     accessRestrictions:
