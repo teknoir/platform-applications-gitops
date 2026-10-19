@@ -3,7 +3,6 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -168,7 +167,7 @@ class Applications(unittest.TestCase):
 
 class ChartDeps(unittest.TestCase):
     def charts(self, *versions):
-        d = tempfile.mkdtemp()
+        d = H.tmpdir()
         for i, v in enumerate(versions):
             os.makedirs(os.path.join(d, "charts", f"c{i}"))
             with open(os.path.join(d, "charts", f"c{i}", "Chart.yaml"), "w") as fh:
@@ -250,7 +249,7 @@ class Roundtrip(unittest.TestCase):
             out = subprocess.run(["helm", "template", "app-of-apps", chart, "--set", f"project={project}", "--set-string", f"release={SHA}",
                                   "--set", "releaseGuard.enabled=true", "--set", "virtualDevices.spike.enabled=true"],
                                  capture_output=True, text=True, check=True).stdout
-            d = tempfile.mkdtemp()
+            d = H.tmpdir()
             with open(os.path.join(d, "root.yaml"), "w") as fh:
                 fh.write(out)
             apps = [x for x in CP.load_docs([d]) if x[1].get("kind") == "Application"]
@@ -260,14 +259,14 @@ class Roundtrip(unittest.TestCase):
 
 class Cli(unittest.TestCase):
     def test_exit_status_and_output(self):
-        d = tempfile.mkdtemp()
+        d = H.tmpdir()
         with open(os.path.join(d, "r.yaml"), "w") as fh:
             fh.write("apiVersion: v1\nkind: Application\nmetadata: {name: a}\nspec: {source: {repoURL: https://github.com/teknoir/platform-applications-gitops, path: x, targetRevision: main}}\n")
         self.assertEqual(CP.main([d, "--release", SHA, "--policy", os.path.join(H.SCRIPTS, "release-policy.yaml")]), 1)
         self.assertEqual(CP.main([d, "--project", "teknoir-online", "--policy", os.path.join(H.SCRIPTS, "release-policy.yaml")]), 0)
 
     def test_yaml_bare_equals_loads(self):
-        d = tempfile.mkdtemp()
+        d = H.tmpdir()
         with open(os.path.join(d, "r.yaml"), "w") as fh:
             fh.write("a:\n  - '!='\n  - =\n  - =~\n")
         self.assertEqual(len(CP.load_docs([d])), 1)

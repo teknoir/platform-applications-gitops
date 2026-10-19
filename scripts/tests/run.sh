@@ -11,6 +11,11 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "${HERE}/../.." && pwd)"
 cd "$REPO"
 
+# Every temp dir the tests create (throwaway git repos, renders, fake registries) lives in one per-run TMPDIR that is
+# removed on exit; the Python tests use tempfile.mkdtemp() and never clean up themselves.
+RUN_TMP=$(mktemp -d -t gitops-tests.XXXXXX); trap 'rm -rf "$RUN_TMP"' EXIT
+export TMPDIR="$RUN_TMP"
+
 echo "== python unittest (scripts/tests)"
 python3 -W ignore -m unittest discover -s scripts/tests -p 'test_*.py' 2>&1 | grep -E "^(Ran|OK|FAILED|FAIL|ERROR)" 
 
@@ -20,7 +25,7 @@ helm unittest charts/app-of-apps charts/release-guard 2>&1 | grep -E "^(Charts|T
 BASE="${BASE:-origin/teknoir-cloud}"
 if git rev-parse --verify -q "$BASE" >/dev/null; then
   echo "== root render with release unset equals $BASE, except the round-trip removals"
-  TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+  TMP=$(mktemp -d)
   git worktree add -q --detach "$TMP/base" "$BASE"
   for p in teknoir-cloud teknoir-online teknoir-local; do
     helm template app-of-apps "$TMP/base/charts/app-of-apps" --set project="$p" > "$TMP/base-$p.yaml"

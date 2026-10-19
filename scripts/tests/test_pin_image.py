@@ -2,7 +2,6 @@ import json
 import os
 import shutil
 import sys
-import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -125,7 +124,7 @@ class FakeSys(L.Sys):
 
 class PinFlow(unittest.TestCase):
     def setUp(self):
-        self.root = tempfile.mkdtemp()
+        self.root = H.tmpdir()
         shutil.copytree(os.path.join(os.path.dirname(H.SCRIPTS), "scripts"), os.path.join(self.root, "scripts"),
                         ignore=shutil.ignore_patterns("tests", "__pycache__"))
         # Self-contained fixtures (unpinned on purpose): the real values files get pinned by releases.

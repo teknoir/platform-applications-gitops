@@ -1,9 +1,11 @@
 """Shared test helpers: loading the hyphen-named scripts, a throwaway git repo, a fake Sys."""
+import atexit
 import importlib.machinery
 import importlib.util
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -26,6 +28,13 @@ def load(name: str, filename: str):
     return mod
 
 
+def tmpdir() -> str:
+    """tempfile.mkdtemp() that is removed when the test process exits."""
+    d = tempfile.mkdtemp()
+    atexit.register(shutil.rmtree, d, ignore_errors=True)
+    return d
+
+
 def git(repo, *args, env=None):
     e = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
          "GIT_COMMITTER_EMAIL": "t@t", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null", **(env or {})}
@@ -41,7 +50,7 @@ class Repo:
     """
 
     def __init__(self):
-        self.tmp = tempfile.mkdtemp()
+        self.tmp = tmpdir()
         self.origin = os.path.join(self.tmp, "origin.git")
         self.work = os.path.join(self.tmp, "work")
         subprocess.run(["git", "init", "-q", "--bare", self.origin], check=True)
