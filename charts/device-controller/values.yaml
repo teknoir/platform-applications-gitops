@@ -150,7 +150,7 @@ ztna:
   # second container in the per-device wgt- pod (empty = no web gateway). Both reach the
   # controller's ZTNA JSON only when set.
   attestorEnabled: false
-  gatewayImage: "ghcr.io/teknoir/wg-gateway:sha-41a0c20@sha256:0478bafe5f74bce8cfe38c9b017270783095769b8c3593738ab5e3d6d75d9df7"
+  gatewayImage: "ghcr.io/teknoir/wg-gateway:sha-92680d4@sha256:05281333583b8739d6658eebd275c1dddc7973f5780158b59039da21163756f7"
   # Device ports a client may reach.
   allowedPorts: [22]
   # How long the enrollment window stays open after enabling WireGuard or resetting enrollment.
