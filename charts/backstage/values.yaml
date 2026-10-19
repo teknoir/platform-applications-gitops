@@ -14,6 +14,16 @@ config:
   # Hosts that only redirect (301, path kept) to the host above, e.g. next.teknoir.cloud after the UI cut-over.
   redirectHosts: []
   logLevel: info
+  # Restrictions on the Keycloak (tnctl) access-token principal of backend.auth.externalAccess.
+  # Without them a service principal passes every plugin and permission check.
+  # P0 (now): the device plugin plus read-only catalog (tnctl still lists teamspaces/devices from the catalog).
+  # P2 target, once tnctl uses the user-scoped fleet routes: [{plugin: device}] only.
+  # Plugin ids must be unique in the list (a duplicate stops backstage-api at start). Empty list = no restriction.
+  externalAccess:
+    accessRestrictions:
+      - plugin: catalog
+        permission: catalog.entity.read
+      - plugin: device
   prometheusUrl: http://prometheus.__NAMESPACE__.svc.cluster.local:80
 
 # Backstage frontend deployment

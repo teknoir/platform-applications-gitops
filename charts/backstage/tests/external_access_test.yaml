@@ -1,0 +1,45 @@
+suite: backstage Keycloak externalAccess restrictions
+templates:
+  - templates/configmap-app-config.yaml
+tests:
+  - it: restricts the Keycloak principal to catalog read and the device plugin by default (P0)
+    asserts:
+      - matchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: "subjectPrefix: keycloak\\n        accessRestrictions:\\n          - permission: catalog.entity.read\\n            plugin: catalog\\n          - plugin: device\\n"
+
+  - it: renders the P2 target list
+    set:
+      config.externalAccess.accessRestrictions:
+        - plugin: device
+    asserts:
+      - matchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: "subjectPrefix: keycloak\\n        accessRestrictions:\\n          - plugin: device\\n    keys:"
+      - notMatchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: "catalog.entity.read"
+
+  - it: renders no accessRestrictions key when the list is empty
+    set:
+      config.externalAccess.accessRestrictions: []
+    asserts:
+      - notMatchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: accessRestrictions
+
+  - it: refuses a plugin listed twice (Backstage would stop at start)
+    set:
+      config.externalAccess.accessRestrictions:
+        - plugin: catalog
+          permission: catalog.entity.read
+        - plugin: catalog
+    asserts:
+      - failedTemplate:
+          errorPattern: plugin "catalog" listed twice
+
+  - it: keeps the jwks entry fields
+    asserts:
+      - matchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: "audience: teknoir-cli\\n          subjectPrefix: keycloak\\n"
