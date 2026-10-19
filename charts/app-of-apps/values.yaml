@@ -108,7 +108,7 @@ applications:
     wave: 0
 
   auth:
-    version: 0.0.8
+    version: 0.0.9
     namespace: teknoir-auth
     wave: 0
 
@@ -186,6 +186,6 @@ applications:
     wave: 5
 
   backstage:
-    version: 0.0.83
+    version: 0.0.84
     namespace: teknoir-system
     wave: 5

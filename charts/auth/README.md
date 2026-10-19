@@ -255,6 +255,15 @@ The harness chain is lua, ext_authz, marker, router (there is no license filter 
   `docker.io/adorsys/keycloak-config-cli:6.5.1-26.5.5`,
   `docker.io/alpine/k8s:1.34.11`.
 
+## Upgrade notes (0.0.8 -> 0.0.9)
+
+- Realm `teknoir` gets the client `teknoir-cli` at the next PostSync import. oauth2-proxy is unchanged
+  (`cliClientId` stays `""`, see "tnctl").
+- The EnvoyFilter changes (applied live, no pod restarts): denied non-browser requests get `401` JSON
+  instead of a login redirect (see "Denied requests").
+- Release together with backstage 0.0.84, which restricts the tnctl principal and rolls backstage-api once
+  (Recreate: about a minute without the portal API).
+
 ## Upgrade notes (0.0.3 -> 0.0.8)
 
 - Before `up`: `teknoir-auth/keycloak-admin` must exist with the admin's
