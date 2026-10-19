@@ -8,7 +8,7 @@ tests:
     memory: 2Gi
     run: >-
       pip install -q ansible-core==2.19.14 ansible-lint==26.10.1 &&
-      ansible-galaxy collection install -q -r requirements.yml &&
+      ansible-galaxy collection install -r requirements.yml &&
       for p in playbooks/*.yml; do ansible-playbook --syntax-check -i localhost, "$p"; done &&
       ansible-lint --profile production playbooks/toe-image.yml &&
       bash tests/toe-image/run.sh
