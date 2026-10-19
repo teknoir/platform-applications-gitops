@@ -1,7 +1,14 @@
 # toe-app (private), the TOE device agent. Translated from .github/workflows/build.yml (branch toe_v4) on 2026-10-19.
+# Images go to ghcr.io/teknoir/toe-app (and Harbor) only. Devices pull docker.io/tekn0ir/toe:toe_v4, which CI never
+# touches; a fixed TOE reaches devices only as a digest-pinned ref (ansible playbooks/toe-image.yml).
+# COMMIT/VERSION end up in the toe_build_info metric (plans/nextgen/robot-overrides.md section 11).
 branches: ['**']
 images:
 - name: toe-app
+  latest: []
   platforms: [linux/amd64, linux/arm64/v8]
+  buildArgs:
+    COMMIT: "{sha8}"
+    VERSION: "{ref}-{sha8}"
 githubActions: disable
 actionsWorkflows: [build.yml]
