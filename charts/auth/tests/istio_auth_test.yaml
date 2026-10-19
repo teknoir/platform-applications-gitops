@@ -1,0 +1,222 @@
+suite: istio auth EnvoyFilter (ext_authz + denial shaping)
+templates:
+  - templates/istio-auth.yaml
+release:
+  name: auth
+  namespace: teknoir-auth
+tests:
+  - it: has three HTTP_FILTER patches in order (denial Lua, ext_authz, marker)
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: EnvoyFilter
+      - equal:
+          path: spec.configPatches[0].applyTo
+          value: HTTP_FILTER
+      - equal:
+          path: spec.configPatches[0].patch.operation
+          value: INSERT_FIRST
+      - equal:
+          path: spec.configPatches[0].patch.value.name
+          value: envoy.filters.http.ext_authz
+      - equal:
+          path: spec.configPatches[1].applyTo
+          value: HTTP_FILTER
+      - equal:
+          path: spec.configPatches[1].patch.operation
+          value: INSERT_BEFORE
+      - equal:
+          path: spec.configPatches[1].patch.value.name
+          value: envoy.filters.http.lua
+      - equal:
+          path: spec.configPatches[1].match.listener.filterChain.filter.subFilter.name
+          value: envoy.filters.http.ext_authz
+      - equal:
+          path: spec.configPatches[2].applyTo
+          value: HTTP_FILTER
+      - equal:
+          path: spec.configPatches[2].patch.operation
+          value: INSERT_AFTER
+      - equal:
+          path: spec.configPatches[2].patch.value.name
+          value: envoy.filters.http.lua.authz_passed
+      - equal:
+          path: spec.configPatches[2].match.listener.filterChain.filter.subFilter.name
+          value: envoy.filters.http.ext_authz
+      - equal:
+          path: spec.configPatches[2].match.listener.portNumber
+          value: 443
+      - equal:
+          path: spec.configPatches[1].match.listener.portNumber
+          value: 443
+
+  - it: leaves the ext_authz patch byte-identical to the golden copy (allow decision untouched)
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.configPatches[0]
+          value:
+            applyTo: HTTP_FILTER
+            match:
+              context: GATEWAY
+              listener:
+                portNumber: 443
+                filterChain:
+                  filter:
+                    name: envoy.filters.network.http_connection_manager
+            patch:
+              operation: INSERT_FIRST
+              value:
+                name: envoy.filters.http.ext_authz
+                typed_config:
+                  "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
+                  transport_api_version: V3
+                  http_service:
+                    server_uri:
+                      uri: http://oauth2-proxy.teknoir-auth.svc.cluster.local:4180
+                      cluster: outbound|4180||oauth2-proxy.teknoir-auth.svc.cluster.local
+                      timeout: 10s
+                    path_prefix: /oauth2/auth
+                    authorization_request:
+                      allowed_headers:
+                        patterns:
+                          - exact: cookie
+                          - exact: authorization
+                          - exact: x-forwarded-proto
+                          - exact: x-forwarded-host
+                          - exact: x-forwarded-uri
+                    authorization_response:
+                      allowed_upstream_headers:
+                        patterns:
+                          - exact: x-forwarded-access-token
+                          - exact: x-auth-request-access-token
+                          - exact: x-auth-request-user
+                          - exact: x-auth-request-email
+                          - exact: x-auth-request-preferred-username
+                      allowed_client_headers:
+                        patterns:
+                          - exact: set-cookie
+                          - exact: location
+
+  - it: keeps every per-vhost and per-route exemption
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.configPatches[3].match.routeConfiguration.vhost.name
+          value: "auth.teknoir.cloud:443"
+      - equal:
+          path: spec.configPatches[3].patch.value.typed_per_filter_config["envoy.filters.http.ext_authz"].disabled
+          value: true
+      - equal:
+          path: spec.configPatches[4].match.routeConfiguration.vhost.name
+          value: "harbor.teknoir.cloud:443"
+      - equal:
+          path: spec.configPatches[4].patch.value.typed_per_filter_config["envoy.filters.http.lua"].disabled
+          value: true
+      - equal:
+          path: spec.configPatches[5].match.routeConfiguration.vhost.name
+          value: "argocd.teknoir.cloud:443"
+      - equal:
+          path: spec.configPatches[6].match.routeConfiguration.vhost.route.name
+          value: oauth2-proxy-auth
+      - equal:
+          path: spec.configPatches[7].match.routeConfiguration.vhost.route.name
+          value: keycloak
+
+  - it: templates the cookie name and the shared host into the denial Lua
+    documentIndex: 0
+    set:
+      domain: example.test
+      oauth2Proxy.cookie.name: _custom_cookie
+      oauth2Proxy.sharedHost: login.example.test
+    asserts:
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'string\.find\(cookie, "_custom_cookie=", 1, true\)'
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'https://login\.example\.test/oauth2/start\?rd='
+      - notMatchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'teknoir\.cloud'
+
+  - it: defaults the shared host to the domain and the cookie to the chart value
+    documentIndex: 0
+    asserts:
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'string\.find\(cookie, "_teknoir_oauth2_proxy_v2=", 1, true\)'
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'https://teknoir\.cloud/oauth2/start\?rd='
+
+  - it: builds rd and the /oauth2 exemption from :authority/:path, never from x-forwarded-host/-uri
+    documentIndex: 0
+    asserts:
+      - notMatchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'get\("x-forwarded-(host|uri)"\)'
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'h:get\(":path"\)'
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'h:get\(":authority"\)'
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'h:get\("x-forwarded-proto"\)'
+
+  - it: rewrites only 401/403 and only when the marker is absent, touching body() only on a denial
+    documentIndex: 0
+    asserts:
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'status ~= "401" and status ~= "403"'
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'md:get\("oauth2_proxy_authz"\)'
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'authz\["passed"\] == "true"'
+      # body() is requested with always_wrap_body, never bare, and only after the early returns
+      - notMatchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'handle:body\(\)'
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: '(?s)function envoy_on_response.*"/oauth2".*has_session.*handle:body\(true\)'
+      - notMatchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: '(?s)function envoy_on_request.*handle:body.*function envoy_on_response'
+
+  - it: sends the documented 401 challenge and 302 login redirect
+    documentIndex: 0
+    asserts:
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'Bearer realm="teknoir"'
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'error="invalid_token"'
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'rh:replace\("cache-control", "no-store"\)'
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'rh:remove\("set-cookie"\)'
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'rh:replace\(":status", "302"\)'
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'rh:replace\(":status", "401"\)'
+
+  - it: marker filter only sets the dynamic metadata flag
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.configPatches[2].patch.value.typed_config.inlineCode
+          value: |
+            function envoy_on_request(handle)
+              handle:streamInfo():dynamicMetadata():set("oauth2_proxy_authz", "passed", "true")
+            end
