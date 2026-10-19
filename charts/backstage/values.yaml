@@ -12,6 +12,20 @@ config:
   oidc:
     realm: teknoir
     basePath: /auth
+  # Restrictions on the Keycloak (tnctl, client teknoir-cli) access-token principal of
+  # backend.auth.externalAccess. Without them that principal passes every plugin and permission
+  # check of backstage-api, including the kubernetes proxy, which runs with backstage-api's
+  # cluster-wide ServiceAccount. Only reachable once oauth2Proxy.oidc.cliClientId is set (see the
+  # auth chart README): until then oauth2-proxy rejects teknoir-cli bearer tokens at the gateway.
+  # P0 (now): the device plugin plus read-only catalog (tnctl still lists teamspaces and devices
+  # from the catalog). P2 target, once tnctl uses the user-scoped fleet routes: [{plugin: device}]
+  # only. Plugin ids must be unique in the list (a duplicate stops backstage-api at start).
+  # Empty list = no restriction.
+  externalAccess:
+    accessRestrictions:
+      - plugin: catalog
+        permission: catalog.entity.read
+      - plugin: device
 
 # Backstage frontend deployment
 backstage:
