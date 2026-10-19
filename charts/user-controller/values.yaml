@@ -59,6 +59,18 @@ platformUsers:
     role: superadmin
     claimSet:
       - {name: owner, namespace: teknoir-demo}
+  # Permanent platform superusers (Anders, 2026-10-19: "Create 2 superusers in staging",
+  # "Set them up as permanent users in GitOps in staging").
+  - email: chip.ray@teknoir.ai
+    displayName: Chip Ray
+    role: superadmin
+    claimSet:
+      - {name: owner, namespace: teknoir-demo}
+  - email: jonathan.klein@teknoir.ai
+    displayName: Jonathan Klein
+    role: superadmin
+    claimSet:
+      - {name: owner, namespace: teknoir-demo}
   # Staging test user for the agents' browser checks (developer in teknoir-demo, not a
   # platform admin). Its password lives only in the dev host's
   # ~/.config/teknoir/staging-agent-user.env (set in Keycloak from there, never in Git).
