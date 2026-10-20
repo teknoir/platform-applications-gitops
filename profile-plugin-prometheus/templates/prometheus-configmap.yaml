@@ -121,8 +121,13 @@ data:
             annotations:
               summary: "High memory usage on Node {{ `{{ $labels.name }}` }} - {{ `{{ $labels.device_id }}` }}"
               description: "Node {{ `{{ $labels.name }}` }} - {{ `{{ $labels.device_id }}` }} memory usage has been over 90% of its allocatable capacity for 15 minutes."
+          # Over 75% used only counts when less than 20 GB is left: a large disk at 80% still has
+          # hundreds of GB free. Over 90% used always counts.
           - alert: LowDiskSpace
-            expr: node_storage_usage/node_storage_capacity > 0.75
+            expr: |
+              (node_storage_usage / node_storage_capacity > 0.75
+                and (node_storage_capacity - node_storage_usage) < 20e9)
+              or node_storage_usage / node_storage_capacity > 0.9
             for: 1m
             labels:
               alert_type: disk_space
@@ -130,7 +135,7 @@ data:
               scope: device
             annotations:
               summary: "Low disk space on {{ `{{ $labels.device_id }}` }}"
-              description: "Device {{ `{{ $labels.device_id }}` }} has less than 25% disk space available."
+              description: "Node {{ `{{ $labels.name }}` }} of device {{ `{{ $labels.device_id }}` }} has used {{ `{{ $value | humanizePercentage }}` }} of its disk."
       - name: internal-llm-alerts
         rules:
           - alert: HighLLMProcessingAPIErrorRate
