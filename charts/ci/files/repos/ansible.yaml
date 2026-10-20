@@ -7,9 +7,10 @@ tests:
     image: "docker.io/library/python:3.13"
     memory: 2Gi
     run: >-
-      pip install -q ansible-core==2.19.14 ansible-lint==26.10.1 &&
+      export ANSIBLE_CONFIG="$PWD/ansible.cfg" &&
+      pip install -q --root-user-action=ignore ansible-core==2.19.14 ansible-lint==26.10.1 &&
       ansible-galaxy collection install -r requirements.yml &&
-      for p in playbooks/*.yml; do ansible-playbook --syntax-check -i localhost, "$p"; done &&
+      for p in playbooks/*.yml; do ansible-playbook --syntax-check -i localhost, "$p" || exit 1; done &&
       ansible-lint --profile production playbooks/toe-image.yml &&
       bash tests/toe-image/run.sh
 githubActions: keep
