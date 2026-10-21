@@ -190,7 +190,7 @@ tests:
           pattern: '(?s)function envoy_on_response.*"/oauth2".*has_session.*handle:body\(true\)'
       - notMatchRegex:
           path: spec.configPatches[1].patch.value.typed_config.inlineCode
-          pattern: '(?s)function envoy_on_request.*handle:body.*function envoy_on_response'
+          pattern: 'function envoy_on_request\(handle\)\n(?:  [^\n]*\n)*?  [^\n]*handle:body'
 
   - it: sends the documented 401 challenge and 302 login redirect
     documentIndex: 0
@@ -234,7 +234,7 @@ tests:
       # ... only a 403 with a session cookie returns early (logged in, not allowed)
       - matchRegex:
           path: spec.configPatches[1].patch.value.typed_config.inlineCode
-          pattern: 'if has_session and status == "403" then\s+ensure_content_type\(rh\)\s+return'
+          pattern: '(?s)if has_session and status == "403" then.*?\n\s+ensure_content_type\(rh\)\s+return\s+end'
       - matchRegex:
           path: spec.configPatches[1].patch.value.typed_config.inlineCode
           pattern: 'md:set\("oauth2_proxy", "has_session", cookie_has\(h, "_teknoir_oauth2_proxy_v2"\)'
@@ -279,7 +279,7 @@ tests:
     asserts:
       - matchRegex:
           path: spec.configPatches[1].patch.value.typed_config.inlineCode
-          pattern: '"_teknoir_auth_retry=1; Domain=teknoir\.cloud; Path=/; Max-Age=30; HttpOnly; Secure; SameSite=Lax"'
+          pattern: '"_teknoir_auth_retry=1; Path=/; Max-Age=30; HttpOnly; Secure; SameSite=Lax"'
       - matchRegex:
           path: spec.configPatches[1].patch.value.typed_config.inlineCode
           pattern: 'md:set\("oauth2_proxy", "has_retry", cookie_has\(h, "_teknoir_auth_retry"\)'
@@ -293,12 +293,39 @@ tests:
           path: spec.configPatches[1].patch.value.typed_config.inlineCode
           pattern: 'https://teknoir\.cloud/oauth2/sign_out\?rd='
 
+  - it: keeps the loop-guard marker host-only (a tab on another host must still be redirected)
+    documentIndex: 0
+    asserts:
+      - notMatchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: '_teknoir_auth_retry=1; Domain='
+
+  - it: treats only a top-level document load as a browser (not iframes, prefetch or prerender)
+    documentIndex: 0
+    asserts:
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'h:get\("sec-fetch-dest"\)'
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'dest == "document"\) and h:get\("sec-purpose"\) == nil'
+
+  - it: shows a browser navigation a page for a bare or empty 403 with a session cookie, never a redirect
+    documentIndex: 0
+    asserts:
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: '(?s)has_session and status == "403" then\s+local len = rh:get\("content-length"\)\s+if info\["client"\] == "browser" and \(len == nil or len == "0" or len == "2"\) then\s+send_page\(handle, "403"'
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: '<title>. \.\. title \.\. .</title>'
+
   - it: gives every passed-through denial a content-type
     documentIndex: 0
     asserts:
       - matchRegex:
           path: spec.configPatches[1].patch.value.typed_config.inlineCode
-          pattern: '(?s)local function ensure_content_type\(rh\).*rh:get\("content-type"\) == nil'
+          pattern: '(?s)local function ensure_content_type\(rh\).*rh:get\("content-type"\) == nil.*len == nil or len == "0" then\s+rh:add\("content-type", "text/plain; charset=utf-8"\)'
       - matchRegex:
           path: spec.configPatches[1].patch.value.typed_config.inlineCode
           pattern: '(?s)"/oauth2" then\s+ensure_content_type\(rh\)\s+return'

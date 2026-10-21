@@ -26,7 +26,10 @@ tell from "not allowed".
 
 Decided from request headers only, never from the path:
 
-1. `Sec-Fetch-Mode` present: `navigate` is a browser, any other value (`cors`, `no-cors`, `same-origin`, `websocket`) is an API client.
+1. `Sec-Fetch-Mode` present: `navigate` is a browser when it is a top-level document load (`Sec-Fetch-Dest` is `document` or absent, and
+   there is no `Sec-Purpose` header). Any other value (`cors`, `no-cors`, `same-origin`, `websocket`), a navigation into an
+   `iframe`/`frame`/`embed`/`object`, and a prefetch or prerender (`Sec-Purpose`) are API clients: they get the `401` JSON, never a
+   redirect and never the loop-guard marker, so a background load cannot put a later real navigation on the sign-in-failed page.
    Browsers send `Sec-Fetch-*` on every request and page scripts cannot set or forge it.
 2. Header absent (old browsers, curl, scripts): `Authorization` or `X-Requested-With` present is an API client; else `GET`/`HEAD` with an
    `Accept` containing `text/html` is a browser; anything else (`*/*`, `application/json`, no `Accept`) is an API client.
@@ -40,8 +43,8 @@ Applies to a `401` (with or without a session cookie) or a `403` (without one) p
 
 | Caller | Status | Headers | Body |
 |---|---|---|---|
-| Browser navigation | `302` | `Location: https://<shared host>/oauth2/start?rd=<url-encoded https://<host><path>>`, `Content-Length: 0`, `Cache-Control: no-store`, loop-guard marker `Set-Cookie: _teknoir_auth_retry=1; Domain=<cookie domain>; Path=/; Max-Age=30; HttpOnly; Secure; SameSite=Lax`; with a session cookie also two clearing `Set-Cookie` (below) | empty |
-| Browser navigation that already carries the marker | `401` | `Content-Type: text/html; charset=utf-8`, `Cache-Control: no-store`, a restrictive `Content-Security-Policy`; no `Location`, no new marker; clearing `Set-Cookie` when a session cookie was sent | "Sign-in did not complete" with a retry link (`/oauth2/start?rd=...`) and a sign-out link (`/oauth2/sign_out?rd=<retry link>`) |
+| Browser navigation | `302` | `Location: https://<shared host>/oauth2/start?rd=<url-encoded https://<host><path>>`, `Content-Length: 0`, `Cache-Control: no-store`, loop-guard marker `Set-Cookie: _teknoir_auth_retry=1; Path=/; Max-Age=30; HttpOnly; Secure; SameSite=Lax` (host-only); with a session cookie also two clearing `Set-Cookie` (below) | empty |
+| Browser navigation that already carries the marker | `401` | `Content-Type: text/html; charset=utf-8`, `Cache-Control: no-store`, a restrictive `Content-Security-Policy`; no `Location`, no new marker; clearing `Set-Cookie` when a session cookie was sent | "Sign-in did not complete" (the sign-in gave this browser no valid session, or the sign-in service is temporarily unavailable) with a retry link (`/oauth2/start?rd=...`) and a sign-out link (`/oauth2/sign_out?rd=<retry link>`) |
 | Anything else, no `Authorization` header, no session cookie | `401` | `WWW-Authenticate: Bearer realm="teknoir"`, `Content-Type: application/json`, `Content-Length: <body length>`, `Cache-Control: no-store`; no `Location`, no `Set-Cookie` | the JSON below |
 | Anything else, `Authorization` header or session cookie sent | `401` | as above, with `WWW-Authenticate: Bearer realm="teknoir", error="invalid_token"`; with a session cookie also the two clearing `Set-Cookie` | the JSON below |
 
@@ -61,8 +64,9 @@ until the cookie expires. oauth2-proxy's own clearing `Set-Cookie` is kept next 
 **Loop guard.** The login redirect goes to `/oauth2/start` (not behind ext_authz), through Keycloak and back to the original URL. If that
 URL is denied again within 30 s (a cookie the browser does not keep, a session the proxy rejects), a second redirect would loop forever.
 The `302` therefore sets the short-lived marker; a navigation that is denied and carries it gets the sign-in-failed page. The page's
-links are on `/oauth2` (never behind the guard). A second tab opened within 30 s on a still-unauthenticated browser sees the page
-once; its "Try again" link goes straight to login.
+links are on `/oauth2` (never behind the guard). The marker is host-only (no `Domain`): a tab on another host (a second app, a `wgt-`
+tab) is still redirected. A second tab on the *same* host opened within 30 s on a still-unauthenticated browser sees the page once; its
+"Try again" link goes straight to login. The same happens during an oauth2-proxy outage (the redirect cannot complete); the page says so.
 
 ### 3. What passes through unchanged
 
@@ -71,8 +75,11 @@ once; its "Try again" link goes straight to login.
   backend's status, headers and body. `403` means "you are logged in but not allowed"; logging in again does not fix it.
 - Requests under `/oauth2*` (the login flow itself).
 - **A `403` that carries the session cookie** (oauth2-proxy `force-json-errors`: the session is valid but not authorized; or the
-  authorizer itself failed): logging in again does not help, so it is not redirected. If it has no `Content-Type` one is added
-  (`application/json`, or `text/plain` for an empty body); nothing else changes.
+  authorizer itself failed): logging in again does not help, so it is not redirected. A browser navigation whose `403` body is empty
+  or the bare `{}` gets a small `403` HTML page ("Access not permitted": not allowed, or the sign-in service is temporarily
+  unavailable) with the same retry and sign-out links. Everything else (fetch, XHR, other bodies such as an old oauth2-proxy's own
+  HTML) passes through; if it has no `Content-Type` one is added (`text/plain` when there is no body or no `Content-Length`, as in
+  an authorizer outage; else `application/json`); nothing else changes.
 - Everything that is not a `401`/`403`.
 
 ### 4. Client guidance
@@ -129,7 +136,8 @@ but never a marker, and sees a backend answer together with the marker.
 Realm `master` (`files/realm/master.yaml`, imported by keycloak-config-cli after every sync) pins `accessTokenLifespan: 300` (5 min),
 `ssoSessionIdleTimeout: 86400` (1 d), `ssoSessionMaxLifespan: 604800` (7 d) and `offlineSessionIdleTimeout: 2592000` (30 d, tnctl's
 offline token). oauth2-proxy refreshes the Keycloak token every minute (`cookie.refresh`) while a page sends requests and keeps its own
-cookie for `cookie.expire: 168h`, equal to the SSO maximum, so the cookie never outlives or undercuts the SSO session. The import
+cookie for `cookie.expire: 168h`, the same length as the SSO maximum. The two clocks differ: the cookie's lifetime slides on every refresh,
+the SSO maximum is absolute, so a cookie can outlive its SSO session; that case is a dead session, handled as in "Denied requests". The import
 sends only the listed realm fields; everything else in the realm is left alone. Changing lifetimes does not log anyone out: Keycloak
 checks the current values on the next use of a session. The values apply to the whole `master` realm (including the admin console).
 A dead session (idle over a day, or over 7 d) is answered as described in "Denied requests".
@@ -147,10 +155,10 @@ dead session cookie `stale` and an undecodable one `garbage`; `403 {}` for a log
 `403` + 8492-byte HTML page for a `legacy` cookie and the `/legacy403`, `/oauth2x` paths, i.e. new Lua against an old oauth2-proxy
 during a rolling deploy) and a backend stub.
 It runs a curl matrix over HTTP/1.1 and HTTP/2 (`Sec-Fetch-Mode` x `Accept` x `Authorization` x cookie x path, plus HEAD, POST and
-`X-Requested-With`), every client kind with a dead or garbage session cookie on the apex, `next.`, `wgt-` and `wgs-` hosts, the loop
+`X-Requested-With`; OPTIONS preflights and HEAD with a dead cookie; iframe/prefetch navigations), every client kind with a dead or garbage session cookie on the apex, `next.`, `wgt-` and `wgs-` hosts, the loop
 guard (marker with and without a session cookie, with a good cookie, on API requests, lookalike names, a hostile path), the `403`
 pass-through, backend `401`/`403` with a session cookie, raw keep-alive sockets for HTTP/1.1 framing, spoofed forwarding headers, backend `401`/`403` pass-through, a
-listener without the marker filter, a streaming response, real WebSocket upgrades (allowed: `101` and echo both ways; denied: the `401`
+listener without the marker filter, a listener whose authorizer is down (empty `403`), a streaming response, real WebSocket upgrades (allowed: `101` and echo both ways; denied: the `401`
 JSON with consistent framing) and bodies far above the harness's 32 KiB per-connection buffer limit (20 MiB allowed download and a
 5 MiB backend `403`, over HTTP/1.1 and HTTP/2), then prints a summary table and exits non-zero on any failure.
 `RENDERED=<file>` runs it against any already rendered EnvoyFilter (for example the old template, to see what it catches).

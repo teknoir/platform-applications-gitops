@@ -70,7 +70,8 @@ spec:
     # login redirect, everything else gets a 401 challenge); a 401/403 from the backend passes
     # unchanged. A 401 is rewritten even when the request carries the session cookie (a dead
     # session): the cookie is cleared and a loop guard stops a redirect loop. A 403 with a session
-    # cookie (logged in but not allowed) passes through. Contract: charts/auth/README.md ("Denied requests").
+    # cookie (logged in but not allowed) is never redirected: a browser gets a page for a bare/empty 403, others pass it
+    # through. Contract: charts/auth/README.md ("Denied requests").
     - applyTo: HTTP_FILTER
       match:
         context: GATEWAY
@@ -108,13 +109,18 @@ spec:
                 return string.find(norm, ";" .. name .. "=", 1, true) ~= nil
               end
 
-              -- "browser" = a top-level navigation that can follow a login redirect.
-              -- Everything else (fetch/XHR/WebSocket/CLI/curl) is "api". Never classify by path.
+              -- "browser" = a top-level document load that can follow a login redirect.
+              -- Everything else (fetch/XHR/WebSocket/CLI/curl, and navigations that are not a user opening a
+              -- page: iframes, prefetch, prerender) is "api". Never classify by path.
               local function classify(h)
                 local mode = h:get("sec-fetch-mode")
                 if mode ~= nil then
                   -- Sec-* request headers cannot be set by page scripts: authoritative.
-                  if mode == "navigate" then
+                  if mode ~= "navigate" then
+                    return "api"
+                  end
+                  local dest = h:get("sec-fetch-dest")
+                  if (dest == nil or dest == "document") and h:get("sec-purpose") == nil then
                     return "browser"
                   end
                   return "api"
@@ -152,10 +158,11 @@ spec:
 
               -- A passed-through denial must carry a content-type. ext_authz forwards only set-cookie and location
               -- (oauth2-proxy's own content-type is dropped); Envoy usually adds text/plain for a body, but an
-              -- empty local reply (authorizer error) may have none.
+              -- empty local reply (authorizer error) has none, and no content-length either.
               local function ensure_content_type(rh)
                 if rh:get("content-type") == nil then
-                  if rh:get("content-length") == "0" then
+                  local len = rh:get("content-length")
+                  if len == nil or len == "0" then
                     rh:add("content-type", "text/plain; charset=utf-8")
                   else
                     rh:add("content-type", "application/json")
@@ -172,18 +179,35 @@ spec:
                 rh:add("set-cookie", "{{ $cookieName }}=" .. tail)
               end
 
-              -- Shown instead of a second login redirect (the loop guard tripped).
-              local function sign_in_failed_page(rd)
+              -- A small HTML page with a retry link and a sign-out link (both on /oauth2, never behind ext_authz).
+              -- The only request-derived text is rd, percent-encoded inside the two links.
+              local function html_page(title, message, rd)
                 local start = "https://{{ $oauth2SharedHost }}/oauth2/start?rd=" .. urlencode(rd)
                 local out = "https://{{ $oauth2SharedHost }}/oauth2/sign_out?rd=" .. urlencode(start)
                 return '<!doctype html><html lang="en"><head><meta charset="utf-8">'
                   .. '<meta name="viewport" content="width=device-width,initial-scale=1">'
-                  .. '<title>Sign-in did not complete</title>'
+                  .. '<title>' .. title .. '</title>'
                   .. '<style>body{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem;color:#222}'
-                  .. 'a{color:#0b57d0}</style></head><body><h1>Sign-in did not complete</h1>'
-                  .. '<p>You were sent to sign in, but the sign-in did not give this browser a valid session.</p>'
+                  .. 'a{color:#0b57d0}</style></head><body><h1>' .. title .. '</h1>'
+                  .. '<p>' .. message .. '</p>'
                   .. '<p><a href="' .. start .. '">Try again</a> &middot; <a href="' .. out .. '">Sign out and start over</a></p>'
                   .. '</body></html>'
+              end
+
+              -- Replace the buffered denial with a page. body() yields: headers taken before it are out of scope.
+              local function send_page(handle, status, page)
+                local body = handle:body(true)
+                if body ~= nil then
+                  body:setBytes(page)
+                end
+                local rh = handle:headers()
+                rh:replace(":status", status)
+                rh:replace("content-type", "text/html; charset=utf-8")
+                rh:replace("content-length", tostring(#page))
+                rh:replace("cache-control", "no-store")
+                rh:replace("content-security-policy", "default-src 'none'; style-src 'unsafe-inline'")
+                rh:remove("location")
+                return rh
               end
 
               function envoy_on_response(handle)
@@ -208,9 +232,17 @@ spec:
                 end
                 local has_session = info["has_session"] == "true"
                 -- 403 with a session cookie: logged in but not allowed (oauth2-proxy force-json-errors), or the
-                -- authorizer failed. Logging in again does not help: pass it on. A 401 with a cookie is a dead
-                -- session and is rewritten below.
+                -- authorizer failed. Logging in again does not help: never redirect. A browser navigation gets a
+                -- page instead of a bare {} or an empty 403 (an old oauth2-proxy's own HTML answer passes as is);
+                -- everything else passes on. A 401 with a cookie is a dead session and is rewritten below.
                 if has_session and status == "403" then
+                  local len = rh:get("content-length")
+                  if info["client"] == "browser" and (len == nil or len == "0" or len == "2") then
+                    send_page(handle, "403", html_page("Access not permitted",
+                      "You are signed in, but this account is not allowed to open this page, or the sign-in service is temporarily unavailable.",
+                      info["rd"] or ""))
+                    return
+                  end
                   ensure_content_type(rh)
                   return
                 end
@@ -221,18 +253,9 @@ spec:
                   local rd = info["rd"] or ""
                   if info["has_retry"] == "true" then
                     -- We redirected this browser to login moments ago and it came back denied: stop the loop.
-                    local page = sign_in_failed_page(rd)
-                    if body ~= nil then
-                      body:setBytes(page)
-                    end
-                    -- body() yields: a headers object taken before it is out of scope, take it again.
-                    rh = handle:headers()
-                    rh:replace(":status", "401")
-                    rh:replace("content-type", "text/html; charset=utf-8")
-                    rh:replace("content-length", tostring(#page))
-                    rh:replace("cache-control", "no-store")
-                    rh:replace("content-security-policy", "default-src 'none'; style-src 'unsafe-inline'")
-                    rh:remove("location")
+                    rh = send_page(handle, "401", html_page("Sign-in did not complete",
+                      "You were sent to sign in, but the sign-in did not give this browser a valid session, or the sign-in service is temporarily unavailable.",
+                      rd))
                     if has_session then
                       clear_session_cookies(rh)
                     end
@@ -248,7 +271,8 @@ spec:
                   rh:replace("cache-control", "no-store")
                   rh:remove("content-type")
                   -- Loop guard: a browser that comes back denied within 30 s gets the page above, not another redirect.
-                  rh:add("set-cookie", "{{ $retryCookie }}=1; Domain={{ $cookieDomain }}; Path=/; Max-Age=30; HttpOnly; Secure; SameSite=Lax")
+                  -- Host-only on purpose: a tab on another host must still be redirected.
+                  rh:add("set-cookie", "{{ $retryCookie }}=1; Path=/; Max-Age=30; HttpOnly; Secure; SameSite=Lax")
                   if has_session then
                     clear_session_cookies(rh)
                   end

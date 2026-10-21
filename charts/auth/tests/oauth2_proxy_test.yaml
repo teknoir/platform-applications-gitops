@@ -76,6 +76,7 @@ tests:
           path: spec.template.spec.containers[0].args
           content: --force-json-errors=true
 
+  # 168h = 604800 s = ssoSessionMaxLifespan, pinned in keycloak_realm_test.yaml: change both together.
   - it: keeps the cookie as long as the Keycloak SSO session (7 days) and refreshes every minute
     documentSelector:
       path: kind

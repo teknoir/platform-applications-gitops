@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Curl matrix against the Envoy harness (see run.sh). Usage: matrix.py <gw port> <nomarker port>.
+"""Curl matrix against the Envoy harness (see run.sh). Usage: matrix.py <gw port> <nomarker port> <deadauthz port>.
 
 Every case is checked against an oracle written from the contract (charts/auth/README.md), not from
 the Lua. Exit code 1 if any check fails; a summary table is printed either way.
@@ -21,7 +21,7 @@ import tempfile
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 
-GW, NOMARKER = int(sys.argv[1]), int(sys.argv[2])
+GW, NOMARKER, DEADGW = int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3])
 HOST = "app.teknoir.test"
 SHARED = "teknoir.test"
 COOKIE = "_teknoir_oauth2_proxy_v2"
@@ -54,6 +54,8 @@ def curl(proto, path, headers=(), method="GET", host=HOST, port=GW, extra=()):
         cmd.append("--http1.1" if proto == "h1" else "--http2")
         if method == "HEAD":
             cmd.append("--head")
+        elif method == "OPTIONS":
+            cmd += ["-X", method]
         elif method != "GET":
             cmd += ["-X", method, "--data", "{}"]
         for h in headers:
@@ -92,7 +94,8 @@ def urlenc(s):
 def classify(c):
     """Independent statement of the rule: browser or api."""
     if c["sfm"] is not None:
-        return "browser" if c["sfm"] == "navigate" else "api"
+        # a navigation is a browser only for a top-level document load: not an iframe, not a prefetch/prerender
+        return "browser" if (c["sfm"] == "navigate" and c.get("dest", "document") == "document" and not c.get("purpose")) else "api"
     if c["auth"] is not None or c.get("xrw"):
         return "api"
     if c["method"] in ("GET", "HEAD") and c["accept"] is not None and "text/html" in c["accept"].lower():
@@ -104,6 +107,10 @@ def headers_for(c):
     h = []
     if c["sfm"] is not None:
         h.append(f"Sec-Fetch-Mode: {c['sfm']}")
+    if c.get("dest"):
+        h.append(f"Sec-Fetch-Dest: {c['dest']}")
+    if c.get("purpose"):
+        h.append(f"Sec-Purpose: {c['purpose']}")
     if c["accept"] is not None:
         h.append(f"Accept: {c['accept']}")
     else:
@@ -170,19 +177,29 @@ def check_case(c):
             probs.append("exempt request got the loop-guard marker")
         return probs
     if session and authz == 403:
-        # logged in but not allowed (or the authorizer failed): passed on, with a content-type, no login retry
-        if st != 403:
-            probs.append(f"403 with a session cookie got {st}, want it passed through")
-        if one(h, "content-type") is None:
-            probs.append("passthrough denial without content-type")
+        # logged in but not allowed (or the authorizer failed): never a login retry. A browser navigation with the
+        # bare {} gets the not-permitted page; an old oauth2-proxy's own HTML (legacy) and non-browsers pass through.
+        kind = classify(c)
+        if any(x.startswith(RETRY) for x in cookies):
+            probs.append("403 got the loop-guard marker")
         if "www-authenticate" in h or "location" in h:
-            probs.append("passthrough 403 was rewritten")
+            probs.append("403 was rewritten into a challenge/redirect")
+        if st != 403:
+            probs.append(f"403 with a session cookie got {st}, want 403")
+        if one(h, "content-type") is None:
+            probs.append("403 without content-type")
+        if kind == "browser" and c["cookie"] == "forbidden":
+            if one(h, "content-type") != "text/html; charset=utf-8" or one(h, "cache-control") != "no-store":
+                probs.append(f"not-permitted page headers {one(h, 'content-type')!r} {one(h, 'cache-control')!r}")
+            if not head and b"<title>Access not permitted</title>" not in body:
+                probs.append(f"not-permitted page missing: {body[:40]!r}")
+            if len(cookies) != 1:
+                probs.append(f"not-permitted page set-cookie count {len(cookies)}, want only the authorizer's 1")
+            return probs
         if c["cookie"] == "forbidden" and not head and body != b"{}":
             probs.append(f"forbidden body altered: {body[:20]!r}")
         if c["cookie"] == "legacy" and not head and len(body) != 8492:
             probs.append(f"legacy sign-in page altered ({len(body)} bytes)")
-        if any(x.startswith(RETRY) for x in cookies):
-            probs.append("passthrough 403 got the loop-guard marker")
         if len(cookies) != 1:
             probs.append(f"passthrough 403 set-cookie count {len(cookies)}, want only the authorizer's 1")
         return probs
@@ -248,8 +265,11 @@ def check_marker(cookies, want):
     if len(marks) != 1:
         return [f"want exactly one loop-guard marker, got {marks}"]
     m = marks[0]
-    need = [f"{RETRY}=1", f"Domain={SHARED}", "Path=/", "Max-Age=30", "Secure", "SameSite=Lax"]
-    miss = [n for n in need if n not in [a.strip() for a in m.split(";")]]
+    attrs = [a.strip() for a in m.split(";")]
+    need = [f"{RETRY}=1", "Path=/", "Max-Age=30", "Secure", "SameSite=Lax"]
+    miss = [n for n in need if n not in attrs]
+    if any(a.lower().startswith("domain=") for a in attrs):
+        miss.append("no Domain (host-only)")
     return [f"marker {m!r} lacks {miss}"] if miss else []
 
 
@@ -293,6 +313,15 @@ def build_matrix():
         cases.append(dict(proto=proto, sfm=sfm, accept=accept, auth=None, cookie=None, path="/private", method="HEAD"))
         cases.append(dict(proto=proto, sfm=sfm, accept=accept, auth="bad", cookie=None, path="/private", method="HEAD"))
         cases.append(dict(proto=proto, sfm=sfm, accept=accept, auth=None, cookie=None, path="/private", method="POST"))
+    # OPTIONS (CORS preflight) and HEAD, with and without a dead session cookie: never a redirect, never a marker
+    for proto, sfm, accept, cookie in itertools.product(("h1", "h2"), (None, "cors"), ("text/html", "*/*", None), (None, "stale", "garbage")):
+        cases.append(dict(proto=proto, sfm=sfm, accept=accept, auth=None, cookie=cookie, path="/private", method="OPTIONS"))
+    for proto, sfm, accept, cookie in itertools.product(("h1", "h2"), (None, "navigate", "cors"), ("text/html", "*/*"), ("stale", "garbage", "forbidden")):
+        cases.append(dict(proto=proto, sfm=sfm, accept=accept, auth=None, cookie=cookie, path="/private", method="HEAD"))
+    # navigations that are not a user opening a page: iframe/frame/embed/object and prefetch/prerender are api clients
+    for proto, dest, purpose, cookie in itertools.product(("h1", "h2"), ("document", "iframe", "frame", "embed", "object"),
+                                                          (None, "prefetch", "prefetch;prerender"), (None, "stale", "garbage")):
+        cases.append(dict(proto=proto, sfm="navigate", dest=dest, purpose=purpose, accept="text/html", auth=None, cookie=cookie, path="/private", method="GET"))
     return cases
 
 
@@ -454,6 +483,12 @@ def run_session_expiry():
         for tag, hd in (("navigate", nav), ("fetch", ["Sec-Fetch-Mode: cors"]), ("websocket", ["Sec-Fetch-Mode: websocket"]), ("curl", [])):
             st, ver, h, body, rc, err, _ = curl(proto, "/x", hd + [f"Cookie: {COOKIE}=forbidden"])
             ck = h.get("set-cookie", [])
+            if tag == "navigate":
+                expect(g, f"{proto} navigate 403 with a session cookie gets the not-permitted page (403, HTML, no redirect/marker)",
+                       st == 403 and b"<title>Access not permitted</title>" in body and one(h, "content-type") == "text/html; charset=utf-8"
+                       and "location" not in h and "www-authenticate" not in h and len(ck) == 1 and not check_marker(ck, False),
+                       f"{st} {body[:40]!r} {h}")
+                continue
             expect(g, f"{proto} {tag} 403 with a session cookie passes through unchanged (403, body, no redirect/challenge/marker)",
                    st == 403 and body == b"{}" and one(h, "content-type") is not None and "location" not in h and "www-authenticate" not in h
                    and len(ck) == 1 and not check_marker(ck, False), f"{st} {body[:20]!r} {h}")
@@ -477,6 +512,25 @@ def run_session_expiry():
                st == 302 and not check_clears(h.get("set-cookie", []), True), f"{st}")
         st, ver, h, body, rc, err, _ = curl(proto, "/x", [f"Cookie: {COOKIE}=forbidden"], port=NOMARKER)
         expect(g, f"{proto} without the marker filter a 403 with a session cookie still passes through", st == 403 and body == b"{}", f"{st}")
+
+    g = "authorizer down"
+    # ext_authz cannot reach oauth2-proxy: Envoy answers its own empty 403 (no content-type, no content-length)
+    nav = ["Sec-Fetch-Mode: navigate", "Accept: text/html"]
+    for proto in ("h1", "h2"):
+        st, ver, h, body, rc, err, _ = curl(proto, "/x", ["Sec-Fetch-Mode: cors", f"Cookie: {COOKIE}=stale"], port=DEADGW)
+        expect(g, f"{proto} fetch with a session cookie -> 403 passes through with text/plain (not application/json), empty body",
+               st == 403 and body == b"" and (one(h, "content-type") or "").startswith("text/plain") and "location" not in h, f"{st} {body[:20]!r} {h}")
+        st, ver, h, body, rc, err, _ = curl(proto, "/x", nav + [f"Cookie: {COOKIE}=stale"], port=DEADGW)
+        expect(g, f"{proto} navigate with a session cookie -> 403 not-permitted page, no redirect, no marker",
+               st == 403 and b"<title>Access not permitted</title>" in body and b"temporarily unavailable" in body
+               and not check_marker(h.get("set-cookie", []), False) and "location" not in h, f"{st} {body[:40]!r}")
+        st, ver, h, body, rc, err, _ = curl(proto, "/x", nav, port=DEADGW)
+        expect(g, f"{proto} navigate without a cookie -> still 302 to login", st == 302 and not check_marker(h.get("set-cookie", []), True), f"{st}")
+        st, ver, h, body, rc, err, _ = curl(proto, "/x", nav + [f"Cookie: {RETRY}=1"], port=DEADGW)
+        expect(g, f"{proto} second navigate (marker) -> sign-in-failed page that mentions the outage",
+               st == 401 and b"Sign-in did not complete" in body and b"temporarily unavailable" in body, f"{st}")
+        st, ver, h, body, rc, err, _ = curl(proto, "/x", ["Sec-Fetch-Mode: cors"], port=DEADGW)
+        expect(g, f"{proto} fetch without a cookie -> 401 JSON", st == 401 and body.decode() == PAYLOAD, f"{st}")
 
     g = "expired session"
     # cookie position and similar names

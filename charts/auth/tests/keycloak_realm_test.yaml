@@ -22,3 +22,5 @@ tests:
       - matchRegex:
           path: data["master.yaml"]
           pattern: '(?m)^offlineSessionIdleTimeout: 2592000(\s|$)'
+
+  # Keep in step with oauth2Proxy.cookie.expire (168h = 604800 s), pinned in oauth2_proxy_test.yaml: change both together.

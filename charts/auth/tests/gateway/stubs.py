@@ -10,6 +10,7 @@ authz  (oauth2-proxy lookalike): called by ext_authz as GET /oauth2/auth<origina
   cookie ...=legacy, or an original path starting /legacy403 or /oauth2x -> what the old flags sent: 403 + 8492-byte
     HTML sign-in page + expired Set-Cookie (rolling deploy: new Lua, old oauth2-proxy)
   otherwise (no credentials, bad bearer) -> 401 {}, no Set-Cookie
+  Any method gets the same answer (Envoy forwards the original method, OPTIONS preflights included).
   Like the real ext_authz client response, the gateway keeps only set-cookie and location of these answers; the
   content-type below is dropped by Envoy.
 backend: 200 everywhere, except /forbidden (403), /backend401 (401 + own challenge), /oauth2/unauth (401, 13 bytes),
@@ -51,7 +52,7 @@ class Quiet(BaseHTTPRequestHandler):
             except (BrokenPipeError, ConnectionResetError):  # peer gave up (e.g. Envoy failing a buffered response)
                 self.close_connection = True
 
-    do_HEAD = do_GET = do_POST = do_PUT = do_DELETE = lambda self: self.handle_any()
+    do_HEAD = do_GET = do_POST = do_PUT = do_DELETE = do_OPTIONS = lambda self: self.handle_any()
 
 
 class Authz(Quiet):
