@@ -2,10 +2,16 @@
 """Two stubs for the Envoy harness.
 
 authz  (oauth2-proxy lookalike): called by ext_authz as GET /oauth2/auth<original path>.
+  Models oauth2-proxy v7.6.0 with --force-json-errors=true (the chart default):
   Authorization "Bearer good-token" or cookie _teknoir_oauth2_proxy_v2=good -> 200 (allow)
-  cookie _teknoir_oauth2_proxy_v2=stale -> 500 (oauth2-proxy answers an undecodable cookie that way)
-  otherwise -> 403 + 8492-byte HTML sign-in page + expired Set-Cookie (what oauth2-proxy v7.6.0 sends)
-  an original path starting /ext401 is denied with 401 {} instead of 403.
+  cookie ...=stale (decodable, session gone server-side) -> 401 {} + its clearing Set-Cookie
+  cookie ...=garbage (undecodable: it cannot clear it) -> 401 {}, no Set-Cookie
+  cookie ...=forbidden (logged in, not authorized) -> 403 {} + clearing Set-Cookie
+  cookie ...=legacy, or an original path starting /legacy403 or /oauth2x -> what the old flags sent: 403 + 8492-byte
+    HTML sign-in page + expired Set-Cookie (rolling deploy: new Lua, old oauth2-proxy)
+  otherwise (no credentials, bad bearer) -> 401 {}, no Set-Cookie
+  Like the real ext_authz client response, the gateway keeps only set-cookie and location of these answers; the
+  content-type below is dropped by Envoy.
 backend: 200 everywhere, except /forbidden (403), /backend401 (401 + own challenge), /oauth2/unauth (401, 13 bytes),
   /stream (chunked, slow), /ws (WebSocket upgrade, then echo), /big (BIG bytes, 200), /big403 (BIG_403 bytes, 403).
 """
@@ -57,19 +63,16 @@ class Authz(Quiet):
         cookie = self.headers.get("cookie", "")
         if auth == "Bearer good-token" or f"{COOKIE}=good" in cookie:
             return self.reply(200, b"", [("x-auth-request-email", "tester@teknoir.test")], head)
-        if f"{COOKIE}=stale" in cookie:
-            return self.reply(500, b"<html>internal error</html>", [("content-type", "text/html")], head)
-        if orig.startswith("/ext401"):
-            return self.reply(401, b"{}", [("content-type", "application/json")], head)
-        return self.reply(
-            403,
-            SIGNIN,
-            [
-                ("content-type", "text/html; charset=utf-8"),
-                ("set-cookie", f"{COOKIE}=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=None"),
-            ],
-            head,
-        )
+        clear = ("set-cookie", f"{COOKIE}=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=None")
+        if f"{COOKIE}=forbidden" in cookie:
+            return self.reply(403, b"{}", [("content-type", "application/json"), clear], head)
+        legacy = f"{COOKIE}=legacy" in cookie or orig.startswith(("/legacy403", "/oauth2x"))
+        if not legacy:
+            hdrs = [("content-type", "application/json")]
+            if f"{COOKIE}=stale" in cookie:
+                hdrs.append(clear)
+            return self.reply(401, b"{}", hdrs, head)
+        return self.reply(403, SIGNIN, [("content-type", "text/html; charset=utf-8"), clear], head)
 
 
 class Backend(Quiet):

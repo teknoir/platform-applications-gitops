@@ -14,8 +14,13 @@ The ingress gateway decides **who gets in** with Envoy ext_authz against oauth2-
 What changed is how a **denied** request is answered. The contract:
 
 > Only a top-level browser navigation that the edge authorizer denied is redirected to login. Every other request the edge
-> authorizer denied gets `401` with a `WWW-Authenticate` challenge and a small JSON body. A `401`/`403` that the backend produced after
-> the edge let the request through is passed on unchanged.
+> authorizer denied gets `401` with a `WWW-Authenticate` challenge and a small JSON body. A dead session (the request carries the
+> session cookie but oauth2-proxy answers `401`) is handled the same way, and its cookie is cleared. A `403` that oauth2-proxy
+> produced for a logged-in user, and a `401`/`403` that the backend produced after the edge let the request through, are passed on unchanged.
+
+oauth2-proxy runs with `--force-json-errors=true`: needs-login is `401` (`{}`), logged-in-but-not-allowed is `403` (`{}`). Without
+the flag it answers a stale cookie with a `403` sign-in page (or a `500` for a cookie it cannot decode), which the gateway cannot
+tell from "not allowed".
 
 ### 1. Who is a "browser"
 
@@ -30,19 +35,34 @@ The default is "API client". The classifier only chooses between two denials; it
 
 ### 2. What the gateway answers
 
-Applies to a `401`/`403` produced by the edge authorizer (ext_authz) for a request without a session cookie, outside `/oauth2*`.
+Applies to a `401` (with or without a session cookie) or a `403` (without one) produced by the edge authorizer (ext_authz), outside
+`/oauth2*`. "Cookie" is the session cookie (`oauth2Proxy.cookie.name`), matched by exact name.
 
 | Caller | Status | Headers | Body |
 |---|---|---|---|
-| Browser navigation | `302` | `Location: https://<shared host>/oauth2/start?rd=<url-encoded https://<host><path>>`, `Content-Length: 0`, `Cache-Control: no-store` (oauth2-proxy's expired session `Set-Cookie` is kept) | empty |
-| Anything else, no `Authorization` header | `401` | `WWW-Authenticate: Bearer realm="teknoir"`, `Content-Type: application/json`, `Content-Length: <body length>`, `Cache-Control: no-store`; no `Location`, no `Set-Cookie` | the JSON below |
-| Anything else, `Authorization` header sent | `401` | as above, with `WWW-Authenticate: Bearer realm="teknoir", error="invalid_token"` | the JSON below |
+| Browser navigation | `302` | `Location: https://<shared host>/oauth2/start?rd=<url-encoded https://<host><path>>`, `Content-Length: 0`, `Cache-Control: no-store`, loop-guard marker `Set-Cookie: _teknoir_auth_retry=1; Domain=<cookie domain>; Path=/; Max-Age=30; HttpOnly; Secure; SameSite=Lax`; with a session cookie also two clearing `Set-Cookie` (below) | empty |
+| Browser navigation that already carries the marker | `401` | `Content-Type: text/html; charset=utf-8`, `Cache-Control: no-store`, a restrictive `Content-Security-Policy`; no `Location`, no new marker; clearing `Set-Cookie` when a session cookie was sent | "Sign-in did not complete" with a retry link (`/oauth2/start?rd=...`) and a sign-out link (`/oauth2/sign_out?rd=<retry link>`) |
+| Anything else, no `Authorization` header, no session cookie | `401` | `WWW-Authenticate: Bearer realm="teknoir"`, `Content-Type: application/json`, `Content-Length: <body length>`, `Cache-Control: no-store`; no `Location`, no `Set-Cookie` | the JSON below |
+| Anything else, `Authorization` header or session cookie sent | `401` | as above, with `WWW-Authenticate: Bearer realm="teknoir", error="invalid_token"`; with a session cookie also the two clearing `Set-Cookie` | the JSON below |
 
 ```json
 {"error":"unauthorized","message":"Authentication required: run tnctl login or sign in in the browser."}
 ```
 
-The body is fixed: it never says why the request was denied and never echoes the token, the user or `rd`.
+The body is fixed: it never says why the request was denied and never echoes the token, the user or `rd`. The only request-derived
+text in the sign-in-failed page is `rd`, percent-encoded inside two links.
+
+**Clearing the session cookie.** When a session cookie was sent and the denial is rewritten, the gateway adds
+`<cookie name>=; Domain=<cookie domain>; Path=<cookie path>; Max-Age=0; Expires=<epoch>; HttpOnly; Secure; SameSite=<cookie sameSite>`
+and the same without `Domain` (a host-only cookie). oauth2-proxy cannot clear a cookie it cannot decode (key rotation, corruption),
+and on the API path its own `Set-Cookie` would otherwise be dropped, so without this a browser with a bad cookie stays locked out
+until the cookie expires. oauth2-proxy's own clearing `Set-Cookie` is kept next to ours.
+
+**Loop guard.** The login redirect goes to `/oauth2/start` (not behind ext_authz), through Keycloak and back to the original URL. If that
+URL is denied again within 30 s (a cookie the browser does not keep, a session the proxy rejects), a second redirect would loop forever.
+The `302` therefore sets the short-lived marker; a navigation that is denied and carries it gets the sign-in-failed page. The page's
+links are on `/oauth2` (never behind the guard). A second tab opened within 30 s on a still-unauthenticated browser sees the page
+once; its "Try again" link goes straight to login.
 
 ### 3. What passes through unchanged
 
@@ -50,8 +70,9 @@ The body is fixed: it never says why the request was denied and never echoes the
   `401`/`403` is the backend's own answer: Backstage's "not allowed", a Grafana login page, Argo CD's challenge. Clients see the
   backend's status, headers and body. `403` means "you are logged in but not allowed"; logging in again does not fix it.
 - Requests under `/oauth2*` (the login flow itself).
-- Requests that carry the session cookie (`oauth2Proxy.cookie.name`). This is the redirect-loop guard; a stale cookie is answered as
-  ext_authz answers it (no redirect).
+- **A `403` that carries the session cookie** (oauth2-proxy `force-json-errors`: the session is valid but not authorized; or the
+  authorizer itself failed): logging in again does not help, so it is not redirected. If it has no `Content-Type` one is added
+  (`application/json`, or `text/plain` for an empty body); nothing else changes.
 - Everything that is not a `401`/`403`.
 
 ### 4. Client guidance
@@ -60,6 +81,7 @@ The body is fixed: it never says why the request was denied and never echoes the
   retry later if that does not help". The gateway cannot tell these apart: when oauth2-proxy is down, times out or answers `5xx`,
   Envoy ext_authz denies with its default `403` (`status_on_error` is not set, and the ext_authz block is deliberately unchanged),
   and that denial is shaped like any other (`401` JSON for an API client, `302` for a browser; before this change always `302`).
+  With a session cookie the `403` passes through (see section 3), so an authorizer outage shows a logged-in browser a `403`, not a redirect.
   Client messages must not claim more than that the token was rejected or authentication is unavailable. Setting ext_authz
   `status_on_error: 503` would let outages pass through as `503`; that touches the golden ext_authz block and is left to a
   separate reviewed change. `403` means "not allowed for this
@@ -68,13 +90,17 @@ The body is fixed: it never says why the request was denied and never echoes the
 - Scripts that relied on a `302` from a non-browser request now see `401` (release note).
 - WebSocket upgrade requests (`Sec-Fetch-Mode: websocket`) get `401` instead of a redirect.
 - SPAs (`fetch`/XHR) get `401` JSON instead of a redirect that fails as a cross-origin error. A full navigation still redirects.
+  A `401` with `WWW-Authenticate: Bearer realm="teknoir"` means "the session is gone": a SPA should sign in again
+  (`/oauth2/start?rd=<current URL>`). With a live Keycloak SSO session the round trip is silent.
+- A browser with a dead or undecodable session cookie is no longer shown a blank `403`: the next navigation is redirected to login
+  and the cookie is cleared.
 
 ### 5. Why this does not weaken authentication
 
 - The ext_authz patch (`INSERT_FIRST`, no `failure_mode_allow`, `allowed_headers`) and every oauth2-proxy flag and per-route `disabled`
   entry are unchanged. The rendered diff of this change contains no line of either.
-- The Lua filter only runs its rewrite in the response phase, only for `401`/`403`, and its outputs are `302`, `401` or the
-  unchanged response. No branch produces a `2xx` and none sends a request upstream.
+- The Lua filter only runs its rewrite in the response phase, only for `401`/`403`, and its outputs are `302`, `401` (JSON or the
+  sign-in-failed page) or the unchanged response. No branch produces a `2xx` and none sends a request upstream.
 - "The backend answered" is known from dynamic metadata (`oauth2_proxy_authz.passed`) set by a second tiny Lua filter placed
   **after** ext_authz (`envoy.filters.http.lua.authz_passed`), which only runs for requests ext_authz let through. Clients cannot
   write dynamic metadata. If that patch is ever lost, the code falls back to rewriting (the old behaviour), never to exposing a denial
@@ -98,6 +124,16 @@ lua (denial shaping)  ->  ext_authz  ->  lua.authz_passed (marker)  ->  ... ->  
 Requests flow left to right; responses (including ext_authz's local denial) flow right to left, so the denial shaping sees the denial
 but never a marker, and sees a backend answer together with the marker.
 
+## Session lifetimes
+
+Realm `master` (`files/realm/master.yaml`, imported by keycloak-config-cli after every sync) pins `accessTokenLifespan: 300` (5 min),
+`ssoSessionIdleTimeout: 86400` (1 d), `ssoSessionMaxLifespan: 604800` (7 d) and `offlineSessionIdleTimeout: 2592000` (30 d, tnctl's
+offline token). oauth2-proxy refreshes the Keycloak token every minute (`cookie.refresh`) while a page sends requests and keeps its own
+cookie for `cookie.expire: 168h`, equal to the SSO maximum, so the cookie never outlives or undercuts the SSO session. The import
+sends only the listed realm fields; everything else in the realm is left alone. Changing lifetimes does not log anyone out: Keycloak
+checks the current values on the next use of a session. The values apply to the whole `master` realm (including the admin console).
+A dead session (idle over a day, or over 7 d) is answered as described in "Denied requests".
+
 ## Tests
 
 ```sh
@@ -106,9 +142,14 @@ charts/auth/tests/gateway/run.sh          # offline Envoy harness, needs docker 
 ```
 
 `tests/gateway/run.sh` renders `templates/istio-auth.yaml`, takes the real filter patches out of it and runs them in Envoy with a
-python stub that mimics oauth2-proxy (allow a known bearer or cookie, otherwise `403` + an 8492-byte HTML page) and a backend stub.
+python stub that mimics oauth2-proxy with `--force-json-errors` (allow a known bearer or cookie; `401 {}` for no or bad credentials, a
+dead session cookie `stale` and an undecodable one `garbage`; `403 {}` for a logged-in-but-not-allowed `forbidden` cookie; the old
+`403` + 8492-byte HTML page for a `legacy` cookie and the `/legacy403`, `/oauth2x` paths, i.e. new Lua against an old oauth2-proxy
+during a rolling deploy) and a backend stub.
 It runs a curl matrix over HTTP/1.1 and HTTP/2 (`Sec-Fetch-Mode` x `Accept` x `Authorization` x cookie x path, plus HEAD, POST and
-`X-Requested-With`), raw keep-alive sockets for HTTP/1.1 framing, spoofed forwarding headers, backend `401`/`403` pass-through, a
+`X-Requested-With`), every client kind with a dead or garbage session cookie on the apex, `next.`, `wgt-` and `wgs-` hosts, the loop
+guard (marker with and without a session cookie, with a good cookie, on API requests, lookalike names, a hostile path), the `403`
+pass-through, backend `401`/`403` with a session cookie, raw keep-alive sockets for HTTP/1.1 framing, spoofed forwarding headers, backend `401`/`403` pass-through, a
 listener without the marker filter, a streaming response, real WebSocket upgrades (allowed: `101` and echo both ways; denied: the `401`
 JSON with consistent framing) and bodies far above the harness's 32 KiB per-connection buffer limit (20 MiB allowed download and a
 5 MiB backend `403`, over HTTP/1.1 and HTTP/2), then prints a summary table and exits non-zero on any failure.

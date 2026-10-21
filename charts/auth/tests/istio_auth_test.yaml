@@ -132,7 +132,10 @@ tests:
     asserts:
       - matchRegex:
           path: spec.configPatches[1].patch.value.typed_config.inlineCode
-          pattern: 'string\.find\(cookie, "_custom_cookie=", 1, true\)'
+          pattern: 'cookie_has\(h, "_custom_cookie"\)'
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: '"_custom_cookie=; Domain=example\.test"'
       - matchRegex:
           path: spec.configPatches[1].patch.value.typed_config.inlineCode
           pattern: 'https://login\.example\.test/oauth2/start\?rd='
@@ -145,7 +148,7 @@ tests:
     asserts:
       - matchRegex:
           path: spec.configPatches[1].patch.value.typed_config.inlineCode
-          pattern: 'string\.find\(cookie, "_teknoir_oauth2_proxy_v2=", 1, true\)'
+          pattern: 'cookie_has\(h, "_teknoir_oauth2_proxy_v2"\)'
       - matchRegex:
           path: spec.configPatches[1].patch.value.typed_config.inlineCode
           pattern: 'https://teknoir\.cloud/oauth2/start\?rd='
@@ -220,3 +223,89 @@ tests:
             function envoy_on_request(handle)
               handle:streamInfo():dynamicMetadata():set("oauth2_proxy_authz", "passed", "true")
             end
+
+  - it: rewrites a 401 even with the session cookie, passes only a 403 with the session cookie through
+    documentIndex: 0
+    asserts:
+      # the old early return for every request with a cookie is gone ...
+      - notMatchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'if info\["has_session"\] == "true" then\s+return'
+      # ... only a 403 with a session cookie returns early (logged in, not allowed)
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'if has_session and status == "403" then\s+ensure_content_type\(rh\)\s+return'
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'md:set\("oauth2_proxy", "has_session", cookie_has\(h, "_teknoir_oauth2_proxy_v2"\)'
+      # an invalid session cookie is reported like an invalid bearer
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'info\["has_auth"\] == "true" or has_session'
+      # the JSON 401 keeps set-cookie when a cookie was sent, drops it otherwise
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: '(?s)if has_session then\s+clear_session_cookies\(rh\)\s+else\s+rh:remove\("set-cookie"\)'
+
+  - it: clears the session cookie (Domain and host-only) with the attributes oauth2-proxy sets
+    documentIndex: 0
+    asserts:
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'rh:add\("set-cookie", "_teknoir_oauth2_proxy_v2=; Domain=teknoir\.cloud" \.\. tail\)'
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'rh:add\("set-cookie", "_teknoir_oauth2_proxy_v2=" \.\. tail\)'
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'local tail = "; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=None"'
+
+  - it: follows cookie domain, path and sameSite values for the clearing cookies
+    documentIndex: 0
+    set:
+      oauth2Proxy.cookie.domain: sso.example.test
+      oauth2Proxy.cookie.path: /app
+      oauth2Proxy.cookie.sameSite: lax
+    asserts:
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'Domain=sso\.example\.test" \.\. tail'
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'local tail = "; Path=/app; Max-Age=0;.*SameSite=Lax"'
+
+  - it: sets a 30 s loop-guard marker cookie on the login redirect and answers a second denial with a page
+    documentIndex: 0
+    asserts:
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: '"_teknoir_auth_retry=1; Domain=teknoir\.cloud; Path=/; Max-Age=30; HttpOnly; Secure; SameSite=Lax"'
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'md:set\("oauth2_proxy", "has_retry", cookie_has\(h, "_teknoir_auth_retry"\)'
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'info\["has_retry"\] == "true"'
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'rh:replace\("content-type", "text/html; charset=utf-8"\)'
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'https://teknoir\.cloud/oauth2/sign_out\?rd='
+
+  - it: gives every passed-through denial a content-type
+    documentIndex: 0
+    asserts:
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: '(?s)local function ensure_content_type\(rh\).*rh:get\("content-type"\) == nil'
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: '(?s)"/oauth2" then\s+ensure_content_type\(rh\)\s+return'
+
+  - it: keeps backend answers untouched (marker check stays the first exit)
+    documentIndex: 0
+    asserts:
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: '(?s)function envoy_on_response.*authz\["passed"\] == "true" then\s+return\s+end.*has_session and status == "403"'

@@ -17,6 +17,16 @@ the import sets exactly the listed realm roles, client roles and groups.
 {{- $scopes := list "web-origins" "acr" "profile" "roles" "email" "basic" "groups" }}
 realm: master
 
+# Session lifetimes (realm-level attributes; keycloak-config-cli sends only what this file lists, so
+# every other realm setting is left as it is). They were Keycloak's defaults before (access token
+# 60 s, SSO idle 30 min, SSO max 10 h), which logged people out at every lunch and overnight and
+# left the 12 h oauth2-proxy cookie pointing at a dead session. The oauth2-proxy cookie expiry
+# (values.yaml oauth2Proxy.cookie.expire) equals ssoSessionMaxLifespan.
+accessTokenLifespan: 300          # 5 min; was 60 s, equal to oauth2-proxy's 1 m refresh (no margin)
+ssoSessionIdleTimeout: 86400      # 1 d: a session survives a night and a weekend afternoon
+ssoSessionMaxLifespan: 604800     # 7 d: one login a week at most
+offlineSessionIdleTimeout: 2592000  # 30 d (tnctl's offline token); explicit, was the Keycloak default
+
 clientScopes:
   # Flat group names as claim "groups" (ArgoCD, Argo Workflows and Harbor RBAC on group admin).
   - name: groups
