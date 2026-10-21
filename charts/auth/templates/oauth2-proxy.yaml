@@ -99,6 +99,9 @@ spec:
             - --reverse-proxy=true
 {{- end }}
             - --set-xauthrequest=true
+            # Needs-login answers 401 JSON (never the 403 sign-in page or an unclearable-cookie 500) and
+            # authorized-but-denied answers 403 JSON; the gateway Lua (istio-auth.yaml) shapes the 401.
+            - --force-json-errors=true
             - --upstream=static://200
             - --http-address=0.0.0.0:{{ .Values.oauth2Proxy.service.port }}
 {{- range .Values.oauth2Proxy.allowedRoles }}

@@ -1,0 +1,26 @@
+suite: keycloak realm session lifetimes (keycloak-config-cli import)
+templates:
+  - templates/keycloak-config.yaml
+release:
+  name: auth
+  namespace: teknoir-auth
+tests:
+  - it: pins the realm lifetimes as realm-level attributes (access 5 min, SSO idle 1 d, SSO max 7 d, offline idle 30 d)
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["master.yaml"]
+          pattern: '(?m)^accessTokenLifespan: 300(\s|$)'
+      - matchRegex:
+          path: data["master.yaml"]
+          pattern: '(?m)^ssoSessionIdleTimeout: 86400(\s|$)'
+      - matchRegex:
+          path: data["master.yaml"]
+          pattern: '(?m)^ssoSessionMaxLifespan: 604800(\s|$)'
+      - matchRegex:
+          path: data["master.yaml"]
+          pattern: '(?m)^offlineSessionIdleTimeout: 2592000(\s|$)'
+
+  # Keep in step with oauth2Proxy.cookie.expire (168h = 604800 s), pinned in oauth2_proxy_test.yaml: change both together.

@@ -17,8 +17,8 @@ here=$(cd "$(dirname "$0")" && pwd)
 chart=$(cd "$here/../.." && pwd)
 image=${ENVOY_IMAGE:-istio/proxyv2:1.29.2}
 base=${PORT_BASE:-28440}
-ports=$(printf '{"gw":%d,"nomarker":%d,"admin":%d,"authz":%d,"backend":%d}' \
-  $((base + 3)) $((base + 4)) $((base + 1)) $((base + 5)) $((base + 6)))
+ports=$(printf '{"gw":%d,"nomarker":%d,"admin":%d,"authz":%d,"backend":%d,"deadgw":%d,"deadauthz":%d}' \
+  $((base + 3)) $((base + 4)) $((base + 1)) $((base + 5)) $((base + 6)) $((base + 7)) $((base + 8)))
 
 for t in docker helm curl python3 openssl; do
   command -v "$t" >/dev/null || { echo "run.sh: missing $t" >&2; exit 2; }
@@ -77,7 +77,8 @@ echo "Envoy: $(docker exec "$name" /usr/local/bin/envoy --version | sed -n "s/.*
 
 # 4. matrix
 set +e
-python3 -I "$here/matrix.py" "$gw" "$nm"
+dg=$(python3 -c 'import json,sys;print(json.loads(sys.argv[1])["deadgw"])' "$ports")
+python3 -I "$here/matrix.py" "$gw" "$nm" "$dg"
 rc=$?
 set -e
 if [ "$rc" -ne 0 ]; then

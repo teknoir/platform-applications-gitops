@@ -81,7 +81,9 @@ oauth2Proxy:
     csrfPerRequest: false
     csrfExpire: 10m
     refresh: 1m
-    expire: 12h
+    # Same length as the Keycloak ssoSessionMaxLifespan (files/realm/master.yaml). The cookie slides on
+    # refresh while the SSO maximum is absolute, so a cookie can outlive its SSO session (a dead session).
+    expire: 168h
   redirectUrl: ""
 #  whitelistDomains: []
   whitelistDomains:

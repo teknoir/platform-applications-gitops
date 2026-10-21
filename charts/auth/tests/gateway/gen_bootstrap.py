@@ -9,9 +9,11 @@ Result chain: lua, ext_authz, lua.authz_passed, router.
 Both listeners allow WebSocket upgrades and use a 32 KiB per-connection buffer limit, so the harness
 notices when a change starts buffering normal responses or breaks upgrades.
 
-Two listeners: "gw" with the full chain, "nomarker" without the marker filter (checks the documented
-fallback when the marker patch is lost).
+Three listeners: "gw" with the full chain, "nomarker" without the marker filter (checks the documented
+fallback when the marker patch is lost), and "deadauthz" with the full chain but ext_authz pointed at a
+port nothing listens on (an authorizer outage: Envoy answers its own empty 403).
 """
+import copy
 import json
 import sys
 
@@ -47,8 +49,13 @@ ROUTER = {
 }
 
 
-def chain(with_marker):
-    out = [lua[1], ext[1]]
+DEAD_CLUSTER = "deadauthz"
+dead_ext = copy.deepcopy(ext[1])
+dead_ext["typed_config"]["http_service"]["server_uri"]["cluster"] = DEAD_CLUSTER
+
+
+def chain(with_marker, ext_filter=None):
+    out = [lua[1], ext_filter or ext[1]]
     if with_marker and marker:
         out.append(marker[1])
     out.append(ROUTER)
@@ -94,7 +101,7 @@ route_config = {
 }
 
 
-def listener(name, port, with_marker):
+def listener(name, port, with_marker, ext_filter=None):
     return {
         "name": name,
         "address": {"socket_address": {"address": "127.0.0.1", "port_value": port}},
@@ -128,7 +135,7 @@ def listener(name, port, with_marker):
                             "upgrade_configs": [{"upgrade_type": "websocket"}],
                             "use_remote_address": True,
                             "route_config": route_config,
-                            "http_filters": chain(with_marker),
+                            "http_filters": chain(with_marker, ext_filter),
                         },
                     }
                 ],
@@ -161,8 +168,9 @@ bootstrap = {
         "listeners": [
             listener("gw", ports["gw"], True),
             listener("nomarker", ports["nomarker"], False),
+            listener("deadauthz", ports["deadgw"], True, dead_ext),
         ],
-        "clusters": [cluster("backend", ports["backend"]), cluster(AUTHZ_CLUSTER, ports["authz"])],
+        "clusters": [cluster("backend", ports["backend"]), cluster(AUTHZ_CLUSTER, ports["authz"]), cluster(DEAD_CLUSTER, ports["deadauthz"])],
     },
 }
 print(json.dumps(bootstrap, indent=1))

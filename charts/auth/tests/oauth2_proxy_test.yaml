@@ -66,3 +66,28 @@ tests:
       - notMatchRegex:
           path: spec.template.spec.containers[0].args[1]
           pattern: extra-jwt-issuers
+
+  - it: answers needs-login with 401 JSON and authorized-but-denied with 403 JSON (the gateway shapes the 401)
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --force-json-errors=true
+
+  # 168h = 604800 s = ssoSessionMaxLifespan, pinned in keycloak_realm_test.yaml: change both together.
+  - it: keeps the cookie as long as the Keycloak SSO session (7 days) and refreshes every minute
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --cookie-expire=168h
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --cookie-refresh=1m
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --cookie-name=_teknoir_oauth2_proxy_v2
