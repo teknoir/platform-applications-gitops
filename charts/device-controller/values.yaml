@@ -27,7 +27,7 @@ image:
   # Previous pin: sha-1c98c648@sha256:f9281e6bb3f95e29e0b0b3d0d9370346039dbee8faef9921cdb560c9657b5c6e
   # device-controller b946c7e (applicationset #60, Nextgen: copy org-tree placement from a Robot to its Device on
   # initial placement). Previous pin: sha-41a360fd@sha256:b54bf4d8f1f94e016bd0163ef0de25934c27dbfcbb73617733d6800bc40d3ae1
-  tag: "sha-cefba28c@sha256:b3b8c84983d97a93f9389974d1330dada26ea71193eb02a467060cc1da4edfaf"
+  tag: "sha-9cd68311@sha256:a525d0b98dba68dda0631679abb40abc098abe8ec3bfa0c531bd6310d6e7af41"
   pullPolicy: IfNotPresent
 
 imagePullSecrets:
