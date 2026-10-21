@@ -29,7 +29,7 @@ config:
 # Backstage frontend deployment
 backstage:
   replicas: 1
-  image: "ghcr.io/teknoir/backstage-app:sha-bde5eb19@sha256:e99483a317d6edd48c1ff3672f8541220f53c322fae3003ff1aca1e2ab42c831"
+  image: "ghcr.io/teknoir/backstage-app:sha-08d0d2f9@sha256:b37177e72a58aeaf3963c930c823005a6a4b31a319b427c4cfc3a6aa1a248d79"
   imagePullPolicy: Always
   imagePullSecrets:
     - name: ghcr-token
@@ -38,7 +38,7 @@ backstage:
 # Backstage API deployment
 backstageApi:
   replicas: 1
-  image: "ghcr.io/teknoir/backstage:sha-bde5eb19@sha256:4c4109a26bc124b3684d72f3c403ce4b202943f39cd9dc6383a019c492ffc796"
+  image: "ghcr.io/teknoir/backstage:sha-08d0d2f9@sha256:dab5f0a8c8d9adfe7fce2eeedb994ee4ad40537a36b239d40f4eebfaa5f11e97"
   imagePullPolicy: Always
   imagePullSecrets:
     - name: ghcr-token
