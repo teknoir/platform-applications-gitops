@@ -48,6 +48,7 @@ fi
 
 CRDS=()   # CRDs this run installed (removed again)
 cleanup() {
+  "${KC[@]}" delete profiles.teknoir.org idprobe-have --ignore-not-found --timeout=30s >/dev/null 2>&1
   [[ -f "$TMP/rbac.yaml" ]] && "${KC[@]}" delete -f "$TMP/rbac.yaml" --ignore-not-found --timeout=90s >/dev/null 2>&1
   "${KC[@]}" delete namespace "$TS" "$TS_OTHER" "${TS}-vdev" --ignore-not-found --timeout=90s >/dev/null 2>&1
   # the namespaces this run created for the hub and the TURN secret (only if they did not exist before)
@@ -253,6 +254,30 @@ verdict "Profile owned by kind ServiceAccount" deny "$(printf 'apiVersion: tekno
 verdict "Profile owned by the Group system:serviceaccounts:${SYS_NS}" deny "$(profile_yaml Group "system:serviceaccounts:${SYS_NS}")"
 verdict "Profile owned by the Group system:authenticated" deny "$(profile_yaml Group system:authenticated)"
 verdict "Profile owned by an e-mail User" allow "$(profile_yaml User owner@example.com)"
+# Profile spec.plugins: profile-controller writes each plugin's values verbatim into the teamspace's Helm values (emqx
+# initContainers / extraVolumes / containerSecurityContext), so the service account may not write plugins or a quota.
+plugin_profile() { # name [emqx container name, empty = no plugins]
+  printf 'apiVersion: teknoir.org/v1\nkind: Profile\nmetadata:\n  name: %s\nspec:\n  owner:\n    kind: User\n    name: owner@example.com\n' "$1"
+  [[ -n ${2:-} ]] && printf '  plugins:\n    - apiVersion: v1\n      kind: emqx\n      spec:\n        values:\n          initContainers:\n            - name: %s\n              image: busybox\n              securityContext:\n                privileged: true\n' "$2"
+  return 0
+}
+verdict "Profile with a plugin carrying privileged initContainers" deny "$(plugin_profile idprobe pwn)"
+verdict "Profile with an empty plugins list" allow "$(printf 'apiVersion: teknoir.org/v1\nkind: Profile\nmetadata:\n  name: idprobe\nspec:\n  owner:\n    kind: User\n    name: owner@example.com\n  plugins: []\n')"
+verdict "Profile with a resourceQuotaSpec" deny "$(printf 'apiVersion: teknoir.org/v1\nkind: Profile\nmetadata:\n  name: idprobe\nspec:\n  owner:\n    kind: User\n    name: owner@example.com\n  resourceQuotaSpec:\n    hard:\n      pods: "1000"\n')"
+plugin_profile idprobe-have first | "${KC[@]}" create -f - >/dev/null || bad "creating the Profile idprobe-have as admin failed"
+sa_replace() { "${KC[@]}" replace --dry-run=server --as="$SA" -f - 2>&1; }
+verdict_replace() {
+  local d=$1 want=$2 out got
+  out=$(sa_replace <<<"$3") && got=allow || { grep -q "ztna-backstage-identities" <<<"$out" && got=deny || got="other: $out"; }
+  [[ $got == "$want" ]] && ok "$want  $d" || bad "$d: want $want, got $got"
+}
+verdict_replace "update that replaces the plugins of a Profile" deny "$(plugin_profile idprobe-have second)"
+verdict_replace "update that removes the plugins of a Profile" deny "$(plugin_profile idprobe-have)"
+verdict_replace "update that leaves the plugins as they were" allow "$(plugin_profile idprobe-have first)"
+out=$("${KC[@]}" patch profiles.teknoir.org idprobe-have --dry-run=server --as="$SA" --type merge \
+  -p '{"spec":{"plugins":[{"kind":"emqx","apiVersion":"v1","spec":{"values":{"extraVolumes":[{"name":"h","hostPath":{"path":"/"}}]}}}]}}' 2>&1) \
+  && bad "merge patch that adds a hostPath volume to the plugin values was allowed" \
+  || { grep -q "ztna-backstage-identities" <<<"$out" && ok "deny  merge patch that adds a hostPath volume to the plugin values" || bad "plugin patch refused, but not by the policy: $out"; }
 
 echo "== the old broad binding is gone, and nothing grants teknoir-admin or cluster-admin to the service account"
 if "${KC[@]}" get clusterrolebinding backstage-api-teknoir-admin-rolebinding >/dev/null 2>&1; then

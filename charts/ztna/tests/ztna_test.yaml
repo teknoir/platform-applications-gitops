@@ -1325,6 +1325,16 @@ tests:
       - notMatchRegex:
           path: spec.validations[1].expression
           pattern: "contains\\('@'\\)|startsWith"
+      # Profile spec.plugins (Helm values with initContainers/hostPath) and spec.resourceQuotaSpec are not Backstage's to write
+      - matchRegex:
+          path: spec.validations[2].expression
+          pattern: "(?s)CREATE.*size\\(variables\\.newPlugins\\) == 0.*size\\(variables\\.newQuota\\) == 0.*variables\\.newPlugins == variables\\.oldPlugins.*variables\\.newQuota == variables\\.oldQuota"
+      - matchRegex:
+          path: spec.validations[2].message
+          pattern: "spec\\.plugins"
+      - lengthEqual:
+          path: spec.validations
+          count: 3
 
   - it: binds the Backstage identities policy with Deny
     template: templates/admission.yaml

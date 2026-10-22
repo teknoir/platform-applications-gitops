@@ -40,6 +40,10 @@ and `tests/k3d-rbac-test.sh` checks the whole matrix on a throwaway cluster.
   refused, because user-controller renders its RoleBinding and AuthorizationPolicy from unescaped text templates and
   a second `name:` key would win). It can still make any e-mail address a teamspace owner. Follow-up in
   user-controller: build both objects as structs, or quote with `toJson`.
+  The same policy refuses a Profile create with `spec.plugins` (an empty list is fine) or `spec.resourceQuotaSpec`, and
+  any change to either on an existing Profile: profile-controller writes each plugin's `values` verbatim into the
+  teamspace's Helm values and the emqx subchart renders `initContainers`, `extraVolumes` and `containerSecurityContext`
+  from them, which would have been a third way to a privileged pod. The Backstage code writes neither field.
 
 ## Before shipping the Backstage RBAC change (dropping teknoir-admin)
 

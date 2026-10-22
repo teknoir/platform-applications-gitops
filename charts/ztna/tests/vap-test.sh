@@ -532,6 +532,39 @@ iverdict "backstage-api creates a Profile whose owner has a space" deny "${BACKS
 printf 'apiVersion: teknoir.org/v1\nkind: Profile\nmetadata:\n  name: ibp1\nspec:\n  owner:\n    kind: Group\n    name: system:serviceaccounts\n' > "${TMP}/i-prof-change.yaml"
 iverdict "backstage-api changes a Profile owner to a Group" deny "${BACKSTAGE_API}" replace "${TMP}/i-prof-change.yaml"
 iverdict "an editor (not Backstage) creates a Profile owned by a Group" allow "${EDITOR_SA}" create "${TMP}/i-prof-group.yaml"
+# Profile spec.plugins: profile-controller writes each plugin's values verbatim into the teamspace's Helm values
+# (emqx initContainers / extraVolumes / containerSecurityContext), so Backstage may not write plugins or quota.
+pplug() { # name emqx-container-name [annotation-value] -> Profile with one plugin carrying initContainers; "-" = no plugins
+  printf 'apiVersion: teknoir.org/v1\nkind: Profile\nmetadata:\n  name: %s\n' "$1"
+  [[ -n ${3:-} ]] && printf '  annotations:\n    teknoir.org/description: %s\n' "$3"
+  printf 'spec:\n  owner:\n    kind: User\n    name: owner@example.com\n'
+  if [[ $2 != - ]]; then
+    printf '  plugins:\n    - apiVersion: v1\n      kind: emqx\n      spec:\n        values:\n          initContainers:\n            - name: %s\n              image: busybox\n              securityContext:\n                privileged: true\n' "$2"
+  fi
+  return 0
+}
+pplug ibpp1 pwn > "${TMP}/i-prof-plugins.yaml"
+iverdict "backstage-api creates a Profile with a plugin carrying privileged initContainers" deny "${BACKSTAGE_API}" create "${TMP}/i-prof-plugins.yaml"
+printf 'apiVersion: teknoir.org/v1\nkind: Profile\nmetadata:\n  name: ibpp2\nspec:\n  owner:\n    kind: User\n    name: owner@example.com\n  plugins: []\n' > "${TMP}/i-prof-plugins-empty.yaml"
+iverdict "backstage-api creates a Profile with an empty plugins list" allow "${BACKSTAGE_API}" create "${TMP}/i-prof-plugins-empty.yaml"
+printf 'apiVersion: teknoir.org/v1\nkind: Profile\nmetadata:\n  name: ibpp3\nspec:\n  owner:\n    kind: User\n    name: owner@example.com\n  resourceQuotaSpec:\n    hard:\n      pods: "1000"\n' > "${TMP}/i-prof-quota.yaml"
+iverdict "backstage-api creates a Profile with a resourceQuotaSpec" deny "${BACKSTAGE_API}" create "${TMP}/i-prof-quota.yaml"
+iverdict "an editor (not Backstage) creates a Profile with plugins" allow "${EDITOR_SA}" create "${TMP}/i-prof-plugins.yaml"
+# a Profile that already carries plugins (as the live ones do), written by a cluster admin
+pplug ibpp4 first > "${TMP}/i-prof-have.yaml"
+"${KC[@]}" create -f "${TMP}/i-prof-have.yaml" >/dev/null
+pplug ibpp4 second > "${TMP}/i-prof-patch.yaml"
+iverdict "backstage-api replaces the plugins of a Profile" deny "${BACKSTAGE_API}" replace "${TMP}/i-prof-patch.yaml"
+pplug ibpp4 - > "${TMP}/i-prof-strip.yaml"
+iverdict "backstage-api removes the plugins of a Profile" deny "${BACKSTAGE_API}" replace "${TMP}/i-prof-strip.yaml"
+pplug ibpp4 first "changed" > "${TMP}/i-prof-annot.yaml"
+iverdict "backstage-api changes only an annotation, plugins as they were" allow "${BACKSTAGE_API}" replace "${TMP}/i-prof-annot.yaml"
+printf '%s' "$(cat "${TMP}/i-prof-have.yaml")" | sed 's/^spec:/spec:\n  resourceQuotaSpec:\n    hard:\n      pods: "5"/' > "${TMP}/i-prof-quota-set.yaml"
+iverdict "backstage-api sets a resourceQuotaSpec on an existing Profile" deny "${BACKSTAGE_API}" replace "${TMP}/i-prof-quota-set.yaml"
+iverdict "an editor (not Backstage) replaces the plugins of a Profile" allow "${EDITOR_SA}" replace "${TMP}/i-prof-patch.yaml"
+# a patch the way Backstage's update path sends it (merge patch, metadata only) goes through; one that adds a plugin does not
+if out=$(as "${BACKSTAGE_API}" patch profiles.teknoir.org ibpp4 --type merge -p '{"metadata":{"labels":{"x":"y"}}}' 2>&1); then ok "allow  backstage-api merge-patches a label on a Profile"; else bad "label patch denied: $out"; fi
+if out=$(as "${BACKSTAGE_API}" patch profiles.teknoir.org ibpp4 --type merge -p '{"spec":{"plugins":[{"kind":"emqx","apiVersion":"v1","spec":{"values":{"extraVolumes":[{"name":"h","hostPath":{"path":"/"}}]}}}]}}' 2>&1); then bad "plugin patch should be denied"; elif grep -q "ValidatingAdmissionPolicy 'ztna-backstage-identities'" <<<"$out"; then ok "deny  backstage-api merge-patches Profile plugins"; else bad "plugin patch denied, but not by the policy: $out"; fi
 if "${KC[@]}" create -f "${TMP}/i-prof-sa.yaml" >/dev/null 2>&1; then ok "allowed: system:masters creates a Profile owned by a ServiceAccount"; else bad "system:masters Profile create denied"; fi
 
 # --- namespace teardown: DELETE of a policy ConfigMap by anyone while the namespace is Terminating

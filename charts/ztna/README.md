@@ -152,7 +152,14 @@ Backstage's service account can write Devices and Users in every teamspace, so R
   (`name: <usermail>`) and its AuthorizationPolicy from unescaped text templates, so an address with a line break,
   `:`, quote, space or `#` can inject a second `name:` key (the last wins) and still contain an `@`; a check for
   "has an `@`, no `system:` prefix" was bypassed that way (reproduced with the real template). Follow-up for
-  user-controller: build both objects as structs, or quote with `toJson`. Everyone else is unaffected. Tested in
+  user-controller: build both objects as structs, or quote with `toJson`. It also closes a third privileged-workload
+  route, **Profile `spec.plugins`**: profile-controller unmarshals each plugin's `values` (`plugin_emqx.go`) and writes them
+  verbatim into the teamspace's ArgoCD Application helm values, and the emqx subchart renders `initContainers`,
+  `extraVolumes` and `containerSecurityContext` from them (the teamspace has no Pod Security labels). So a Profile create
+  or patch with `emqx.initContainers` set privileged plus a hostPath mount would have put a pod on the node. The service
+  account may therefore not create a Profile with `spec.plugins` (an empty list is fine) or `spec.resourceQuotaSpec`, and
+  may not change either on an existing Profile; Backstage writes neither (`create_profile.ts` sends only `spec.owner`,
+  the Profile update validator carries over annotations and labels only), so no flow breaks. Everyone else is unaffected. Tested in
   `tests/vap-test.sh` (kube-apiserver) and `charts/backstage/tests/k3d-rbac-test.sh` (as the service account).
 - **Remaining risks of a compromised Backstage (accepted, not closed):**
   - it can still change `ztna.teknoir.org/*` and org-tree annotations through the two username exemptions, create
@@ -173,8 +180,9 @@ Backstage's service account can write Devices and Users in every teamspace, so R
     device fields, or unprivileged workloads: parked as the follow-up "virtual device / DeviceApplicationSet
     workloads" for Anders to decide.
   - **So the goal "backstage-api cannot bypass the teknoir-ztna admission policies" is met only in part:** the direct
-    routes (impersonation, pods, exec, Secrets, RBAC, teknoir-admin through a User or Profile) are closed; the two
-    privileged-workload routes are not.
+    routes (impersonation, pods, exec, Secrets, RBAC, teknoir-admin through a User or Profile, Helm values through
+    Profile `spec.plugins`) are closed; the two privileged-workload routes (Devstudio/Notebook `spec.image`, and virtual
+    Devices / DeviceApplicationSets) are not.
 - <a name="break-glass"></a>**Break-glass**: the `ztna` Application has `selfHeal`, so a deleted binding is restored within
   seconds. Order: (1) `argocd app set ztna --sync-policy none`; (2) delete the ValidatingAdmissionPolicyBinding; (3) act;
   (4) re-apply the binding (or re-sync) and `argocd app set ztna --sync-policy automated --self-heal`. system:masters is
