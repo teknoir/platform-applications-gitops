@@ -48,7 +48,7 @@ PY
     if cmp -s "$TMP/expected-$p.yaml" "$TMP/new-$p.yaml"; then
       echo "as expected (base minus the removals): $p ($stats)"
     else
-      diff "$TMP/expected-$p.yaml" "$TMP/new-$p.yaml" | head -20 || true
+      diff "$TMP/expected-$p.yaml" "$TMP/new-$p.yaml" || true
       # ROOT_RENDER_EXPECTED="project ...": projects whose root render differs from the base on purpose (this branch's
       # harbor Application ignoreDifferences on teknoir-cloud). The difference is printed and accepted; once the branch
       # is merged the base has it and the render is identical again. Any other mismatch fails the run.
