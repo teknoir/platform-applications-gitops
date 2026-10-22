@@ -1314,10 +1314,17 @@ tests:
           value: "request.userInfo.username == 'system:serviceaccount:teknoir-system:backstage-api'"
       - matchRegex:
           path: spec.validations[0].expression
-          pattern: "contains\\('@'\\).*startsWith\\('system:'\\)"
+          pattern: "email\\.lowerAscii\\(\\)\\.matches\\('\\^\\[a-z0-9\\._%\\+-\\]\\+@\\[a-z0-9\\.-\\]\\+\\$'\\)"
       - matchRegex:
           path: spec.validations[1].expression
-          pattern: "ownerKind == 'User'.*contains\\('@'\\).*startsWith\\('system:'\\)"
+          pattern: "ownerKind == 'User'.*owner\\.lowerAscii\\(\\)\\.matches\\('\\^\\[a-z0-9\\._%\\+-\\]\\+@\\[a-z0-9\\.-\\]\\+\\$'\\)"
+      # a strict allowlist: a '@' plus "no system: prefix" let a line break inject a second `name:` key
+      - notMatchRegex:
+          path: spec.validations[0].expression
+          pattern: "contains\\('@'\\)|startsWith"
+      - notMatchRegex:
+          path: spec.validations[1].expression
+          pattern: "contains\\('@'\\)|startsWith"
 
   - it: binds the Backstage identities policy with Deny
     template: templates/admission.yaml

@@ -27,9 +27,19 @@ and `tests/k3d-rbac-test.sh` checks the whole matrix on a throwaway cluster.
   it predates this change. It is parked as the named follow-up "teamspace image allowlist" (a ValidatingAdmissionPolicy
   limiting `spec.image` to the platform images, the Harbor mirror on airgapped installs) for Anders to decide, because it
   also limits what developers may run. The RBAC tests here cover only the direct routes (impersonate, pods, exec, RBAC).
+- **Devices and DeviceApplicationSets run privileged workloads too.** The teamspace role keeps CRUD on `devices` and
+  `deviceapplicationsets`. device-controller runs a virtual Device as a privileged Deployment (`virtual_device.go`,
+  `privileged := true`, image `ghcr.io/teknoir/virtual-device:<spec version>`) and a DeviceApplicationSet can deploy
+  any HelmChart into that nested k3s. That route is independent of `spec.image`, so the image allowlist above does not
+  close it; on a single-node cluster it reaches every service account token. Parked as the follow-up "virtual device /
+  DeviceApplicationSet workloads" (a policy scoped to backstage-api, or unprivileged workloads) for Anders to decide.
+  Until both are closed the goal "can't bypass the admission policies" is met only in part.
 - **Users and Profiles.** The service account may write both, and the controllers bind roles to the names in them. The
   admission policy `ztna-backstage-identities` (charts/ztna) keeps it from using that on itself: User emails and Profile
-  owners must be e-mail addresses. It can still make any e-mail address a teamspace owner.
+  owners must match the strict pattern `^[a-z0-9._%+-]+@[a-z0-9.-]+$` (line breaks, `:`, quotes, spaces and `#` are
+  refused, because user-controller renders its RoleBinding and AuthorizationPolicy from unescaped text templates and
+  a second `name:` key would win). It can still make any e-mail address a teamspace owner. Follow-up in
+  user-controller: build both objects as structs, or quote with `toJson`.
 
 ## Before shipping the Backstage RBAC change (dropping teknoir-admin)
 

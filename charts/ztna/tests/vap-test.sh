@@ -490,6 +490,22 @@ done
 uemail ib1 "system:serviceaccount:teknoir-system:backstage-api" > "${TMP}/i-user-bad.yaml"
 uemail ib2 "someone@example.com" > "${TMP}/i-user-ok.yaml"
 iverdict "backstage-api creates a User with an e-mail address" allow "${BACKSTAGE_API}" create "${TMP}/i-user-ok.yaml"
+# Control characters and YAML syntax: user-controller renders its RoleBinding from an unescaped text template, so a
+# line break in an e-mail could add a second `name:` key (the last wins) and still contain an '@'. Manifests are
+# built with JSON quoting (valid YAML) so the odd characters reach the policy intact.
+jq_str() { python3 -I -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$1"; }
+uemail_q() { printf 'apiVersion: teknoir.org/v1\nkind: User\nmetadata:\n  name: %s\nspec:\n  email: %s\n' "$1" "$(jq_str "$2")"; }
+INJ=$'a@example.org\n  name: system:serviceaccount:teknoir-system:backstage-api'
+uemail_q ibq1 "${INJ}" > "${TMP}/i-user-inj.yaml"
+iverdict "backstage-api creates a User whose e-mail carries a line break and a second name: key" deny "${BACKSTAGE_API}" create "${TMP}/i-user-inj.yaml"
+for bad_email in $'a@example.org\n' $'a\r@example.org' 'a b@example.org' 'a"b@example.org' "a'b@example.org" 'a:b@example.org' 'a@example.org #x' 'a@b:c@example.org' '@example.org' 'a@'; do
+  uemail_q ibq2 "${bad_email}" > "${TMP}/i-user-q.yaml"
+  iverdict "backstage-api creates a User with e-mail $(jq_str "${bad_email}")" deny "${BACKSTAGE_API}" create "${TMP}/i-user-q.yaml"
+done
+uemail_q ibq3 'First.Last+tag@Example.org' > "${TMP}/i-user-q-ok.yaml"
+iverdict "backstage-api creates a User with a mixed-case e-mail with + and ." allow "${BACKSTAGE_API}" create "${TMP}/i-user-q-ok.yaml"
+uemail_q ibq4 "${INJ}" > "${TMP}/i-user-inj2.yaml"
+iverdict "an editor (not Backstage) is not matched by the identities policy" allow "${EDITOR_SA}" create "${TMP}/i-user-inj2.yaml"
 printf 'apiVersion: teknoir.org/v1\nkind: User\nmetadata:\n  name: ib2\nspec:\n  email: system:serviceaccount:teknoir-system:backstage-api\n' > "${TMP}/i-user-change.yaml"
 iverdict "backstage-api changes a User's email to a service account name" deny "${BACKSTAGE_API}" replace "${TMP}/i-user-change.yaml"
 iverdict "an editor (not Backstage) creates a User without an '@'" allow "${EDITOR_SA}" create "${TMP}/i-user-bad.yaml"
@@ -509,6 +525,10 @@ prof ibp4 User "system:serviceaccount:teknoir-system:backstage-api" > "${TMP}/i-
 iverdict "backstage-api creates a Profile owned by a User named like the service account" deny "${BACKSTAGE_API}" create "${TMP}/i-prof-user-sa.yaml"
 prof ibp5 User "admin" > "${TMP}/i-prof-noat.yaml"
 iverdict "backstage-api creates a Profile owned by a User without an '@'" deny "${BACKSTAGE_API}" create "${TMP}/i-prof-noat.yaml"
+printf 'apiVersion: teknoir.org/v1\nkind: Profile\nmetadata:\n  name: ibp6\nspec:\n  owner:\n    kind: User\n    name: %s\n' "$(jq_str "${INJ}")" > "${TMP}/i-prof-inj.yaml"
+iverdict "backstage-api creates a Profile whose owner carries a line break and a second name: key" deny "${BACKSTAGE_API}" create "${TMP}/i-prof-inj.yaml"
+printf 'apiVersion: teknoir.org/v1\nkind: Profile\nmetadata:\n  name: ibp7\nspec:\n  owner:\n    kind: User\n    name: %s\n' "$(jq_str 'a b@example.org')" > "${TMP}/i-prof-space.yaml"
+iverdict "backstage-api creates a Profile whose owner has a space" deny "${BACKSTAGE_API}" create "${TMP}/i-prof-space.yaml"
 printf 'apiVersion: teknoir.org/v1\nkind: Profile\nmetadata:\n  name: ibp1\nspec:\n  owner:\n    kind: Group\n    name: system:serviceaccounts\n' > "${TMP}/i-prof-change.yaml"
 iverdict "backstage-api changes a Profile owner to a Group" deny "${BACKSTAGE_API}" replace "${TMP}/i-prof-change.yaml"
 iverdict "an editor (not Backstage) creates a Profile owned by a Group" allow "${EDITOR_SA}" create "${TMP}/i-prof-group.yaml"

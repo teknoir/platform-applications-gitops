@@ -145,9 +145,14 @@ Backstage's service account can write Devices and Users in every teamspace, so R
 - `ztna-backstage-identities`: closes the route from "may write Users and Profiles" to teknoir-admin. user-controller
   writes a RoleBinding for `kind: User, name: <spec.email>` and profile-controller binds `teknoir-admin` to a
   Profile's `spec.owner` verbatim, and neither checks the name. For requests from the Backstage service account (only):
-  a User's `spec.email` must contain an `@` and must not start with `system:`, and a Profile's owner must be
-  `kind: User` with such an address. So it cannot make itself (`system:serviceaccount:teknoir-system:backstage-api`),
-  `system:masters` or a service account group a teamspace owner. Everyone else is unaffected. Tested in
+  a User's `spec.email` must match `^[a-z0-9._%+-]+@[a-z0-9.-]+$` (after `lowerAscii`), and a Profile's owner must be
+  `kind: User` with a name matching the same pattern. So it cannot make itself
+  (`system:serviceaccount:teknoir-system:backstage-api`), `system:masters` or a service account group a teamspace
+  owner. The pattern is a strict allowlist on purpose: user-controller renders its RoleBinding
+  (`name: <usermail>`) and its AuthorizationPolicy from unescaped text templates, so an address with a line break,
+  `:`, quote, space or `#` can inject a second `name:` key (the last wins) and still contain an `@`; a check for
+  "has an `@`, no `system:` prefix" was bypassed that way (reproduced with the real template). Follow-up for
+  user-controller: build both objects as structs, or quote with `toJson`. Everyone else is unaffected. Tested in
   `tests/vap-test.sh` (kube-apiserver) and `charts/backstage/tests/k3d-rbac-test.sh` (as the service account).
 - **Remaining risks of a compromised Backstage (accepted, not closed):**
   - it can still change `ztna.teknoir.org/*` and org-tree annotations through the two username exemptions, create
@@ -158,7 +163,18 @@ Backstage's service account can write Devices and Users in every teamspace, so R
     around these policies. Teamspace developers have the same right today (it is not new with this change). Closing it
     needs an image allowlist on `devstudios`/`notebooks` (platform images only, the Harbor mirror on airgapped
     installs) or unprivileged workloads; both change what teamspace developers may do, so they are parked as the named
-    follow-up "teamspace image allowlist" for Anders to decide.
+    follow-up "teamspace image allowlist" for Anders to decide;
+  - **it can run code a second way, through Devices and DeviceApplicationSets.** The teamspace role keeps CRUD on
+    `devices` and `deviceapplicationsets`. device-controller runs a virtual Device as a privileged Deployment
+    (`virtual_device.go`, `privileged := true`, image `ghcr.io/teknoir/virtual-device:<spec version>`), and a
+    DeviceApplicationSet can deploy any HelmChart into that nested k3s. This is independent of `spec.image`, so the
+    image allowlist above does not close it, and on a single-node cluster it reaches every service account token.
+    Closing it needs a policy scoped to backstage-api that covers devstudio/notebook `spec.image` and the virtual
+    device fields, or unprivileged workloads: parked as the follow-up "virtual device / DeviceApplicationSet
+    workloads" for Anders to decide.
+  - **So the goal "backstage-api cannot bypass the teknoir-ztna admission policies" is met only in part:** the direct
+    routes (impersonation, pods, exec, Secrets, RBAC, teknoir-admin through a User or Profile) are closed; the two
+    privileged-workload routes are not.
 - <a name="break-glass"></a>**Break-glass**: the `ztna` Application has `selfHeal`, so a deleted binding is restored within
   seconds. Order: (1) `argocd app set ztna --sync-policy none`; (2) delete the ValidatingAdmissionPolicyBinding; (3) act;
   (4) re-apply the binding (or re-sync) and `argocd app set ztna --sync-policy automated --self-heal`. system:masters is

@@ -230,6 +230,24 @@ verdict "User with email system:serviceaccount:...:backstage-api" deny "$(user_y
 verdict "User with email system:masters" deny "$(user_yaml system:masters)"
 verdict "User with an email without @" deny "$(user_yaml kubernetes-admin)"
 verdict "User with an ordinary email" allow "$(user_yaml someone@example.com)"
+# Control characters and YAML syntax: user-controller renders its RoleBinding from a text template with no escaping, so
+# an e-mail with a line break could add a second `name:` key (the last wins) and still contain an '@'. The manifests
+# are built with JSON quoting (valid YAML) so the odd characters reach the policy intact.
+q() { python3 -I -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$1"; }
+user_yaml_q() { printf 'apiVersion: teknoir.org/v1\nkind: User\nmetadata:\n  name: idprobe\nspec:\n  email: %s\n' "$(q "$1")"; }
+profile_yaml_q() { printf 'apiVersion: teknoir.org/v1\nkind: Profile\nmetadata:\n  name: idprobe\nspec:\n  owner:\n    kind: User\n    name: %s\n' "$(q "$1")"; }
+INJ=$'a@example.org\n  name: system:serviceaccount:teknoir-system:backstage-api'
+verdict "User with an e-mail carrying a line break and a second name: key" deny "$(user_yaml_q "$INJ")"
+verdict "User with an e-mail with a trailing line break" deny "$(user_yaml_q $'a@example.org\n')"
+verdict "User with an e-mail with a space" deny "$(user_yaml_q 'a b@example.org')"
+verdict "User with an e-mail with a double quote" deny "$(user_yaml_q 'a"b@example.org')"
+verdict "User with an e-mail with a single quote" deny "$(user_yaml_q "a'b@example.org")"
+verdict "User with an e-mail with a colon" deny "$(user_yaml_q 'a:b@example.org')"
+verdict "User with an e-mail with a hash" deny "$(user_yaml_q 'a@example.org #x')"
+verdict "User with an e-mail with a second @ and a colon" deny "$(user_yaml_q 'a@b:c@example.org')"
+verdict "User with a mixed-case ordinary e-mail" allow "$(user_yaml_q 'First.Last+tag@Example.org')"
+verdict "Profile owner (kind User) with a line break and a second name: key" deny "$(profile_yaml_q "$INJ")"
+verdict "Profile owner (kind User) with a space" deny "$(profile_yaml_q 'a b@example.org')"
 verdict "Profile owned by the service account (kind User, its username)" deny "$(profile_yaml User "$SA")"
 verdict "Profile owned by kind ServiceAccount" deny "$(printf 'apiVersion: teknoir.org/v1\nkind: Profile\nmetadata:\n  name: idprobe\nspec:\n  owner:\n    kind: ServiceAccount\n    name: backstage-api\n    namespace: %s\n' "$SYS_NS")"
 verdict "Profile owned by the Group system:serviceaccounts:${SYS_NS}" deny "$(profile_yaml Group "system:serviceaccounts:${SYS_NS}")"
