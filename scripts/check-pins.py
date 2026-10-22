@@ -17,6 +17,11 @@ Checks the rendered manifests of a release (scripts/staging-render.sh output, or
                            NOT listed in release-policy.yaml `audience_hub_tags` (an allowlist of the tags known to
                            have the audience check; any other hub ignores the env, so enforce would only look
                            enforced and transition would never produce the audience metric the plan gates on)
+    portal-controller-unchecked  a render in which a portal service account (profile-controller PORTAL_SERVICE_ACCOUNTS) no
+                           longer has the teknoir-admin ClusterRoleBinding, i.e. its teamspace rights come only from the
+                           teknoir-portal RoleBindings that profile-controller writes, but the profile-controller image
+                           tag is NOT listed in release-policy.yaml `portal_profile_controller_tags` (builds that
+                           contain the portal code), or no profile-controller Deployment is rendered at all
   warnings
     third-party-no-digest  a third-party image without a digest (exact version tags are fine)
     cr-revision            a teknoir.org DeviceApplicationSet/Device/Robot/RobotType with a revision that is not 40-hex
@@ -115,7 +120,7 @@ def load_docs(paths: list[str]) -> list[tuple[str, dict]]:
 
 def load_policy(path: str | None) -> dict:
     pol = {"images": "warn", "cr_revisions": "warn", "first_party_prefixes": DEFAULT_PREFIXES, "exceptions": [], "rollback_floor": "",
-           "audience_hub_tags": []}
+           "audience_hub_tags": [], "portal_profile_controller_tags": []}
     if path:
         with open(path) as fh:
             pol.update(yaml.safe_load(fh) or {})
@@ -288,6 +293,64 @@ def check_hub_audience(docs: list[tuple[str, dict]], policy: dict) -> list[Findi
     return out
 
 
+def check_portal_binding(docs: list[tuple[str, dict]], policy: dict) -> list[Finding]:
+    """The Backstage API service account must not lose teknoir-admin before profile-controller can bind it per teamspace.
+
+    profile-controller writes the RoleBinding teknoir-portal into every teamspace when PORTAL_SERVICE_ACCOUNTS is set
+    (charts/profile-controller config.portal); an older image ignores the setting. A render in which a listed service
+    account has no ClusterRoleBinding to teknoir-admin any more (backstage-sa R2) depends on that code being live, so
+    the profile-controller image tag must be one of `portal_profile_controller_tags` in the policy: exact tags without
+    the digest, built from a commit that contains the portal code. Fails closed: an unlisted tag, a missing Deployment
+    or an empty list is an error. Renders that still bind the service account to teknoir-admin (backstage-sa R1) are
+    not affected. The live check that every Profile namespace HAS the RoleBinding is in scripts/staging-release.
+    """
+    sas: set[str] = set()
+    for _, d in docs:
+        if d.get("kind") == "ConfigMap":
+            val = ((d.get("data") or {}).get("PORTAL_SERVICE_ACCOUNTS") or "")
+            sas |= {x.strip() for x in str(val).split(",") if x.strip()}
+    if not sas:
+        return []
+    admin_bound: set[str] = set()
+    for _, d in docs:
+        if d.get("kind") == "ClusterRoleBinding" and (d.get("roleRef") or {}).get("name") == "teknoir-admin":
+            for sub in d.get("subjects") or []:
+                if isinstance(sub, dict) and sub.get("kind") == "ServiceAccount":
+                    admin_bound.add(f"{sub.get('namespace', '')}/{sub.get('name', '')}")
+    portal_only = sorted(sas - admin_bound)
+    if not portal_only:
+        return []
+    known = {str(t) for t in (policy.get("portal_profile_controller_tags") or [])}
+    hint = ("build and pin a profile-controller that contains the portal commit (profile-controller branch "
+            "backstage-sa-teamspace-binding: 'Bind the portal service account into each teamspace' and 'Replace a "
+            "RoleBinding whose roleRef changed instead of updating it') with scripts/pin-image, and list its tag in "
+            "release-policy.yaml portal_profile_controller_tags")
+    out: list[Finding] = []
+    seen = False
+    for _, d in docs:
+        path = POD_PATHS.get(d.get("kind"))
+        spec = _dig(d, path) if path else None
+        if d.get("kind") != "Deployment" or not isinstance(spec, dict):
+            continue
+        name = (d.get("metadata") or {}).get("name", "?")
+        for c in spec.get("containers") or []:
+            img = str(c.get("image") or "")
+            if image_without_digest(img).rsplit("/", 1)[-1].split(":", 1)[0] != "profile-controller":
+                continue
+            seen = True
+            if (image_tag(img) or "") not in known:
+                out.append(Finding("error", "portal-controller-unchecked",
+                                   f"{', '.join(portal_only)} lost teknoir-admin, so its teamspace rights come only from the "
+                                   f"teknoir-portal RoleBindings, but {img} is not listed in release-policy.yaml "
+                                   f"portal_profile_controller_tags (builds with the portal code): {hint}",
+                                   f"Deployment/{name} {c.get('name', '')}"))
+    if not seen:
+        out.append(Finding("error", "portal-controller-unchecked",
+                           f"{', '.join(portal_only)} lost teknoir-admin but no profile-controller Deployment is rendered, "
+                           "so nothing writes the teknoir-portal RoleBindings"))
+    return out
+
+
 def gitops_apps(docs: list[tuple[str, dict]]) -> list[dict]:
     apps = []
     for _, d in docs:
@@ -454,6 +517,7 @@ def lint(docs, *, policy: dict, release: str | None, project: str, repo_root: st
     out += check_crs(docs, "error" if policy.get("cr_revisions") == "deny" else "warn")
     out += check_profiles(docs)
     out += check_hub_audience(docs, policy)
+    out += check_portal_binding(docs, policy)
     return out
 
 
@@ -467,11 +531,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--today", help="YYYY-MM-DD (default: today, for the exception expiry)")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--quiet", action="store_true", help="only errors")
+    ap.add_argument("--only", help="comma list of finding codes: report (and fail on) only those, e.g. portal-controller-unchecked")
     ap.add_argument("-v", "--verbose", action="store_true", help="list every third-party image without a digest")
     a = ap.parse_args(argv)
     today = dt.date.fromisoformat(a.today) if a.today else dt.date.today()
     findings = lint(load_docs(a.paths), policy=load_policy(a.policy), release=a.release, project=a.project,
                     repo_root=a.repo_root, today=today, verbose=a.verbose)
+    if a.only:
+        only = {c.strip() for c in a.only.split(",") if c.strip()}
+        findings = [f for f in findings if f.code in only]
     errors = [f for f in findings if f.level == "error"]
     if a.json:
         print(json.dumps([asdict(f) for f in findings], indent=2))

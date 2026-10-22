@@ -357,5 +357,119 @@ class HubAudience(unittest.TestCase):
         self.assertEqual(set(tags) & set(self.PRE_AUDIENCE), set())
 
 
+class PortalBinding(unittest.TestCase):
+    """backstage-sa R2 removes teknoir-admin from the Backstage API service account: the render must not go out while the
+    pinned profile-controller does not have the portal code (the RoleBinding teknoir-portal per teamspace)."""
+    OLD = "ghcr.io/teknoir/profile-controller:sha-fd269839" + D       # no portal code
+    NEW = "ghcr.io/teknoir/profile-controller:sha-1234abcd" + D
+    SHIPPED = os.path.join(H.SCRIPTS, "release-policy.yaml")
+    REPO = os.path.dirname(H.SCRIPTS)
+
+    def docs(self, image, *, sas="teknoir-system/backstage-api", admin_for=(), controller=True):
+        cm = ("c.yaml", {"kind": "ConfigMap", "metadata": {"name": "profile-controller-config"},
+                         "data": {"PORTAL_SERVICE_ACCOUNTS": sas, "PORTAL_TEAMSPACE_CLUSTERROLE": "backstage-api-teamspace"}})
+        out = [cm]
+        for ns_name in admin_for:
+            ns, name = ns_name.split("/")
+            out.append(("b.yaml", {"kind": "ClusterRoleBinding", "metadata": {"name": f"{name}-teknoir-admin-rolebinding"},
+                                   "roleRef": {"kind": "ClusterRole", "name": "teknoir-admin"},
+                                   "subjects": [{"kind": "ServiceAccount", "name": name, "namespace": ns}]}))
+        if controller:
+            _, d = deploy(image)
+            d["metadata"]["name"] = "profile-controller"
+            out.append(("d.yaml", d))
+        return out
+
+    def pol(self):
+        return policy(portal_profile_controller_tags=["sha-1234abcd"])
+
+    def test_r2_render_on_an_image_without_the_portal_code_is_an_error(self):
+        f = CP.check_portal_binding(self.docs(self.OLD), self.pol())
+        self.assertEqual(codes(f, "error"), ["portal-controller-unchecked"])
+        self.assertIn("teknoir-system/backstage-api", f[0].message)
+        self.assertIn("portal_profile_controller_tags", f[0].message)
+
+    def test_a_listed_tag_passes(self):
+        self.assertEqual(CP.check_portal_binding(self.docs(self.NEW), self.pol()), [])
+
+    def test_r1_render_that_still_binds_teknoir_admin_is_not_checked(self):
+        self.assertEqual(CP.check_portal_binding(self.docs(self.OLD, admin_for=["teknoir-system/backstage-api"]), self.pol()), [])
+
+    def test_one_listed_service_account_without_admin_is_enough(self):
+        d = self.docs(self.OLD, sas="teknoir-system/backstage-api,teknoir-system/backstage-next-api",
+                      admin_for=["teknoir-system/backstage-api"])
+        f = CP.check_portal_binding(d, self.pol())
+        self.assertEqual(codes(f, "error"), ["portal-controller-unchecked"])
+        self.assertIn("teknoir-system/backstage-next-api", f[0].message)
+
+    def test_fails_closed_on_tags_nobody_listed(self):
+        for img in ("ghcr.io/teknoir/profile-controller:sha-1234abcde" + D,   # only the exact tag counts, not a prefix
+                    "ghcr.io/teknoir/profile-controller:latest",
+                    "ghcr.io/teknoir/profile-controller" + D,
+                    "ghcr.io/teknoir/profile-controller:teknoir-cloud"):
+            f = CP.check_portal_binding(self.docs(img), self.pol())
+            self.assertEqual(codes(f, "error"), ["portal-controller-unchecked"], img)
+
+    def test_an_empty_or_missing_allowlist_allows_no_tag(self):
+        for pol in (policy(portal_profile_controller_tags=[]), policy(portal_profile_controller_tags=None)):
+            self.assertEqual(codes(CP.check_portal_binding(self.docs(self.NEW), pol), "error"), ["portal-controller-unchecked"])
+        self.assertEqual(CP.load_policy(None)["portal_profile_controller_tags"], [])
+
+    def test_no_profile_controller_deployment_is_an_error(self):
+        f = CP.check_portal_binding(self.docs(self.NEW, controller=False), self.pol())
+        self.assertEqual(codes(f, "error"), ["portal-controller-unchecked"])
+        self.assertIn("no profile-controller Deployment", f[0].message)
+
+    def test_other_deployments_are_not_the_controller(self):
+        d = self.docs(self.NEW, controller=False) + [deploy("ghcr.io/teknoir/device-controller:sha-1" + D)]
+        self.assertIn("no profile-controller Deployment", CP.check_portal_binding(d, self.pol())[0].message)
+
+    def test_no_portal_setting_means_no_check(self):
+        self.assertEqual(CP.check_portal_binding([deploy(self.OLD)], self.pol()), [])
+        self.assertEqual(CP.check_portal_binding(self.docs(self.OLD, sas=""), self.pol()), [])
+
+    def test_lint_includes_the_check(self):
+        f = CP.lint(self.docs(self.OLD), policy=self.pol(), release=None, project="teknoir-online", repo_root=None, today=TODAY)
+        self.assertIn("portal-controller-unchecked", codes(f, "error"))
+
+    def test_only_filters_findings_and_the_exit_status(self):
+        d = H.tmpdir()
+        import yaml
+        with open(os.path.join(d, "r.yaml"), "w") as fh:
+            yaml.safe_dump_all([x for _, x in self.docs(self.OLD)] + [deploy("ghcr.io/teknoir/x:latest")[1]], fh)
+        args = [d, "--project", "teknoir-online", "--policy", self.SHIPPED]
+        self.assertEqual(CP.main(args + ["--only", "portal-controller-unchecked"]), 1)
+        self.assertEqual(CP.main(args + ["--only", "no-such-code"]), 0)
+
+    def test_shipped_policy_lists_no_tag_of_a_build_without_the_portal_code(self):
+        tags = CP.load_policy(self.SHIPPED)["portal_profile_controller_tags"]
+        self.assertEqual({str(t) for t in tags} & {"sha-fd269839", "sha-59523f59", "sha-2b54db9", "sha-41a99026"}, set())
+
+    def render(self, *charts):
+        docs = []
+        for c in charts:
+            r = subprocess.run(["helm", "template", c, os.path.join(self.REPO, "charts", c), "--namespace", "teknoir-system"],
+                               capture_output=True, text=True, check=True)
+            f = os.path.join(H.tmpdir(), f"{c}.yaml")
+            open(f, "w").write(r.stdout)
+            docs += CP.load_docs([f])
+        return docs
+
+    @unittest.skipUnless(shutil.which("helm"), "helm not installed")
+    def test_the_real_charts_follow_the_pinned_profile_controller_tag(self):
+        docs = self.render("profile-controller", "backstage")
+        pinned = next(CP.image_tag(i.image) for i in CP.collect_images(docs) if i.image.startswith("ghcr.io/teknoir/profile-controller"))
+        # Whatever the repository ships: the guard accepts the render exactly when the pinned tag is in the allowlist.
+        shipped = CP.load_policy(self.SHIPPED)
+        want = [] if pinned in (shipped["portal_profile_controller_tags"] or []) else ["portal-controller-unchecked"]
+        self.assertEqual(codes(CP.check_portal_binding(docs, shipped), "error"), want)
+        # and, with the pinned tag listed, the render passes, with an empty list it does not (no teknoir-admin binding left)
+        crb = [d for _, d in docs if d.get("kind") == "ClusterRoleBinding" and d["roleRef"]["name"] == "teknoir-admin"]
+        self.assertEqual(crb, [], "R2 removes the teknoir-admin binding of the Backstage API service account")
+        self.assertEqual(CP.check_portal_binding(docs, policy(portal_profile_controller_tags=[pinned])), [])
+        self.assertEqual(codes(CP.check_portal_binding(docs, policy(portal_profile_controller_tags=[])), "error"),
+                         ["portal-controller-unchecked"])
+
+
 if __name__ == "__main__":
     unittest.main()

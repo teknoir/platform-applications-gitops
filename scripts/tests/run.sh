@@ -23,6 +23,16 @@ python3 -W ignore -m unittest discover -s scripts/tests -p 'test_*.py' 2>&1 | gr
 echo "== helm unittest"
 helm unittest charts/app-of-apps charts/release-guard 2>&1 | grep -E "^(Charts|Test Suites|Tests):"
 
+# backstage-sa R2 removes teknoir-admin from the Backstage API service account. That is only safe once the pinned
+# profile-controller has the portal code (RoleBinding teknoir-portal per teamspace): this step FAILS the run while the pinned
+# tag is not listed in release-policy.yaml portal_profile_controller_tags (scripts/check-pins.py check_portal_binding).
+# scripts/staging-release also runs the same check on every dry run and --yes (lint), plus a live check of the Profiles.
+echo "== portal guard: the pinned profile-controller has the portal code once the Backstage API service account lost teknoir-admin"
+mkdir "$RUN_TMP/portal"
+helm template profile-controller charts/profile-controller --namespace teknoir-system > "$RUN_TMP/portal/profile-controller.yaml"
+helm template backstage charts/backstage --namespace teknoir-system > "$RUN_TMP/portal/backstage.yaml"
+python3 scripts/check-pins.py --only portal-controller-unchecked --project teknoir-online "$RUN_TMP/portal"
+
 BASE="${BASE:-origin/teknoir-cloud}"
 if git rev-parse --verify -q "$BASE" >/dev/null; then
   echo "== root render with release unset equals $BASE, except the round-trip removals"
