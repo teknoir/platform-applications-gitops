@@ -143,11 +143,18 @@ subjects:
 # config.portal), so the rights stop at the teamspace boundary. Read from the code of the Backstage backend
 # (plans/ztna-later.md, "backstage-sa"): no pods, exec, secret lists, roles or service accounts.
 #
-# REMAINING RISK (not closed here): create/update/patch on devstudios and notebooks is a way to run code. The
-# devstudio and notebook controllers copy spec.image into a privileged container (SYS_ADMIN), so whoever may write
-# these objects, this service account and teamspace developers alike, can run any image privileged in a teamspace.
-# An image allowlist (admission policy) is a named follow-up for Anders to decide ("teamspace image allowlist",
-# plans/ztna-later.md); until then this role must not be described as unable to run code.
+# REMAINING RISKS (not closed here); this role must not be described as unable to run code or as unable to bypass
+# the ztna admission policies:
+#  1. create/update/patch on devstudios and notebooks is a way to run code. The devstudio and notebook controllers
+#     copy spec.image into a privileged container (SYS_ADMIN), so whoever may write these objects, this service
+#     account and teamspace developers alike, can run any image privileged in a teamspace.
+#  2. create/update on devices is a second, independent route: device-controller runs a virtual Device as a
+#     privileged Deployment (internal/controller/k8s/virtual_device.go, `privileged := true`, image
+#     ghcr.io/teknoir/virtual-device:<spec version>), and deviceapplicationsets deploy any HelmChart into that nested
+#     k3s. An image allowlist for devstudios/notebooks does NOT close this one.
+# Both reach the node (on a single-node cluster every service account token). They are named follow-ups for Anders to
+# decide ("teamspace image allowlist" and "virtual device / DeviceApplicationSet workloads", plans/ztna-later.md),
+# because they change what teamspace developers may do.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
