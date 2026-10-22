@@ -24,6 +24,13 @@ app.kubernetes.io/name: wg-flags
 app.kubernetes.io/name: wg-hub
 {{- end -}}
 
+{{/* Selector of the hub pods proper: the name label alone also matches the pods of the pull secret
+Job and CronJob (they carry ztna.hubLabels and component pull-secret). Used by Service wg-hub-pods. */}}
+{{- define "ztna.hubPodSelector" -}}
+app.kubernetes.io/name: wg-hub
+app.kubernetes.io/component: hub
+{{- end -}}
+
 {{/* system:serviceaccount:<ns>:<name> usernames used in the admission policy. */}}
 {{- define "ztna.hubUser" -}}
 system:serviceaccount:{{ .Release.Namespace }}:wg-hub

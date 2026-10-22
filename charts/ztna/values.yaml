@@ -19,6 +19,24 @@ hub:
     pullPolicy: IfNotPresent
   imagePullSecrets:
     - name: ghcr-token
+  # Replicas the hub is configured for. hub-ha stage 1: the Deployment still renders one pod
+  # (Recreate); this only sets HANDOVER_WAIT (0s with one replica). Stage 2 renders it.
+  replicas: 1
+  # Active-passive replicas (plans/ztna-later.md, hub-ha): the replicas campaign for the Lease
+  # `lease` in this namespace, the leader serves, the others answer 503. Needs a wg-hub image
+  # with leader election (an older image ignores these variables and always serves).
+  leaderElection:
+    enabled: true
+    lease: wg-hub
+    # A leader survives an API server outage up to renewDeadline; a crashed leader's lease is
+    # taken over after leaseDuration, a released one within retryPeriod.
+    leaseDuration: 60s
+    renewDeadline: 45s
+    retryPeriod: 2s
+    # A stepping-down leader waits this long for the other replica to take the lease (not with
+    # one replica), then handoverSettle for EndpointSlice, mesh and DNS to follow, then tells the devices.
+    handoverWait: 10s
+    handoverSettle: 2s
   resources:
     requests:
       cpu: 25m

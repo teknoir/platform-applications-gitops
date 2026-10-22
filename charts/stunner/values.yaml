@@ -15,9 +15,12 @@ gateway:
   logLevel: "all:INFO"
 
 hub:
-  # The UDPRoute backend: the headless Service of charts/ztna.
+  # The UDPRoute backends: headless Services of charts/ztna. wg-hub-pods lists every hub pod
+  # (hub-ha, plans/ztna-later.md); wg-hub only the serving one once stage 2 selects the leader.
   namespace: teknoir-ztna
-  service: wg-hub
+  services:
+    - wg-hub
+    - wg-hub-pods
   wgPort: 51820
 
 # Values of the STUNner chart 1.2.1 (dependency alias "stunner").

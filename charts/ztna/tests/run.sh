@@ -248,7 +248,9 @@ assert [(l["protocol"], l["port"]) for l in gw["spec"]["listeners"]] == [("TURN-
 rt, = by(st, "UDPRoute")
 assert rt["apiVersion"] == "stunner.l7mp.io/v1" and rt["metadata"] == {"name": "wg-hub", "namespace": "stunner-system", "annotations": rt["metadata"]["annotations"]}
 assert rt["spec"]["parentRefs"] == [{"name": "teknoir-turn"}]
-assert rt["spec"]["rules"] == [{"backendRefs": [{"name": "wg-hub", "namespace": "teknoir-ztna", "port": 51820}]}], rt["spec"]
+# both Services (hub-ha stage 1): wg-hub (the serving hub) and wg-hub-pods (every hub pod, so a failover needs no re-render)
+assert rt["spec"]["rules"] == [{"backendRefs": [{"name": "wg-hub", "namespace": "teknoir-ztna", "port": 51820},
+                                               {"name": "wg-hub-pods", "namespace": "teknoir-ztna", "port": 51820}]}], rt["spec"]
 for d in (gc, cfg, gw, rt):
     a = d["metadata"]["annotations"]
     assert a["argocd.argoproj.io/sync-wave"] == "1" and a["argocd.argoproj.io/sync-options"] == "SkipDryRunOnMissingResource=true", d["kind"]
@@ -289,6 +291,32 @@ assert fc["securityContext"]["readOnlyRootFilesystem"] is True and fc["securityC
 assert not [s_ for s_ in by(z, "Service") if s_["metadata"]["name"] == "wg-flags"], "no Service for the flags watcher"
 svc, = by(z, "Service", "wg-hub")
 assert [(p["name"], p["port"]) for p in svc["spec"]["ports"]] == [("http", 8080), ("http-internal", 8081), ("http-status", 8082), ("http-metrics", 9090), ("wg", 51820)]
+# hub-ha: the hub pods carry the component and role labels; Service wg-hub-pods lists them all (UDP only, not-ready too)
+assert {k: v for k, v in dep["spec"]["template"]["metadata"]["labels"].items() if k != "app.kubernetes.io/part-of"} == {
+    "app.kubernetes.io/name": "wg-hub", "app.kubernetes.io/component": "hub", "ztna.teknoir.org/hub-role": "standby"}
+assert dep["spec"]["selector"]["matchLabels"] == {"app.kubernetes.io/name": "wg-hub"}, "the Deployment selector is immutable"
+pods, = by(z, "Service", "wg-hub-pods")
+assert pods["spec"]["clusterIP"] == "None" and pods["spec"]["publishNotReadyAddresses"] is True
+assert pods["spec"]["selector"] == {"app.kubernetes.io/name": "wg-hub", "app.kubernetes.io/component": "hub"}
+assert [(p["name"], p["port"], p["protocol"]) for p in pods["spec"]["ports"]] == [("wg", 51820, "UDP")]
+env = {e["name"]: e for e in c["env"]}
+assert env["POD_NAME"]["valueFrom"]["fieldRef"]["fieldPath"] == "metadata.name"
+assert env["LEADER_ELECTION"]["value"] == "wg-hub" and env["HANDOVER_WAIT"]["value"] == "0s", "one replica waits for nobody"
+# every pod of the pull secret Job and CronJob stays out of the hub pod selector
+for j in by(z, "Job") + by(z, "CronJob"):
+    tpl = j["spec"]["template"] if j["kind"] == "Job" else j["spec"]["jobTemplate"]["spec"]["template"]
+    assert tpl["metadata"]["labels"]["app.kubernetes.io/component"] == "pull-secret", j["metadata"]["name"]
+# the hub's Role: Lease create plus get/update on the one name, pods get/patch (the role label), never delete
+hr, = [d for d in by(z, "Role", "wg-hub") if d["metadata"]["namespace"] == "teknoir-ztna"]
+assert {"apiGroups": ["coordination.k8s.io"], "resources": ["leases"], "resourceNames": ["wg-hub"], "verbs": ["get", "update"]} in hr["rules"]
+assert {"apiGroups": ["coordination.k8s.io"], "resources": ["leases"], "verbs": ["create"]} in hr["rules"]
+assert {"apiGroups": [""], "resources": ["pods"], "verbs": ["get", "patch"]} in hr["rules"]
+vaps = {d["metadata"]["name"] for d in by(z, "ValidatingAdmissionPolicy")}
+assert vaps == {"ztna-policy-store", "ztna-no-exec", "ztna-workloads", "ztna-hub-lease", "ztna-no-token-mint", "ztna-device-annotations", "ztna-user-org-annotations"}, vaps
+bindings = {d["spec"]["policyName"] for d in by(z, "ValidatingAdmissionPolicyBinding")}
+assert bindings == vaps, bindings ^ vaps
+for b in by(z, "ValidatingAdmissionPolicyBinding"):
+    assert "Deny" in b["spec"]["validationActions"], b["metadata"]["name"]
 # --- VirtualServices route to 8080 only (8081 is internal)
 for v in by(z, "VirtualService"):
     for h in v["spec"]["http"]:
@@ -351,7 +379,7 @@ assert sorted(d["kind"] for d in roles) == ["Role", "RoleBinding"]
 names = lambda docs: {(d["kind"], d["metadata"]["name"]) for d in docs}
 assert names(on) - names(off) == {("Role", "device-controller-ztna"), ("RoleBinding", "device-controller-ztna-rolebinding"), ("NetworkPolicy", "vdev-egress-turn")}, names(on) ^ names(off)
 assert not names(off) - names(on)
-print("ok   STUNner Gateway/GatewayClass/GatewayConfig/UDPRoute (port 51820, no endPort, cross-namespace backend), hub Deployment hardening, Roles, no Secrets in Git, device-controller ZTNA key and Role")
+print("ok   STUNner Gateway/GatewayClass/GatewayConfig/UDPRoute (port 51820, no endPort, cross-namespace backends wg-hub and wg-hub-pods), hub Deployment hardening and role labels, Service wg-hub-pods, Roles, admission policy set, no Secrets in Git, device-controller ZTNA key and Role")
 PY
 python3 -I - "${CHARTS}/device-controller/crds/devices.yaml" <<'PY' && ok "Device CRD: status.wireguard next to status.virtual_device with the phase-2 fields" || bad "Device CRD status.wireguard"
 import sys, yaml

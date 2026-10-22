@@ -225,6 +225,62 @@ denied "backstage-api patches the image of a Deployment" "${BACKSTAGE_API}" "${T
 if out=$(as "${BACKSTAGE_API}" patch deployment dc-made -n teknoir-ztna --type=json -p '[{"op":"replace","path":"/spec/template/spec/containers/0/image","value":"example.invalid/evil"}]' 2>&1); then bad "should be denied: backstage-api json-patches a Deployment"; else grep -q "ValidatingAdmissionPolicy" <<<"$out" && ok "denied: backstage-api json-patches a Deployment" || bad "patch denied, but not by the policy: $out"; fi
 allowed "ArgoCD updates the Deployment" "${ARGO}" "${TMP}/wl-deployment-evil.yaml" apply
 
+# --- the hub's role marker: wg-hub may UPDATE a hub pod's role label and deletion cost, nothing else
+hubpod() { # namespace name component -> manifest (a hub pod as the Deployment makes it, plus an extra label and annotation)
+  printf 'apiVersion: v1\nkind: Pod\nmetadata:\n  name: %s\n  namespace: %s\n  labels:\n    app.kubernetes.io/name: wg-hub\n    app.kubernetes.io/component: %s\n    ztna.teknoir.org/hub-role: standby\n    extra: x\n  annotations:\n    controller.kubernetes.io/pod-deletion-cost: "0"\n    sidecar.istio.io/status: "{}"\nspec:\n  containers: [{name: c, image: example.invalid/x}]\n' "$2" "$1" "$3"
+}
+hubpod teknoir-ztna hubpod hub > "${TMP}/hubpod.yaml"
+hubpod teknoir-ztna pullpod pull-secret > "${TMP}/pullpod.yaml"
+hubpod stunner-system lookalike hub > "${TMP}/lookalike.yaml"
+for f in hubpod pullpod lookalike; do as "${ARGO}" apply -f "${TMP}/$f.yaml" >/dev/null; done
+as "${ARGO}" apply -n teknoir-ztna -f - >/dev/null <<'YAML'
+apiVersion: v1
+kind: Pod
+metadata: {name: plainpod}
+spec:
+  containers: [{name: c, image: example.invalid/x}]
+YAML
+RESET='{"metadata":{"labels":{"ztna.teknoir.org/hub-role":"standby"},"annotations":{"controller.kubernetes.io/pod-deletion-cost":"0"}}}'
+pverdict() { # description want(allow|deny) user namespace pod patch [type]
+  local d=$1 want=$2 u=$3 ns=$4 pod=$5 patch=$6 ty=${7:-merge} out got
+  out=$(as "$u" patch pod "$pod" -n "$ns" --type "$ty" -p "$patch" 2>&1) && got=allow || {
+    grep -q "ValidatingAdmissionPolicy 'ztna-workloads'" <<<"$out" && got=deny || got="other: $out"; }
+  if [[ $got == "$want" ]]; then ok "$d ($want)"; else bad "$d: want $want, got $got ${out:0:300}"; fi
+  as "${ARGO}" patch pod "$pod" -n "$ns" --type merge -p "$RESET" >/dev/null 2>&1 || true
+}
+ROLE='ztna.teknoir.org/hub-role'; COST='controller.kubernetes.io/pod-deletion-cost'
+pverdict "the hub labels its pod leader and sets the deletion cost 100" allow "${HUB}" teknoir-ztna hubpod "{\"metadata\":{\"labels\":{\"$ROLE\":\"leader\"},\"annotations\":{\"$COST\":\"100\"}}}"
+pverdict "the hub labels its pod standby (the exact body of its patch)" allow "${HUB}" teknoir-ztna hubpod "{\"metadata\":{\"labels\":{\"$ROLE\":\"standby\"},\"annotations\":{\"$COST\":\"0\"}}}"
+pverdict "the hub changes only the role label" allow "${HUB}" teknoir-ztna hubpod "{\"metadata\":{\"labels\":{\"$ROLE\":\"leader\"}}}"
+pverdict "the hub changes only the deletion cost" allow "${HUB}" teknoir-ztna hubpod "{\"metadata\":{\"annotations\":{\"$COST\":\"100\"}}}"
+pverdict "the hub sets another role value" deny "${HUB}" teknoir-ztna hubpod "{\"metadata\":{\"labels\":{\"$ROLE\":\"admin\"}}}"
+pverdict "the hub sets another deletion cost" deny "${HUB}" teknoir-ztna hubpod "{\"metadata\":{\"annotations\":{\"$COST\":\"-1000\"}}}"
+pverdict "the hub removes the role label" deny "${HUB}" teknoir-ztna hubpod "{\"metadata\":{\"labels\":{\"$ROLE\":null}}}"
+pverdict "the hub adds a label" deny "${HUB}" teknoir-ztna hubpod "{\"metadata\":{\"labels\":{\"$ROLE\":\"leader\",\"added\":\"y\"}}}"
+pverdict "the hub changes another label" deny "${HUB}" teknoir-ztna hubpod '{"metadata":{"labels":{"extra":"changed"}}}'
+pverdict "the hub removes another label" deny "${HUB}" teknoir-ztna hubpod '{"metadata":{"labels":{"extra":null}}}'
+pverdict "the hub moves its pod out of the hub selector (component)" deny "${HUB}" teknoir-ztna hubpod '{"metadata":{"labels":{"app.kubernetes.io/component":"other"}}}'
+pverdict "the hub adds an annotation" deny "${HUB}" teknoir-ztna hubpod "{\"metadata\":{\"annotations\":{\"$COST\":\"100\",\"added\":\"y\"}}}"
+pverdict "the hub changes another annotation" deny "${HUB}" teknoir-ztna hubpod '{"metadata":{"annotations":{"sidecar.istio.io/status":"changed"}}}'
+pverdict "the hub removes another annotation" deny "${HUB}" teknoir-ztna hubpod '{"metadata":{"annotations":{"sidecar.istio.io/status":null}}}'
+pverdict "the hub changes the image of its pod" deny "${HUB}" teknoir-ztna hubpod '{"spec":{"containers":[{"name":"c","image":"example.invalid/evil"}]}}' strategic
+pverdict "the hub changes the image together with its role" deny "${HUB}" teknoir-ztna hubpod "{\"metadata\":{\"labels\":{\"$ROLE\":\"leader\"}},\"spec\":{\"containers\":[{\"name\":\"c\",\"image\":\"example.invalid/evil\"}]}}" strategic
+pverdict "the hub adds an owner reference" deny "${HUB}" teknoir-ztna hubpod '{"metadata":{"ownerReferences":[{"apiVersion":"apps/v1","kind":"ReplicaSet","name":"x","uid":"11111111-1111-1111-1111-111111111111"}]}}'
+pverdict "the hub adds a finalizer" deny "${HUB}" teknoir-ztna hubpod '{"metadata":{"finalizers":["example.com/hold"]}}'
+pverdict "the hub labels a pull secret pod (component pull-secret)" deny "${HUB}" teknoir-ztna pullpod "{\"metadata\":{\"labels\":{\"$ROLE\":\"leader\"}}}"
+pverdict "the hub labels a pod without the hub labels" deny "${HUB}" teknoir-ztna plainpod "{\"metadata\":{\"labels\":{\"$ROLE\":\"leader\"}}}"
+pverdict "the hub labels a lookalike hub pod in stunner-system" deny "${HUB}" stunner-system lookalike "{\"metadata\":{\"labels\":{\"$ROLE\":\"leader\"}}}"
+for who in "${BACKSTAGE_API}" "${BACKSTAGE}" "${FLAGS}" admin; do
+  pverdict "$who labels a hub pod leader" deny "$who" teknoir-ztna hubpod "{\"metadata\":{\"labels\":{\"$ROLE\":\"leader\"}}}"
+  pverdict "$who sets the deletion cost of a hub pod" deny "$who" teknoir-ztna hubpod "{\"metadata\":{\"annotations\":{\"$COST\":\"100\"}}}"
+done
+pverdict "device-controller keeps its right to patch a pod" allow "${DC}" teknoir-ztna hubpod "{\"metadata\":{\"labels\":{\"extra\":\"dc\"}}}"
+as "${ARGO}" patch pod hubpod -n teknoir-ztna --type merge -p '{"metadata":{"labels":{"extra":"x"}}}' >/dev/null
+# the hub still creates no pod and no workload (the carve-out is UPDATE of a hub pod)
+hubpod teknoir-ztna hubpod-new hub > "${TMP}/hubpod-new.yaml"
+denied "the hub creates a hub-labelled pod" "${HUB}" "${TMP}/hubpod-new.yaml"
+as "${ARGO}" patch pod hubpod -n teknoir-ztna --type merge -p "{\"metadata\":{\"labels\":{\"$ROLE\":\"standby\"}}}" >/dev/null
+
 # --- TokenRequest for the ZTNA service accounts
 for sa in wg-hub wg-flags wgt-0123456789 plain-sa; do "${KC[@]}" create serviceaccount "$sa" -n teknoir-ztna >/dev/null 2>&1 || true; done
 tok() { # description user sa want(deny|pass)
@@ -242,6 +298,30 @@ for sa in wg-hub wg-flags wgt-0123456789; do
   tok "a kube-system controller mints a token for $sa" "${RS_CTRL}" $sa pass
 done
 tok "backstage-api mints a token for an unrelated service account" "${BACKSTAGE_API}" plain-sa pass
+
+# --- the leader Lease of the hub (hub.leaderElection.lease, wg-hub): written by the hub only
+lease() { # name holder -> manifest
+  printf 'apiVersion: coordination.k8s.io/v1\nkind: Lease\nmetadata: {name: %s}\nspec:\n  holderIdentity: %s\n  leaseDurationSeconds: 60\n' "$1" "$2"
+}
+lease wg-hub intruder > "${TMP}/lease-intruder.yaml"
+lease wg-hub hub-0 > "${TMP}/lease-hub.yaml"
+lease wg-hub hub-1 > "${TMP}/lease-hub1.yaml"
+lease other-lease x > "${TMP}/lease-other.yaml"
+for who in "${BACKSTAGE_API}" "${BACKSTAGE}" "${DC}" "${FLAGS}" admin; do
+  denied "$who creates the leader Lease" "$who" "${TMP}/lease-intruder.yaml"
+done
+allowed "the hub creates the leader Lease" "${HUB}" "${TMP}/lease-hub.yaml"
+allowed "the hub takes the leader Lease over (update)" "${HUB}" "${TMP}/lease-hub1.yaml" apply
+for who in "${BACKSTAGE_API}" "${BACKSTAGE}" "${DC}" "${FLAGS}" admin; do
+  denied "$who steals the leader Lease (update)" "$who" "${TMP}/lease-intruder.yaml" apply
+  denied "$who deletes the leader Lease" "$who" "${TMP}/lease-hub1.yaml" delete
+done
+out=$(as "${BACKSTAGE_API}" patch lease wg-hub -n teknoir-ztna --type merge -p '{"spec":{"holderIdentity":"intruder"}}' 2>&1 || true)
+if grep -q "ValidatingAdmissionPolicy 'ztna-hub-lease'" <<<"$out"; then ok "denied: backstage-api patches the leader Lease"; else bad "backstage-api patched the leader Lease: $out"; fi
+denied "the hub creates another Lease" "${HUB}" "${TMP}/lease-other.yaml"
+allowed "backstage-api creates an unrelated Lease (not matched)" "${BACKSTAGE_API}" "${TMP}/lease-other.yaml"
+denied "the hub updates a Lease that is not its own" "${HUB}" "${TMP}/lease-other.yaml" apply
+if as "${BACKSTAGE_API}" create -n other -f "${TMP}/lease-intruder.yaml" >/dev/null 2>&1; then ok "allowed: a Lease of the same name in another namespace is not affected"; else bad "lease policy leaked into namespace 'other'"; fi
 
 # --- other namespaces are not touched by the policy
 cm ztna-policy-ts.dev9 ztna.teknoir.org/policy > "${TMP}/policy-other.yaml"
@@ -396,11 +476,13 @@ if as "${EDITOR_SA}" delete user u2 >/dev/null 2>&1; then ok "allowed: DELETE of
 # --- namespace teardown: DELETE of a policy ConfigMap by anyone while the namespace is Terminating
 as "${DC}" create -n teknoir-ztna -f "${TMP}/policy.yaml" >/dev/null
 if as "${BACKSTAGE}" delete configmap ztna-policy-ts.dev1 -n teknoir-ztna >/dev/null 2>&1; then bad "pre-teardown delete should be denied"; else ok "denied: delete before teardown"; fi
+if as "${BACKSTAGE_API}" delete lease wg-hub -n teknoir-ztna >/dev/null 2>&1; then bad "pre-teardown lease delete should be denied"; else ok "denied: lease delete before teardown"; fi
 "${KC[@]}" delete namespace teknoir-ztna --wait=false >/dev/null
 sleep 2
 phase=$("${KC[@]}" get namespace teknoir-ztna -o jsonpath='{.status.phase}')
 if [[ $phase == Terminating ]]; then ok "namespace is Terminating (no namespace controller here, as in a stuck teardown)"; else bad "namespace phase $phase"; fi
 if as system:serviceaccount:kube-system:namespace-controller delete configmap ztna-policy-ts.dev1 -n teknoir-ztna >/dev/null 2>&1; then ok "allowed: DELETE of a policy ConfigMap while the namespace is Terminating"; else bad "teardown delete denied"; fi
+if as system:serviceaccount:kube-system:namespace-controller delete lease wg-hub -n teknoir-ztna >/dev/null 2>&1; then ok "allowed: DELETE of the leader Lease while the namespace is Terminating"; else bad "teardown lease delete denied"; fi
 
 echo
 if [[ $fail -ne 0 ]]; then echo "VAP tests FAILED"; exit 1; fi

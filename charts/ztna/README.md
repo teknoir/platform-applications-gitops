@@ -9,7 +9,7 @@ Three new charts and four touched charts, all behind **one switch**:
 | Chart / Application | What |
 |---|---|
 | `charts/gateway-api-crds` (`gateway-api-crds`) | Gateway API CRDs, standard channel v1.4.1 (the set STUNner 1.2.1 ships), server-side applied, never pruned |
-| `charts/stunner` (`stunner`) | STUNner operator 1.2.1 (pinned images), GatewayClass `stunner-gatewayclass`, GatewayConfig, Gateway `teknoir-turn` (TURN-UDP 3478, LoadBalancer via k3s servicelb), `stunner.l7mp.io/v1` UDPRoute `wg-hub` -> `teknoir-ztna/wg-hub:51820` |
+| `charts/stunner` (`stunner`) | STUNner operator 1.2.1 (pinned images), GatewayClass `stunner-gatewayclass`, GatewayConfig, Gateway `teknoir-turn` (TURN-UDP 3478, LoadBalancer via k3s servicelb), `stunner.l7mp.io/v1` UDPRoute `wg-hub` -> `teknoir-ztna/wg-hub:51820` and `teknoir-ztna/wg-hub-pods:51820` |
 | `charts/ztna` (`ztna`) | Namespace `teknoir-ztna` (mesh), wg-hub, wg-flags (flags watcher), headless Service, RBAC, admission policies, VirtualServices `wg` and `wg-device`, AuthorizationPolicy, ServiceMonitor, pull secret copy |
 | `charts/device-controller` | `ZTNA` key in the controller ConfigMap, Role in `teknoir-ztna`, CRD `status.wireguard`; plus the `vdev-egress-turn` NetworkPolicy of the virtual devices |
 | `charts/virtual-devices` | CoreDNS rewrites `wg-device.<domain>` and `turn.<domain>` |
@@ -45,11 +45,22 @@ and the admission policies against a throwaway local apiserver).
 - **ClusterRole `wg-hub`**: create `subjectaccessreviews` and `tokenreviews`. **No access to Devices**: RBAC cannot give
   metadata-only access, and a Device carries the legacy RSA private key in `spec.keys`.
 - **Role in `teknoir-ztna`**: get/list/watch/create/update/patch ConfigMaps (it reads policy and flags, writes identity
-  ConfigMaps only, by admission policy), get ServiceAccounts. No delete, no Secrets.
+  ConfigMaps only, by admission policy), get ServiceAccounts. No delete, no Secrets. With `hub.leaderElection.enabled`
+  (default): create Leases plus get/update on the one Lease `wg-hub` (leader election), and get/patch Pods (it sets
+  the role label of its own pod; admission policy `ztna-workloads` lets it change nothing else).
 - **Role in `stunner-system`**: get Secret `stunner-auth-secret` (by name).
 - The hub image runs non-root, read-only root file system, all capabilities dropped, RuntimeDefault seccomp,
   no service account token beyond its own, **Recreate** strategy and one replica (STUNner routes to every endpoint
   of the headless Service; two hubs would split the session state).
+- **Hub replicas (hub-ha, plans/ztna-later.md).** The hub keeps every session in memory, so replicas are
+  active-passive: they campaign for the Lease `wg-hub` (`hub.leaderElection`, env `LEADER_ELECTION`, `POD_NAME`,
+  `LEASE_DURATION`, `RENEW_DEADLINE`, `RETRY_PERIOD`, `HANDOVER_WAIT`, `HANDOVER_SETTLE`), the leader serves and the
+  others are ready hot standbys that answer 503. Each pod labels itself `ztna.teknoir.org/hub-role: leader|standby` and
+  sets `controller.kubernetes.io/pod-deletion-cost` (100 or 0). **Stage 1 (this state):** one replica (`hub.replicas`
+  only sets `HANDOVER_WAIT`: `0s` with one replica, else `10s`), nothing selects on the role label yet; Service
+  `wg-hub-pods` (headless, UDP 51820, `publishNotReadyAddresses`, selector name + component `hub`, so not the pull
+  secret pods) is added next to `wg-hub` as a second UDPRoute backend of STUNner. Stage 2 raises the replicas, switches
+  to RollingUpdate and points `wg-hub` at the leader label.
 
 ## The flags watcher (`templates/flags.yaml`)
 
@@ -75,6 +86,15 @@ Backstage's service account has cluster-wide `teknoir-admin`, so RBAC alone does
   (`admission.workloadCreators` in values) and `system:serviceaccount:kube-system:*` / `system:kube-controller-manager` (the
   replicaset and job controllers create the pods). A compromised UI can neither run its own pod as `wg-hub` nor patch the
   hub image.
+  One carve-out (`hub.leaderElection.enabled`): `system:serviceaccount:teknoir-ztna:wg-hub` may UPDATE a pod of the hub
+  (old labels `app.kubernetes.io/name=wg-hub` and `app.kubernetes.io/component=hub`, in `teknoir-ztna`), changing only
+  the label `ztna.teknoir.org/hub-role` (`leader` or `standby`) and the annotation
+  `controller.kubernetes.io/pod-deletion-cost` (`0` or `100`); `spec`, ownerReferences, finalizers and every other label
+  and annotation must stay equal. The pod name is not checked: the worst a hub can do is relabel the other hub pod, and a
+  hub already holds every session. It still creates no pod and changes no image.
+- `ztna-hub-lease`: the Lease `wg-hub` (`hub.leaderElection.lease`) is created, updated and deleted only by the wg-hub
+  service account (and by namespace teardown); the hub writes no other Lease. Backstage's `teknoir-admin` cannot take the
+  leadership (impersonation stays the accepted risk below).
 - `ztna-no-token-mint`: TokenRequest (`serviceaccounts/token`) for `wg-hub`, `wg-flags` and the terminal accounts `wgt-*`
   only by `system:node:*` (the kubelet's projected tokens) and kube-system identities.
 - `ztna-device-annotations` (phase 2): on `devices.teknoir.org` CREATE and UPDATE, any add, change or removal of a
@@ -112,7 +132,8 @@ Backstage's service account has cluster-wide `teknoir-admin`, so RBAC alone does
   `app=backstage-api` pods carry an `istio-proxy` sidecar in the injected namespace `teknoir-system`, verified on r415); TCP 9090 from the Prometheus service account. Istio does not see UDP: the WireGuard
   socket (51820/UDP) is reachable only through STUNner, whose UDPRoute admits an authenticated TURN client to exactly that port.
 - `wg-hub` is the **headless** Service: its endpoints are pod IPs (`POD_IP:51820` is the hub endpoint and the TURN peer),
-  so there is no ClusterIP NAT or conntrack on the TURN leg.
+  so there is no ClusterIP NAT or conntrack on the TURN leg. `wg-hub-pods` is a second headless Service (UDP 51820 only,
+  every hub pod ready or not); STUNner's UDPRoute lists both as backends.
 
 ## STUN source IP (acceptance probe)
 

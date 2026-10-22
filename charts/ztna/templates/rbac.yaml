@@ -58,6 +58,23 @@ rules:
   - apiGroups: [""]
     resources: ["serviceaccounts"]
     verbs: ["get"]
+  {{- if .Values.hub.leaderElection.enabled }}
+  # Leader election: the Lease (create cannot name its object). Writes to it are limited to the hub
+  # by the admission policy ztna-hub-lease.
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["create"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    resourceNames: [{{ .Values.hub.leaderElection.lease | quote }}]
+    verbs: ["get", "update"]
+  # The hub sets the hub-role label and the pod-deletion-cost annotation of its own pod (RBAC
+  # cannot name a pod of a Deployment). The admission policy ztna-workloads lets it change nothing
+  # else, and only on hub pods.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "patch"]
+  {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

@@ -46,6 +46,19 @@ tests:
       - equal:
           path: spec.strategy.type
           value: Recreate
+      # hub-ha stage 1: the pods carry the component and the role label (the hub moves the role),
+      # the immutable selector stays as it was.
+      - equal:
+          path: spec.selector.matchLabels
+          value:
+            app.kubernetes.io/name: wg-hub
+      - equal:
+          path: spec.template.metadata.labels
+          value:
+            app.kubernetes.io/name: wg-hub
+            app.kubernetes.io/part-of: teknoir-ztna
+            app.kubernetes.io/component: hub
+            ztna.teknoir.org/hub-role: standby
       - equal:
           path: spec.template.spec.containers[0].image
           value: "ghcr.io/teknoir/wg-hub:sha-0123abcd@sha256:3333333333333333333333333333333333333333333333333333333333333333"
@@ -126,6 +139,87 @@ tests:
               fieldRef:
                 fieldPath: metadata.namespace
 
+  - it: runs the leader election on the Lease wg-hub with the contract's timings (one replica waits for nobody)
+    template: templates/hub.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: LEADER_ELECTION, value: wg-hub}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: LEASE_DURATION, value: 60s}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: RENEW_DEADLINE, value: 45s}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: RETRY_PERIOD, value: 2s}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: HANDOVER_WAIT, value: 0s}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: HANDOVER_SETTLE, value: 2s}
+
+  - it: waits for the other replica to take the lease only when there is one
+    template: templates/hub.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    set:
+      hub.replicas: 2
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: HANDOVER_WAIT, value: 10s}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: LEADER_ELECTION, value: wg-hub}
+
+  - it: follows hub.leaderElection (lease name, timings) and renders none of it when switched off
+    template: templates/hub.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    set:
+      hub.leaderElection.lease: other-lease
+      hub.leaderElection.retryPeriod: 5s
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: LEADER_ELECTION, value: other-lease}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: RETRY_PERIOD, value: 5s}
+
+  - it: sets no election variable when leader election is off
+    template: templates/hub.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    set:
+      hub.leaderElection.enabled: false
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: {name: LEADER_ELECTION, value: wg-hub}
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: {name: HANDOVER_WAIT, value: 0s}
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: {name: RETRY_PERIOD, value: 2s}
+
   - it: does not trust a client address header (servicelb hides client addresses)
     template: templates/hub.yaml
     documentSelector:
@@ -153,16 +247,25 @@ tests:
 
   - it: has a headless Service with the HTTP, metrics and WireGuard UDP ports
     template: templates/hub.yaml
-    documentSelector:
-      path: kind
-      value: Service
     asserts:
+      - equal:
+          path: kind
+          value: Service
+        documentIndex: 2
       - equal:
           path: metadata.name
           value: wg-hub
+        documentIndex: 2
       - equal:
           path: spec.clusterIP
           value: None
+        documentIndex: 2
+      # stage 1: still every pod named wg-hub (the label switch is stage 2)
+      - equal:
+          path: spec.selector
+          value:
+            app.kubernetes.io/name: wg-hub
+        documentIndex: 2
       - equal:
           path: spec.ports
           value:
@@ -171,6 +274,47 @@ tests:
             - {name: http-status, port: 8082, targetPort: http-status, protocol: TCP}
             - {name: http-metrics, port: 9090, targetPort: metrics, protocol: TCP}
             - {name: wg, port: 51820, targetPort: wg, protocol: UDP}
+        documentIndex: 2
+
+  - it: lists every hub pod, ready or not, on UDP 51820 only in Service wg-hub-pods (not the pull secret CronJob pods)
+    template: templates/hub.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: wg-hub-pods
+        documentIndex: 3
+      - equal:
+          path: spec.clusterIP
+          value: None
+        documentIndex: 3
+      - equal:
+          path: spec.publishNotReadyAddresses
+          value: true
+        documentIndex: 3
+      - equal:
+          path: spec.selector
+          value:
+            app.kubernetes.io/name: wg-hub
+            app.kubernetes.io/component: hub
+        documentIndex: 3
+      - equal:
+          path: spec.ports
+          value:
+            - {name: wg, port: 51820, targetPort: wg, protocol: UDP}
+        documentIndex: 3
+
+  - it: keeps the pull secret CronJob pods out of the hub pod selector (component pull-secret, not hub)
+    template: templates/pull-secret.yaml
+    documentSelector:
+      path: kind
+      value: CronJob
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.metadata.labels
+          value:
+            app.kubernetes.io/name: wg-hub
+            app.kubernetes.io/part-of: teknoir-ztna
+            app.kubernetes.io/component: pull-secret
 
   - it: scrapes the metrics port with a ServiceMonitor that Prometheus selects
     template: templates/hub.yaml
@@ -191,7 +335,7 @@ tests:
       metrics.serviceMonitor.enabled: false
     asserts:
       - hasDocuments:
-          count: 3
+          count: 4
 
   - it: gives the hub least-privilege cluster rights and no access to Devices
     template: templates/rbac.yaml
@@ -318,6 +462,57 @@ tests:
             - apiGroups: [""]
               resources: [serviceaccounts]
               verbs: [get]
+            # leader election and the role label (hub-ha)
+            - apiGroups: [coordination.k8s.io]
+              resources: [leases]
+              verbs: [create]
+            - apiGroups: [coordination.k8s.io]
+              resources: [leases]
+              resourceNames: [wg-hub]
+              verbs: [get, update]
+            - apiGroups: [""]
+              resources: [pods]
+              verbs: [get, patch]
+        documentIndex: 2
+
+  - it: gives the hub no Lease or Pod rights when leader election is off
+    template: templates/rbac.yaml
+    set:
+      hub.leaderElection.enabled: false
+    asserts:
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [""]
+              resources: [configmaps]
+              verbs: [get, list, watch]
+            - apiGroups: [""]
+              resources: [configmaps]
+              verbs: [create, update, patch]
+            - apiGroups: [""]
+              resources: [serviceaccounts]
+              verbs: [get]
+        documentIndex: 2
+
+  - it: limits the Lease rights of the hub to the named Lease (create aside) and never gives delete
+    template: templates/rbac.yaml
+    set:
+      hub.leaderElection.lease: other-lease
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [coordination.k8s.io]
+            resources: [leases]
+            resourceNames: [other-lease]
+            verbs: [get, update]
+        documentIndex: 2
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [coordination.k8s.io]
+            resources: [leases]
+            verbs: [create, get, update, delete]
         documentIndex: 2
 
   - it: routes wg.<domain> on the 443 gateway to the hub
@@ -543,6 +738,106 @@ tests:
       - matchRegex:
           path: spec.validations[0].expression
           pattern: "system:serviceaccount:kube-system:.*system:kube-controller-manager"
+
+  - it: lets the hub UPDATE its own pod's role label and deletion cost only
+    template: templates/admission.yaml
+    documentSelector:
+      path: metadata.name
+      value: ztna-workloads
+    asserts:
+      - equal:
+          path: spec.variables[6].name
+          value: hubRoleUpdate
+      - matchRegex:
+          path: spec.variables[6].expression
+          pattern: "variables.user == 'system:serviceaccount:teknoir-ztna:wg-hub'"
+      - matchRegex:
+          path: spec.variables[6].expression
+          pattern: "request.operation == 'UPDATE' && request.kind.kind == 'Pod' && \\(!has\\(request.subResource\\) \\|\\| request.subResource == ''\\)"
+      - matchRegex:
+          path: spec.variables[6].expression
+          pattern: "(?s)oldL\\['app.kubernetes.io/name'\\] == 'wg-hub'.*oldL\\['app.kubernetes.io/component'\\] == 'hub'"
+      - matchRegex:
+          path: spec.variables[6].expression
+          pattern: "(?s)object.spec == oldObject.spec.*ownerReferences.*finalizers"
+      - matchRegex:
+          path: spec.variables[6].expression
+          pattern: "(?s)in \\['leader', 'standby'\\].*in \\['0', '100'\\]"
+      - matchRegex:
+          path: spec.validations[0].expression
+          pattern: "(?s)kube-controller-manager'\\) \\|\\|\\s+variables.hubRoleUpdate"
+      - equal:
+          path: spec.matchConstraints.resourceRules[0].resources
+          value: [pods]
+
+  - it: renders no hub carve-out when leader election is off
+    template: templates/admission.yaml
+    documentSelector:
+      path: metadata.name
+      value: ztna-workloads
+    set:
+      hub.leaderElection.enabled: false
+    asserts:
+      - lengthEqual:
+          path: spec.variables
+          count: 2
+      - notMatchRegex:
+          path: spec.validations[0].expression
+          pattern: "hubRoleUpdate"
+
+  - it: reserves the leader Lease to the hub (and namespace teardown)
+    template: templates/admission.yaml
+    documentSelector:
+      path: metadata.name
+      value: ztna-hub-lease
+    asserts:
+      - equal:
+          path: spec.failurePolicy
+          value: Fail
+      - equal:
+          path: spec.matchConstraints.resourceRules
+          value:
+            - apiGroups: [coordination.k8s.io]
+              apiVersions: [v1]
+              operations: [CREATE, UPDATE, DELETE]
+              resources: [leases]
+      - matchRegex:
+          path: spec.variables[0].expression
+          pattern: "object.metadata.name == 'wg-hub'.*oldObject.metadata.name == 'wg-hub'"
+      - matchRegex:
+          path: spec.validations[0].expression
+          pattern: "variables.teardown \\|\\|\\s+request.userInfo.username == 'system:serviceaccount:teknoir-ztna:wg-hub'"
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "username != 'system:serviceaccount:teknoir-ztna:wg-hub' \\|\\| variables.isHubLease"
+
+  - it: names the configured Lease in the Lease policy
+    template: templates/admission.yaml
+    documentSelector:
+      path: metadata.name
+      value: ztna-hub-lease
+    set:
+      hub.leaderElection.lease: other-lease
+    asserts:
+      - matchRegex:
+          path: spec.variables[0].expression
+          pattern: "object.metadata.name == 'other-lease'"
+
+  - it: binds the Lease policy to the hub namespace with Deny
+    template: templates/admission.yaml
+    documentSelector:
+      path: metadata.name
+      value: ztna-hub-lease-binding
+    asserts:
+      - equal:
+          path: spec.policyName
+          value: ztna-hub-lease
+      - equal:
+          path: spec.matchResources.namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
+          value: teknoir-ztna
+      - equal:
+          path: spec.validationActions
+          value: [Deny, Audit]
 
   - it: binds the workload policy to the hub and STUNner namespaces
     template: templates/admission.yaml
