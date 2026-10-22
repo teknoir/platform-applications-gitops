@@ -1,0 +1,241 @@
+suite: monitoring platform UIs for platform administrators only (Grafana, Prometheus, Alertmanager of teknoir-system)
+release:
+  name: monitoring
+  namespace: teknoir-system
+templates:
+  - templates/platform-admin-only.yaml
+  - templates/authorizationpolicy.yaml
+  - templates/virtualservice.yaml
+tests:
+  - it: renders a RequestAuthentication and a DENY policy for each of the three workloads
+    template: templates/platform-admin-only.yaml
+    asserts:
+      - hasDocuments:
+          count: 6
+      - containsDocument:
+          kind: RequestAuthentication
+          apiVersion: security.istio.io/v1
+          name: grafana-platform-admin-jwt
+          namespace: teknoir-system
+        documentIndex: 0
+      - containsDocument:
+          kind: AuthorizationPolicy
+          apiVersion: security.istio.io/v1
+          name: grafana-platform-admin-only
+          namespace: teknoir-system
+        documentIndex: 1
+
+  - it: validates the access token oauth2-proxy sets, from that header only, with the issuer and JWKS of the realm
+    template: templates/platform-admin-only.yaml
+    documentSelector:
+      path: metadata.name
+      value: prometheus-platform-admin-jwt
+    asserts:
+      - equal:
+          path: spec.selector.matchLabels
+          value:
+            app.kubernetes.io/name: prometheus
+      - equal:
+          path: spec.jwtRules
+          value:
+            - issuer: https://auth.teknoir.cloud/auth/realms/master
+              jwksUri: https://auth.teknoir.cloud/auth/realms/master/protocol/openid-connect/certs
+              fromHeaders:
+                - name: x-auth-request-access-token
+
+  - it: follows the domain of the environment for issuer and JWKS
+    template: templates/platform-admin-only.yaml
+    documentSelector:
+      path: metadata.name
+      value: grafana-platform-admin-jwt
+    set:
+      domain: example.test
+    asserts:
+      - equal:
+          path: spec.jwtRules[0].issuer
+          value: https://auth.example.test/auth/realms/master
+      - equal:
+          path: spec.jwtRules[0].jwksUri
+          value: https://auth.example.test/auth/realms/master/protocol/openid-connect/certs
+
+  - it: denies a request from the gateway unless the validated token's groups claim contains admin
+    template: templates/platform-admin-only.yaml
+    documentSelector:
+      path: kind
+      value: AuthorizationPolicy
+      matchMany: true
+    asserts:
+      - equal:
+          path: spec.action
+          value: DENY
+      - equal:
+          path: spec.rules
+          value:
+            - from:
+                - source:
+                    principals:
+                      - cluster.local/ns/istio-system/sa/istio-ingressgateway
+              when:
+                - key: request.auth.claims[groups]
+                  notValues:
+                    - admin
+
+  - it: selects exactly the Grafana, Prometheus and Alertmanager pods, one policy each
+    template: templates/platform-admin-only.yaml
+    asserts:
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/name"]
+          value: grafana
+        documentIndex: 0
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/name"]
+          value: grafana
+        documentIndex: 1
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/name"]
+          value: prometheus
+        documentIndex: 2
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/name"]
+          value: prometheus
+        documentIndex: 3
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/name"]
+          value: alertmanager
+        documentIndex: 4
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/name"]
+          value: alertmanager
+        documentIndex: 5
+
+  - it: never names the Prometheus service account or a namespace, so in-mesh scraping, alert delivery and datasource calls cannot match the DENY
+    template: templates/platform-admin-only.yaml
+    documentSelector:
+      path: kind
+      value: AuthorizationPolicy
+      matchMany: true
+    asserts:
+      - notMatchRegex:
+          path: spec.rules[0].from[0].source.principals[0]
+          pattern: monitoring-prometheus
+      - notExists:
+          path: spec.rules[0].from[0].source.namespaces
+      - lengthEqual:
+          path: spec.rules
+          count: 1
+      - lengthEqual:
+          path: spec.rules[0].from
+          count: 1
+      - lengthEqual:
+          path: spec.rules[0].from[0].source.principals
+          count: 1
+      - notExists:
+          path: spec.rules[0].to
+
+  - it: takes the admin group and the gateway principal from the values
+    template: templates/platform-admin-only.yaml
+    documentSelector:
+      path: kind
+      value: AuthorizationPolicy
+      matchMany: true
+    set:
+      platformAdminOnly:
+        enabled: true
+        adminGroup: platform-operators
+        gatewayPrincipal: cluster.local/ns/edge/sa/gw
+    asserts:
+      - equal:
+          path: spec.rules[0].when[0].notValues
+          value: [platform-operators]
+      - equal:
+          path: spec.rules[0].from[0].source.principals
+          value: [cluster.local/ns/edge/sa/gw]
+
+  - it: falls back to the defaults when only the switch is set
+    template: templates/platform-admin-only.yaml
+    documentSelector:
+      path: kind
+      value: AuthorizationPolicy
+      matchMany: true
+    set:
+      platformAdminOnly:
+        enabled: true
+    asserts:
+      - equal:
+          path: spec.rules[0].when[0].notValues
+          value: [admin]
+      - equal:
+          path: spec.rules[0].from[0].source.principals
+          value: [cluster.local/ns/istio-system/sa/istio-ingressgateway]
+
+  - it: renders nothing without the switch (values file without the block)
+    template: templates/platform-admin-only.yaml
+    set:
+      platformAdminOnly: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders nothing when the switch is off
+    template: templates/platform-admin-only.yaml
+    set:
+      platformAdminOnly:
+        enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: keeps the Prometheus principal in the Grafana ALLOW policy (scrape)
+    template: templates/authorizationpolicy.yaml
+    documentSelector:
+      path: metadata.name
+      value: grafana-allow-ingress
+    asserts:
+      - equal:
+          path: spec.rules[0].from[0].source.principals
+          value:
+            - cluster.local/ns/istio-system/sa/istio-ingressgateway
+            - cluster.local/ns/teknoir-system/sa/monitoring-prometheus
+
+  - it: keeps the Prometheus principal in the Alertmanager ALLOW policy (alert delivery)
+    template: templates/authorizationpolicy.yaml
+    documentSelector:
+      path: metadata.name
+      value: alertmanager-allow-ingress
+    asserts:
+      - equal:
+          path: spec.rules[0].from[0].source.principals
+          value:
+            - cluster.local/ns/istio-system/sa/istio-ingressgateway
+            - cluster.local/ns/teknoir-system/sa/monitoring-prometheus
+
+  - it: keeps Grafana's datasource access to Prometheus and the Prometheus self-scrape (same-namespace ALLOW)
+    template: templates/authorizationpolicy.yaml
+    documentSelector:
+      path: metadata.name
+      value: prometheus-allow-internal
+    asserts:
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/name"]
+          value: prometheus
+      - equal:
+          path: spec.rules[0].from[0].source.namespaces
+          value: [teknoir-system]
+
+  - it: leaves the routes of the three UIs as they are (the restriction is on the workloads, not on the routing)
+    template: templates/virtualservice.yaml
+    asserts:
+      - hasDocuments:
+          count: 3
+      - equal:
+          path: spec.http[0].match[0].uri.prefix
+          value: /teknoir-system/grafana
+        documentIndex: 0
+      - equal:
+          path: spec.http[0].match[0].uri.prefix
+          value: /teknoir-system/prometheus
+        documentIndex: 1
+      - equal:
+          path: spec.http[0].match[0].uri.prefix
+          value: /teknoir-system/alertmanager
+        documentIndex: 2

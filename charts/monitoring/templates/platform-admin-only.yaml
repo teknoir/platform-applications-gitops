@@ -1,0 +1,67 @@
+{{- /*
+Platform monitoring UIs (Grafana, Prometheus, Alertmanager of teknoir-system) for platform administrators only.
+Gate: platformAdminOnly.enabled (values.yaml); without it nothing renders, so every environment whose values file
+has no such block (teknoir-online, teknoir-local) renders exactly as before. Design and evidence:
+plans/platform-monitoring-access.md.
+
+How a request is judged:
+  1. The user ingress gateway runs oauth2-proxy as ext_authz. Its Lua filter first removes every client-supplied
+     identity header (charts/auth: x-auth-request-*, x-forwarded-access-token, ...), then ext_authz sets
+     x-auth-request-access-token to the session's Keycloak access token. A client cannot supply that header.
+  2. The RequestAuthentication below validates that token on the workload (issuer + signature from the realm's
+     JWKS), so even a request that did not come through the gateway cannot carry a forged "groups" claim.
+  3. The DENY policy refuses a request from the gateway principal unless the validated token's "groups" claim
+     contains the admin group. No token, an unvalidated header or a token without the group: the claim is
+     absent and the notValues condition matches, so the request is denied (fails closed).
+A DENY is evaluated before every ALLOW, so no other ALLOW policy can widen it. It names the gateway principal
+only: Prometheus' own mTLS calls (scrapes of Grafana/Alertmanager, alert delivery, self-scrape) and Grafana ->
+Prometheus never match it. The DENY has HTTP-only fields (request.auth.claims), which Istio applies to every
+TCP connection that matches its `from`; the gateway makes none to these pods.
+*/ -}}
+{{- $cfg := .Values.platformAdminOnly | default dict -}}
+{{- if $cfg.enabled }}
+{{- $namespace := .Values.namespace | default .Release.Namespace -}}
+{{- $domain := .Values.domain | default "teknoir.cloud" -}}
+{{- $issuer := printf "https://auth.%s/auth/realms/master" $domain -}}
+{{- $group := $cfg.adminGroup | default "admin" -}}
+{{- $gateway := $cfg.gatewayPrincipal | default "cluster.local/ns/istio-system/sa/istio-ingressgateway" -}}
+{{- range $w := list "grafana" "prometheus" "alertmanager" }}
+---
+apiVersion: security.istio.io/v1
+kind: RequestAuthentication
+metadata:
+  name: {{ $w }}-platform-admin-jwt
+  namespace: {{ $namespace }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $w }}
+  jwtRules:
+    # Same issuer, JWKS and header as the Backstage RequestAuthentication (charts/backstage), narrowed to the one
+    # header only oauth2-proxy sets. A request without a token is not rejected here: the DENY below refuses it.
+    - issuer: {{ $issuer | quote }}
+      jwksUri: {{ printf "%s/protocol/openid-connect/certs" $issuer | quote }}
+      fromHeaders:
+        - name: x-auth-request-access-token
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: {{ $w }}-platform-admin-only
+  namespace: {{ $namespace }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $w }}
+  action: DENY
+  rules:
+    - from:
+        - source:
+            principals:
+              - {{ $gateway | quote }}
+      when:
+        - key: request.auth.claims[groups]
+          notValues:
+            - {{ $group | quote }}
+{{- end }}
+{{- end }}
