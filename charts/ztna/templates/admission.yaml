@@ -53,7 +53,7 @@ profile-controller, and in this namespace it may only get Deployments). It can s
 user-controller and profile-controller turn those into role bindings (teknoir-admin for a Profile's owner), so
 ztna-backstage-identities stops it from naming itself, a service account or a group there, and from touching
 spec.plugins (the Helm values route) and spec.resourceQuotaSpec; Backstage writes neither (create_profile.ts sends only
-spec.owner, the Profile update validator carries over metadata annotations and labels only), so no flow breaks. Three things
+spec.owner, the Profile update validator carries over metadata annotations and labels only), so no flow breaks. Four things
 remain, as ACCEPTED RISKS, and it is NOT true that a compromised Backstage cannot run code or act as someone else:
   - it can make any e-mail address, its own included, an owner of a teamspace (the create-Profiles right itself);
   - it may write Devstudios and Notebooks, and their controllers run spec.image in a privileged container, so it
@@ -63,9 +63,18 @@ remain, as ACCEPTED RISKS, and it is NOT true that a compromised Backstage canno
     Deployment (image ghcr.io/teknoir/virtual-device:<spec version>) into which any HelmChart can be deployed. That
     is a second privileged route to the node, which the image allowlist above does NOT close (follow-up "virtual
     device / DeviceApplicationSet workloads").
+  - it can reset any user's Keycloak password and set claims_v0: user-controller's Keycloak plugin
+    (plugin_keycloak.go) hard-sets the password of an existing user (not temporary) whenever a User has
+    spec.initial_password, and copies claims_v0 into Keycloak user attributes. Backstage writes initial_password on
+    purpose (validator-update-user.ts), so a compromised Backstage can sign in as a platform superadmin in the master
+    realm (ArgoCD role:admin through the Keycloak groups admin/argocd-admins, Harbor, the hub). ztna-backstage-identities
+    checks only spec.email. Follow-up for Anders to decide ("user password / claims route", plans/ztna-later.md): a policy
+    that denies backstage-api setting spec.initial_password or claims_v0 on Users whose claims_v0.role is superadmin,
+    or user-controller setting temporary passwords (UPDATE_PASSWORD).
 So the goal "cannot bypass the admission policies" is only PARTLY met: the direct routes (impersonation, pods, exec,
 Secrets, RBAC, teknoir-admin through a User or Profile, Helm values through Profile plugins) are closed, the two
-privileged-workload routes through Devstudio/Notebook images and virtual Devices are not.
+privileged-workload routes through Devstudio/Notebook images and virtual Devices and the Keycloak password/claims
+route through Users are not.
 The two username exemptions for it (ztna-device-annotations, ztna-user-org-annotations) are deliberate: Backstage
 applies the org gate and the end user's SubjectAccessReview before it writes. The policies check
 request.userInfo.username, so they are only as strong as the right to become another identity.

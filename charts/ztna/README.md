@@ -182,7 +182,8 @@ Backstage's service account can write Devices and Users in every teamspace, so R
   - **So the goal "backstage-api cannot bypass the teknoir-ztna admission policies" is met only in part:** the direct
     routes (impersonation, pods, exec, Secrets, RBAC, teknoir-admin through a User or Profile, Helm values through
     Profile `spec.plugins`) are closed; the two privileged-workload routes (Devstudio/Notebook `spec.image`, and virtual
-    Devices / DeviceApplicationSets) are not.
+    Devices / DeviceApplicationSets) and the Keycloak route (User `spec.initial_password` / `claims_v0`: a compromised
+    Backstage can reset any user's password, superadmins included, and sign in as them) are not.
 - <a name="break-glass"></a>**Break-glass**: the `ztna` Application has `selfHeal`, so a deleted binding is restored within
   seconds. Order: (1) `argocd app set ztna --sync-policy none`; (2) delete the ValidatingAdmissionPolicyBinding; (3) act;
   (4) re-apply the binding (or re-sync) and `argocd app set ztna --sync-policy automated --self-heal`. system:masters is
