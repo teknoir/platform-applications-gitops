@@ -10,13 +10,23 @@ metadata:
     {{- include "ztna.hubLabels" . | nindent 4 }}
 automountServiceAccountToken: true
 ---
-# One replica: sessions, IP allocation and the WireGuard socket are in memory. Recreate (not a
-# rolling update) so two hubs never run at once: STUNner routes to every endpoint of the headless
-# Service, and a second hub would receive handshakes for sessions it does not know.
-# hub-ha stage 1 (plans/ztna-later.md): every pod already runs the leader election (LEADER_ELECTION,
-# Lease wg-hub) and labels itself ztna.teknoir.org/hub-role leader|standby, but nothing selects on
-# that label yet and the replica count stays 1. Stage 2 raises it to hub.replicas, switches the
-# strategy to RollingUpdate and points Service wg-hub at the leader label.
+# Replicas (hub.replicas): sessions, IP allocation and the WireGuard socket are in memory, so only
+# one replica serves. The replicas run a leader election (Lease wg-hub, wg-tunnel pkg/hub/leader.go):
+# the leader serves, the others are ready hot standbys that answer 503, and each pod labels itself
+# ztna.teknoir.org/hub-role leader|standby. Service wg-hub selects the leader; the UDPRoute of STUNner
+# permits every hub pod through wg-hub-pods. A rolling update (maxSurge 1, maxUnavailable 0) starts the
+# new pod first and deletes the standby first (pod-deletion-cost), so a rollout hands over once. With
+# a single replica (hub.replicas: 1) it is Recreate: two hubs must never serve at once, and a second
+# one would receive handshakes for sessions it does not know.
+{{- $replicas := int .Values.hub.replicas }}
+{{- if and (gt $replicas 1) (not .Values.hub.leaderElection.enabled) }}
+{{- fail "hub.replicas > 1 needs hub.leaderElection.enabled: without an election every replica would serve" }}
+{{- end }}
+{{- /* Service wg-hub selects hub-role=leader, which only an image with leader election sets: an older image
+       would leave wg-hub without endpoints (a full ZTNA outage). The pin carries the confirmation. */ -}}
+{{- if and .Values.hub.leaderElection.enabled (not .Values.hub.image.leaderElection) }}
+{{- fail "hub.leaderElection.enabled selects the Service wg-hub by the hub-role=leader label, which only a wg-hub image with leader election sets: repin hub.image.tag to an image built from wg-tunnel with leader election (scripts/pin-image) and set hub.image.leaderElection: true, or switch hub.leaderElection.enabled off" }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -25,9 +35,16 @@ metadata:
   labels:
     {{- include "ztna.hubLabels" . | nindent 4 }}
 spec:
-  replicas: 1
+  replicas: {{ $replicas }}
   strategy:
+    {{- if gt $replicas 1 }}
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    {{- else }}
     type: Recreate
+    {{- end }}
   selector:
     matchLabels:
       {{- include "ztna.hubSelector" . | nindent 6 }}
@@ -42,6 +59,16 @@ spec:
         ztna.teknoir.org/hub-role: standby
     spec:
       serviceAccountName: wg-hub
+      # Spread the replicas over nodes when there are several (no effect on a single node).
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    {{- include "ztna.hubPodSelector" . | nindent 20 }}
       {{- with .Values.hub.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -168,9 +195,11 @@ spec:
           emptyDir:
             sizeLimit: 16Mi
 ---
-# Headless: the endpoints are the pod IPs. STUNner's UDPRoute backend and the hub's own
-# endpoint (POD_IP:51820) avoid ClusterIP NAT and conntrack on the TURN leg. UDP is not
-# captured by the Istio sidecar; the TCP ports are.
+# Headless: the endpoints are the pod IPs (here only the LEADER's: the hub-role label that the hub
+# sets on its own pod; the VirtualServices, the internal and the status port all go to this name).
+# The hub's own endpoint (POD_IP:51820) avoids ClusterIP NAT and conntrack on the TURN leg. UDP is
+# not captured by the Istio sidecar; the TCP ports are. STUNner's UDPRoute permits the hub pods
+# through wg-hub-pods (below), so a failover does not wait for the operator to re-render.
 apiVersion: v1
 kind: Service
 metadata:
@@ -181,7 +210,10 @@ metadata:
 spec:
   clusterIP: None
   selector:
-    {{- include "ztna.hubSelector" . | nindent 4 }}
+    {{- include "ztna.hubPodSelector" . | nindent 4 }}
+    {{- if .Values.hub.leaderElection.enabled }}
+    ztna.teknoir.org/hub-role: leader
+    {{- end }}
   ports:
     - name: http
       port: 8080

@@ -27,9 +27,14 @@ hub:
     pullPolicy: IfNotPresent
   imagePullSecrets:
     - name: ghcr-token
-  # Replicas the hub is configured for. hub-ha stage 1: the Deployment still renders one pod
-  # (Recreate); this only sets HANDOVER_WAIT (0s with one replica). Stage 2 renders it.
-  replicas: 1
+  # Hub replicas (active-passive, see leaderElection): one serves, the others are hot standbys. Above 1 the
+  # Deployment rolls (maxSurge 1, maxUnavailable 0), a PodDisruptionBudget is rendered, and
+  # leaderElection.enabled is required (the render fails without it). 1: Recreate, no PDB.
+  replicas: 2
+  pdb:
+    # One replica may be disrupted at a time (a drain needs the other one Ready). A single-node
+    # cluster can still not drain its last hub pod; that is the same as the 7 existing PDBs there.
+    maxUnavailable: 1
   # Active-passive replicas (plans/ztna-later.md, hub-ha): the replicas campaign for the Lease
   # `lease` in this namespace, the leader serves, the others answer 503. Needs a wg-hub image
   # with leader election (an older image ignores these variables and always serves).

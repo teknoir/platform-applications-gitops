@@ -4,6 +4,7 @@ release:
   namespace: teknoir-ztna
 templates:
   - templates/hub.yaml
+  - templates/pdb.yaml
   - templates/flags.yaml
   - templates/rbac.yaml
   - templates/routing.yaml
@@ -34,7 +35,7 @@ tests:
           path: metadata.annotations["argocd.argoproj.io/sync-options"]
           value: Prune=false,Delete=false
 
-  - it: runs one hub pod, never two at once, hardened and non-root
+  - it: runs two hub replicas that roll over one at a time (the standby is deleted first), hardened and non-root
     template: templates/hub.yaml
     documentSelector:
       path: kind
@@ -42,12 +43,16 @@ tests:
     asserts:
       - equal:
           path: spec.replicas
-          value: 1
+          value: 2
       - equal:
-          path: spec.strategy.type
-          value: Recreate
-      # hub-ha stage 1: the pods carry the component and the role label (the hub moves the role),
-      # the immutable selector stays as it was.
+          path: spec.strategy
+          value:
+            type: RollingUpdate
+            rollingUpdate:
+              maxSurge: 1
+              maxUnavailable: 0
+      # hub-ha: the pods carry the component and the role label (the hub moves the role), the
+      # immutable selector stays as it was.
       - equal:
           path: spec.selector.matchLabels
           value:
@@ -59,6 +64,16 @@ tests:
             app.kubernetes.io/part-of: teknoir-ztna
             app.kubernetes.io/component: hub
             ztna.teknoir.org/hub-role: standby
+      - equal:
+          path: spec.template.spec.affinity.podAntiAffinity.preferredDuringSchedulingIgnoredDuringExecution
+          value:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: wg-hub
+                    app.kubernetes.io/component: hub
       - equal:
           path: spec.template.spec.containers[0].image
           value: "ghcr.io/teknoir/wg-hub:sha-0123abcd@sha256:3333333333333333333333333333333333333333333333333333333333333333"
@@ -95,6 +110,78 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].ports
           content: {name: metrics, containerPort: 9090, protocol: TCP}
+
+  - it: runs one hub pod with Recreate and no PodDisruptionBudget when hub.replicas is 1
+    template: templates/hub.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    set:
+      hub.replicas: 1
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 1
+      - equal:
+          path: spec.strategy
+          value:
+            type: Recreate
+
+  - it: renders no PodDisruptionBudget with one replica
+    template: templates/pdb.yaml
+    set:
+      hub.replicas: 1
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: protects the replicas with a PodDisruptionBudget that lets one go and never blocks on an unhealthy pod
+    template: templates/pdb.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: PodDisruptionBudget
+      - equal:
+          path: apiVersion
+          value: policy/v1
+      - equal:
+          path: metadata.name
+          value: wg-hub
+      - equal:
+          path: metadata.namespace
+          value: teknoir-ztna
+      - equal:
+          path: spec.maxUnavailable
+          value: 1
+      - equal:
+          path: spec.unhealthyPodEvictionPolicy
+          value: AlwaysAllow
+      # the hub pods only: the pull secret pods carry the name label too
+      - equal:
+          path: spec.selector.matchLabels
+          value:
+            app.kubernetes.io/name: wg-hub
+            app.kubernetes.io/component: hub
+
+  - it: takes the PodDisruptionBudget size from hub.pdb.maxUnavailable
+    template: templates/pdb.yaml
+    set:
+      hub.replicas: 3
+      hub.pdb.maxUnavailable: 2
+    asserts:
+      - equal:
+          path: spec.maxUnavailable
+          value: 2
+
+  - it: refuses several replicas without a leader election (every replica would serve)
+    template: templates/hub.yaml
+    set:
+      hub.replicas: 2
+      hub.leaderElection.enabled: false
+    asserts:
+      - failedTemplate:
+          errorPattern: "hub.replicas > 1 needs hub.leaderElection.enabled"
 
   - it: configures the hub through the contract's environment
     template: templates/hub.yaml
@@ -144,6 +231,8 @@ tests:
     documentSelector:
       path: kind
       value: Deployment
+    set:
+      hub.replicas: 1
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
@@ -176,8 +265,6 @@ tests:
     documentSelector:
       path: kind
       value: Deployment
-    set:
-      hub.replicas: 2
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
@@ -209,6 +296,7 @@ tests:
       value: Deployment
     set:
       hub.leaderElection.enabled: false
+      hub.replicas: 1
     asserts:
       - notContains:
           path: spec.template.spec.containers[0].env
@@ -260,11 +348,13 @@ tests:
           path: spec.clusterIP
           value: None
         documentIndex: 2
-      # stage 1: still every pod named wg-hub (the label switch is stage 2)
+      # only the leader: the hub-role label the hub sets on its own pod
       - equal:
           path: spec.selector
           value:
             app.kubernetes.io/name: wg-hub
+            app.kubernetes.io/component: hub
+            ztna.teknoir.org/hub-role: leader
         documentIndex: 2
       - equal:
           path: spec.ports
@@ -274,6 +364,19 @@ tests:
             - {name: http-status, port: 8082, targetPort: http-status, protocol: TCP}
             - {name: http-metrics, port: 9090, targetPort: metrics, protocol: TCP}
             - {name: wg, port: 51820, targetPort: wg, protocol: UDP}
+        documentIndex: 2
+
+  - it: selects every pod without the role label when there is no election (nothing would set it)
+    template: templates/hub.yaml
+    set:
+      hub.replicas: 1
+      hub.leaderElection.enabled: false
+    asserts:
+      - equal:
+          path: spec.selector
+          value:
+            app.kubernetes.io/name: wg-hub
+            app.kubernetes.io/component: hub
         documentIndex: 2
 
   - it: lists every hub pod, ready or not, on UDP 51820 only in Service wg-hub-pods (not the pull secret CronJob pods)
@@ -479,6 +582,7 @@ tests:
     template: templates/rbac.yaml
     set:
       hub.leaderElection.enabled: false
+      hub.replicas: 1
     asserts:
       - equal:
           path: rules
@@ -777,6 +881,7 @@ tests:
       value: ztna-workloads
     set:
       hub.leaderElection.enabled: false
+      hub.replicas: 1
     asserts:
       - lengthEqual:
           path: spec.variables
