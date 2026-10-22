@@ -495,8 +495,10 @@ kube-prometheus-stack:
     enabled: true
     namespaceOverride: ""
 
-    # ServiceMonitor of Grafana's own /metrics (see meshScrape).
+    # ServiceMonitor of Grafana's own metrics (see meshScrape). serve_from_sub_path moves them under the sub path:
+    # /metrics answers 301 and the redirect ends in a 401, so scrape the sub path directly.
     serviceMonitor:
+      path: /teknoir-system/grafana/metrics
       scheme: https
       tlsConfig: *meshTls
 
