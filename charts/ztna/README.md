@@ -215,6 +215,15 @@ the Gateway API CRDs only when nothing else uses them.
 Hub and agent code, the controller plugin, web terminal, Backstage and `tnctl` are other work packages. The hub is one replica
 with in-memory sessions: a restart drops every tunnel and clients re-establish them.
 
+## Keycloak audience (hub tokens)
+
+- Hub env `KEYCLOAK_AUDIENCE` (`hub.keycloak.audience`, `teknoir-ztna`) and `KEYCLOAK_AUDIENCE_MODE` from
+  `hub.keycloak.audienceMode`: `transition` accepts a Keycloak token without the audience and counts it
+  (`wghub_user_tokens_total{audience="legacy"}`, log field `token_audience`), `enforce` (also the default when unset)
+  refuses it; any other value fails the render. The `azp` pin (`hub.allowedAZP`) stays.
+- The audience comes from the optional client scope `teknoir-ztna` of `teknoir-cli` (charts/auth realm); tnctl >= 0.1.2
+  asks for it on hub calls only. Plan: `plans/ztna-later.md`, "ztna-audience".
+
 ## Org gate (hub CanOpen)
 
 - Hub env `ORG_GATE_MODE` from `hub.orgGate.mode` (`enforce` default, `audit`, `off`); any other value fails the render.

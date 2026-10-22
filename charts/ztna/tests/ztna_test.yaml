@@ -240,6 +240,13 @@ tests:
           content: {name: ORG_GATE_MODE, value: enforce}
       - contains:
           path: spec.template.spec.containers[0].env
+          content: {name: KEYCLOAK_AUDIENCE, value: teknoir-ztna}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          # values.yaml: staging starts in transition (plans/ztna-later.md, ztna-audience)
+          content: {name: KEYCLOAK_AUDIENCE_MODE, value: transition}
+      - contains:
+          path: spec.template.spec.containers[0].env
           content:
             name: POD_IP
             valueFrom:
@@ -1164,6 +1171,66 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "hub.orgGate.mode must be enforce, audit or off"
+
+  - it: sets KEYCLOAK_AUDIENCE_MODE enforce when asked
+    template: templates/hub.yaml
+    set:
+      hub.keycloak.audienceMode: enforce
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: KEYCLOAK_AUDIENCE_MODE, value: enforce}
+
+  - it: fails closed, KEYCLOAK_AUDIENCE_MODE enforce, when the mode is unset
+    template: templates/hub.yaml
+    set:
+      hub.keycloak.audienceMode: null
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: KEYCLOAK_AUDIENCE_MODE, value: enforce}
+
+  - it: sets KEYCLOAK_AUDIENCE from hub.keycloak.audience
+    template: templates/hub.yaml
+    set:
+      hub.keycloak.audience: other-aud
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: KEYCLOAK_AUDIENCE, value: other-aud}
+
+  - it: fails the render for an unknown audience mode
+    template: templates/hub.yaml
+    set:
+      hub.keycloak.audienceMode: permissive
+    asserts:
+      - failedTemplate:
+          errorPattern: "hub.keycloak.audienceMode must be enforce or transition"
+
+  - it: fails the render for an off or audit audience mode (those belong to the org gate)
+    template: templates/hub.yaml
+    set:
+      hub.keycloak.audienceMode: audit
+    asserts:
+      - failedTemplate:
+          errorPattern: "hub.keycloak.audienceMode must be enforce or transition"
+
+  - it: fails the render for an unquoted YAML boolean audience mode
+    template: templates/hub.yaml
+    set:
+      hub.keycloak.audienceMode: false
+    asserts:
+      - failedTemplate:
+          errorPattern: "must be a string"
 
   - it: makes the wg-flags watcher the only writer of ztna-org ConfigMaps
     template: templates/admission.yaml

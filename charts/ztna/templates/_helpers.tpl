@@ -42,6 +42,20 @@ system:serviceaccount:{{ .Values.deviceController.namespace }}:{{ .Values.device
 system:serviceaccount:{{ .Release.Namespace }}:wg-flags
 {{- end -}}
 
+{{/* hub.keycloak.audienceMode: enforce (default) | transition; anything else fails the render. */}}
+{{- define "ztna.keycloakAudienceMode" -}}
+{{- $m := (.Values.hub.keycloak).audienceMode -}}
+{{- if kindIs "invalid" $m -}}{{- $m = "enforce" -}}{{- end -}}
+{{- if not (kindIs "string" $m) -}}
+{{- fail (printf "hub.keycloak.audienceMode must be a string (enforce or transition); quote it (got %v)" $m) -}}
+{{- end -}}
+{{- if eq $m "" -}}{{- $m = "enforce" -}}{{- end -}}
+{{- if not (has $m (list "enforce" "transition")) -}}
+{{- fail (printf "hub.keycloak.audienceMode must be enforce or transition, got %q" $m) -}}
+{{- end -}}
+{{- $m -}}
+{{- end -}}
+
 {{/* hub.orgGate.mode: enforce (default) | audit | off; anything else fails the render. */}}
 {{- define "ztna.orgGateMode" -}}
 {{- $m := (.Values.hub.orgGate).mode -}}
