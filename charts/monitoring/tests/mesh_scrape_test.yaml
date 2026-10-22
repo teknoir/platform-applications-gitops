@@ -67,11 +67,12 @@ tests:
       - equal: {path: "spec.endpoints[1].scheme", value: https}
       - equal: {path: "spec.endpoints[1].tlsConfig", value: *tls }
 
-  - it: scrapes Grafana and kube-state-metrics with the mesh certificate
+  - it: scrapes Grafana with the mesh certificate on its sub path (/metrics redirects under serve_from_sub_path)
     template: charts/kube-prometheus-stack/charts/grafana/templates/servicemonitor.yaml
     asserts:
       - equal: {path: "spec.endpoints[0].scheme", value: https}
       - equal: {path: "spec.endpoints[0].tlsConfig", value: *tls }
+      - equal: {path: "spec.endpoints[0].path", value: /teknoir-system/grafana/metrics}
 
   - it: scrapes kube-state-metrics with the mesh certificate
     template: charts/kube-prometheus-stack/charts/kube-state-metrics/templates/servicemonitor.yaml
