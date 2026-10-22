@@ -483,6 +483,38 @@ tests:
             keyFile: /etc/prom-certs/key.pem
             insecureSkipVerify: true
 
+  - it: makes the metrics port alone STRICT so a plain TLS client (no Istio ALPN) is not reset by the PERMISSIVE namespace
+    template: templates/hub.yaml
+    documentSelector:
+      path: kind
+      value: PeerAuthentication
+    asserts:
+      - equal:
+          path: metadata.name
+          value: wg-hub-metrics-strict
+      - equal:
+          path: spec.selector.matchLabels
+          value:
+            app.kubernetes.io/name: wg-hub
+            app.kubernetes.io/component: hub
+      - equal:
+          path: spec.mtls.mode
+          value: PERMISSIVE
+      - equal:
+          path: spec.portLevelMtls.9090.mode
+          value: STRICT
+      - notExists:
+          path: spec.portLevelMtls.8080
+
+  - it: renders no PeerAuthentication without a tlsConfig (plaintext scrape, nothing to make STRICT) or without the ServiceMonitor
+    template: templates/hub.yaml
+    set:
+      metrics.serviceMonitor.tlsConfig: null
+    asserts:
+      # Deployment, 3 Services, ServiceMonitor, PrometheusRule and wg-hub-metrics: eight documents with the PeerAuthentication
+      - hasDocuments:
+          count: 7
+
   - it: scrapes in plaintext as before when scheme and tlsConfig are empty (a Prometheus without the mesh certificate setup)
     template: templates/hub.yaml
     documentSelector:
@@ -591,7 +623,7 @@ tests:
       metrics.prometheusRule.enabled: false
     asserts:
       - hasDocuments:
-          count: 6
+          count: 7
 
   - it: renders no ServiceMonitor, metrics Service or alert when switched off
     template: templates/hub.yaml

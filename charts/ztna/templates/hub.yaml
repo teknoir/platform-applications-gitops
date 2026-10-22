@@ -292,6 +292,31 @@ spec:
       port: 9090
       targetPort: metrics
       protocol: TCP
+{{- if .Values.metrics.serviceMonitor.tlsConfig }}
+---
+# Prometheus scrapes with the Istio workload certificate but does not offer Istio's ALPN (istio,
+# istio-http/1.1, ...). In PERMISSIVE mode the sidecar's TLS filter chain requires those ALPNs, so a plain
+# TLS client is reset (errno 104); a STRICT port has a TLS chain without the ALPN requirement. So the
+# metrics port alone is STRICT (the rest of the namespace stays PERMISSIVE): the only plaintext caller it
+# had was Prometheus, and the AuthorizationPolicy wg-hub admits nobody else on 9090 anyway. The hub's
+# probes use the http port and are rewritten to the sidecar (15020), they never touched 9090.
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: wg-hub-metrics-strict
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "ztna.hubPodSelector" . | nindent 6 }}
+  mtls:
+    mode: PERMISSIVE
+  portLevelMtls:
+    9090:
+      mode: STRICT
+{{- end }}
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor

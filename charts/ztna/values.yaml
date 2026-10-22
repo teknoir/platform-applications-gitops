@@ -158,7 +158,9 @@ metrics:
     # sidecar's OUTPUT_CERTS volume mounted at /etc/prom-certs and its outbound capture off (charts/monitoring
     # values.yaml, meshScrape; plans/monitoring-mesh-scrape.md). A plaintext scrape to the pod IP has no peer
     # identity and the wg-hub AuthorizationPolicy answers it with 403. Set scheme "" and tlsConfig null (a
-    # values override) for a Prometheus without that setup.
+    # values override) for a Prometheus without that setup. A mesh TLS scrape works only for STRICT target
+    # ports (Prometheus does not offer Istio's ALPN, which a PERMISSIVE port's TLS chain requires), so with
+    # tlsConfig set the chart also renders a PeerAuthentication that makes port 9090 (only) STRICT.
     # insecureSkipVerify: the certificate has a SPIFFE ID, not the pod IP.
     scheme: https
     tlsConfig:
