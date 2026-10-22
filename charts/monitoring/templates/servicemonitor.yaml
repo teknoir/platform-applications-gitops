@@ -46,3 +46,35 @@ spec:
           - prometheus
   targetLabels:
     - app
+{{- if (.Values.meshScrape).enabled }}
+
+---
+# monitoring-operator over mesh mTLS (meshScrape; plans/monitoring-mesh-scrape.md). The chart's own ServiceMonitor
+# (prometheusOperator.serviceMonitor.selfMonitor, off in values.yaml) has no scheme or tlsConfig for the plain HTTP
+# port; the operator runs without its own TLS (prometheusOperator.tls.enabled false) behind its sidecar.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: monitoring-operator
+  namespace: {{ $namespace }}
+  labels:
+    app: kube-prometheus-stack-operator
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/name: kube-prometheus-stack-prometheus-operator
+    app.kubernetes.io/part-of: kube-prometheus-stack
+    release: {{ .Release.Name }}
+spec:
+  endpoints:
+    - port: http
+      scheme: https
+      tlsConfig:
+        {{- toYaml .Values.meshScrape.tlsConfig | nindent 8 }}
+      honorLabels: true
+  selector:
+    matchLabels:
+      app: kube-prometheus-stack-operator
+      release: {{ .Release.Name | quote }}
+  namespaceSelector:
+    matchNames:
+      - {{ $namespace | quote }}
+{{- end -}}

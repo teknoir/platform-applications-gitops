@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs every test of the staging release tooling:
 #   - python unittest of scripts/ (pure logic, throwaway git repos, a fake cluster/GitHub/registry; no network)
-#   - helm unittest of charts/app-of-apps (release helper, 19 replacements) and charts/release-guard
+#   - helm unittest of charts/app-of-apps (release helper, 19 replacements), charts/release-guard and charts/monitoring (mesh scrape)
 #   - the root render against a base ref (BASE=origin/teknoir-cloud, default): identical except for the removal of the
 #     fields ArgoCD's Go types drop (`sources: [ ]` on every child, monitoring's `group: ""`), see EXPECTED below
 #   - K3D=1: charts/release-guard/tests/k3d-guard-test.sh (impersonated identities) and k3d-argocd-real-test.sh (a real
@@ -21,7 +21,9 @@ echo "== python unittest (scripts/tests)"
 python3 -W ignore -m unittest discover -s scripts/tests -p 'test_*.py' 2>&1 | grep -E "^(Ran|OK|FAILED|FAIL|ERROR)" 
 
 echo "== helm unittest"
-helm unittest charts/app-of-apps charts/release-guard 2>&1 | grep -E "^(Charts|Test Suites|Tests):"
+# charts/monitoring renders its kube-prometheus-stack dependency (git-ignored charts/; ArgoCD builds it itself): build it once
+compgen -G "charts/monitoring/charts/kube-prometheus-stack-*.tgz" >/dev/null || helm dependency build charts/monitoring >/dev/null 2>&1 || echo "WARN: helm dependency build charts/monitoring failed (offline?)"
+helm unittest charts/app-of-apps charts/release-guard charts/monitoring 2>&1 | grep -E "^(Charts|Test Suites|Tests):"
 
 BASE="${BASE:-origin/teknoir-cloud}"
 if git rev-parse --verify -q "$BASE" >/dev/null; then

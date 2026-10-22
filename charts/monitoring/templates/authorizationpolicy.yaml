@@ -1,4 +1,13 @@
 {{- $namespace := .Values.namespace | default .Release.Namespace -}}
+{{- /*
+meshScrape.enabled: Prometheus reaches Grafana and Alertmanager with its own workload identity (mTLS scrape and
+alert delivery, see values.yaml), so the two policies below name that service account next to the ingress gateway.
+Without the flag they render as before.
+*/ -}}
+{{- $promPrincipal := "" -}}
+{{- if (.Values.meshScrape).enabled -}}
+{{- $promPrincipal = printf "cluster.local/ns/%s/sa/%s" $namespace (.Values.meshScrape.prometheusServiceAccount | default "monitoring-prometheus") -}}
+{{- end -}}
 ---
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
@@ -16,6 +25,9 @@ spec:
         - source:
             principals:
               - "cluster.local/ns/istio-system/sa/istio-ingressgateway"
+{{- if $promPrincipal }}
+              - {{ $promPrincipal | quote }}
+{{- end }}
 
 ---
 apiVersion: security.istio.io/v1beta1
@@ -50,6 +62,9 @@ spec:
         - source:
             principals:
               - "cluster.local/ns/istio-system/sa/istio-ingressgateway"
+{{- if $promPrincipal }}
+              - {{ $promPrincipal | quote }}
+{{- end }}
 
 ---
 apiVersion: security.istio.io/v1beta1

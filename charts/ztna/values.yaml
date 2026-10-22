@@ -154,6 +154,20 @@ metrics:
     interval: 30s
     labels:
       release: monitoring
+    # Prometheus presents the Istio workload certificate of its own sidecar (mTLS scrape): the pod has the
+    # sidecar's OUTPUT_CERTS volume mounted at /etc/prom-certs and its outbound capture off (charts/monitoring
+    # values.yaml, meshScrape; plans/monitoring-mesh-scrape.md). A plaintext scrape to the pod IP has no peer
+    # identity and the wg-hub AuthorizationPolicy answers it with 403. Set scheme "" and tlsConfig null (a
+    # values override) for a Prometheus without that setup. A mesh TLS scrape works only for STRICT target
+    # ports (Prometheus does not offer Istio's ALPN, which a PERMISSIVE port's TLS chain requires), so with
+    # tlsConfig set the chart also renders a PeerAuthentication that makes port 9090 (only) STRICT.
+    # insecureSkipVerify: the certificate has a SPIFFE ID, not the pod IP.
+    scheme: https
+    tlsConfig:
+      caFile: /etc/prom-certs/root-cert.pem
+      certFile: /etc/prom-certs/cert-chain.pem
+      keyFile: /etc/prom-certs/key.pem
+      insecureSkipVerify: true
   # Alerts on the hub-ha series (wghub_leader, wghub_role_patch_errors_total). Rendered with the ServiceMonitor,
   # whose Service wg-hub-metrics scrapes every hub pod (the standby too), not only the leader.
   prometheusRule:
