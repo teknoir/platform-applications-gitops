@@ -289,5 +289,44 @@ class CrRevisions(unittest.TestCase):
         self.assertEqual(CP.load_policy(os.path.join(H.SCRIPTS, "release-policy.yaml"))["cr_revisions"], "deny")
 
 
+class HubAudience(unittest.TestCase):
+    OLD = "ghcr.io/teknoir/wg-hub:sha-9c9bdae" + D
+    NEW = "ghcr.io/teknoir/wg-hub:sha-1234567" + D
+
+    def hub(self, image, mode):
+        env = [{"name": "KEYCLOAK_AUDIENCE_MODE", "value": mode}] if mode else []
+        _, d = deploy(image)
+        d["metadata"]["name"] = "wg-hub"
+        d["spec"]["template"]["spec"]["containers"][0]["env"] = env
+        return [("hub.yaml", d)]
+
+    def pol(self):
+        return policy(pre_audience_hub_tags=["sha-9c9bdae"])
+
+    def test_enforce_on_a_pre_audience_image_is_an_error(self):
+        f = CP.check_hub_audience(self.hub(self.OLD, "enforce"), self.pol())
+        self.assertEqual(codes(f, "error"), ["hub-audience-unchecked"])
+
+    def test_transition_on_a_pre_audience_image_only_warns(self):
+        f = CP.check_hub_audience(self.hub(self.OLD, "transition"), self.pol())
+        self.assertEqual((codes(f, "error"), codes(f, "warn")), ([], ["hub-audience-unchecked"]))
+
+    def test_a_newer_image_passes_in_both_modes(self):
+        for mode in ("enforce", "transition"):
+            self.assertEqual(CP.check_hub_audience(self.hub(self.NEW, mode), self.pol()), [])
+
+    def test_the_flags_watcher_without_the_env_is_not_checked(self):
+        self.assertEqual(CP.check_hub_audience(self.hub(self.OLD, None), self.pol()), [])
+
+    def test_lint_includes_the_check(self):
+        f = CP.lint(self.hub(self.OLD, "enforce"), policy=self.pol(), release=None, project="teknoir-online",
+                    repo_root=None, today=TODAY)
+        self.assertIn("hub-audience-unchecked", codes(f, "error"))
+
+    def test_shipped_policy_lists_the_current_pins(self):
+        tags = CP.load_policy(os.path.join(H.SCRIPTS, "release-policy.yaml"))["pre_audience_hub_tags"]
+        self.assertIn("sha-9c9bdae", tags)
+
+
 if __name__ == "__main__":
     unittest.main()

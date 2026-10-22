@@ -221,6 +221,15 @@ with in-memory sessions: a restart drops every tunnel and clients re-establish t
   `hub.keycloak.audienceMode`: `transition` accepts a Keycloak token without the audience and counts it
   (`wghub_user_tokens_total{audience="legacy"}`, log field `token_audience`), `enforce` (also the default when unset)
   refuses it; any other value fails the render. The `azp` pin (`hub.allowedAZP`) stays.
+- The hub image must contain the audience check (wg-tunnel `ztna-audience` merge commit or later). An older pin ignores
+  both env vars, so `enforce` would only look enforced. `scripts/check-pins.py` (run by `scripts/staging-release`) fails
+  `enforce` on a tag listed in `release-policy.yaml` `pre_audience_hub_tags` and warns for `transition`. After the
+  release, the negative test (a downscoped main token POSTed to `wg.<domain>/v1/client/session` must give 401) is a hard
+  gate before `staging-release --verified`.
+- Rollback: set `audienceMode: transition` (or re-pin the previous image). Reverting the realm change alone is not
+  enough: `teknoir-cli` must keep `teknoir-ztna` in `optionalClientScopes` while tnctl >= 0.1.2 is in use (the scope
+  stays in the realm; keycloak-config-cli syncs the client's scope list to the file). tnctl falls back without the
+  scope on `invalid_scope`, with a warning, so a revert is survivable but loses the audience.
 - The audience comes from the optional client scope `teknoir-ztna` of `teknoir-cli` (charts/auth realm); tnctl >= 0.1.2
   asks for it on hub calls only. Plan: `plans/ztna-later.md`, "ztna-audience".
 
