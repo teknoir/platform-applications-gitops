@@ -4,6 +4,8 @@
 authz  (oauth2-proxy lookalike): called by ext_authz as GET /oauth2/auth<original path>.
   Models oauth2-proxy v7.6.0 with --force-json-errors=true (the chart default):
   Authorization "Bearer good-token" or cookie _teknoir_oauth2_proxy_v2=good -> 200 (allow)
+  Authorization "Bearer noemail-token" or cookie ...=noemail -> 200 (allow) and NO x-auth-request-email (a token without an
+    email claim): the request is allowed but oauth2-proxy sets no identity, so a client-forged email must not survive
   cookie ...=stale (decodable, session gone server-side) -> 401 {} + its clearing Set-Cookie
   cookie ...=garbage (undecodable: it cannot clear it) -> 401 {}, no Set-Cookie
   cookie ...=forbidden (logged in, not authorized) -> 403 {} + clearing Set-Cookie
@@ -67,6 +69,8 @@ class Authz(Quiet):
         cookie = self.headers.get("cookie", "")
         if auth == "Bearer good-token" or f"{COOKIE}=good" in cookie:
             return self.reply(200, b"", [("x-auth-request-email", "tester@teknoir.test")], head)
+        if auth == "Bearer noemail-token" or f"{COOKIE}=noemail" in cookie:
+            return self.reply(200, b"", [], head)
         clear = ("set-cookie", f"{COOKIE}=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=None")
         if f"{COOKIE}=forbidden" in cookie:
             return self.reply(403, b"{}", [("content-type", "application/json"), clear], head)

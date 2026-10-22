@@ -711,6 +711,17 @@ def run_identity_headers():
             seen = json.loads(body) if st == 200 else None
             want = {"x-auth-request-email": "tester@teknoir.test"}
             expect(g, f"{proto} forged {name} is stripped", seen == want, f"{st} {body[:200]!r}")
+        # allowed by oauth2-proxy but without an email (a token with no email claim): ext_authz has nothing to overwrite
+        # the client's copy with, so only the Lua strip keeps a forged x-auth-request-email from becoming the identity
+        for cred, tag in (([f"Cookie: {COOKIE}=noemail"], "cookie"), (["Authorization: Bearer noemail-token"], "bearer")):
+            st, ver, h, body, rc, err, _ = curl(proto, "/whoami", cred + forged)
+            seen = json.loads(body) if st == 200 else None
+            expect(g, f"{proto} {tag} without an email claim: no forged identity header reaches the backend",
+                   seen == {}, f"{st} {body[:200]!r}")
+            st, ver, h, body, rc, err, _ = curl(proto, "/whoami", cred + ["X-Auth-Request-Email: root@evil.test"])
+            seen = json.loads(body) if st == 200 else None
+            expect(g, f"{proto} {tag} without an email claim: forged x-auth-request-email is stripped",
+                   seen == {}, f"{st} {body[:200]!r}")
         # unauthenticated: the forged headers do not get a request through
         for hdrs, tag in (([], "api"), (["Sec-Fetch-Mode: navigate", "Accept: text/html"], "browser")):
             st, ver, h, body, rc, err, _ = curl(proto, "/whoami", forged + hdrs)
