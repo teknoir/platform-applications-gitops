@@ -9,6 +9,11 @@ templates:
   - charts/kube-prometheus-stack/charts/grafana/templates/servicemonitor.yaml
   - charts/kube-prometheus-stack/charts/kube-state-metrics/templates/servicemonitor.yaml
   - charts/kube-prometheus-stack/templates/prometheus-operator/servicemonitor.yaml
+  - templates/servicemonitor.yaml
+  - charts/kube-prometheus-stack/templates/prometheus-operator/admission-webhooks/mutatingWebhookConfiguration.yaml
+  - charts/kube-prometheus-stack/templates/prometheus-operator/admission-webhooks/validatingWebhookConfiguration.yaml
+  - charts/kube-prometheus-stack/templates/prometheus-operator/admission-webhooks/job-patch/job-createSecret.yaml
+  - charts/kube-prometheus-stack/templates/prometheus-operator/admission-webhooks/job-patch/job-patchWebhook.yaml
   - charts/kube-prometheus-stack/templates/prometheus/servicemonitor.yaml
   - templates/authorizationpolicy.yaml
 tests:
@@ -74,19 +79,63 @@ tests:
       - equal: {path: "spec.endpoints[0].scheme", value: https}
       - equal: {path: "spec.endpoints[0].tlsConfig", value: *tls }
 
-  - it: keeps the operator port 10250 out of the sidecar, so Prometheus (and the apiserver) reach the operator's own TLS directly
+  - it: runs the operator without its own TLS behind the sidecar and does not bypass the sidecar on any port
     template: charts/kube-prometheus-stack/templates/prometheus-operator/deployment.yaml
     asserts:
+      - notExists:
+          path: 'spec.template.metadata.annotations["traffic.sidecar.istio.io/excludeInboundPorts"]'
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --web.enable-tls=false
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --web.listen-address=:8080
       - equal:
-          path: spec.template.metadata.annotations["traffic.sidecar.istio.io/excludeInboundPorts"]
-          value: "10250"
+          path: spec.template.spec.containers[0].ports
+          value:
+            - containerPort: 8080
+              name: http
 
-  - it: leaves the operator ServiceMonitor on the operator's own CA (no mesh certificate)
+  - it: scrapes the operator over the mesh with the same certificate (own ServiceMonitor, the chart's self-monitor is off)
+    template: templates/servicemonitor.yaml
+    documentSelector:
+      path: metadata.name
+      value: monitoring-operator
+    asserts:
+      - equal: { path: metadata.labels.release, value: monitoring }
+      - equal: { path: "spec.endpoints[0].port", value: http }
+      - equal: { path: "spec.endpoints[0].scheme", value: https }
+      - equal: { path: "spec.endpoints[0].tlsConfig", value: *tls }
+      - equal:
+          path: spec.selector.matchLabels
+          value:
+            app: kube-prometheus-stack-operator
+            release: monitoring
+
+  - it: renders no ServiceMonitor of the chart for the operator (it would point at the https port that no longer exists)
     template: charts/kube-prometheus-stack/templates/prometheus-operator/servicemonitor.yaml
     asserts:
-      - equal: {path: "spec.endpoints[0].scheme", value: https}
-      - equal: {path: "spec.endpoints[0].tlsConfig.serverName", value: monitoring-operator}
-      - notExists: {path: "spec.endpoints[0].tlsConfig.certFile"}
+      - hasDocuments:
+          count: 0
+
+  - it: renders no admission webhook configurations and no certgen Jobs
+    templates:
+      - charts/kube-prometheus-stack/templates/prometheus-operator/admission-webhooks/mutatingWebhookConfiguration.yaml
+      - charts/kube-prometheus-stack/templates/prometheus-operator/admission-webhooks/validatingWebhookConfiguration.yaml
+      - charts/kube-prometheus-stack/templates/prometheus-operator/admission-webhooks/job-patch/job-createSecret.yaml
+      - charts/kube-prometheus-stack/templates/prometheus-operator/admission-webhooks/job-patch/job-patchWebhook.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders the operator ServiceMonitor of the mesh scrape only with the switch
+    template: templates/servicemonitor.yaml
+    set:
+      meshScrape: null
+    asserts:
+      # the two custom ServiceMonitors only
+      - hasDocuments:
+          count: 2
 
   - it: leaves the Prometheus self-monitor in plaintext (its calls to itself bypass the outbound capture)
     template: charts/kube-prometheus-stack/templates/prometheus/servicemonitor.yaml

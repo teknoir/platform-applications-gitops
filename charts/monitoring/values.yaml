@@ -15,6 +15,15 @@ meshScrape:
   enabled: true
   # Service account of the Prometheus pods (fullnameOverride "monitoring" + "-prometheus").
   prometheusServiceAccount: monitoring-prometheus
+  # Client TLS of a scrape of a mesh workload; the Prometheus pod mounts the sidecar's certificates at
+  # /etc/prom-certs (prometheusSpec below). Reused by the ServiceMonitors of the subchart (YAML alias) and by
+  # templates/servicemonitor.yaml (monitoring-operator).
+  tlsConfig: &meshTls
+    caFile: /etc/prom-certs/root-cert.pem
+    certFile: /etc/prom-certs/cert-chain.pem
+    keyFile: /etc/prom-certs/key.pem
+    # The workload certificate carries a SPIFFE ID, not the pod IP the target is addressed by.
+    insecureSkipVerify: true
 
 kube-prometheus-stack:
   namespaceOverride: "teknoir-system"
@@ -449,13 +458,21 @@ kube-prometheus-stack:
 
   ## Prometheus Operator (Deployment monitoring-operator)
   prometheusOperator:
-    ## The operator serves its own TLS (the monitoring-admission certificate) on 10250: metrics for
-    ## Prometheus and, when the apiserver calls them, the admission webhooks. A sidecar in front of that port
-    ## cannot work: Prometheus has one TLS session to give (the mesh certificate or the operator's own, not
-    ## TLS inside mTLS), and the apiserver is outside the mesh. So the port bypasses the sidecar; the
-    ## ServiceMonitor monitoring-operator (https, CA of monitoring-admission) then scrapes it directly.
-    podAnnotations:
-      traffic.sidecar.istio.io/excludeInboundPorts: "10250"
+    ## The operator serves plain HTTP (:8080: /metrics, health) behind its sidecar and Prometheus scrapes it
+    ## with the mesh certificate like the other workloads (see meshScrape; the ServiceMonitor is
+    ## templates/servicemonitor.yaml, because the chart's own cannot carry a tlsConfig without the operator's
+    ## own TLS). With its own TLS (:10250) the port had to bypass the sidecar, which would expose the operator's
+    ## whole mux (admission handlers, /metrics, /debug/pprof, no client certificate check) to every pod and node.
+    tls:
+      enabled: false
+    ## The admission webhooks (validate/mutate PrometheusRule, validate AlertmanagerConfig) need that TLS port
+    ## and the apiserver, which is outside the mesh. They never worked under STRICT mTLS (failurePolicy
+    ## Ignore, so nothing noticed); rules are checked by Prometheus itself when it loads them. Removes the
+    ## webhook configurations and the certgen Jobs; the monitoring-admission Secret is left behind.
+    admissionWebhooks:
+      enabled: false
+    serviceMonitor:
+      selfMonitor: false
 
   ## Configuration for alertmanager
   ## ref: https://prometheus.io/docs/alerting/alertmanager/
@@ -465,12 +482,7 @@ kube-prometheus-stack:
       routePrefix: /teknoir-system/alertmanager
       # Prometheus' alert delivery goes to the pod IPs of Alertmanager too (STRICT mTLS), see meshScrape.
       scheme: https
-      tlsConfig: &meshTls
-        caFile: /etc/prom-certs/root-cert.pem
-        certFile: /etc/prom-certs/cert-chain.pem
-        keyFile: /etc/prom-certs/key.pem
-        # The workload certificate carries a SPIFFE ID, not the pod IP the target is addressed by.
-        insecureSkipVerify: true
+      tlsConfig: *meshTls
     # Both endpoints of the self-monitor ServiceMonitor (9093 and the config reloader 8080).
     serviceMonitor:
       scheme: https
