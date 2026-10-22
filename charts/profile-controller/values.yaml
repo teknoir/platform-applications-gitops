@@ -48,7 +48,8 @@ config:
   # 0.0.105: every first-party plugin image is pinned as tag@sha256 (IfNotPresent); release only after chart-releaser has published it.
   # 0.0.106: Observatory: standalone frontend off, wss-mqtt admits the Backstage backends, legacy wss path routed.
   # 0.0.107: jwks-server (jwx 1.2.29 / v2 2.0.21) and fleet-metrics (gorilla/websocket 1.5.3) on sha-* tags.
-  pluginChartVersion: "0.0.107"
+  # 0.0.108: alertmanager LowDiskSpace fires on <20 GB free or >90% used (not only the percentage).
+  pluginChartVersion: "0.0.108"
 
 resources: {}
   # limits:
