@@ -16,7 +16,8 @@ hub:
     # discovery, agent race fixes #4): hub + flags watcher, index digest.
     # MUST be re-pinned (scripts/pin-image wg-hub=sha-<commit>) to the wg-tunnel ztna-audience merge commit or later
     # before this is released: sha-9c9bdae predates the audience check and ignores KEYCLOAK_AUDIENCE*. Release lint
-    # (scripts/check-pins.py, release-policy.yaml pre_audience_hub_tags) fails audienceMode enforce on such a pin.
+    # (scripts/check-pins.py) fails audienceMode enforce on any tag not listed in release-policy.yaml
+    # audience_hub_tags (an allowlist: list the new tag there when you re-pin).
     # Previous pin: sha-37fe475@sha256:4a405ccced8b389e254d3f9965b0c2ea35ca1b0a77bb6c42c17b076b7b27f58b
     # hub-ha: this pin MUST be replaced by an image built from wg-tunnel with leader election (branch
     # hub-ha, hub.leaderElection) before this stage is released. An older image ignores LEADER_ELECTION and never

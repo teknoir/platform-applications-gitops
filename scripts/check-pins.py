@@ -13,9 +13,9 @@ Checks the rendered manifests of a release (scripts/staging-render.sh output, or
   errors once release-policy.yaml has `images: deny`, otherwise warnings
     first-party-unpinned   a first-party image that is not repo:<tag>@sha256:<digest>
     first-party-latest     the same, with :latest or no tag
-    hub-audience-unchecked a wg-hub rendered with KEYCLOAK_AUDIENCE_MODE=enforce whose image tag is listed in
-                           release-policy.yaml `pre_audience_hub_tags` (that hub ignores the audience, so enforce
-                           would only look enforced)
+    hub-audience-unchecked a wg-hub rendered with KEYCLOAK_AUDIENCE_MODE=enforce whose image tag is NOT listed in
+                           release-policy.yaml `audience_hub_tags` (an allowlist of the tags known to have the
+                           audience check; any other hub ignores it, so enforce would only look enforced)
   warnings
     hub-audience-unchecked the same with KEYCLOAK_AUDIENCE_MODE=transition (nothing is lost, but the audience
                            metric does not exist until the hub is re-pinned)
@@ -116,7 +116,7 @@ def load_docs(paths: list[str]) -> list[tuple[str, dict]]:
 
 def load_policy(path: str | None) -> dict:
     pol = {"images": "warn", "cr_revisions": "warn", "first_party_prefixes": DEFAULT_PREFIXES, "exceptions": [], "rollback_floor": "",
-           "pre_audience_hub_tags": []}
+           "audience_hub_tags": []}
     if path:
         with open(path) as fh:
             pol.update(yaml.safe_load(fh) or {})
@@ -259,14 +259,14 @@ def check_images(images: list[ImageRef], policy: dict, today: dt.date, verbose: 
 def check_hub_audience(docs: list[tuple[str, dict]], policy: dict) -> list[Finding]:
     """A wg-hub that renders KEYCLOAK_AUDIENCE_MODE must run an image that has the audience check.
 
-    The hub image is pinned by hand (scripts/pin-image); a pin that predates the check ignores KEYCLOAK_AUDIENCE and
+    The hub image is pinned by hand (scripts/pin-image). A pin that predates the check ignores KEYCLOAK_AUDIENCE and
     KEYCLOAK_AUDIENCE_MODE, so `enforce` would be reported while the downscoped main token (the one Backstage sees)
-    still opens hub sessions. The tags that predate the check are listed in the policy.
+    still opens hub sessions. This is an allowlist and fails closed: only the exact tags listed in the policy as
+    `audience_hub_tags` are known to have the check, any other tag (an old main build, a branch build, a digest-only
+    reference) is an error for enforce and a warning for transition. An empty or missing list allows no tag.
     """
-    old = [str(t) for t in (policy.get("pre_audience_hub_tags") or [])]
+    known = {str(t) for t in (policy.get("audience_hub_tags") or [])}
     out: list[Finding] = []
-    if not old:
-        return out
     for _, d in docs:
         path = POD_PATHS.get(d.get("kind"))
         spec = _dig(d, path) if path else None
@@ -277,18 +277,18 @@ def check_hub_audience(docs: list[tuple[str, dict]], policy: dict) -> list[Findi
             mode = next((e.get("value") for e in c.get("env") or []
                          if isinstance(e, dict) and e.get("name") == "KEYCLOAK_AUDIENCE_MODE"), None)
             img = str(c.get("image") or "")
-            tag = image_tag(img) or ""
-            if mode is None or not any(tag.startswith(t) for t in old):
+            if mode is None or (image_tag(img) or "") in known:
                 continue
             where = f"{d.get('kind')}/{name} {c.get('name', '')}"
             if mode == "enforce":
                 out.append(Finding("error", "hub-audience-unchecked",
-                                   f"KEYCLOAK_AUDIENCE_MODE=enforce but {img} predates the audience check "
-                                   "(re-pin wg-hub to the wg-tunnel ztna-audience commit or later with scripts/pin-image)", where))
+                                   f"KEYCLOAK_AUDIENCE_MODE=enforce but {img} is not listed in release-policy.yaml "
+                                   "audience_hub_tags (hubs known to have the audience check): re-pin wg-hub to the "
+                                   "wg-tunnel ztna-audience commit or later with scripts/pin-image and list its tag", where))
             else:
                 out.append(Finding("warn", "hub-audience-unchecked",
-                                   f"{img} predates the audience check: it ignores KEYCLOAK_AUDIENCE_MODE={mode} "
-                                   "(re-pin wg-hub with scripts/pin-image before enforce)", where))
+                                   f"{img} is not listed in release-policy.yaml audience_hub_tags: it may ignore "
+                                   f"KEYCLOAK_AUDIENCE_MODE={mode} (re-pin wg-hub with scripts/pin-image before enforce)", where))
     return out
 
 

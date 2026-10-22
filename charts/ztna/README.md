@@ -223,8 +223,9 @@ with in-memory sessions: a restart drops every tunnel and clients re-establish t
   refuses it; any other value fails the render. The `azp` pin (`hub.allowedAZP`) stays.
 - The hub image must contain the audience check (wg-tunnel `ztna-audience` merge commit or later). An older pin ignores
   both env vars, so `enforce` would only look enforced. `scripts/check-pins.py` (run by `scripts/staging-release`) fails
-  `enforce` on a tag listed in `release-policy.yaml` `pre_audience_hub_tags` and warns for `transition`. After the
-  release, the negative test (a downscoped main token POSTed to `wg.<domain>/v1/client/session` must give 401) is a hard
+  `enforce` on any tag that is not in the allowlist `release-policy.yaml` `audience_hub_tags` (fail closed: old main
+  builds, branch builds and unknown tags all fail) and warns for `transition`. When you re-pin the hub to the
+  ztna-audience merge commit or a descendant, add its tag to that list in the same change. After the release, the negative test (a downscoped main token POSTed to `wg.<domain>/v1/client/session` must give 401) is a hard
   gate before `staging-release --verified`.
 - Rollback: set `audienceMode: transition` (or re-pin the previous image). Reverting the realm change alone is not
   enough: `teknoir-cli` must keep `teknoir-ztna` in `optionalClientScopes` while tnctl >= 0.1.2 is in use (the scope

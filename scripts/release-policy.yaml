@@ -32,14 +32,10 @@ rollback_floor: "staging-20261017.3"   # first release with the release guard (.
 #   expires  YYYY-MM-DD, the date the exception ends
 exceptions: []
 
-# wg-hub image tags (prefixes) that predate the Keycloak audience check (wg-tunnel ztna-audience). A wg-hub that
-# renders KEYCLOAK_AUDIENCE_MODE=enforce on one of these fails the release lint; with transition it is a warning.
-# Every wg-hub pin before the ztna-audience merge is listed; a re-pin to the merge commit or later clears it.
-pre_audience_hub_tags:
-  - sha-37fe475
-  - sha-41a0c20
-  - sha-5772c6f
-  - sha-6c22125
-  - sha-6da242d
-  - sha-729e6e6
-  - sha-9c9bdae
+# wg-hub image tags that HAVE the Keycloak audience check (wg-tunnel ztna-audience): an allowlist, exact tags
+# without the digest. scripts/check-pins.py fails a wg-hub that renders KEYCLOAK_AUDIENCE_MODE=enforce on any tag not
+# listed here (fail closed: old main builds, branch builds and unknown tags all count as unchecked) and warns for
+# transition. Add a tag only after confirming the image was built from the ztna-audience merge commit or a descendant
+# of it (git merge-base --is-ancestor <merge> <sha> in wg-tunnel; the tag is sha-<first 7 of the commit>). Empty until
+# the ztna-audience PR is merged and its image is built and pinned.
+audience_hub_tags: []
