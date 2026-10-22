@@ -20,6 +20,10 @@ hub:
     # sets ztna.teknoir.org/hub-role, so after stage 2 the Service wg-hub has no endpoints (full ZTNA outage).
     # Gate for stage 2: the live stage-1 pod shows hub-role=leader.
     tag: "sha-9c9bdae@sha256:f9bf658fc8c993054ce2a4cda35aa79d3b7a894ac78ee887136dcdcfdca08c63"
+    # Set to true TOGETHER WITH the repin above, and only when the image is built from wg-tunnel with leader
+    # election (it sets ztna.teknoir.org/hub-role). Stage 2 refuses to render the leader Service without it,
+    # so an image that never labels a pod cannot leave wg-hub without endpoints.
+    leaderElection: false
     pullPolicy: IfNotPresent
   imagePullSecrets:
     - name: ghcr-token
@@ -33,9 +37,13 @@ hub:
     enabled: true
     lease: wg-hub
     # A leader survives an API server outage up to renewDeadline; a crashed leader's lease is
-    # taken over after leaseDuration, a released one within retryPeriod.
-    leaseDuration: 60s
-    renewDeadline: 45s
+    # taken over after leaseDuration, a released one within retryPeriod. The long timings are for
+    # the single-node vpro (k3s restarts of a minute or two are routine): a longer API outage drops
+    # every session, today's hub rides it out on cached informers. A pod or node loss then takes up
+    # to leaseDuration before the standby serves, about the 80-140 s the agents need anyway
+    # (deadLimit). Faster failover (60s/45s) needs Anders' acceptance (plans/ztna-later.md, hub-ha).
+    leaseDuration: 120s
+    renewDeadline: 110s
     retryPeriod: 2s
     # A stepping-down leader waits this long for the other replica to take the lease (not with
     # one replica), then handoverSettle for EndpointSlice, mesh and DNS to follow, then tells the devices.

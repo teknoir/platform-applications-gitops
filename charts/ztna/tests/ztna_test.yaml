@@ -157,10 +157,10 @@ tests:
           content: {name: LEADER_ELECTION, value: wg-hub}
       - contains:
           path: spec.template.spec.containers[0].env
-          content: {name: LEASE_DURATION, value: 60s}
+          content: {name: LEASE_DURATION, value: 120s}
       - contains:
           path: spec.template.spec.containers[0].env
-          content: {name: RENEW_DEADLINE, value: 45s}
+          content: {name: RENEW_DEADLINE, value: 110s}
       - contains:
           path: spec.template.spec.containers[0].env
           content: {name: RETRY_PERIOD, value: 2s}

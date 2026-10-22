@@ -55,7 +55,10 @@ and the admission policies against a throwaway local apiserver).
 - **Hub replicas (hub-ha, plans/ztna-later.md).** The hub keeps every session in memory, so replicas are
   active-passive: they campaign for the Lease `wg-hub` (`hub.leaderElection`, env `LEADER_ELECTION`, `POD_NAME`,
   `LEASE_DURATION`, `RENEW_DEADLINE`, `RETRY_PERIOD`, `HANDOVER_WAIT`, `HANDOVER_SETTLE`), the leader serves and the
-  others are ready hot standbys that answer 503. Each pod labels itself `ztna.teknoir.org/hub-role: leader|standby` and
+  others are ready hot standbys that answer 503. The timings are long on purpose (`leaseDuration` 120s, `renewDeadline`
+  110s): a k3s API outage over `renewDeadline` makes the leader step down and drop all sessions, and vpro is a single
+  node whose k3s restarts take a minute or two. `hub.image.leaderElection` must be set to `true` together with the
+  image pin, once the image is built from wg-tunnel with leader election. Each pod labels itself `ztna.teknoir.org/hub-role: leader|standby` and
   sets `controller.kubernetes.io/pod-deletion-cost` (100 or 0). **Stage 1 (this state):** one replica (`hub.replicas`
   only sets `HANDOVER_WAIT`: `0s` with one replica, else `10s`), nothing selects on the role label yet; Service
   `wg-hub-pods` (headless, UDP 51820, `publishNotReadyAddresses`, selector name + component `hub`, so not the pull
