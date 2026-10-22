@@ -127,6 +127,17 @@ def schedule_body(sch, params):
     return {"schedule": {"type": "Custom", "cron": sch}, "parameters": params}
 
 
+def same_param(have, key, want):
+    """A schedule parameter as Harbor returns it. Harbor leaves out a parameter that is false/empty
+    (GC does not return `dry_run: false`; v2.14.3), so a missing key equals a falsy wanted value."""
+    if key not in have:
+        return not want
+    cur = have[key]
+    if isinstance(want, bool) or isinstance(cur, bool):
+        return cur is want
+    return str(cur) == str(want)
+
+
 def ensure_schedule(name, path, cron, params):
     have = call("GET", path) or {}
     cur = (have.get("schedule") or {}).get("cron")
@@ -141,7 +152,7 @@ def ensure_schedule(name, path, cron, params):
     if not cur:
         call("POST", path, body)
         log(f"{name}: scheduled '{cron}'")
-    elif cur != cron or any(cur_params.get(k) != v for k, v in params.items()):
+    elif cur != cron or any(not same_param(cur_params, k, v) for k, v in params.items()):
         call("PUT", path, body)
         log(f"{name}: updated to '{cron}'")
 
@@ -301,9 +312,35 @@ def retention_body(policy, project_id):
 
 
 def same_retention(have, want):
+    """True when Harbor's policy `have` is what `want` (retention_body) asks for.
+
+    Compares the fields harbor-config sets, in the spelling-independent form, because Harbor does
+    not return what it was sent (v2.14.3): `params` is omitted for the `always` template (sent as
+    {}), `disabled: false` is omitted, `trigger.settings` gains next_scheduled_time, and the
+    selector `extras` is a JSON string. Param values compare as text (15 == "15"), `extras` as
+    parsed JSON; a real change to any compared field is still a difference."""
+    def jval(v):
+        try:
+            return json.loads(v) if isinstance(v, str) and v else (v or {})
+        except ValueError:
+            return v
+
+    def sel(s):
+        return {"kind": s.get("kind"), "decoration": s.get("decoration"), "pattern": s.get("pattern"),
+                "extras": jval(s.get("extras"))}
+
+    def rule(r):
+        return {"action": r.get("action") or "retain", "disabled": bool(r.get("disabled")),
+                "template": r.get("template"),
+                "params": {k: str(v) for k, v in (r.get("params") or {}).items()},
+                "tag_selectors": sorted((sel(s) for s in r.get("tag_selectors") or []), key=json.dumps),
+                "scope_selectors": {k: sorted((sel(s) for s in v or []), key=json.dumps)
+                                    for k, v in (r.get("scope_selectors") or {}).items()}}
+
     def norm(p):
-        return json.dumps({"rules": [{k: r.get(k) for k in ("template", "params", "tag_selectors", "scope_selectors")}
-                                     for r in p.get("rules", [])],
+        return json.dumps({"algorithm": p.get("algorithm") or "or",
+                           "rules": [rule(r) for r in p.get("rules") or []],
+                           "kind": (p.get("trigger") or {}).get("kind"),
                            "cron": ((p.get("trigger") or {}).get("settings") or {}).get("cron")}, sort_keys=True)
     return norm(have) == norm(want)
 
