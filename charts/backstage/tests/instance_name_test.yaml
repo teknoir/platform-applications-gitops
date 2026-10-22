@@ -81,27 +81,25 @@ tests:
         documentIndex: 1
       - equal: {path: 'subjects[0].name', value: backstage-next-api}
         documentIndex: 1
-      - equal: {path: metadata.name, value: backstage-next-api-teknoir-admin-rolebinding}
-        documentIndex: 2
-      - equal: {path: 'subjects[0].name', value: backstage-next-api}
-        documentIndex: 2
-      - equal: {path: roleRef.name, value: teknoir-admin}
-        documentIndex: 2
+      # teknoir-admin is no longer bound; the teamspace role follows the instance name and has no binding here
+      - hasDocuments: {count: 3}
       - equal: {path: metadata.name, value: backstage-next-api-teamspace}
-        documentIndex: 3
+        documentIndex: 2
+      - equal: {path: kind, value: ClusterRole}
+        documentIndex: 2
 
-  - it: lets the API read and write robots, robot models and fleets, and read events
+  - it: lets the API read and write robots, robot models and fleets inside a teamspace, and read events
     template: templates/rbac.yaml
-    documentIndex: 0
+    documentIndex: 2
     asserts:
       - contains: {path: 'rules[0].resources', content: robots}
       - contains: {path: 'rules[0].resources', content: robottypes}
       - contains: {path: 'rules[0].resources', content: deviceapplicationsets}
       - contains: {path: 'rules[0].verbs', content: patch}
       - contains: {path: 'rules[0].verbs', content: delete}
-      - contains: {path: 'rules[2].resources', content: robots/status}
-      - contains: {path: 'rules[3].resources', content: events}
-      - notContains: {path: 'rules[3].resources', content: secrets}
+      - contains: {path: 'rules[1].resources', content: robots/status}
+      - contains: {path: 'rules[7].resources', content: events}
+      - notContains: {path: 'rules[7].resources', content: secrets}
 
   - it: points postgres policies, StatefulSet and the app database at the renamed postgres
     set: {name: backstage-next}

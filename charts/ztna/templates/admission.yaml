@@ -1,7 +1,7 @@
 {{- /*
 ValidatingAdmissionPolicies (Kubernetes 1.30+, r415 runs 1.34) that protect the policy store and
-the hub. Backstage's service account has cluster-wide teknoir-admin (ConfigMaps, Secrets, exec),
-so RBAC alone does not keep a compromised UI out of the access policy.
+the hub. Backstage's service account can write Devices and Users in every teamspace, so RBAC alone
+does not keep a compromised UI out of the access policy.
 
   ztna-policy-store:  - ConfigMaps labelled ztna.teknoir.org/policy (or named ztna-policy-*):
                         only device-controller's service account may create, update or delete them;
@@ -34,14 +34,50 @@ so RBAC alone does not keep a compromised UI out of the access policy.
                       leadership and with it the sessions.
   ztna-no-token-mint: serviceaccounts/token (TokenRequest) for wg-hub, wg-flags and the terminal
                       accounts (wgt-*) only by the kubelet (system:node:*) and kube-system.
-
-Accepted risk (plan "Rev 3 changes"): these policies check request.userInfo.username. A caller that
-may impersonate ServiceAccounts (the Backstage SA holds cluster-wide teknoir-admin) can still stand
-in for an allowed identity. The policies close the direct routes; scoping that binding per
-teamspace is a platform follow-up.
   ztna-no-exec:       nobody may exec into, attach to, port-forward to or add ephemeral
                       containers to pods in teknoir-ztna and stunner-system (the hub holds the
                       session keys in memory, stunnerd the TURN secret).
+
+  ztna-backstage-identities: the Backstage service account may not create or change a User whose spec.email is
+                      not a plain e-mail address (lower-cased: [a-z0-9._%+-]+@[a-z0-9.-]+, so no ':', space, quote,
+                      '#' or line break), nor a Profile whose owner is not a User with such an address: the
+                      controllers render role bindings from those names with text templates, verbatim. It also may
+                      not create a Profile with spec.plugins or spec.resourceQuotaSpec, nor change either on an
+                      existing Profile: profile-controller writes each plugin's `values` verbatim into the
+                      teamspace's ArgoCD Application helm values, and the emqx subchart renders initContainers,
+                      extraVolumes and containerSecurityContext from them, a third way to a privileged pod.
+
+Backstage's service account (backstage.serviceAccount) holds no impersonate, pod, exec, secret-list or RBAC rights
+(charts/backstage templates/rbac.yaml; its teamspace rights are a RoleBinding per teamspace written by
+profile-controller, and in this namespace it may only get Deployments). It can still write Users and Profiles, and
+user-controller and profile-controller turn those into role bindings (teknoir-admin for a Profile's owner), so
+ztna-backstage-identities stops it from naming itself, a service account or a group there, and from touching
+spec.plugins (the Helm values route) and spec.resourceQuotaSpec; Backstage writes neither (create_profile.ts sends only
+spec.owner, the Profile update validator carries over metadata annotations and labels only), so no flow breaks. Four things
+remain, as ACCEPTED RISKS, and it is NOT true that a compromised Backstage cannot run code or act as someone else:
+  - it can make any e-mail address, its own included, an owner of a teamspace (the create-Profiles right itself);
+  - it may write Devstudios and Notebooks, and their controllers run spec.image in a privileged container, so it
+    can run any image privileged in any teamspace (as can teamspace developers). An image allowlist is a named
+    follow-up for Anders to decide ("teamspace image allowlist", plans/ztna-later.md);
+  - it may write Devices and DeviceApplicationSets, and device-controller runs a virtual Device as a privileged
+    Deployment (image ghcr.io/teknoir/virtual-device:<spec version>) into which any HelmChart can be deployed. That
+    is a second privileged route to the node, which the image allowlist above does NOT close (follow-up "virtual
+    device / DeviceApplicationSet workloads").
+  - it can reset any user's Keycloak password and set claims_v0: user-controller's Keycloak plugin
+    (plugin_keycloak.go) hard-sets the password of an existing user (not temporary) whenever a User has
+    spec.initial_password, and copies claims_v0 into Keycloak user attributes. Backstage writes initial_password on
+    purpose (validator-update-user.ts), so a compromised Backstage can sign in as a platform superadmin in the master
+    realm (ArgoCD role:admin through the Keycloak groups admin/argocd-admins, Harbor, the hub). ztna-backstage-identities
+    checks only spec.email. Follow-up for Anders to decide ("user password / claims route", plans/ztna-later.md): a policy
+    that denies backstage-api setting spec.initial_password or claims_v0 on Users whose claims_v0.role is superadmin,
+    or user-controller setting temporary passwords (UPDATE_PASSWORD).
+So the goal "cannot bypass the admission policies" is only PARTLY met: the direct routes (impersonation, pods, exec,
+Secrets, RBAC, teknoir-admin through a User or Profile, Helm values through Profile plugins) are closed, the two
+privileged-workload routes through Devstudio/Notebook images and virtual Devices and the Keycloak password/claims
+route through Users are not.
+The two username exemptions for it (ztna-device-annotations, ztna-user-org-annotations) are deliberate: Backstage
+applies the org gate and the end user's SubjectAccessReview before it writes. The policies check
+request.userInfo.username, so they are only as strong as the right to become another identity.
 
 ArgoCD is not affected: the policy and identity ConfigMaps are not in Git, so ArgoCD never writes
 them, and Argo's own resources here are no ConfigMaps at all. Namespace teardown is: the namespace
@@ -490,4 +526,103 @@ metadata:
     {{- include "ztna.hubLabels" . | nindent 4 }}
 spec:
   policyName: ztna-user-org-annotations
+  validationActions: ["Deny", "Audit"]
+---
+{{- /*
+ztna-backstage-identities: keeps the Backstage service account from turning its right to write Users and Profiles
+into teknoir-admin (or any other role) for ITSELF. Both controllers bind a role to a name taken verbatim from the
+object: user-controller writes a RoleBinding to teknoir-admin (or the claim set's role) for `kind: User, name:
+<spec.email>`, and profile-controller binds teknoir-admin in the new teamspace to `spec.owner`. Without this policy
+a User with spec.email `system:serviceaccount:teknoir-system:backstage-api`, or a Profile whose owner is that
+service account (kind ServiceAccount, or the Group system:serviceaccounts:teknoir-system), gives the service
+account teknoir-admin: pods, exec, impersonation and Secrets in that namespace. For requests from the Backstage
+service account only (matchConditions):
+  - a User's spec.email must match the strict pattern ^[a-z0-9._%+-]+@[a-z0-9.-]+$ (after lowerAscii);
+  - a Profile's spec.owner must be `kind: User` with a name matching the same pattern.
+The pattern is deliberately an allowlist, not "contains '@' and no `system:` prefix": user-controller renders its
+RoleBinding (`name: <usermail>`, internal/plugins/k8s/namespace_user_role_binding.go) and its
+AuthorizationPolicy (userIdHeaderValue) from text templates without escaping, so an e-mail with a line break,
+`:`, quote, space or `#` can inject a second `name:` key (the last one wins) and still contain an '@'.
+Reproduced with the real template and decoder; the injected name system:serviceaccount:teknoir-system:backstage-api
+came out as the RoleBinding's subject. Follow-up (user-controller): build both objects as structs, or quote with
+toJson, so the controller no longer trusts the string.
+Every legitimate flow uses an e-mail address (create_profile.ts, the Members page). Everyone else is unaffected.
+Profile spec.plugins: profile-controller unmarshals each plugin's `values` (plugin_emqx.go) and writes them verbatim
+into the teamspace ArgoCD Application's helm values; the emqx subchart renders `initContainers`, `extraVolumes` and
+`containerSecurityContext` from them, and the teamspace has no Pod Security labels. So a Profile create or patch with
+emqx.initContainers set privileged plus a hostPath mount would put a pod on the node. For requests from the Backstage
+service account only: a CREATE must carry no (or an empty) spec.plugins and spec.resourceQuotaSpec, and an UPDATE must
+leave both exactly as they were (absent counts as empty, so `plugins: []` on create still passes; the status
+subresource and metadata-only changes such as annotations, labels and finalizers are not affected).
+What is NOT closed: Backstage can still make any e-mail address, its own included, an owner of a teamspace (that
+is the "create Profiles" right itself; the README lists it). Break-glass as for the other policies.
+*/}}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: ztna-backstage-identities
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["teknoir.org"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["users", "profiles"]
+  matchConditions:
+    - name: from-backstage
+      expression: "request.userInfo.username == {{ .Values.backstage.serviceAccount | squote }}"
+  variables:
+    - name: email
+      expression: >-
+        (request.resource.resource == 'users' && has(object.spec) && has(object.spec.email)) ? object.spec.email : ''
+    - name: owner
+      expression: >-
+        (request.resource.resource == 'profiles' && has(object.spec) && has(object.spec.owner) && has(object.spec.owner.name)) ?
+          object.spec.owner.name : ''
+    - name: ownerKind
+      expression: >-
+        (request.resource.resource == 'profiles' && has(object.spec) && has(object.spec.owner) && has(object.spec.owner.kind)) ?
+          object.spec.owner.kind : ''
+    # spec.plugins and spec.resourceQuotaSpec as they are now and as they were (absent = empty)
+    - name: newPlugins
+      expression: >-
+        (has(object.spec) && has(object.spec.plugins)) ? object.spec.plugins : []
+    - name: oldPlugins
+      expression: >-
+        (oldObject != null && has(oldObject.spec) && has(oldObject.spec.plugins)) ? oldObject.spec.plugins : []
+    - name: newQuota
+      expression: >-
+        (has(object.spec) && has(object.spec.resourceQuotaSpec)) ? object.spec.resourceQuotaSpec : {}
+    - name: oldQuota
+      expression: >-
+        (oldObject != null && has(oldObject.spec) && has(oldObject.spec.resourceQuotaSpec)) ? oldObject.spec.resourceQuotaSpec : {}
+  validations:
+    - expression: >-
+        request.resource.resource != 'users' ||
+        variables.email.lowerAscii().matches('^[a-z0-9._%+-]+@[a-z0-9.-]+$')
+      message: "a User's spec.email must be a plain e-mail address ([a-z0-9._%+-]+@[a-z0-9.-]+, no ':', space, quote, '#' or line break): the controllers render role bindings from that text"
+      reason: Forbidden
+    - expression: >-
+        request.resource.resource != 'profiles' ||
+        (variables.ownerKind == 'User' && variables.owner.lowerAscii().matches('^[a-z0-9._%+-]+@[a-z0-9.-]+$'))
+      message: "a Profile's spec.owner must be kind User with a plain e-mail address ([a-z0-9._%+-]+@[a-z0-9.-]+, no ':', space, quote, '#' or line break): profile-controller binds teknoir-admin to it"
+      reason: Forbidden
+    - expression: >-
+        request.resource.resource != 'profiles' ||
+        (request.operation == 'CREATE' ? (size(variables.newPlugins) == 0 && size(variables.newQuota) == 0) :
+          (variables.newPlugins == variables.oldPlugins && variables.newQuota == variables.oldQuota))
+      message: "a Profile's spec.plugins and spec.resourceQuotaSpec are not written by the Backstage service account: profile-controller turns plugin values into Helm values of the teamspace, including initContainers and hostPath volumes"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: ztna-backstage-identities-binding
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+spec:
+  policyName: ztna-backstage-identities
   validationActions: ["Deny", "Audit"]

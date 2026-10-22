@@ -38,3 +38,13 @@ exceptions: []
 # of it (git merge-base --is-ancestor <merge> <sha> in wg-tunnel; the tag is sha-<first 7 of the commit>). Empty until
 # the ztna-audience PR is merged and its image is built and pinned.
 audience_hub_tags: [sha-a2478da]
+
+# profile-controller image tags (exact, without the digest) that contain the portal code: the RoleBinding teknoir-portal
+# per teamspace (profile-controller branch backstage-sa-teamspace-binding, commits 1c951a6 'Bind the portal service
+# account into each teamspace' and 0013a6d 'Replace a RoleBinding whose roleRef changed instead of updating it', or
+# their merge). scripts/check-pins.py fails a render in which a portal service account (config.portal.serviceAccounts of
+# charts/profile-controller) has lost its teknoir-admin ClusterRoleBinding (backstage-sa R2) while the pinned
+# profile-controller tag is not listed here (fail closed). Add a tag only after confirming the image was built from a
+# commit that has both (git merge-base --is-ancestor <commit> <sha> in profile-controller; the tag is sha-<first 8 of
+# the commit>). sha-cb7ce1af is the merge of profile-controller #218 (both commits are ancestors).
+portal_profile_controller_tags: [sha-cb7ce1af]

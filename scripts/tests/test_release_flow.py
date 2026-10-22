@@ -265,6 +265,183 @@ class Release(Base):
         self.assertTrue([c for c, _ in fake.calls if c[:3] == ["gh", "release", "edit"] and any(L.ROLLED_BACK_MARK in x for x in c)])
 
 
+class PortalBindings(Base):
+    """A release that removes the teknoir-admin ClusterRoleBinding of the Backstage API service account (backstage-sa R2)
+    is refused unless every teamspace has the RoleBinding teknoir-portal (read-only check, again under --yes)."""
+    SA = "teknoir-system/backstage-api"
+    ROLE = "backstage-api-teamspace"
+
+    def crb(self):
+        return {"kind": "ClusterRoleBinding", "metadata": {"name": "backstage-api-teknoir-admin-rolebinding"},
+                "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": "teknoir-admin"},
+                "subjects": [{"kind": "ServiceAccount", "name": "backstage-api", "namespace": "teknoir-system"}]}
+
+    def cm(self, sas=SA, role=ROLE):
+        data = {"DOMAIN": "teknoir.cloud"}
+        if sas:
+            data["PORTAL_SERVICE_ACCOUNTS"] = sas
+        if role:
+            data["PORTAL_TEAMSPACE_CLUSTERROLE"] = role
+        return {"kind": "ConfigMap", "metadata": {"name": "profile-controller-config"}, "data": data}
+
+    def binding(self, ns, role=ROLE, sas=(SA,), kind="ClusterRole"):
+        return {"metadata": {"name": "teknoir-portal", "namespace": ns}, "roleRef": {"kind": kind, "name": role},
+                "subjects": [{"kind": "ServiceAccount", "namespace": s.split("/")[0], "name": s.split("/")[1]} for s in sas]}
+
+    def controller(self, tag="sha-1234abcd"):
+        return {"kind": "Deployment", "metadata": {"name": "profile-controller", "namespace": "teknoir-system"},
+                "spec": {"template": {"spec": {"containers": [{"name": "manager", "image": f"ghcr.io/teknoir/profile-controller:{tag}@sha256:" + "a" * 64}]}}}}
+
+    def fake(self, *, live_has_crb=True, cand_has_crb=False, cm=True, profiles=("ts-a", "ts-b"), bound=("ts-a", "ts-b"), **kw):
+        f = H.FakeSys(self.root_pinned("c2"), **kw)
+        if live_has_crb:
+            f.extra_docs.setdefault(self.repo.sha("c2"), {})["crb.yaml"] = self.crb()
+        if cand_has_crb:
+            f.extra_docs.setdefault(self.repo.sha("c4"), {})["crb.yaml"] = self.crb()
+        if cm:
+            f.extra_docs.setdefault(self.repo.sha("c4"), {})["cm.yaml"] = self.cm()
+        f.extra_docs.setdefault(self.repo.sha("c4"), {})["pc.yaml"] = self.controller()
+        f.profiles = list(profiles)
+        f.rolebindings = [self.binding(n) for n in bound]
+        return f
+
+    def plan_of(self):
+        return json.load(open(L.plan_path(self.cache, self.repo.sha("c4"))))
+
+    def test_all_teamspaces_bound_passes_and_is_recorded_in_the_plan(self):
+        fake = self.fake()
+        t, rc = self.plan(fake, self.repo.sha("c4"))
+        self.assertEqual(rc, 0, self.out_text())
+        self.assertEqual(self.plan_of()["portal_guard"], {"serviceAccounts": [self.SA], "clusterRole": self.ROLE})
+        self.assertIn("checking the teknoir-portal RoleBindings", self.out_text())
+        self.assertTrue(all(v == "get" for v in fake.verbs()), fake.verbs())
+
+    def test_an_image_without_the_portal_code_fails_the_dry_run_through_the_lint(self):
+        fake = self.fake()
+        fake.extra_docs[self.repo.sha("c4")]["pc.yaml"] = self.controller("sha-fd269839")
+        t, rc = self.plan(fake, self.repo.sha("c4"))
+        self.assertEqual(rc, 1)
+        self.assertIn("portal-controller-unchecked", self.out_text())
+        self.assertIn("sha-fd269839", self.out_text())
+        with self.assertRaisesRegex(L.Refuse, "preflight errors"):
+            self.tool(fake).cmd_yes(self.args(yes=self.repo.sha("c4"), by="s", reason="r", timeout=60))
+
+    def test_a_teamspace_without_the_binding_fails_the_dry_run_and_yes(self):
+        fake = self.fake(bound=("ts-a",))
+        t, rc = self.plan(fake, self.repo.sha("c4"))
+        self.assertEqual(rc, 1)
+        self.assertIn("1 of 2 teamspaces lack its RoleBinding teknoir-portal", self.out_text())
+        self.assertIn("ts-b: no RoleBinding teknoir-portal", self.out_text())
+        with self.assertRaisesRegex(L.Refuse, "preflight errors"):
+            self.tool(fake).cmd_yes(self.args(yes=self.repo.sha("c4"), by="s", reason="r", timeout=60))
+        self.assertEqual(fake.root["spec"]["source"]["targetRevision"], self.repo.sha("c2"))
+
+    def test_a_binding_with_the_wrong_role_or_without_the_service_account_does_not_count(self):
+        for bad, text in ((self.binding("ts-b", role="teknoir-admin"), "references ClusterRole/teknoir-admin"),
+                          (self.binding("ts-b", kind="Role"), "references Role/"),
+                          (self.binding("ts-b", sas=("teknoir-system/other",)), "lacks teknoir-system/backstage-api")):
+            self.out.clear()
+            fake = self.fake(bound=("ts-a",))
+            fake.rolebindings.append(bad)
+            t, rc = self.plan(fake, self.repo.sha("c4"))
+            self.assertEqual(rc, 1, text)
+            self.assertIn(text, self.out_text())
+
+    def test_a_profile_created_after_the_dry_run_stops_yes_before_anything_changes(self):
+        fake = self.fake()
+        self.plan(fake, self.repo.sha("c4"))
+        fake.profiles.append("ts-new")
+        with self.assertRaisesRegex(L.Refuse, "ts-new: no RoleBinding teknoir-portal"):
+            self.tool(fake).cmd_yes(self.args(yes=self.repo.sha("c4"), by="s", reason="r", timeout=60))
+        self.assertEqual(fake.root["spec"]["source"]["targetRevision"], self.repo.sha("c2"))
+        self.assertEqual(self.remote_tags(), [])
+        self.assertNotIn("create", fake.verbs())
+
+    def test_yes_applies_when_the_teamspaces_are_bound(self):
+        fake = self.fake()
+        self.plan(fake, self.repo.sha("c4"))
+        rc = self.tool(fake).cmd_yes(self.args(yes=self.repo.sha("c4"), by="s", reason="r", timeout=60))
+        self.assertEqual(rc, 0, self.out_text())
+        self.assertEqual(fake.root["spec"]["source"]["targetRevision"], self.repo.sha("c4"))
+
+    def test_the_check_runs_again_under_the_lease(self):
+        fake = self.fake()
+        self.plan(fake, self.repo.sha("c4"))
+        t = self.tool(fake)
+        calls = {"n": 0}
+        orig = t.portal_binding_problems
+
+        def flaky(expect):
+            calls["n"] += 1
+            if calls["n"] == 2:                     # between the first check and the one under the Lease
+                fake.profiles.append("ts-late")
+            return orig(expect)
+        t.portal_binding_problems = flaky
+        with self.assertRaisesRegex(L.Refuse, "ts-late"):
+            t.cmd_yes(self.args(yes=self.repo.sha("c4"), by="s", reason="r", timeout=60))
+        self.assertEqual(calls["n"], 2)
+        self.assertEqual(fake.root["spec"]["source"]["targetRevision"], self.repo.sha("c2"))
+        self.assertEqual(self.remote_tags(), [])
+        self.assertFalse(fake.lease["spec"].get("holderIdentity"))
+
+    def test_no_check_when_the_binding_stays_or_was_never_there(self):
+        for kw in ({"live_has_crb": True, "cand_has_crb": True}, {"live_has_crb": False}):
+            self.out.clear()
+            fake = self.fake(profiles=("ts-a",), bound=(), **{k: v for k, v in kw.items()})
+            t, rc = self.plan(fake, self.repo.sha("c4"))
+            self.assertEqual(rc, 0, (kw, self.out_text()))
+            self.assertIsNone(self.plan_of()["portal_guard"])
+            self.assertNotIn("checking the teknoir-portal", self.out_text())
+
+    def test_removal_without_portal_settings_in_the_candidate_fails(self):
+        fake = self.fake(cm=False)
+        t, rc = self.plan(fake, self.repo.sha("c4"))
+        self.assertEqual(rc, 1)
+        self.assertIn("does not set config.portal", self.out_text())
+        fake = self.fake(cm=False)
+        fake.extra_docs[self.repo.sha("c4")] = {"cm.yaml": self.cm(sas="", role=ROLE_X)} if False else {"cm.yaml": self.cm(sas="", role=self.ROLE)}
+        self.out.clear()
+        t, rc = self.plan(fake, self.repo.sha("c4"))
+        self.assertEqual(rc, 1)
+
+    def test_unreadable_profiles_fail_closed(self):
+        fake = self.fake()
+        fake.profiles_unreadable = True
+        t, rc = self.plan(fake, self.repo.sha("c4"))
+        self.assertEqual(rc, 1)
+        self.assertIn("could not read the Profiles", self.out_text())
+
+    def test_without_a_live_render_the_live_cluster_decides(self):
+        fake = self.fake(live_has_crb=False)
+        fake.render_fail = {self.repo.sha("c2")}
+        fake.clusterrolebindings = [self.crb()]
+        fake.profiles, fake.rolebindings = ["ts-a"], []
+        t, rc = self.plan(fake, self.repo.sha("c4"))
+        self.assertEqual(rc, 1)
+        self.assertIn("ts-a: no RoleBinding teknoir-portal", self.out_text())
+        fake.clusterrolebindings = []
+        self.out.clear()
+        t, rc = self.plan(fake, self.repo.sha("c4"))
+        self.assertEqual(rc, 0, self.out_text())
+
+    def test_gaps_unit(self):
+        expect = {"serviceAccounts": [self.SA], "clusterRole": self.ROLE}
+        profiles = [{"metadata": {"name": "a"}}, {"metadata": {"name": "gone", "deletionTimestamp": "2026-10-22T00:00:00Z"}}]
+        self.assertEqual(SR.portal_binding_gaps(expect, profiles, [self.binding("a")]), [])
+        self.assertEqual(SR.portal_binding_gaps(expect, profiles, [self.binding("other")]), ["a: no RoleBinding teknoir-portal"])
+        other_name = self.binding("a")
+        other_name["metadata"]["name"] = "something-else"
+        self.assertEqual(SR.portal_binding_gaps(expect, profiles, [other_name]), ["a: no RoleBinding teknoir-portal"])
+
+    def test_admin_bindings_only_counts_the_backstage_api_binding_to_teknoir_admin(self):
+        other = self.crb()
+        other["metadata"]["name"] = "something-teknoir-admin-rolebinding"
+        edit = self.crb()
+        edit["roleRef"]["name"] = "edit"
+        self.assertEqual(SR.admin_bindings([("", self.crb()), ("", other), ("", edit)]),
+                         {"backstage-api-teknoir-admin-rolebinding": [self.SA]})
+
+
 class IdentityAndGuards(Base):
     def test_the_fake_refuses_an_unknown_serviceaccount(self):
         fake = H.FakeSys(self.root_pinned("c2"), releaser_installed=False)

@@ -57,6 +57,11 @@ ci:
 # The next.teknoir.cloud preview instance. Off since the UI cut-over (release B, 2026-10-17): the next-gen pages
 # run on the main backstage Application, and next.teknoir.cloud redirects there (charts/backstage
 # config.redirectHosts, set in templates/backstage.yaml).
+# Enabling it also needs its API service account in the teamspaces: add teknoir-system/backstage-next-api to
+# config.portal.serviceAccounts in charts/profile-controller/values.yaml (profile-controller binds every listed account to
+# the ONE config.portal.clusterRole, so that role must be one this instance may use: backstage-api-teamspace, rendered by
+# the main backstage chart, or the instance's own backstage-next-api-teamspace). Without it the instance has no rights in
+# any teamspace once the teknoir-admin binding is gone (backstage-sa R2).
 backstageNext:
   enabled: false
 

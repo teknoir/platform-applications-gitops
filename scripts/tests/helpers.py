@@ -66,6 +66,7 @@ class Repo:
         with open(os.path.join(SCRIPTS, "release-policy.yaml")) as src, open(os.path.join(self.work, "scripts", "release-policy.yaml"), "w") as dst:
             text = re.sub(r"(?m)^rollback_floor:.*$", 'rollback_floor: ""', src.read())
             text = re.sub(r"(?m)^cr_revisions:.*$", "cr_revisions: warn", text)
+            text = re.sub(r"(?m)^portal_profile_controller_tags:.*$", 'portal_profile_controller_tags: ["sha-1234abcd"]', text)
             dst.write(re.sub(r"(?m)^images:.*$", "images: warn", text))   # the fixture baseline; tests set deny themselves
         self.c["c1"] = self.commit("c1", "README", "1")
         self.c["c2"] = self.commit("c2", "README", "2")
@@ -158,6 +159,12 @@ class FakeSys(L.Sys):
         self.unreadable_after_patch_fail = False
         self.releaser_can_i = True
         self.guard_binding = None            # a dict (the binding's spec) when the guard is installed
+        self.extra_docs = {}                 # release sha -> {file name: manifest} added to that render (apps/<name>.yaml)
+        self.profiles = []                   # Profile names (cluster scoped, namespace = name)
+        self.rolebindings = []               # RoleBinding objects (all namespaces)
+        self.clusterrolebindings = []        # ClusterRoleBinding objects
+        self.profiles_unreadable = False
+        self.render_fail = set()             # release shas whose render fails
 
     # clock
     def now(self):
@@ -206,6 +213,15 @@ class FakeSys(L.Sys):
                 return out(self.metrics)
             if rest[0] in ("serviceaccount", "rolebinding"):
                 return out({"metadata": {"name": rest[1]}}) if self.releaser_installed else out("", 1, "NotFound")
+            if rest[0] == "profiles.teknoir.org":
+                if self.profiles_unreadable:
+                    return out("", 1, "Error from server (Forbidden): profiles.teknoir.org is forbidden")
+                return j({"items": [{"metadata": {"name": n}} for n in self.profiles]})
+            if rest[0] == "rolebindings":
+                assert "-A" in rest and any(x.startswith("--field-selector=metadata.name=") for x in rest), rest
+                return j({"items": self.rolebindings})
+            if rest[0] == "clusterrolebindings":
+                return j({"items": self.clusterrolebindings})
             if rest[0] == "namespaces":
                 return out("namespace/teknoir-system\n")
             if rest[0] == "namespace":
@@ -307,6 +323,8 @@ class FakeSys(L.Sys):
     def _render(self, argv):
         g = lambda flag: argv[argv.index(flag) + 1] if flag in argv else None
         out, sha = g("--out"), g("--release")
+        if sha in self.render_fail:
+            return L.Result(1, "", "helm template failed")
         os.makedirs(os.path.join(out, "apps"), exist_ok=True)
         os.makedirs(os.path.join(out, "plugins"), exist_ok=True)
         with open(os.path.join(out, "root.yaml"), "w") as fh:
@@ -317,6 +335,9 @@ class FakeSys(L.Sys):
             with open(os.path.join(out, "apps", f"{n}.yaml"), "w") as fh:
                 fh.write(json.dumps({"kind": "Deployment", "metadata": {"name": n, "namespace": "teknoir-system"},
                                      "spec": {"template": {"spec": {"containers": [{"name": "c", "image": "ghcr.io/teknoir/x:t@sha256:" + "a" * 64}]}}}}))
+        for fname, doc in (self.extra_docs.get(sha) or {}).items():
+            with open(os.path.join(out, "apps", fname), "w") as fh:
+                fh.write(json.dumps(doc))
         with open(os.path.join(out, "apps.tsv"), "w") as fh:
             fh.write("".join(f"{n}\tcharts/{n}\tns\n" for n in names))
         with open(os.path.join(out, "plugins.json"), "w") as fh:

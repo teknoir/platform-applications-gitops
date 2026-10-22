@@ -5,7 +5,8 @@
 #   - the root render against a base ref (BASE=origin/teknoir-cloud, default): identical except for the removal of the
 #     fields ArgoCD's Go types drop (`sources: [ ]` on every child, monitoring's `group: ""`), see EXPECTED below
 #   - K3D=1: charts/release-guard/tests/k3d-guard-test.sh (impersonated identities) and k3d-argocd-real-test.sh (a real
-#     ArgoCD v3.5.1, real CLI and REST calls) against the throwaway cluster k3d-teknoir-dev
+#     ArgoCD v3.5.1, real CLI and REST calls) and charts/backstage/tests/k3d-rbac-test.sh (can-i matrix and the identity admission policy of the Backstage
+#     API service account) against the throwaway cluster k3d-teknoir-dev
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "${HERE}/../.." && pwd)"
@@ -45,9 +46,21 @@ PY
   git worktree remove --force "$TMP/base"
 fi
 
+# backstage-sa R2 removes teknoir-admin from the Backstage API service account. That is only safe once the pinned
+# profile-controller has the portal code (RoleBinding teknoir-portal per teamspace): this step FAILS the run while the pinned
+# tag is not listed in release-policy.yaml portal_profile_controller_tags (scripts/check-pins.py check_portal_binding).
+# scripts/staging-release also runs the same check on every dry run and --yes (lint), plus a live check of the Profiles.
+echo "== portal guard: the pinned profile-controller has the portal code once the Backstage API service account lost teknoir-admin"
+mkdir "$RUN_TMP/portal"
+helm template profile-controller charts/profile-controller --namespace teknoir-system > "$RUN_TMP/portal/profile-controller.yaml"
+helm template backstage charts/backstage --namespace teknoir-system > "$RUN_TMP/portal/backstage.yaml"
+python3 scripts/check-pins.py --only portal-controller-unchecked --project teknoir-online "$RUN_TMP/portal"
+
 if [[ "${K3D:-}" == "1" ]]; then
   echo "== release guard on k3d-teknoir-dev"
   charts/release-guard/tests/k3d-guard-test.sh
   echo "== release guard against a real ArgoCD on k3d-teknoir-dev (installs ArgoCD v3.5.1, removes it again)"
   charts/release-guard/tests/k3d-argocd-real-test.sh
+  echo "== Backstage API service account RBAC on k3d-teknoir-dev (rendered RBAC + a teknoir-portal RoleBinding, can-i matrix)"
+  charts/backstage/tests/k3d-rbac-test.sh
 fi

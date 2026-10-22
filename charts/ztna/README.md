@@ -94,7 +94,7 @@ not expose device keys.
 
 ## Admission policies (`templates/admission.yaml`)
 
-Backstage's service account has cluster-wide `teknoir-admin`, so RBAC alone does not protect the policy store.
+Backstage's service account can write Devices and Users in every teamspace, so RBAC alone does not protect the policy store.
 
 - `ztna-policy-store`: ConfigMaps labelled `ztna.teknoir.org/policy` or named `ztna-policy-*` are written only by
   `system:serviceaccount:teknoir-system:device-controller-service-account`; `ztna.teknoir.org/identity` or
@@ -131,11 +131,59 @@ Backstage's service account has cluster-wide `teknoir-admin`, so RBAC alone does
   renders no ConfigMap. **Namespace teardown**: the namespace controller deletes the ConfigMaps as itself, so DELETE is
   allowed while the namespace is `Terminating`. The Namespace itself carries `Prune=false,Delete=false`, so removing the
   Application never deletes the pinned identities.
-- **Accepted platform risk**: the policies match `request.userInfo.username`. Backstage's service account holds a
-  cluster-wide `teknoir-admin`, which includes impersonating ServiceAccounts, so a compromised Backstage can still stand in
-  for an allowed identity (for example to write `ztna-identity-*`). The policies close the direct routes only; scoping that
-  binding per teamspace (profile-controller RoleBindings) is a platform follow-up, and the ZTNA path cannot be stronger than
-  its control plane.
+- **Backstage cannot become another identity directly, but it is not harmless.** The policies match
+  `request.userInfo.username`, so they hold only while no caller can stand in for an allowed identity. Backstage's
+  service account has no `impersonate`, no pods, `pods/exec`, Secret list/read (two named Secrets per teamspace only),
+  `roles`/`rolebindings` or `serviceaccounts` right, no `teknoir-admin` and no `*` group: cluster-wide it manages
+  Profiles and Users and reads Devices, DeviceApplicationSets and claims (`backstage-api-resources-role`); inside a
+  teamspace it has the ClusterRole `backstage-api-teamspace` through a RoleBinding `teknoir-portal` that
+  profile-controller writes (and only in namespaces the Profile owns); in `teknoir-ztna` it may only `get`
+  Deployments (Role `backstage-api-hub-workloads`, this chart). The two username exemptions for it,
+  `ztna-device-annotations` and `ztna-user-org-annotations`, are deliberate: Backstage checks the end user
+  (SubjectAccessReview, org gate) before it writes; making the policy check the end user would need impersonation of
+  users and groups, a stronger right than the one removed.
+- `ztna-backstage-identities`: closes the route from "may write Users and Profiles" to teknoir-admin. user-controller
+  writes a RoleBinding for `kind: User, name: <spec.email>` and profile-controller binds `teknoir-admin` to a
+  Profile's `spec.owner` verbatim, and neither checks the name. For requests from the Backstage service account (only):
+  a User's `spec.email` must match `^[a-z0-9._%+-]+@[a-z0-9.-]+$` (after `lowerAscii`), and a Profile's owner must be
+  `kind: User` with a name matching the same pattern. So it cannot make itself
+  (`system:serviceaccount:teknoir-system:backstage-api`), `system:masters` or a service account group a teamspace
+  owner. The pattern is a strict allowlist on purpose: user-controller renders its RoleBinding
+  (`name: <usermail>`) and its AuthorizationPolicy from unescaped text templates, so an address with a line break,
+  `:`, quote, space or `#` can inject a second `name:` key (the last wins) and still contain an `@`; a check for
+  "has an `@`, no `system:` prefix" was bypassed that way (reproduced with the real template). Follow-up for
+  user-controller: build both objects as structs, or quote with `toJson`. It also closes a third privileged-workload
+  route, **Profile `spec.plugins`**: profile-controller unmarshals each plugin's `values` (`plugin_emqx.go`) and writes them
+  verbatim into the teamspace's ArgoCD Application helm values, and the emqx subchart renders `initContainers`,
+  `extraVolumes` and `containerSecurityContext` from them (the teamspace has no Pod Security labels). So a Profile create
+  or patch with `emqx.initContainers` set privileged plus a hostPath mount would have put a pod on the node. The service
+  account may therefore not create a Profile with `spec.plugins` (an empty list is fine) or `spec.resourceQuotaSpec`, and
+  may not change either on an existing Profile; Backstage writes neither (`create_profile.ts` sends only `spec.owner`,
+  the Profile update validator carries over annotations and labels only), so no flow breaks. Everyone else is unaffected. Tested in
+  `tests/vap-test.sh` (kube-apiserver) and `charts/backstage/tests/k3d-rbac-test.sh` (as the service account).
+- **Remaining risks of a compromised Backstage (accepted, not closed):**
+  - it can still change `ztna.teknoir.org/*` and org-tree annotations through the two username exemptions, create
+    Profiles and make any e-mail address, its own included, an owner of a teamspace;
+  - **it can run code.** It may create and patch Devstudios and Notebooks in every teamspace, and
+    devstudio-controller and notebook-controller copy `spec.image` into a container that runs privileged
+    (`privileged: true`, SYS_ADMIN). So it can run any image privileged on a node, which is a host escape and a way
+    around these policies. Teamspace developers have the same right today (it is not new with this change). Closing it
+    needs an image allowlist on `devstudios`/`notebooks` (platform images only, the Harbor mirror on airgapped
+    installs) or unprivileged workloads; both change what teamspace developers may do, so they are parked as the named
+    follow-up "teamspace image allowlist" for Anders to decide;
+  - **it can run code a second way, through Devices and DeviceApplicationSets.** The teamspace role keeps CRUD on
+    `devices` and `deviceapplicationsets`. device-controller runs a virtual Device as a privileged Deployment
+    (`virtual_device.go`, `privileged := true`, image `ghcr.io/teknoir/virtual-device:<spec version>`), and a
+    DeviceApplicationSet can deploy any HelmChart into that nested k3s. This is independent of `spec.image`, so the
+    image allowlist above does not close it, and on a single-node cluster it reaches every service account token.
+    Closing it needs a policy scoped to backstage-api that covers devstudio/notebook `spec.image` and the virtual
+    device fields, or unprivileged workloads: parked as the follow-up "virtual device / DeviceApplicationSet
+    workloads" for Anders to decide.
+  - **So the goal "backstage-api cannot bypass the teknoir-ztna admission policies" is met only in part:** the direct
+    routes (impersonation, pods, exec, Secrets, RBAC, teknoir-admin through a User or Profile, Helm values through
+    Profile `spec.plugins`) are closed; the two privileged-workload routes (Devstudio/Notebook `spec.image`, and virtual
+    Devices / DeviceApplicationSets) and the Keycloak route (User `spec.initial_password` / `claims_v0`: a compromised
+    Backstage can reset any user's password, superadmins included, and sign in as them) are not.
 - <a name="break-glass"></a>**Break-glass**: the `ztna` Application has `selfHeal`, so a deleted binding is restored within
   seconds. Order: (1) `argocd app set ztna --sync-policy none`; (2) delete the ValidatingAdmissionPolicyBinding; (3) act;
   (4) re-apply the binding (or re-sync) and `argocd app set ztna --sync-policy automated --self-heal`. system:masters is

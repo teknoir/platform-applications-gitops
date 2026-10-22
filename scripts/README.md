@@ -46,6 +46,14 @@ exempt); removing Applications needs `--allow-remove`; the lint, `helm unittest 
 - **Who applies.** The releaser identity (`staging-releaser`) is used only when the release-guard chart installed it
   (ServiceAccount, RoleBinding, `auth can-i`). Before that (the cutover and release .2, which switches the guard on)
   the release is applied as the operator's own admin identity and the script says `guard not installed: applying as admin`.
+- **Portal bindings (backstage-sa).** A render in which a portal service account (`config.portal.serviceAccounts` of
+  `charts/profile-controller`) has no `teknoir-admin` ClusterRoleBinding left depends on profile-controller writing the
+  RoleBinding `teknoir-portal` into every teamspace. Two guards: (1) the lint (`check-pins.py`, code
+  `portal-controller-unchecked`, also a step of `scripts/tests/run.sh`) fails while the pinned profile-controller tag is not
+  in `portal_profile_controller_tags` of `release-policy.yaml` (fail closed; list a tag only after checking that its build
+  contains the portal commits); (2) when the release diff removes a `<name>-api-teknoir-admin-rolebinding`, the dry run and
+  `--yes` (before and under the Lease) read every `profiles.teknoir.org` and the `teknoir-portal` RoleBindings (read-only)
+  and refuse unless each teamspace has one with the ClusterRole and service accounts of the candidate's config.
 - **Under the Lease** the live release is read again and the plan, the candidate and the convergence guard are checked
   again. At the cutover the convergence guard runs too (the candidate then equals the synced revision).
 - **Watching.** Only pods of workloads in the render, or pods (re)started after the patch, count; Argo Workflow pods do

@@ -8,6 +8,13 @@ classic Secret backstage-postgres-secrets, and the same other Secrets.
 Gated like ci.yaml: values flag backstageNext.enabled AND the environment in the allowlist, so a
 cherry-pick onto teknoir-online (production) or teknoir-local (airgapped) renders nothing.
 No sync waves, see ztna.yaml.
+
+Enabling it needs the API service account teknoir-system/backstage-next-api in config.portal.serviceAccounts of
+charts/profile-controller (values.yaml) with a matching config.portal.clusterRole (one role for every listed account:
+backstage-api-teamspace from the main backstage chart, or this instance's backstage-next-api-teamspace). profile-controller
+then writes the RoleBinding teknoir-portal into every teamspace; without it the instance has no rights there once its
+teknoir-admin ClusterRoleBinding is removed (backstage-sa R2; the check in scripts/staging-release only covers a release
+that removes such a binding).
 */ -}}
 {{- $allowedProjects := list "teknoir-cloud" }}
 {{- if and (.Values.backstageNext).enabled (has .Values.project $allowedProjects) }}

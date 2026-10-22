@@ -4,26 +4,24 @@ templates:
 tests:
   - it: has a teamspace ClusterRole and no binding for it in this chart
     asserts:
-      - hasDocuments: {count: 4}
+      - hasDocuments: {count: 3}
       - equal: {path: kind, value: ClusterRole}
-        documentIndex: 3
+        documentIndex: 2
       - equal: {path: metadata.name, value: backstage-api-teamspace}
-        documentIndex: 3
+        documentIndex: 2
       # profile-controller binds it per teamspace (RoleBinding teknoir-portal); a ClusterRoleBinding here would
-      # give the rights in every namespace. The two bindings that exist point at other roles (4 documents only).
+      # give the rights in every namespace. The one binding there is points at the cluster-wide role (3 documents: role, binding, teamspace role).
       - equal: {path: roleRef.name, value: backstage-api-resources-role}
         documentIndex: 1
-      - equal: {path: roleRef.name, value: teknoir-admin}
-        documentIndex: 2
 
   - it: prefixes the teamspace ClusterRole with the instance name
     set: {name: backstage-next}
     asserts:
       - equal: {path: metadata.name, value: backstage-next-api-teamspace}
-        documentIndex: 3
+        documentIndex: 2
 
   - it: gives full access to the teamspace Teknoir resources and their status
-    documentIndex: 3
+    documentIndex: 2
     asserts:
       - equal:
           path: rules[0]
@@ -46,7 +44,7 @@ tests:
             verbs: [get]
 
   - it: reads secrets by name only and writes only the peripheral ConfigMap
-    documentIndex: 3
+    documentIndex: 2
     asserts:
       - contains:
           path: rules
@@ -78,7 +76,7 @@ tests:
   # Devstudios and Notebooks are writable (the controllers run spec.image privileged): that route to code is a
   # remaining risk, see the comment in templates/rbac.yaml. This test only covers the direct routes.
   - it: grants no direct route to another identity, pods, exec or RBAC
-    documentIndex: 3
+    documentIndex: 2
     asserts:
       # no wildcard group, resource or verb anywhere
       - notMatchRegex: {path: "rules[*].apiGroups[*]", pattern: "\\*"}

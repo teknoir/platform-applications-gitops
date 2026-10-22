@@ -1,31 +1,44 @@
 ---
+# What the API may do cluster-wide: manage Profiles (teamspaces) and Users, and list/read the fleet and the claim
+# objects across teamspaces for the catalog providers. Everything inside a teamspace (devices, robots, volumes, ...)
+# is the ClusterRole <name>-api-teamspace below, bound per teamspace by profile-controller. No wildcard groups, no
+# impersonation, pods, exec, Secrets, roles or service accounts (plans/ztna-later.md, "backstage-sa").
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: {{ .Values.name }}-api-resources-role
 rules:
 - apiGroups:
-  - '*'
+  - teknoir.org
   resources:
-  - devices
-  - users
   - profiles
-  - devstudios
-  - notebooks
-  - claims
-  - claimsets
-  - helmcharts
-  - virtualservices
-  - deviceapplicationsets
-  - robots
-  - robottypes
+  - users
   verbs:
-  - create
-  - delete
   - get
   - list
-  - patch
+  - watch
+  - create
   - update
+  - patch
+  - delete
+- apiGroups:
+  - teknoir.org
+  resources:
+  - profiles/status
+  - users/status
+  verbs:
+  - get
+# Catalog providers list these across teamspaces (Devices carry their keys in spec: reads stay Backstage's to gate).
+- apiGroups:
+  - teknoir.org
+  resources:
+  - devices
+  - deviceapplicationsets
+  - claims
+  - claimsets
+  verbs:
+  - get
+  - list
   - watch
 # Virtual devices: the advisory allowance check reads <teamspace>-vdev/vdev-quota.
 - apiGroups:
@@ -35,32 +48,6 @@ rules:
   verbs:
   - get
   - list
-- apiGroups:
-  - teknoir.org
-  resources:
-  - devices/status
-  - users/status
-  - profiles/status
-  - devstudios/status
-  - notebooks/status
-  - deviceapplicationsets/status
-  - robots/status
-  - robottypes/status
-  verbs:
-  - get
-# Next-gen fleet pages: the "needs you" list reads events; Connect records who turned browser access on or off as
-# an Event on the Device (TunnelAccessEnabled/Disabled).
-- apiGroups:
-  - ""
-  - events.k8s.io
-  resources:
-  - events
-  verbs:
-  - get
-  - list
-  - watch
-  - create
-  - patch
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -77,66 +64,6 @@ subjects:
   name: {{ .Values.name }}-api
   namespace: {{ .Release.Namespace }}
 
-{{/*---*/}}
-{{/*apiVersion: rbac.authorization.k8s.io/v1*/}}
-{{/*kind: ClusterRole*/}}
-{{/*metadata:*/}}
-{{/*  name: backstage-api-read-only-role*/}}
-{{/*rules:*/}}
-{{/*  - apiGroups:*/}}
-{{/*      - '*'*/}}
-{{/*    resources:*/}}
-{{/*      - pods*/}}
-{{/*      - pods/log*/}}
-{{/*      - configmaps*/}}
-{{/*      - services*/}}
-{{/*      - deployments*/}}
-{{/*      - replicasets*/}}
-{{/*      - horizontalpodautoscalers*/}}
-{{/*      - ingresses*/}}
-{{/*      - statefulsets*/}}
-{{/*      - limitranges*/}}
-{{/*      - resourcequotas*/}}
-{{/*      - daemonsets*/}}
-{{/*    verbs:*/}}
-{{/*      - create*/}}
-{{/*      - delete*/}}
-{{/*      - get*/}}
-{{/*      - list*/}}
-{{/*      - patch*/}}
-{{/*      - update*/}}
-{{/*      - watch*/}}
-{{/*  - apiGroups:*/}}
-{{/*      - batch*/}}
-{{/*    resources:*/}}
-{{/*      - jobs*/}}
-{{/*      - cronjobs*/}}
-{{/*    verbs:*/}}
-{{/*      - get*/}}
-{{/*      - list*/}}
-{{/*      - watch*/}}
-{{/*  - apiGroups:*/}}
-{{/*      - metrics.k8s.io*/}}
-{{/*    resources:*/}}
-{{/*      - pods*/}}
-{{/*    verbs:*/}}
-{{/*      - get*/}}
-{{/*      - list*/}}
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: {{ .Values.name }}-api-teknoir-admin-rolebinding
-  namespace: {{ .Release.Namespace }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: teknoir-admin
-subjects:
-  - kind: ServiceAccount
-    name: {{ .Values.name }}-api
-    namespace: {{ .Release.Namespace }}
 ---
 # What the API may do inside a teamspace. A ClusterRole with NO binding in this chart: profile-controller
 # binds it with a namespaced RoleBinding "teknoir-portal" in every teamspace it owns (charts/profile-controller
