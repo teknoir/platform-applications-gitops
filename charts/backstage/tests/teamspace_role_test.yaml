@@ -75,7 +75,9 @@ tests:
             resources: [localsubjectaccessreviews]
             verbs: [create]
 
-  - it: grants nothing that would let the API become another identity or run code
+  # Devstudios and Notebooks are writable (the controllers run spec.image privileged): that route to code is a
+  # remaining risk, see the comment in templates/rbac.yaml. This test only covers the direct routes.
+  - it: grants no direct route to another identity, pods, exec or RBAC
     documentIndex: 3
     asserts:
       # no wildcard group, resource or verb anywhere

@@ -142,6 +142,12 @@ subjects:
 # binds it with a namespaced RoleBinding "teknoir-portal" in every teamspace it owns (charts/profile-controller
 # config.portal), so the rights stop at the teamspace boundary. Read from the code of the Backstage backend
 # (plans/ztna-later.md, "backstage-sa"): no pods, exec, secret lists, roles or service accounts.
+#
+# REMAINING RISK (not closed here): create/update/patch on devstudios and notebooks is a way to run code. The
+# devstudio and notebook controllers copy spec.image into a privileged container (SYS_ADMIN), so whoever may write
+# these objects, this service account and teamspace developers alike, can run any image privileged in a teamspace.
+# An image allowlist (admission policy) is a named follow-up for Anders to decide ("teamspace image allowlist",
+# plans/ztna-later.md); until then this role must not be described as unable to run code.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
