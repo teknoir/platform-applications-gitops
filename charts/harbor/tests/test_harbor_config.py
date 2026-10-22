@@ -44,10 +44,18 @@ def base_config():
         "projects": [{"name": "teknoir", "public": False, "quotaGiB": 250, "retention": "ci"}] + [
             {"name": p, "proxyRegistry": p, "public": False, "quotaGiB": 30, "retention": "proxy"} for p in PROXIES],
         "retentionPolicies": {
-            "ci": {"schedule": "0 0 2 * * *", "rules": [{"template": "latestPushedK", "value": 15}]},
+            # as on staging: an `always` rule (no params) next to value rules
+            "ci": {"schedule": "0 0 2 * * *",
+                   "rules": [{"template": "always", "tags": "{v[0-9]*,main}"},
+                             {"template": "latestPushedK", "value": 15},
+                             {"template": "nDaysSinceLastPull", "value": 30}]},
             "proxy": {"schedule": "0 30 2 * * *",
                       "rules": [{"template": "nDaysSinceLastPull", "value": 30, "untagged": True}]},
         },
+        "gc": {"schedule": "0 0 4 * * 0", "deleteUntagged": False, "workers": 1},
+        "auditPurge": {"schedule": "0 30 4 * * 0", "retentionHours": 720,
+                       "eventTypes": ["create_artifact", "delete_artifact", "pull_artifact"]},
+        "scanAll": {"schedule": "0 0 5 * * 6"},
         "robots": [
             {"name": "ci", "secret": {"namespace": "teknoir-ci", "name": "harbor-ci-robot"},
              "permissions": [{"project": "teknoir", "access": ["repository:push", "repository:pull"]}]},
@@ -196,6 +204,91 @@ class IdempotencyTest(Base):
         out = self.h.run()
         self.assertIn("project quay: retention 'proxy' updated", out)
         self.assertTrue(json.loads(self.fake.retentions[rid]["rules"][0]["tag_selectors"][0]["extras"])["untagged"])
+
+
+class RealHarborShapesTest(Base):
+    """Harbor returns different shapes than harbor-config sends (read live from v2.14.3 on staging):
+    an `always` retention rule has no `params`, `disabled: false` is omitted, GC parameters come back
+    as a JSON string without `dry_run`. A converged run must not rewrite any of it."""
+
+    def writes(self, *needles):
+        return [c for c in self.h.last_writes if any(n in c[1] for n in needles)]
+
+    def test_two_runs_in_a_row_update_neither_retention_nor_schedules(self):
+        self.h.run()
+        # The fake keeps what Harbor keeps: the shapes the code compares against are the real ones.
+        ci = self.fake.retentions[int(self.fake.project("teknoir")["metadata"]["retention_id"])]
+        self.assertNotIn("params", ci["rules"][0])
+        self.assertNotIn("disabled", ci["rules"][0])
+        self.assertEqual(ci["rules"][1]["params"], {"latestPushedK": 15})
+        self.assertIsInstance(self.fake.schedules["gc"]["job_parameters"], str)
+        self.assertNotIn("dry_run", json.loads(self.fake.schedules["gc"]["job_parameters"]))
+        out = self.h.run()
+        self.assertEqual(self.writes("retentions", "schedule"), [])
+        self.assertNotIn("updated", out)
+        self.assertIn("in sync", out)
+
+    def test_changed_gc_value_still_updates_once(self):
+        self.h.run()
+        self.fake.schedules["gc"]["job_parameters"] = json.dumps({"delete_untagged": True, "workers": 1})
+        out = self.h.run()
+        self.assertIn("gc: updated to '0 0 4 * * 0'", out)
+        self.assertEqual(json.loads(self.fake.schedules["gc"]["job_parameters"]),
+                         {"delete_untagged": False, "workers": 1})
+        self.h.run()
+        self.assertEqual(self.writes("system/gc"), [])
+
+    def test_changed_gc_cron_and_workers_update(self):
+        self.h.run()
+        self.fake.schedules["gc"]["schedule"]["cron"] = "0 0 1 * * 1"
+        self.assertIn("gc: updated", self.h.run())
+        self.fake.schedules["gc"]["job_parameters"] = json.dumps({"delete_untagged": False, "workers": 4})
+        self.assertIn("gc: updated", self.h.run())
+        self.h.run()
+        self.assertEqual(self.writes("system/gc"), [])
+
+    def test_changed_audit_purge_parameter_updates(self):
+        self.h.run()
+        self.fake.schedules["purgeaudit"]["job_parameters"] = json.dumps(
+            {"audit_retention_hour": 24, "dry_run": False, "include_event_types": "create_artifact"})
+        self.assertIn("audit purge: updated", self.h.run())
+        self.h.run()
+        self.assertEqual(self.writes("purgeaudit"), [])
+
+    def test_changed_retention_values_still_update_once(self):
+        self.h.run()
+        rid = int(self.fake.project("teknoir")["metadata"]["retention_id"])
+        self.fake.retentions[rid]["rules"][1]["params"] = {"latestPushedK": 5}
+        self.assertIn("project teknoir: retention 'ci' updated", self.h.run())
+        self.assertEqual(self.fake.retentions[rid]["rules"][1]["params"], {"latestPushedK": 15})
+        self.h.run()
+        self.assertEqual(self.writes("retentions"), [])
+
+    def test_changed_always_pattern_cron_and_extras_update(self):
+        self.h.run()
+        rid = int(self.fake.project("teknoir")["metadata"]["retention_id"])
+        self.fake.retentions[rid]["rules"][0]["tag_selectors"][0]["pattern"] = "main"
+        self.assertIn("retention 'ci' updated", self.h.run())
+        self.fake.retentions[rid]["trigger"]["settings"]["cron"] = "0 0 3 * * *"
+        self.assertIn("retention 'ci' updated", self.h.run())
+        # a rule that Harbor shows as disabled, or an added/removed rule, is drift too
+        self.fake.retentions[rid]["rules"][2]["disabled"] = True
+        self.assertIn("retention 'ci' updated", self.h.run())
+        del self.fake.retentions[rid]["rules"][2]
+        self.assertIn("retention 'ci' updated", self.h.run())
+        self.h.run()
+        self.assertEqual(self.writes("retentions"), [])
+
+    def test_equivalent_spellings_are_not_drift(self):
+        # ints as strings, extras re-serialised without a space, selectors in another key order
+        self.h.run()
+        rid = int(self.fake.project("teknoir")["metadata"]["retention_id"])
+        pol = self.fake.retentions[rid]
+        pol["rules"][1]["params"] = {"latestPushedK": "15"}
+        pol["rules"][2]["tag_selectors"][0]["extras"] = '{"untagged":false}'
+        pol["rules"][2]["tag_selectors"][0] = dict(reversed(list(pol["rules"][2]["tag_selectors"][0].items())))
+        self.h.run()
+        self.assertEqual(self.writes("retentions"), [])
 
 
 class UpstreamCredentialTest(Base):
@@ -612,7 +705,7 @@ class RenderedConfigTest(unittest.TestCase):
         self.assertEqual(sum(quotas.values()), 700)
         # GC must not delete untagged artifacts: that would drop the digest-pinned pulls the proxy
         # retention rule keeps (retention handles untagged artifacts itself).
-        self.assertIs(self.fake.schedules["gc"]["parameters"]["delete_untagged"], False)
+        self.assertIs(json.loads(self.fake.schedules["gc"]["job_parameters"])["delete_untagged"], False)
         for n in PROXIES:
             self.assertEqual(self.fake.project(n)["metadata"]["public"], "false")
         self.assertEqual(sorted(self.fake.secret_data("teknoir-system", "harbor-teamspace-pull")),

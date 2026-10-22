@@ -66,6 +66,42 @@ class Fake:
         obj["metadata"]["resourceVersion"] = str(self.rv)
 
 
+def real_retention(body, rid):
+    """What Harbor v2.14.3 stores and returns for a retention policy (read live on staging).
+
+    Omitted when empty/false: a rule's `disabled` and an empty `params` (the `always` template has
+    none). Added: `trigger.settings.next_scheduled_time`. Selector `extras` stays the JSON string
+    that was sent; param values stay numbers."""
+    rules = []
+    for r in body.get("rules", []):
+        r = {k: v for k, v in r.items() if k != "disabled" or v}
+        if not r.get("params"):
+            r.pop("params", None)
+        rules.append(r)
+    trigger = json.loads(json.dumps(body["trigger"]))
+    trigger.setdefault("settings", {})["next_scheduled_time"] = "2026-10-23T02:00:00.000Z"
+    return {"algorithm": body.get("algorithm", "or"), "id": rid, "rules": rules,
+            "scope": dict(body["scope"]), "trigger": trigger}
+
+
+def real_schedule(kind, body):
+    """What Harbor v2.14.3 returns for GET /system/<gc|purgeaudit|scanAll>/schedule (read live).
+
+    The parameters come back as a JSON STRING in `job_parameters` (no `parameters` field). GC drops
+    `dry_run` (not stored for GC) while keeping `delete_untagged: false`; purgeaudit keeps
+    `dry_run: false`. scanAll has no parameters at all."""
+    out = {"id": 173, "creation_time": "2026-10-22T18:17:04.658Z", "update_time": "2026-10-22T18:17:04.658Z",
+           "schedule": {"type": body["schedule"]["type"], "cron": body["schedule"]["cron"],
+                        "next_scheduled_time": "2026-10-25T04:00:00.000Z"}}
+    params = body.get("parameters")
+    if params is not None:
+        if kind == "gc":
+            params = {k: v for k, v in params.items() if k != "dry_run"}
+        out["job_kind"] = body["schedule"]["cron"]
+        out["job_parameters"] = json.dumps(params, sort_keys=True, separators=(",", ":"))
+    return out
+
+
 def public_registry(r):
     cred = {"type": "basic", "access_key": r["_ak"], "access_secret": "*****"} if r["_ak"] else {}
     return {k: v for k, v in r.items() if not k.startswith("_")} | {"credential": cred}
@@ -193,14 +229,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200)
         if path == "/retentions" and method == "POST":
             rid = f.new_id()
-            f.retentions[rid] = dict(body, id=rid)
+            f.retentions[rid] = real_retention(body, rid)
             f.projects[body["scope"]["ref"]]["metadata"]["retention_id"] = str(rid)
             return self._send(201)
         m = re.fullmatch(r"/retentions/(\d+)", path)
         if m:
             rid = int(m[1])
             if method == "PUT":
-                f.retentions[rid] = dict(body, id=rid)
+                f.retentions[rid] = real_retention(body, rid)
                 return self._send(200)
             return self._send(200, f.retentions[rid])
         m = re.fullmatch(r"/projects/(\d+)/immutabletagrules(?:/(\d+))?", path)
@@ -217,7 +253,7 @@ class Handler(BaseHTTPRequestHandler):
         m = re.fullmatch(r"/system/(gc|purgeaudit|scanAll)/schedule", path)
         if m:
             if method in ("POST", "PUT"):
-                f.schedules[m[1]] = body
+                f.schedules[m[1]] = real_schedule(m[1], body)
                 return self._send(200)
             return self._send(200, f.schedules.get(m[1], {}))
         if path == "/robots":
