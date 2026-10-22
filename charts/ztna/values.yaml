@@ -81,8 +81,10 @@ hub:
     # on teknoir-cli; charts/auth realm). audienceMode: transition accepts a token without it and
     # counts it (wghub_user_tokens_total{audience="legacy"}); enforce (the hub's own default)
     # refuses it. Anything else fails the render. plans/ztna-later.md, "ztna-audience".
+    # Staging: transition first (PR A), enforce since the legacy count stayed at zero for 72 h
+    # after tnctl 0.1.2. Rollback is this value alone ("transition").
     audience: teknoir-ztna
-    audienceMode: "transition"
+    audienceMode: "enforce"
   # The org gate in the hub (CanOpen): enforce (default, fails closed), audit (log would-be denials,
   # allow) or off. Any other value fails the render.
   orgGate:

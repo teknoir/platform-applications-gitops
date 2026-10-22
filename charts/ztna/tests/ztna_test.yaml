@@ -243,8 +243,8 @@ tests:
           content: {name: KEYCLOAK_AUDIENCE, value: teknoir-ztna}
       - contains:
           path: spec.template.spec.containers[0].env
-          # values.yaml: staging starts in transition (plans/ztna-later.md, ztna-audience)
-          content: {name: KEYCLOAK_AUDIENCE_MODE, value: transition}
+          # values.yaml: enforce on staging (plans/ztna-later.md, ztna-audience)
+          content: {name: KEYCLOAK_AUDIENCE_MODE, value: enforce}
       - contains:
           path: spec.template.spec.containers[0].env
           content:
@@ -1235,17 +1235,17 @@ tests:
       - failedTemplate:
           errorPattern: "hub.orgGate.mode must be enforce, audit or off"
 
-  - it: sets KEYCLOAK_AUDIENCE_MODE enforce when asked
+  - it: sets KEYCLOAK_AUDIENCE_MODE transition when asked (the rollback)
     template: templates/hub.yaml
     set:
-      hub.keycloak.audienceMode: enforce
+      hub.keycloak.audienceMode: transition
     documentSelector:
       path: kind
       value: Deployment
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
-          content: {name: KEYCLOAK_AUDIENCE_MODE, value: enforce}
+          content: {name: KEYCLOAK_AUDIENCE_MODE, value: transition}
 
   - it: fails closed, KEYCLOAK_AUDIENCE_MODE enforce, when the mode is unset
     template: templates/hub.yaml
