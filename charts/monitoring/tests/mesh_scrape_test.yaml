@@ -1,0 +1,145 @@
+suite: monitoring mesh scrape (Prometheus scrapes mesh workloads with the workload certificate of its own sidecar)
+release:
+  name: monitoring
+  namespace: teknoir-system
+templates:
+  - charts/kube-prometheus-stack/templates/prometheus/prometheus.yaml
+  - charts/kube-prometheus-stack/templates/alertmanager/servicemonitor.yaml
+  - charts/kube-prometheus-stack/templates/prometheus-operator/deployment.yaml
+  - charts/kube-prometheus-stack/charts/grafana/templates/servicemonitor.yaml
+  - charts/kube-prometheus-stack/charts/kube-state-metrics/templates/servicemonitor.yaml
+  - charts/kube-prometheus-stack/templates/prometheus-operator/servicemonitor.yaml
+  - charts/kube-prometheus-stack/templates/prometheus/servicemonitor.yaml
+  - templates/authorizationpolicy.yaml
+tests:
+  - it: stops the outbound capture of the Prometheus pod and shares the sidecar certificates with the prometheus container
+    template: charts/kube-prometheus-stack/templates/prometheus/prometheus.yaml
+    asserts:
+      - equal:
+          path: spec.podMetadata.annotations["traffic.sidecar.istio.io/includeOutboundIPRanges"]
+          value: ""
+      - equal:
+          path: spec.podMetadata.annotations["proxy.istio.io/config"]
+          value: |
+            proxyMetadata:
+              OUTPUT_CERTS: /etc/istio-output-certs
+      - equal:
+          path: spec.podMetadata.annotations["sidecar.istio.io/userVolumeMount"]
+          value: '[{"name": "istio-certs", "mountPath": "/etc/istio-output-certs"}]'
+      - equal:
+          path: spec.volumes
+          value:
+            - name: istio-certs
+              emptyDir:
+                medium: Memory
+      - equal:
+          path: spec.volumeMounts
+          value:
+            - name: istio-certs
+              mountPath: /etc/prom-certs
+              readOnly: true
+
+  - it: sends alerts to Alertmanager over mTLS (the pod IPs of a STRICT namespace)
+    template: charts/kube-prometheus-stack/templates/prometheus/prometheus.yaml
+    asserts:
+      - equal:
+          path: spec.alerting.alertmanagers[0].scheme
+          value: https
+      - equal:
+          path: spec.alerting.alertmanagers[0].tlsConfig
+          value: &tls
+            caFile: /etc/prom-certs/root-cert.pem
+            certFile: /etc/prom-certs/cert-chain.pem
+            keyFile: /etc/prom-certs/key.pem
+            insecureSkipVerify: true
+
+  - it: scrapes both Alertmanager endpoints (9093 and the config reloader) with the mesh certificate
+    template: charts/kube-prometheus-stack/templates/alertmanager/servicemonitor.yaml
+    asserts:
+      - equal: {path: "spec.endpoints[0].scheme", value: https}
+      - equal: {path: "spec.endpoints[0].tlsConfig", value: *tls }
+      - equal: {path: "spec.endpoints[1].port", value: reloader-web}
+      - equal: {path: "spec.endpoints[1].scheme", value: https}
+      - equal: {path: "spec.endpoints[1].tlsConfig", value: *tls }
+
+  - it: scrapes Grafana and kube-state-metrics with the mesh certificate
+    template: charts/kube-prometheus-stack/charts/grafana/templates/servicemonitor.yaml
+    asserts:
+      - equal: {path: "spec.endpoints[0].scheme", value: https}
+      - equal: {path: "spec.endpoints[0].tlsConfig", value: *tls }
+
+  - it: scrapes kube-state-metrics with the mesh certificate
+    template: charts/kube-prometheus-stack/charts/kube-state-metrics/templates/servicemonitor.yaml
+    asserts:
+      - equal: {path: "spec.endpoints[0].scheme", value: https}
+      - equal: {path: "spec.endpoints[0].tlsConfig", value: *tls }
+
+  - it: keeps the operator port 10250 out of the sidecar, so Prometheus (and the apiserver) reach the operator's own TLS directly
+    template: charts/kube-prometheus-stack/templates/prometheus-operator/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["traffic.sidecar.istio.io/excludeInboundPorts"]
+          value: "10250"
+
+  - it: leaves the operator ServiceMonitor on the operator's own CA (no mesh certificate)
+    template: charts/kube-prometheus-stack/templates/prometheus-operator/servicemonitor.yaml
+    asserts:
+      - equal: {path: "spec.endpoints[0].scheme", value: https}
+      - equal: {path: "spec.endpoints[0].tlsConfig.serverName", value: monitoring-operator}
+      - notExists: {path: "spec.endpoints[0].tlsConfig.certFile"}
+
+  - it: leaves the Prometheus self-monitor in plaintext (its calls to itself bypass the outbound capture)
+    template: charts/kube-prometheus-stack/templates/prometheus/servicemonitor.yaml
+    asserts:
+      - notExists: {path: "spec.endpoints[0].scheme"}
+      - notExists: {path: "spec.endpoints[0].tlsConfig"}
+
+  - it: lets the Prometheus service account call Grafana and Alertmanager next to the ingress gateway
+    template: templates/authorizationpolicy.yaml
+    documentSelector:
+      path: metadata.name
+      value: grafana-allow-ingress
+    asserts:
+      - equal:
+          path: spec.rules[0].from[0].source.principals
+          value:
+            - cluster.local/ns/istio-system/sa/istio-ingressgateway
+            - cluster.local/ns/teknoir-system/sa/monitoring-prometheus
+
+  - it: does the same for Alertmanager
+    template: templates/authorizationpolicy.yaml
+    documentSelector:
+      path: metadata.name
+      value: alertmanager-allow-ingress
+    asserts:
+      - equal:
+          path: spec.rules[0].from[0].source.principals
+          value:
+            - cluster.local/ns/istio-system/sa/istio-ingressgateway
+            - cluster.local/ns/teknoir-system/sa/monitoring-prometheus
+
+  - it: renders the Grafana policy as before without the meshScrape switch
+    template: templates/authorizationpolicy.yaml
+    documentSelector:
+      path: metadata.name
+      value: grafana-allow-ingress
+    set:
+      meshScrape: null
+    asserts:
+      - equal:
+          path: spec.rules[0].from[0].source.principals
+          value:
+            - cluster.local/ns/istio-system/sa/istio-ingressgateway
+
+  - it: renders the Alertmanager policy as before without the meshScrape switch
+    template: templates/authorizationpolicy.yaml
+    documentSelector:
+      path: metadata.name
+      value: alertmanager-allow-ingress
+    set:
+      meshScrape: null
+    asserts:
+      - equal:
+          path: spec.rules[0].from[0].source.principals
+          value:
+            - cluster.local/ns/istio-system/sa/istio-ingressgateway

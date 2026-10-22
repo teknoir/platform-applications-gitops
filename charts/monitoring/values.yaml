@@ -2,6 +2,20 @@
 namespace: teknoir-system
 domain: "teknoir.cloud"
 
+# Prometheus scraping and calling Alertmanager through the mesh with mTLS (plans/monitoring-mesh-scrape.md).
+# teknoir-system is STRICT mTLS (PeerAuthentication harbor-strict-mtls has no selector) and Prometheus scrapes
+# pod IPs, to which the outbound sidecar cannot apply mTLS. So Prometheus' own sidecar stops intercepting its
+# outbound traffic and Prometheus presents the sidecar's workload certificate itself (Istio's documented
+# approach: https://istio.io/latest/docs/ops/integrations/prometheus/#tls-settings). Everything that depends
+# on that is set in this file: the Prometheus pod annotations, volume and mount and the tlsConfig of every
+# ServiceMonitor of a mesh workload (kube-prometheus-stack below), and the template switch here, which adds
+# the Prometheus principal to the Grafana and Alertmanager AuthorizationPolicies. charts/ztna carries the
+# same tlsConfig for the wg-hub ServiceMonitor. A values file without this block renders as before.
+meshScrape:
+  enabled: true
+  # Service account of the Prometheus pods (fullnameOverride "monitoring" + "-prometheus").
+  prometheusServiceAccount: monitoring-prometheus
+
 kube-prometheus-stack:
   namespaceOverride: "teknoir-system"
   fullnameOverride: "monitoring"
@@ -433,12 +447,34 @@ kube-prometheus-stack:
     rbac:
       pspEnabled: false
 
+  ## Prometheus Operator (Deployment monitoring-operator)
+  prometheusOperator:
+    ## The operator serves its own TLS (the monitoring-admission certificate) on 10250: metrics for
+    ## Prometheus and, when the apiserver calls them, the admission webhooks. A sidecar in front of that port
+    ## cannot work: Prometheus has one TLS session to give (the mesh certificate or the operator's own, not
+    ## TLS inside mTLS), and the apiserver is outside the mesh. So the port bypasses the sidecar; the
+    ## ServiceMonitor monitoring-operator (https, CA of monitoring-admission) then scrapes it directly.
+    podAnnotations:
+      traffic.sidecar.istio.io/excludeInboundPorts: "10250"
+
   ## Configuration for alertmanager
   ## ref: https://prometheus.io/docs/alerting/alertmanager/
   ##
   alertmanager:
     alertmanagerSpec:
       routePrefix: /teknoir-system/alertmanager
+      # Prometheus' alert delivery goes to the pod IPs of Alertmanager too (STRICT mTLS), see meshScrape.
+      scheme: https
+      tlsConfig: &meshTls
+        caFile: /etc/prom-certs/root-cert.pem
+        certFile: /etc/prom-certs/cert-chain.pem
+        keyFile: /etc/prom-certs/key.pem
+        # The workload certificate carries a SPIFFE ID, not the pod IP the target is addressed by.
+        insecureSkipVerify: true
+    # Both endpoints of the self-monitor ServiceMonitor (9093 and the config reloader 8080).
+    serviceMonitor:
+      scheme: https
+      tlsConfig: *meshTls
 
 
   ## Using default values from https://github.com/grafana/helm-charts/blob/main/charts/grafana/values.yaml
@@ -446,6 +482,11 @@ kube-prometheus-stack:
   grafana:
     enabled: true
     namespaceOverride: ""
+
+    # ServiceMonitor of Grafana's own /metrics (see meshScrape).
+    serviceMonitor:
+      scheme: https
+      tlsConfig: *meshTls
 
     ## This is an override of the grafana chart.
     grafana.ini:
@@ -502,6 +543,14 @@ kube-prometheus-stack:
           foldersFromFilesStructure: true
         folderAnnotation: grafana_folder
 
+  ## kube-state-metrics (a mesh workload, STRICT mTLS), see meshScrape
+  kube-state-metrics:
+    prometheus:
+      monitor:
+        http:
+          scheme: https
+          tlsConfig: *meshTls
+
   ## Deploy a Prometheus instance
   ##
   prometheus:
@@ -511,6 +560,28 @@ kube-prometheus-stack:
     ## ref: https://github.com/prometheus-operator/prometheus-operator/blob/main/Documentation/api-reference/api.md#prometheusspec
     ##
     prometheusSpec:
+      ## Mesh mTLS scraping (see meshScrape): the sidecar stops intercepting the outbound traffic of this pod
+      ## (includeOutboundIPRanges "": Prometheus connects to the pod IPs directly, and to the kubelets,
+      ## node-exporters and the apiserver as before) and writes its workload certificate to a shared emptyDir,
+      ## which Prometheus mounts to present it as the client certificate (identity
+      ## cluster.local/ns/teknoir-system/sa/monitoring-prometheus). The pod's calls to itself (127.0.0.6, lo)
+      ## are not captured by the outbound rules either way.
+      podMetadata:
+        annotations:
+          traffic.sidecar.istio.io/includeOutboundIPRanges: ""
+          proxy.istio.io/config: |
+            proxyMetadata:
+              OUTPUT_CERTS: /etc/istio-output-certs
+          sidecar.istio.io/userVolumeMount: '[{"name": "istio-certs", "mountPath": "/etc/istio-output-certs"}]'
+      volumes:
+        - name: istio-certs
+          emptyDir:
+            medium: Memory
+      volumeMounts:
+        - name: istio-certs
+          mountPath: /etc/prom-certs
+          readOnly: true
+
       ## Interval between consecutive scrapes.
       ## Defaults to 30s.
       ## ref: https://github.com/prometheus-operator/prometheus-operator/blob/release-0.44/pkg/prometheus/promcfg.go#L180-L183
