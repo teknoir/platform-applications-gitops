@@ -16,20 +16,28 @@ hub:
     # discovery, agent race fixes #4): hub + flags watcher, index digest.
     # Previous pin: sha-37fe475@sha256:4a405ccced8b389e254d3f9965b0c2ea35ca1b0a77bb6c42c17b076b7b27f58b
     # hub-ha: this pin MUST be replaced by an image built from wg-tunnel with leader election (branch
-    # hub-ha, hub.leaderElection) BEFORE stage 1 is released. An older image ignores LEADER_ELECTION and never
-    # sets ztna.teknoir.org/hub-role, so after stage 2 the Service wg-hub has no endpoints (full ZTNA outage).
-    # Gate for stage 2: the live stage-1 pod shows hub-role=leader.
+    # hub-ha, hub.leaderElection) before this stage is released. An older image ignores LEADER_ELECTION and never
+    # sets ztna.teknoir.org/hub-role, so the Service wg-hub (selector hub-role=leader) would have no endpoints
+    # (full ZTNA outage). The chart enforces it: the render fails until leaderElection below is true.
+    # wg-tunnel #8 (b563d89): leader election and planned handover; live as leader since staging-20261022.6.
     tag: "sha-b563d89@sha256:8cd7c6ea2cac46df4413a5008ee8d1bebde09c2ecdf70753a829d29c773df4c1"
     # Set to true TOGETHER WITH the repin above, and only when the image is built from wg-tunnel with leader
-    # election (it sets ztna.teknoir.org/hub-role). Stage 2 refuses to render the leader Service without it,
-    # so an image that never labels a pod cannot leave wg-hub without endpoints.
+    # election (it sets ztna.teknoir.org/hub-role). The render fails while hub.leaderElection.enabled is on and
+    # this is false, so an image that never labels a pod cannot leave wg-hub without endpoints.
+    # scripts/pin-image wg-hub=<tag> --write resets this to false on every tag change; pass --leader-election
+    # for an image with leader election. Roll back by switching hub.leaderElection.enabled (and replicas) off first.
     leaderElection: true
     pullPolicy: IfNotPresent
   imagePullSecrets:
     - name: ghcr-token
-  # Replicas the hub is configured for. hub-ha stage 1: the Deployment still renders one pod
-  # (Recreate); this only sets HANDOVER_WAIT (0s with one replica). Stage 2 renders it.
-  replicas: 1
+  # Hub replicas (active-passive, see leaderElection): one serves, the others are hot standbys. Above 1 the
+  # Deployment rolls (maxSurge 1, maxUnavailable 0), a PodDisruptionBudget is rendered, and
+  # leaderElection.enabled is required (the render fails without it). 1: Recreate, no PDB.
+  replicas: 2
+  pdb:
+    # One replica may be disrupted at a time (a drain needs the other one Ready). A single-node
+    # cluster can still not drain its last hub pod; that is the same as the 7 existing PDBs there.
+    maxUnavailable: 1
   # Active-passive replicas (plans/ztna-later.md, hub-ha): the replicas campaign for the Lease
   # `lease` in this namespace, the leader serves, the others answer 503. Needs a wg-hub image
   # with leader election (an older image ignores these variables and always serves).
@@ -136,6 +144,13 @@ metrics:
     interval: 30s
     labels:
       release: monitoring
+  # Alerts on the hub-ha series (wghub_leader, wghub_role_patch_errors_total). Rendered with the ServiceMonitor,
+  # whose Service wg-hub-metrics scrapes every hub pod (the standby too), not only the leader.
+  prometheusRule:
+    enabled: true
+    # No (or two) serving replicas for this long. Keep it above hub.leaderElection.leaseDuration (120s): a
+    # crashed leader is replaced only after its lease expires, which is a normal failover, not an incident.
+    leaderFor: 5m
 
 # The hub pulls ghcr.io/teknoir/wg-hub with the ghcr-token pull secret. That Secret exists in
 # teknoir-system (infra scripts/create-ghcr-token-secret.sh) and in each teamspace, not in a new

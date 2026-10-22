@@ -14,6 +14,12 @@ sibling `repository` is the repo; ref: the key holds repo:tag), repository. For 
   4. rewrites the value in the values file, keeping comments and quoting (only with --write; else prints it)
   5. with --pr: branch pin/<component>-<tag>, commit, push, `gh pr create` (merge, then scripts/staging-release)
 
+A pin can carry a confirmation flag in the same values file (CONFIRM_FLAGS): wg-hub has hub.image.leaderElection, which
+the chart needs true while hub.leaderElection.enabled is on (the leader Service selects a label only an image with
+leader election sets). So pin-image resets it to false whenever it changes the wg-hub tag (the render then stops
+instead of leaving the Service without endpoints, e.g. after a rollback to an older build), and sets it true only with
+--leader-election, which you pass for an image built from wg-tunnel with leader election (hub-ha).
+
 --adopt-running reads .status.containerStatuses[].imageID of the pods whose image is the value in the file
 and cross-checks it with `crane digest`; it writes staging values only and never retags, re-pushes or deletes
 a registry tag (production pulls some of these tags).
@@ -29,6 +35,9 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import stagelib as L  # noqa: E402
+
+# Components whose pin carries a confirmation flag (same values file), reset to false on a tag change.
+CONFIRM_FLAGS = {"wg-hub": "hub.image.leaderElection"}
 
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 SCALAR_RE = re.compile(r"""^(?P<indent>\s*)(?P<key>[A-Za-z0-9_.\-]+)\s*:\s*(?P<val>"[^"]*"|'[^']*'|[^\s#][^#]*?)?(?P<sp>\s*)(?P<comment>#.*)?$""")
@@ -210,9 +219,11 @@ class Pin:
     def path_of(self, comp: dict) -> str:
         return os.path.join(self.root, comp["values_file"])
 
-    def pin(self, name: str, ref: str, write: bool) -> dict:
+    def pin(self, name: str, ref: str, write: bool, leader_election: bool = False) -> dict:
         if name not in self.images:
             raise SystemExit(f"unknown component '{name}' (pin-image --list)")
+        if leader_election and name != "wg-hub":
+            raise SystemExit("--leader-election applies to wg-hub only")
         comp = self.images[name]
         repo, tag, given = split_ref(ref, comp["repository"])
         if repo != comp["repository"]:
@@ -230,8 +241,19 @@ class Pin:
         self.out(f"  old  {old}")
         self.out(f"  new  {value}")
         self.out(f"  source commit {info['revision'] or '(no org.opencontainers.image.revision label)'}")
+        flag_path = CONFIRM_FLAGS.get(name)
+        if flag_path:
+            flag_old = get_leaf(text, flag_path)
+            flag_new = "true" if leader_election else "false"
+            if old == value and not leader_election:
+                flag_new = flag_old or "false"        # same pin again: the confirmation stays as it is
+            self.out(f"  {flag_path}: {flag_old} -> {flag_new}"
+                     + ("" if leader_election else "   (pass --leader-election for an image with leader election)"))
         if write:
-            open(path, "w").write(set_leaf(text, comp["key_path"], value))
+            new_text = set_leaf(text, comp["key_path"], value)
+            if flag_path:
+                new_text = set_leaf(new_text, flag_path, flag_new)
+            open(path, "w").write(new_text)
             self.out(f"  written to {comp['values_file']}")
         return {"name": name, "old": old, "new": value, "revision": info["revision"], "tag": tag, "file": comp["values_file"]}
 
@@ -308,6 +330,9 @@ def main(argv: list[str] | None = None, sys_: L.Sys | None = None) -> int:
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--adopt-running", action="store_true")
     ap.add_argument("--write", action="store_true", help="rewrite the values file(s); the default only prints")
+    ap.add_argument("--leader-election", action="store_true",
+                    help="wg-hub only: the image is built from wg-tunnel with leader election; sets hub.image.leaderElection: true "
+                         "(without it a changed wg-hub tag resets the flag to false and the chart render stops)")
     ap.add_argument("--pr", action="store_true", help="branch, commit, push and open a PR (implies --write)")
     ap.add_argument("--context", default=L.CONTEXT, help=argparse.SUPPRESS)
     a = ap.parse_args(argv)
@@ -328,7 +353,7 @@ def main(argv: list[str] | None = None, sys_: L.Sys | None = None) -> int:
             if "=" not in p:
                 raise SystemExit(f"'{p}': expected COMPONENT=REF")
             name, ref = p.split("=", 1)
-            res = pin.pin(name, ref, a.write or a.pr)
+            res = pin.pin(name, ref, a.write or a.pr, leader_election=a.leader_election)
             if a.pr:
                 pin.open_pr(res)
         return 0

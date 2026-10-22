@@ -10,7 +10,7 @@ Merging to `teknoir-cloud` queues a change; it is not live until a release.
 | `staging-status` | where staging is and what is pending; read-only. `--devices` adds device-side revisions |
 | `staging-render.sh` | renders a release like ArgoCD (root, children, profile-plugin charts); cached |
 | `check-pins.py` | the release lint over the rendered manifests; `release-policy.yaml` holds its rules and the dated exceptions |
-| `pin-image` | pins a Teknoir-built image as `tag@sha256:digest` (`images.tsv` lists them all); `--adopt-running` |
+| `pin-image` | pins a Teknoir-built image as `tag@sha256:digest` (`images.tsv` lists them all); `--adopt-running`. A changed `wg-hub` tag resets `hub.image.leaderElection` to false (render stops); `--leader-election` confirms an image with leader election |
 | `stagelib.py` | shared logic (tag numbering, candidate validation, plan, lease, convergence) |
 | `tests/` | `tests/run.sh` runs everything below |
 

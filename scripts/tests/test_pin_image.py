@@ -131,6 +131,9 @@ class PinFlow(unittest.TestCase):
         fixtures = {
             "charts/devstudio-controller/values.yaml":
                 "# fixture\nimage:\n  repository: ghcr.io/teknoir/devstudio-controller\n  tag: \"teknoir-cloud\"\n  pullPolicy: Always\n",
+            "charts/ztna/values.yaml":
+                "# fixture\nhub:\n  image:\n    repository: ghcr.io/teknoir/wg-hub\n    tag: \"sha-9c9bdae@sha256:" + "c" * 64 + "\"\n"
+                "    # confirmation\n    leaderElection: true\n    pullPolicy: IfNotPresent\n",
             "charts/backstage/values.yaml":
                 "# fixture\nbackstage:\n  image: ghcr.io/teknoir/backstage-app:robot\nbackstageApi:\n  image: ghcr.io/teknoir/backstage:robot\n",
         }
@@ -158,6 +161,37 @@ class PinFlow(unittest.TestCase):
     def test_ref_style_keeps_the_repository_in_the_value(self):
         res = self.pin(FakeSys()).pin("backstage-app", "ghcr.io/teknoir/backstage-app:robot", write=True)
         self.assertEqual(res["new"], "ghcr.io/teknoir/backstage-app:robot@" + D)
+
+    def _ztna(self):
+        return open(os.path.join(self.root, "charts/ztna/values.yaml")).read()
+
+    def test_wg_hub_repin_resets_the_leader_election_confirmation(self):
+        # a rollback or an unreviewed repin must not leave the flag true: the chart render stops instead
+        self.pin(FakeSys()).pin("wg-hub", "sha-1234567", write=True)
+        text = self._ztna()
+        self.assertEqual(PI.get_leaf(text, "hub.image.tag"), "sha-1234567@" + D)
+        self.assertEqual(PI.get_leaf(text, "hub.image.leaderElection"), "false")
+        self.assertIn("    # confirmation", text)
+        self.assertEqual(PI.get_leaf(text, "hub.image.pullPolicy"), "IfNotPresent")
+        self.assertTrue(any("leaderElection: true -> false" in l for l in self.out))
+
+    def test_wg_hub_leader_election_flag_confirms_the_pin(self):
+        self.pin(FakeSys()).pin("wg-hub", "sha-1234567", write=True, leader_election=True)
+        self.assertEqual(PI.get_leaf(self._ztna(), "hub.image.leaderElection"), "true")
+
+    def test_wg_hub_dry_run_leaves_the_flag_and_says_what_it_would_do(self):
+        before = self._ztna()
+        self.pin(FakeSys()).pin("wg-hub", "sha-1234567", write=False)
+        self.assertEqual(self._ztna(), before)
+        self.assertTrue(any("leaderElection: true -> false" in l for l in self.out))
+
+    def test_wg_hub_same_pin_again_keeps_the_confirmation(self):
+        self.pin(FakeSys(digest="sha256:" + "c" * 64)).pin("wg-hub", "sha-9c9bdae", write=True)
+        self.assertEqual(PI.get_leaf(self._ztna(), "hub.image.leaderElection"), "true")
+
+    def test_leader_election_flag_is_for_wg_hub_only(self):
+        with self.assertRaises(SystemExit):
+            self.pin(FakeSys()).pin("devstudio-controller", "teknoir-cloud", write=True, leader_election=True)
 
     def test_refuses_an_image_without_linux_amd64(self):
         with self.assertRaises(SystemExit):

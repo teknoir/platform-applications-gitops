@@ -9,7 +9,7 @@ Three new charts and four touched charts, all behind **one switch**:
 | Chart / Application | What |
 |---|---|
 | `charts/gateway-api-crds` (`gateway-api-crds`) | Gateway API CRDs, standard channel v1.4.1 (the set STUNner 1.2.1 ships), server-side applied, never pruned |
-| `charts/stunner` (`stunner`) | STUNner operator 1.2.1 (pinned images), GatewayClass `stunner-gatewayclass`, GatewayConfig, Gateway `teknoir-turn` (TURN-UDP 3478, LoadBalancer via k3s servicelb), `stunner.l7mp.io/v1` UDPRoute `wg-hub` -> `teknoir-ztna/wg-hub:51820` and `teknoir-ztna/wg-hub-pods:51820` |
+| `charts/stunner` (`stunner`) | STUNner operator 1.2.1 (pinned images), GatewayClass `stunner-gatewayclass`, GatewayConfig, Gateway `teknoir-turn` (TURN-UDP 3478, LoadBalancer via k3s servicelb), `stunner.l7mp.io/v1` UDPRoute `wg-hub` -> `teknoir-ztna/wg-hub-pods:51820` |
 | `charts/ztna` (`ztna`) | Namespace `teknoir-ztna` (mesh), wg-hub, wg-flags (flags watcher), headless Service, RBAC, admission policies, VirtualServices `wg` and `wg-device`, AuthorizationPolicy, ServiceMonitor, pull secret copy |
 | `charts/device-controller` | `ZTNA` key in the controller ConfigMap, Role in `teknoir-ztna`, CRD `status.wireguard`; plus the `vdev-egress-turn` NetworkPolicy of the virtual devices |
 | `charts/virtual-devices` | CoreDNS rewrites `wg-device.<domain>` and `turn.<domain>` |
@@ -50,20 +50,38 @@ and the admission policies against a throwaway local apiserver).
   the role label of its own pod; it cannot read other pods; admission policy `ztna-workloads` lets it change nothing else).
 - **Role in `stunner-system`**: get Secret `stunner-auth-secret` (by name).
 - The hub image runs non-root, read-only root file system, all capabilities dropped, RuntimeDefault seccomp,
-  no service account token beyond its own, **Recreate** strategy and one replica (STUNner routes to every endpoint
-  of the headless Service; two hubs would split the session state).
+  no service account token beyond its own. Only one replica serves (see "Hub replicas": two serving hubs would split
+  the session state), and a single replica uses the **Recreate** strategy.
 - **Hub replicas (hub-ha, plans/ztna-later.md).** The hub keeps every session in memory, so replicas are
-  active-passive: they campaign for the Lease `wg-hub` (`hub.leaderElection`, env `LEADER_ELECTION`, `POD_NAME`,
-  `LEASE_DURATION`, `RENEW_DEADLINE`, `RETRY_PERIOD`, `HANDOVER_WAIT`, `HANDOVER_SETTLE`), the leader serves and the
-  others are ready hot standbys that answer 503. The timings are long on purpose (`leaseDuration` 120s, `renewDeadline`
-  110s): a k3s API outage over `renewDeadline` makes the leader step down and drop all sessions, and vpro is a single
-  node whose k3s restarts take a minute or two. `hub.image.leaderElection` must be set to `true` together with the
-  image pin, once the image is built from wg-tunnel with leader election. Each pod labels itself `ztna.teknoir.org/hub-role: leader|standby` and
-  sets `controller.kubernetes.io/pod-deletion-cost` (100 or 0). **Stage 1 (this state):** one replica (`hub.replicas`
-  only sets `HANDOVER_WAIT`: `0s` with one replica, else `10s`), nothing selects on the role label yet; Service
-  `wg-hub-pods` (headless, UDP 51820, `publishNotReadyAddresses`, selector name + component `hub`, so not the pull
-  secret pods) is added next to `wg-hub` as a second UDPRoute backend of STUNner. Stage 2 raises the replicas, switches
-  to RollingUpdate and points `wg-hub` at the leader label.
+  active-passive: `hub.replicas` (default 2) replicas campaign for the Lease `wg-hub` (`hub.leaderElection`, env
+  `LEADER_ELECTION`, `POD_NAME`, `LEASE_DURATION`, `RENEW_DEADLINE`, `RETRY_PERIOD`, `HANDOVER_WAIT`, `HANDOVER_SETTLE`);
+  the leader serves and the others are ready hot standbys that answer 503. The timings are long on purpose
+  (`leaseDuration` 120s, `renewDeadline` 110s): a k3s API outage over `renewDeadline` makes the leader step down and
+  drop all sessions, and vpro is a single node whose k3s restarts take a minute or two; a pod or node loss costs up to
+  `leaseDuration` before the standby serves. `hub.image.leaderElection` must be `true` (set together with the image pin,
+  once the image is built from wg-tunnel with leader election): without it the render fails, because an older image never
+  sets the `hub-role` label and Service `wg-hub` (selecting the leader) would have no endpoints. Each pod labels itself
+  `ztna.teknoir.org/hub-role: leader|standby` and sets `controller.kubernetes.io/pod-deletion-cost` (100 or 0). Service
+  `wg-hub` selects the leader (`name`, `component: hub`, `hub-role: leader`), so the VirtualServices, the internal port
+  and the status port need no change; Service `wg-hub-pods` (headless, UDP 51820, `publishNotReadyAddresses`, selector
+  name + component `hub`, so not the pull secret pods) is STUNner's only UDPRoute backend, so a failover needs no operator
+  re-render and a terminating leader stays reachable for its handover notices. With more than one replica the Deployment
+  rolls (`maxSurge: 1`, `maxUnavailable: 0`; the deletion cost makes it delete the standby first, so a rollout hands over
+  once), a PodDisruptionBudget `wg-hub` (`hub.pdb.maxUnavailable: 1`, `unhealthyPodEvictionPolicy: AlwaysAllow`) is
+  rendered and the pods prefer different nodes. One replica: Recreate, no budget (`HANDOVER_WAIT` is `0s`). More than
+  one replica without `hub.leaderElection.enabled` fails the render. Covered: pod deletion, eviction, rollouts. Not
+  covered: open TCP streams end at the handover; a crash of the leader still costs the agents the dead-tunnel limit; a
+  single node stays a single point of failure (`kubectl drain` of that node blocks on the last hub pod, as it does on
+  the other PDBs there). The metrics of every hub pod, the standby
+  included, are scraped through the headless Service `wg-hub-metrics` (label `ztna.teknoir.org/scrape: hub-pods`, no role
+  selector; the ServiceMonitor selects only that label), so `wghub_leader` and `wghub_role_patch_errors_total` stay
+  visible when no pod carries the leader label. PrometheusRule `wg-hub` (`metrics.prometheusRule`) alerts on
+  `WgHubLeaderCount` (`(sum(wghub_leader) or vector(0)) != 1` for `leaderFor`, default 5m, above `leaseDuration` so a normal
+  failover is no incident), `WgHubRolePatchErrors` and `WgHubReplicaNotScraped`.
+  **Rollback:** do not repin `hub.image.tag` alone. `scripts/pin-image wg-hub=<tag>` resets `hub.image.leaderElection` to
+  false (and `--leader-election` sets it true for an image with leader election), so the render stops instead of leaving
+  Service `wg-hub` without endpoints; to go back to an image without leader election, switch `hub.leaderElection.enabled`
+  and `hub.replicas` off first (selector without the role label, one replica), then repin.
 
 ## The flags watcher (`templates/flags.yaml`)
 
@@ -134,9 +152,9 @@ Backstage's service account has cluster-wide `teknoir-admin`, so RBAC alone does
   mTLS principal `cluster.local/ns/teknoir-system/sa/backstage-api` (the hub also checks the exact TokenReview username; the
   `app=backstage-api` pods carry an `istio-proxy` sidecar in the injected namespace `teknoir-system`, verified on r415); TCP 9090 from the Prometheus service account. Istio does not see UDP: the WireGuard
   socket (51820/UDP) is reachable only through STUNner, whose UDPRoute admits an authenticated TURN client to exactly that port.
-- `wg-hub` is the **headless** Service: its endpoints are pod IPs (`POD_IP:51820` is the hub endpoint and the TURN peer),
-  so there is no ClusterIP NAT or conntrack on the TURN leg. `wg-hub-pods` is a second headless Service (UDP 51820 only,
-  every hub pod ready or not); STUNner's UDPRoute lists both as backends.
+- `wg-hub` is the **headless** Service of the leader: its endpoints are pod IPs (`POD_IP:51820` is the hub endpoint and
+  the TURN peer), so there is no ClusterIP NAT or conntrack on the TURN leg. `wg-hub-pods` is a second headless Service
+  (UDP 51820 only, every hub pod ready or not) and the UDPRoute's backend.
 
 ## STUN source IP (acceptance probe)
 

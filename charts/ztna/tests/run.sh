@@ -121,7 +121,7 @@ step "helm lint"
 for c in gateway-api-crds stunner; do
   helm lint "${CHARTS}/$c" >"$TMP/lint.txt" 2>&1 && ok "helm lint $c" || { cat "$TMP/lint.txt"; bad "helm lint $c"; }
 done
-helm lint "${CHARTS}/ztna" --set hub.image.tag="$IMG_TAG" >"$TMP/lint.txt" 2>&1 && ok "helm lint ztna" || { cat "$TMP/lint.txt"; bad "helm lint ztna"; }
+helm lint "${CHARTS}/ztna" --set hub.image.tag="$IMG_TAG" --set hub.image.leaderElection=true >"$TMP/lint.txt" 2>&1 && ok "helm lint ztna" || { cat "$TMP/lint.txt"; bad "helm lint ztna"; }
 
 step "helm dependency build (stunner 1.2.1 from https://l7mp.io/stunner)"
 ( cd "${CHARTS}/stunner" && helm dependency build >"$TMP/dep.txt" 2>&1 ) && ok "helm dependency build" || { cat "$TMP/dep.txt"; bad "helm dependency build"; }
@@ -130,7 +130,18 @@ step "render (ztna disabled and enabled)"
 DC_ON=(--set ztna.enabled=true --set ztna.agentImage=ghcr.io/teknoir/wg-agent:sha-0a0a0a0a@sha256:1111111111111111111111111111111111111111111111111111111111111111 --set ztna.terminalImage=ghcr.io/teknoir/web-terminal:sha-0b0b0b0b@sha256:2222222222222222222222222222222222222222222222222222222222222222)
 helm template gateway-api-crds "${CHARTS}/gateway-api-crds" --namespace kube-system --include-crds >"$TMP/crds.yaml"
 helm template stunner "${CHARTS}/stunner" --namespace stunner-system --include-crds >"$TMP/stunner.yaml"
-helm template ztna "${CHARTS}/ztna" --namespace teknoir-ztna --set hub.image.tag="$IMG_TAG" >"$TMP/ztna.yaml"
+helm template ztna "${CHARTS}/ztna" --namespace teknoir-ztna --set hub.image.tag="$IMG_TAG" --set hub.image.leaderElection=true >"$TMP/ztna.yaml"
+helm template ztna "${CHARTS}/ztna" --namespace teknoir-ztna --set hub.image.tag="$IMG_TAG" --set hub.image.leaderElection=true --set hub.replicas=1 >"$TMP/ztna-one.yaml"
+# The committed values (what ArgoCD renders): the only allowed failure is the leader-election pin gate (the
+# pin has not been repinned to an image with leader election yet: the render stops instead of leaving wg-hub without endpoints)
+if helm template ztna "${CHARTS}/ztna" --namespace teknoir-ztna >"$TMP/ztna-values.yaml" 2>"$TMP/ztna-values.err"; then
+  ok "committed values render (hub.image.leaderElection confirms the pin)"
+elif grep -q "hub.image.leaderElection: true" "$TMP/ztna-values.err"; then
+  printf 'NOTE: committed values do not render: repin hub.image.tag (scripts/pin-image) and set hub.image.leaderElection: true before this branch is released\n'
+  ok "committed values are stopped by the leader-election pin gate"
+else
+  cat "$TMP/ztna-values.err"; bad "committed values do not render"
+fi
 helm template device-controller "${CHARTS}/device-controller" --namespace teknoir-system >"$TMP/dc-off.yaml"
 helm template device-controller "${CHARTS}/device-controller" --namespace teknoir-system "${DC_ON[@]}" >"$TMP/dc-on.yaml"
 helm template virtual-devices "${CHARTS}/virtual-devices" --namespace kubevirt >"$TMP/vd-off.yaml"
@@ -212,7 +223,7 @@ else
   # Istio and Prometheus Operator objects have no schema offline.
   IGN=(-ignore-missing-schemas)
 fi
-for f in crds stunner ztna dc-off dc-on vd-off vd-on; do
+for f in crds stunner ztna ztna-one dc-off dc-on vd-off vd-on; do
   if kubeconform -strict -summary "${IGN[@]}" -kubernetes-version "$K8S_VERSION" -cache "$CACHE" -skip CustomResourceDefinition "${LOC[@]}" "$TMP/$f.yaml" >"$TMP/kc-$f.txt" 2>&1; then
     ok "kubeconform $f: $(tail -1 "$TMP/kc-$f.txt")"
   else
@@ -248,9 +259,8 @@ assert [(l["protocol"], l["port"]) for l in gw["spec"]["listeners"]] == [("TURN-
 rt, = by(st, "UDPRoute")
 assert rt["apiVersion"] == "stunner.l7mp.io/v1" and rt["metadata"] == {"name": "wg-hub", "namespace": "stunner-system", "annotations": rt["metadata"]["annotations"]}
 assert rt["spec"]["parentRefs"] == [{"name": "teknoir-turn"}]
-# both Services (hub-ha stage 1): wg-hub (the serving hub) and wg-hub-pods (every hub pod, so a failover needs no re-render)
-assert rt["spec"]["rules"] == [{"backendRefs": [{"name": "wg-hub", "namespace": "teknoir-ztna", "port": 51820},
-                                               {"name": "wg-hub-pods", "namespace": "teknoir-ztna", "port": 51820}]}], rt["spec"]
+# hub-ha: wg-hub-pods (every hub pod, ready or not, so a failover needs no re-render); wg-hub selects only the leader and is no backend
+assert rt["spec"]["rules"] == [{"backendRefs": [{"name": "wg-hub-pods", "namespace": "teknoir-ztna", "port": 51820}]}], rt["spec"]
 for d in (gc, cfg, gw, rt):
     a = d["metadata"]["annotations"]
     assert a["argocd.argoproj.io/sync-wave"] == "1" and a["argocd.argoproj.io/sync-options"] == "SkipDryRunOnMissingResource=true", d["kind"]
@@ -274,7 +284,17 @@ dep = deps["wg-hub"]
 spec = dep["spec"]["template"]["spec"]
 c, = spec["containers"]
 assert c["image"].startswith("ghcr.io/teknoir/wg-hub:") and "@sha256:" in c["image"]
-assert dep["spec"]["replicas"] == 1 and dep["spec"]["strategy"]["type"] == "Recreate"
+assert dep["spec"]["replicas"] == 2 and dep["spec"]["strategy"] == {"type": "RollingUpdate", "rollingUpdate": {"maxSurge": 1, "maxUnavailable": 0}}, dep["spec"]
+assert spec["affinity"]["podAntiAffinity"]["preferredDuringSchedulingIgnoredDuringExecution"][0]["podAffinityTerm"]["topologyKey"] == "kubernetes.io/hostname"
+pdb, = by(z, "PodDisruptionBudget")
+assert pdb["spec"] == {"maxUnavailable": 1, "unhealthyPodEvictionPolicy": "AlwaysAllow",
+                       "selector": {"matchLabels": {"app.kubernetes.io/name": "wg-hub", "app.kubernetes.io/component": "hub"}}}, pdb["spec"]
+# one replica: Recreate, no budget (a budget on a single pod would only block every drain)
+one = load("ztna-one")
+odep, = [d for d in by(one, "Deployment") if d["metadata"]["name"] == "wg-hub"]
+assert odep["spec"]["replicas"] == 1 and odep["spec"]["strategy"] == {"type": "Recreate"}, odep["spec"]
+assert not by(one, "PodDisruptionBudget")
+assert {e["name"]: e.get("value") for e in odep["spec"]["template"]["spec"]["containers"][0]["env"]}["HANDOVER_WAIT"] == "0s"
 assert spec["securityContext"]["runAsNonRoot"] is True and c["securityContext"]["readOnlyRootFilesystem"] is True
 assert c["securityContext"]["capabilities"] == {"drop": ["ALL"]} and c["securityContext"]["allowPrivilegeEscalation"] is False
 assert "hostNetwork" not in spec and not spec.get("hostPID")
@@ -291,7 +311,8 @@ assert fc["securityContext"]["readOnlyRootFilesystem"] is True and fc["securityC
 assert not [s_ for s_ in by(z, "Service") if s_["metadata"]["name"] == "wg-flags"], "no Service for the flags watcher"
 svc, = by(z, "Service", "wg-hub")
 assert [(p["name"], p["port"]) for p in svc["spec"]["ports"]] == [("http", 8080), ("http-internal", 8081), ("http-status", 8082), ("http-metrics", 9090), ("wg", 51820)]
-# hub-ha: the hub pods carry the component and role labels; Service wg-hub-pods lists them all (UDP only, not-ready too)
+# hub-ha: the hub pods carry the component and role labels; Service wg-hub selects the leader, Service wg-hub-pods lists them all (UDP only, not-ready too)
+assert svc["spec"]["selector"] == {"app.kubernetes.io/name": "wg-hub", "app.kubernetes.io/component": "hub", "ztna.teknoir.org/hub-role": "leader"}, svc["spec"]["selector"]
 assert {k: v for k, v in dep["spec"]["template"]["metadata"]["labels"].items() if k != "app.kubernetes.io/part-of"} == {
     "app.kubernetes.io/name": "wg-hub", "app.kubernetes.io/component": "hub", "ztna.teknoir.org/hub-role": "standby"}
 assert dep["spec"]["selector"]["matchLabels"] == {"app.kubernetes.io/name": "wg-hub"}, "the Deployment selector is immutable"
@@ -301,7 +322,7 @@ assert pods["spec"]["selector"] == {"app.kubernetes.io/name": "wg-hub", "app.kub
 assert [(p["name"], p["port"], p["protocol"]) for p in pods["spec"]["ports"]] == [("wg", 51820, "UDP")]
 env = {e["name"]: e for e in c["env"]}
 assert env["POD_NAME"]["valueFrom"]["fieldRef"]["fieldPath"] == "metadata.name"
-assert env["LEADER_ELECTION"]["value"] == "wg-hub" and env["HANDOVER_WAIT"]["value"] == "0s", "one replica waits for nobody"
+assert env["LEADER_ELECTION"]["value"] == "wg-hub" and env["HANDOVER_WAIT"]["value"] == "10s", "two replicas: wait for the other to take the lease"
 # every pod of the pull secret Job and CronJob stays out of the hub pod selector
 for j in by(z, "Job") + by(z, "CronJob"):
     tpl = j["spec"]["template"] if j["kind"] == "Job" else j["spec"]["jobTemplate"]["spec"]["template"]
@@ -379,7 +400,7 @@ assert sorted(d["kind"] for d in roles) == ["Role", "RoleBinding"]
 names = lambda docs: {(d["kind"], d["metadata"]["name"]) for d in docs}
 assert names(on) - names(off) == {("Role", "device-controller-ztna"), ("RoleBinding", "device-controller-ztna-rolebinding"), ("NetworkPolicy", "vdev-egress-turn")}, names(on) ^ names(off)
 assert not names(off) - names(on)
-print("ok   STUNner Gateway/GatewayClass/GatewayConfig/UDPRoute (port 51820, no endPort, cross-namespace backends wg-hub and wg-hub-pods), hub Deployment hardening and role labels, Service wg-hub-pods, Roles, admission policy set, no Secrets in Git, device-controller ZTNA key and Role")
+print("ok   STUNner Gateway/GatewayClass/GatewayConfig/UDPRoute (port 51820, no endPort, cross-namespace backend wg-hub-pods), hub Deployment (2 replicas, rolling, hardening, role labels), PodDisruptionBudget (none with 1 replica), Services wg-hub (leader) and wg-hub-pods, Roles, admission policy set, no Secrets in Git, device-controller ZTNA key and Role")
 PY
 python3 -I - "${CHARTS}/device-controller/crds/devices.yaml" <<'PY' && ok "Device CRD: status.wireguard next to status.virtual_device with the phase-2 fields" || bad "Device CRD status.wireguard"
 import sys, yaml

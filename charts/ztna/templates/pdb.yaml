@@ -1,0 +1,20 @@
+{{- /*
+PodDisruptionBudget of the hub replicas (hub.replicas > 1 only: with one replica a budget would only block
+every drain). One replica may be disrupted at a time; a pod that is not Ready never blocks an eviction
+(AlwaysAllow). The selector is the hub pods proper (name + component), not the pull secret pods.
+*/ -}}
+{{- if gt (int .Values.hub.replicas) 1 }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: wg-hub
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+spec:
+  maxUnavailable: {{ .Values.hub.pdb.maxUnavailable }}
+  unhealthyPodEvictionPolicy: AlwaysAllow
+  selector:
+    matchLabels:
+      {{- include "ztna.hubPodSelector" . | nindent 6 }}
+{{- end }}
