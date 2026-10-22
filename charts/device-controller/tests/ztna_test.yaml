@@ -28,7 +28,7 @@ tests:
     asserts:
       - equal:
           path: data.ZTNA
-          value: '{"agentImage":"ghcr.io/teknoir/wg-agent:sha-0000000a@sha256:1111111111111111111111111111111111111111111111111111111111111111","allowedPorts":[22],"enabled":true,"enrollWindowMinutes":15,"hubNamespace":"teknoir-ztna","ingressPrincipals":["cluster.local/ns/istio-system/sa/istio-ingressgateway"],"terminalImage":"ghcr.io/teknoir/web-terminal:sha-0000000b@sha256:2222222222222222222222222222222222222222222222222222222222222222","terminalRunAsUser":65532}'
+          value: '{"agentImage":"ghcr.io/teknoir/wg-agent:sha-0000000a@sha256:1111111111111111111111111111111111111111111111111111111111111111","allowedPorts":[22],"enabled":true,"enrollWindowMinutes":15,"hubNamespace":"teknoir-ztna","ingressPrincipals":["cluster.local/ns/istio-system/sa/istio-ingressgateway"],"inspectPrincipals":["cluster.local/ns/teknoir-system/sa/backstage-api"],"terminalImage":"ghcr.io/teknoir/web-terminal:sha-0000000b@sha256:2222222222222222222222222222222222222222222222222222222222222222","terminalRunAsUser":65532}'
       - equal:
           path: data.DOMAIN
           value: teknoir.cloud
@@ -42,6 +42,38 @@ tests:
       - notMatchRegex:
           path: data.ZTNA
           pattern: "ingressPrincipals"
+
+  - it: passes only the Backstage API service account as inspect principal by default (never a gateway)
+    template: templates/configmap.yaml
+    set:
+      ztna.enabled: true
+    asserts:
+      - matchRegex:
+          path: data.ZTNA
+          pattern: '"inspectPrincipals":\["cluster.local/ns/teknoir-system/sa/backstage-api"\]'
+      - notMatchRegex:
+          path: data.ZTNA
+          pattern: '"inspectPrincipals":\[[^\]]*ingressgateway'
+
+  - it: passes an explicit empty inspect principal list (turns the inspect rule off)
+    template: templates/configmap.yaml
+    set:
+      ztna.enabled: true
+      ztna.inspectPrincipals: []
+    asserts:
+      - matchRegex:
+          path: data.ZTNA
+          pattern: '"inspectPrincipals":\[\]'
+
+  - it: leaves inspectPrincipals out when the key is unset (the controller default applies)
+    template: templates/configmap.yaml
+    set:
+      ztna.enabled: true
+      ztna.inspectPrincipals: null
+    asserts:
+      - notMatchRegex:
+          path: data.ZTNA
+          pattern: "inspectPrincipals"
 
   - it: never passes the public gateway principal by default
     template: templates/configmap.yaml
