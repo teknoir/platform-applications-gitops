@@ -116,7 +116,7 @@ from cert-manager (`tokenServiceCert`, templates/token-service-cert.yaml).
   `nvcr` 100, `quay` 40, `gcr` 30, `k8s` 30. Retention: `ci` keeps release/environment tags,
   the 15 newest pushes per repository and anything pulled in 30 days; `proxy` keeps what was
   pulled in 30 days, digest-pinned (untagged) pulls included;
-- weekly GC (untagged too), audit-log purge (30 days), weekly scan-all;
+- weekly GC (blobs only; `deleteUntagged: false`, untagged artifacts go through the retention rules), audit-log purge (30 days), weekly scan-all;
 - robot `robot$ci`, written as `teknoir-ci/harbor-ci-robot` (charts/ci grants the Job that
   Secret), robot `robot$nodes` (pull-only on the six proxies, never on `teknoir`), written as
   `teknoir-system/harbor-nodes-pull`, and one pull-only robot per teamspace (below). A missing
@@ -162,6 +162,10 @@ through `harbor.teknoir.cloud/<project>/<path>`, with the upstream as the fallba
   to ghcr.io. An AuthorizationPolicy `notPaths` rule could not do this: it cannot see `%2F`
   forms. Not suitable for customer teamspaces: the teamspace robot can pull every private
   `ghcr.io/teknoir/*` image (plan phase 2: one credential per device).
+  The same goes for the `nodes` robot: its credential sits in every node's `registries.yaml`, so
+  any pod on such a node, in any namespace and without a pull secret, can pull those images.
+  On a cluster with customer teamspaces drop the `ghcr` line from `nodes` (platform pods keep
+  their pull secrets), or enable `KubeletEnsureSecretPulledImages` / `AlwaysPullImages`.
 
 ### Tests
 - `python3 -m unittest discover -s charts/harbor/tests -p 'test_*.py'` (stdlib only):

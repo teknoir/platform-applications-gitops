@@ -561,6 +561,9 @@ class RenderedConfigTest(unittest.TestCase):
         self.assertEqual(quotas, {"teknoir": 250, "ghcr": 150, "dockerhub": 100, "nvcr": 100, "quay": 40,
                                   "gcr": 30, "k8s": 30})
         self.assertEqual(sum(quotas.values()), 700)
+        # GC must not delete untagged artifacts: that would drop the digest-pinned pulls the proxy
+        # retention rule keeps (retention handles untagged artifacts itself).
+        self.assertIs(self.fake.schedules["gc"]["parameters"]["delete_untagged"], False)
         for n in PROXIES:
             self.assertEqual(self.fake.project(n)["metadata"]["public"], "false")
         self.assertEqual(sorted(self.fake.secret_data("teknoir-system", "harbor-teamspace-pull")),

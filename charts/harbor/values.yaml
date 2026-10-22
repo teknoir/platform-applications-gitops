@@ -174,8 +174,12 @@ harborConfig:
         schedule: "0 30 2 * * *"
         rules:
           - {template: nDaysSinceLastPull, value: 30, untagged: true}
-    # Blob GC after retention (Sunday); untagged manifests go too.
-    gc: {schedule: "0 0 4 * * 0", deleteUntagged: true, workers: 1}
+    # Blob GC after retention (Sunday). deleteUntagged is false on purpose: Harbor's GC would
+    # delete EVERY untagged artifact in every project, including the digest-pinned pulls the
+    # proxy retention rule keeps (wg-agent sha, TOE digest). Untagged artifacts go through the
+    # retention rules instead (ci: latestPushedK / nDaysSinceLastPull; proxy: nDaysSinceLastPull
+    # with `untagged`); GC only frees the blobs of what retention already deleted.
+    gc: {schedule: "0 0 4 * * 0", deleteUntagged: false, workers: 1}
     auditPurge:
       schedule: "0 30 4 * * 0"
       retentionHours: 720
@@ -200,6 +204,13 @@ harborConfig:
       # The platform's cluster nodes (k3s registries.yaml, infra scripts/ci-node-setup.sh
       # --registry-mirror): pull-only on the proxy projects, never on `teknoir`. The credential is
       # copied from this Secret onto the nodes by hand (never printed).
+      # CAVEAT: ghcr here means any pod on such a node, in any namespace and without an
+      # imagePullSecret, can pull every private ghcr.io/teknoir/* image (kubelet only checks
+      # credentials for images it has not pulled yet; the node credential is the node's, not the
+      # pod's). Accepted on staging, where teamspace developers can read the PAT anyway. A cluster
+      # with customer teamspaces must drop the ghcr line below from `nodes` (platform pods keep
+      # their pull secrets and fall through to ghcr.io), or enable KubeletEnsureSecretPulledImages
+      # / AlwaysPullImages (plans/new-cluster-requirements.md section 10).
       - name: nodes
         secret: {namespace: teknoir-system, name: harbor-nodes-pull}
         permissions: &proxyPull
