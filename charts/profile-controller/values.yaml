@@ -49,7 +49,8 @@ config:
   # 0.0.106: Observatory: standalone frontend off, wss-mqtt admits the Backstage backends, legacy wss path routed.
   # 0.0.107: jwks-server (jwx 1.2.29 / v2 2.0.21) and fleet-metrics (gorilla/websocket 1.5.3) on sha-* tags.
   # 0.0.108: the prometheus LowDiskSpace rule fires on <20 GB free or >90% used (not only the percentage).
-  pluginChartVersion: "0.0.108"
+  # 0.0.109: EMQX dashboard without its own login behind an owner-only proxy; default dashboard passwords rotated.
+  pluginChartVersion: "0.0.109"
 
 resources: {}
   # limits:
