@@ -121,7 +121,7 @@ step "helm lint"
 for c in gateway-api-crds stunner; do
   helm lint "${CHARTS}/$c" >"$TMP/lint.txt" 2>&1 && ok "helm lint $c" || { cat "$TMP/lint.txt"; bad "helm lint $c"; }
 done
-helm lint "${CHARTS}/ztna" --set hub.image.tag="$IMG_TAG" >"$TMP/lint.txt" 2>&1 && ok "helm lint ztna" || { cat "$TMP/lint.txt"; bad "helm lint ztna"; }
+helm lint "${CHARTS}/ztna" --set hub.image.tag="$IMG_TAG" --set hub.image.leaderElection=true >"$TMP/lint.txt" 2>&1 && ok "helm lint ztna" || { cat "$TMP/lint.txt"; bad "helm lint ztna"; }
 
 step "helm dependency build (stunner 1.2.1 from https://l7mp.io/stunner)"
 ( cd "${CHARTS}/stunner" && helm dependency build >"$TMP/dep.txt" 2>&1 ) && ok "helm dependency build" || { cat "$TMP/dep.txt"; bad "helm dependency build"; }
@@ -130,8 +130,18 @@ step "render (ztna disabled and enabled)"
 DC_ON=(--set ztna.enabled=true --set ztna.agentImage=ghcr.io/teknoir/wg-agent:sha-0a0a0a0a@sha256:1111111111111111111111111111111111111111111111111111111111111111 --set ztna.terminalImage=ghcr.io/teknoir/web-terminal:sha-0b0b0b0b@sha256:2222222222222222222222222222222222222222222222222222222222222222)
 helm template gateway-api-crds "${CHARTS}/gateway-api-crds" --namespace kube-system --include-crds >"$TMP/crds.yaml"
 helm template stunner "${CHARTS}/stunner" --namespace stunner-system --include-crds >"$TMP/stunner.yaml"
-helm template ztna "${CHARTS}/ztna" --namespace teknoir-ztna --set hub.image.tag="$IMG_TAG" >"$TMP/ztna.yaml"
-helm template ztna "${CHARTS}/ztna" --namespace teknoir-ztna --set hub.image.tag="$IMG_TAG" --set hub.replicas=1 >"$TMP/ztna-one.yaml"
+helm template ztna "${CHARTS}/ztna" --namespace teknoir-ztna --set hub.image.tag="$IMG_TAG" --set hub.image.leaderElection=true >"$TMP/ztna.yaml"
+helm template ztna "${CHARTS}/ztna" --namespace teknoir-ztna --set hub.image.tag="$IMG_TAG" --set hub.image.leaderElection=true --set hub.replicas=1 >"$TMP/ztna-one.yaml"
+# The committed values (what ArgoCD renders): the only allowed failure is the leader-election pin gate (the
+# pin has not been repinned to an image with leader election yet: the render stops instead of leaving wg-hub without endpoints)
+if helm template ztna "${CHARTS}/ztna" --namespace teknoir-ztna >"$TMP/ztna-values.yaml" 2>"$TMP/ztna-values.err"; then
+  ok "committed values render (hub.image.leaderElection confirms the pin)"
+elif grep -q "hub.image.leaderElection: true" "$TMP/ztna-values.err"; then
+  printf 'NOTE: committed values do not render: repin hub.image.tag (scripts/pin-image) and set hub.image.leaderElection: true before this branch is released\n'
+  ok "committed values are stopped by the leader-election pin gate"
+else
+  cat "$TMP/ztna-values.err"; bad "committed values do not render"
+fi
 helm template device-controller "${CHARTS}/device-controller" --namespace teknoir-system >"$TMP/dc-off.yaml"
 helm template device-controller "${CHARTS}/device-controller" --namespace teknoir-system "${DC_ON[@]}" >"$TMP/dc-on.yaml"
 helm template virtual-devices "${CHARTS}/virtual-devices" --namespace kubevirt >"$TMP/vd-off.yaml"

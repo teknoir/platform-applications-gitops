@@ -201,7 +201,7 @@ spec:
 # not captured by the Istio sidecar; the TCP ports are. STUNner's UDPRoute permits the hub pods
 # through wg-hub-pods (below), so a failover does not wait for the operator to re-render.
 # Needs a wg-hub image with leader election: an older image never sets the hub-role label and this Service
-# would have no endpoints. Release stage 2 only when the live pods show hub-role=leader (plans/ztna-later.md).
+# would have no endpoints, so the render fails unless hub.image.leaderElection confirms the pin (top of this file).
 apiVersion: v1
 kind: Service
 metadata:

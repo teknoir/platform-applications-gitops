@@ -70,7 +70,7 @@ as() { local u=$1; shift; "${KC[@]}" --as "$u" --as-group system:authenticated "
 "${KC[@]}" create namespace other >/dev/null
 
 # The chart's admission objects only (no image needed for these templates).
-helm template ztna "${CHART}" --namespace teknoir-ztna --set hub.image.tag=sha-test -s templates/admission.yaml > "${TMP}/admission.yaml"
+helm template ztna "${CHART}" --namespace teknoir-ztna --set hub.image.tag=sha-test --set hub.image.leaderElection=true -s templates/admission.yaml > "${TMP}/admission.yaml"
 "${KC[@]}" apply -f "${TMP}/admission.yaml" >/dev/null
 # Admission policies are cached by the apiserver for a moment.
 for _ in $(seq 1 30); do

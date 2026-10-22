@@ -16,13 +16,14 @@ hub:
     # discovery, agent race fixes #4): hub + flags watcher, index digest.
     # Previous pin: sha-37fe475@sha256:4a405ccced8b389e254d3f9965b0c2ea35ca1b0a77bb6c42c17b076b7b27f58b
     # hub-ha: this pin MUST be replaced by an image built from wg-tunnel with leader election (branch
-    # hub-ha, hub.leaderElection) BEFORE stage 1 is released. An older image ignores LEADER_ELECTION and never
-    # sets ztna.teknoir.org/hub-role, so after stage 2 the Service wg-hub has no endpoints (full ZTNA outage).
-    # Gate for stage 2: the live stage-1 pod shows hub-role=leader.
+    # hub-ha, hub.leaderElection) before this stage is released. An older image ignores LEADER_ELECTION and never
+    # sets ztna.teknoir.org/hub-role, so the Service wg-hub (selector hub-role=leader) would have no endpoints
+    # (full ZTNA outage). The chart enforces it: the render fails until leaderElection below is true.
+    # wg-tunnel #8 (b563d89): leader election and planned handover; live as leader since staging-20261022.6.
     tag: "sha-b563d89@sha256:8cd7c6ea2cac46df4413a5008ee8d1bebde09c2ecdf70753a829d29c773df4c1"
     # Set to true TOGETHER WITH the repin above, and only when the image is built from wg-tunnel with leader
-    # election (it sets ztna.teknoir.org/hub-role). Stage 2 refuses to render the leader Service without it,
-    # so an image that never labels a pod cannot leave wg-hub without endpoints.
+    # election (it sets ztna.teknoir.org/hub-role). The render fails while hub.leaderElection.enabled is on and
+    # this is false, so an image that never labels a pod cannot leave wg-hub without endpoints.
     leaderElection: true
     pullPolicy: IfNotPresent
   imagePullSecrets:

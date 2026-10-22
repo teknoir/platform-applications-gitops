@@ -13,7 +13,34 @@ templates:
   - templates/pull-secret.yaml
 set:
   hub.image.tag: "sha-0123abcd@sha256:3333333333333333333333333333333333333333333333333333333333333333"
+  hub.image.leaderElection: true
 tests:
+  - it: fails the render when the leader Service would select pods an image without leader election never labels
+    template: templates/hub.yaml
+    set:
+      hub.image.leaderElection: false
+    asserts:
+      - failedTemplate:
+          errorPattern: "hub-role=leader label, which only a wg-hub image with leader election sets"
+
+  - it: fails the render for one replica too (the Service still selects the leader label) without the image confirmation
+    template: templates/hub.yaml
+    set:
+      hub.image.leaderElection: false
+      hub.replicas: 1
+    asserts:
+      - failedTemplate:
+          errorPattern: "hub.image.leaderElection: true"
+
+  - it: renders with the old pin once the election is switched off (no leader selector, no gate)
+    template: templates/hub.yaml
+    set:
+      hub.image.leaderElection: false
+      hub.replicas: 1
+      hub.leaderElection.enabled: false
+    asserts:
+      - notFailedTemplate: {}
+
   - it: fails the render without an image tag
     template: templates/hub.yaml
     set:
