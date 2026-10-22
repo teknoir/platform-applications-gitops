@@ -69,9 +69,11 @@ spec:
         namespaces:
           from: Same
 ---
-# The only thing a TURN client can reach: the hub's WireGuard UDP port. The backend is in another
+# The only thing a TURN client can reach: the hub's WireGuard UDP port. The backends are in another
 # namespace; STUNner's own UDPRoute allows that without a ReferenceGrant (its backendRefs take a
-# namespace). No endPort: the singleton port range [port, port].
+# namespace). No endPort: the singleton port range [port, port]. hub.services lists the Services
+# whose endpoints are permitted: wg-hub (the serving hub) and wg-hub-pods (every hub pod, ready or
+# not, so a failover to the other replica needs no re-render; see charts/ztna).
 apiVersion: stunner.l7mp.io/v1
 kind: UDPRoute
 metadata:
@@ -84,6 +86,8 @@ spec:
     - name: {{ $gw.name }}
   rules:
     - backendRefs:
-        - name: {{ $hub.service }}
+        {{- range $hub.services }}
+        - name: {{ . }}
           namespace: {{ $hub.namespace }}
           port: {{ $hub.wgPort }}
+        {{- end }}

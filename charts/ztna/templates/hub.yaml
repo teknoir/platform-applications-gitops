@@ -13,6 +13,10 @@ automountServiceAccountToken: true
 # One replica: sessions, IP allocation and the WireGuard socket are in memory. Recreate (not a
 # rolling update) so two hubs never run at once: STUNner routes to every endpoint of the headless
 # Service, and a second hub would receive handshakes for sessions it does not know.
+# hub-ha stage 1 (plans/ztna-later.md): every pod already runs the leader election (LEADER_ELECTION,
+# Lease wg-hub) and labels itself ztna.teknoir.org/hub-role leader|standby, but nothing selects on
+# that label yet and the replica count stays 1. Stage 2 raises it to hub.replicas, switches the
+# strategy to RollingUpdate and points Service wg-hub at the leader label.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -31,6 +35,11 @@ spec:
     metadata:
       labels:
         {{- include "ztna.hubLabels" . | nindent 8 }}
+        # The pods of the pull secret Job and CronJob carry ztna.hubLabels too (component
+        # pull-secret); the component label tells a hub pod from them. The hub moves its own
+        # hub-role between standby and leader.
+        app.kubernetes.io/component: hub
+        ztna.teknoir.org/hub-role: standby
     spec:
       serviceAccountName: wg-hub
       {{- with .Values.hub.imagePullSecrets }}
@@ -89,6 +98,29 @@ spec:
             # Audience of the projected token Backstage sends to the status port (TokenReview).
             - name: STATUS_AUDIENCE
               value: "teknoir-ztna-status"
+            # Leader election on the Lease in this namespace; POD_NAME is the identity and the pod
+            # whose role label the hub sets. HANDOVER_WAIT is 0s with one replica (nobody takes
+            # over, so a stepping-down hub does not wait for one).
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            {{- with .Values.hub.leaderElection }}
+            {{- if .enabled }}
+            - name: LEADER_ELECTION
+              value: {{ .lease | quote }}
+            - name: LEASE_DURATION
+              value: {{ .leaseDuration | quote }}
+            - name: RENEW_DEADLINE
+              value: {{ .renewDeadline | quote }}
+            - name: RETRY_PERIOD
+              value: {{ .retryPeriod | quote }}
+            - name: HANDOVER_WAIT
+              value: {{ ternary "0s" .handoverWait (eq (int $.Values.hub.replicas) 1) | quote }}
+            - name: HANDOVER_SETTLE
+              value: {{ .handoverSettle | quote }}
+            {{- end }}
+            {{- end }}
           ports:
             - name: http
               containerPort: 8080
@@ -167,6 +199,30 @@ spec:
       port: 9090
       targetPort: metrics
       protocol: TCP
+    - name: wg
+      port: 51820
+      targetPort: wg
+      protocol: UDP
+---
+# The hub pods as TURN peers, ready or not (UDP 51820 only): STUNner's UDPRoute permits every pod
+# here before a failover, so a new leader needs no operator re-render, and a terminating leader
+# stays reachable for the handover notices it sends to the agents through TURN. A standby has no
+# peers, so permitting it is harmless; clients send WireGuard only to the endpoint of the session.
+# The selector includes the component label: the pods of the pull secret Job and CronJob carry
+# the name label too (component pull-secret) and must not become peers.
+apiVersion: v1
+kind: Service
+metadata:
+  name: wg-hub-pods
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    {{- include "ztna.hubPodSelector" . | nindent 4 }}
+  ports:
     - name: wg
       port: 51820
       targetPort: wg
