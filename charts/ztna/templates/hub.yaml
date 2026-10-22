@@ -263,6 +263,29 @@ spec:
       protocol: UDP
 {{- if .Values.metrics.serviceMonitor.enabled }}
 ---
+# Metrics of EVERY hub pod, whatever its hub-role. Service wg-hub selects only the leader, so a standby
+# (and the whole set when no pod carries the leader label, e.g. after a failed role patch) would not be
+# scraped through it: wghub_leader and wghub_role_patch_errors_total would vanish exactly when they matter.
+# This Service is for the ServiceMonitor only; the extra label keeps wg-hub and wg-hub-pods out of it.
+apiVersion: v1
+kind: Service
+metadata:
+  name: wg-hub-metrics
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+    ztna.teknoir.org/scrape: hub-pods
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    {{- include "ztna.hubPodSelector" . | nindent 4 }}
+  ports:
+    - name: http-metrics
+      port: 9090
+      targetPort: metrics
+      protocol: TCP
+---
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
@@ -277,8 +300,54 @@ spec:
   selector:
     matchLabels:
       {{- include "ztna.hubSelector" . | nindent 6 }}
+      ztna.teknoir.org/scrape: hub-pods
   endpoints:
     - port: http-metrics
       path: /metrics
       interval: {{ .Values.metrics.serviceMonitor.interval }}
+{{- if .Values.metrics.prometheusRule.enabled }}
+---
+# Alerts for the hub-ha design (plans/ztna-later.md): exactly one replica serves, and the role label
+# patch works. The series come from every hub pod through Service wg-hub-metrics.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: wg-hub
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+    {{- toYaml .Values.metrics.serviceMonitor.labels | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  groups:
+    - name: wg-hub
+      rules:
+        # 0 leaders: Service wg-hub has no endpoints (a full ZTNA outage); 2 or more: sessions split. No hub
+        # target at all counts as 0 (vector(0)), so a vanished scrape alerts instead of staying silent.
+        # `for` must exceed hub.leaderElection.leaseDuration: a crashed leader is replaced only after the lease expires.
+        - alert: WgHubLeaderCount
+          expr: (sum(wghub_leader{namespace={{ .Release.Namespace | quote }}}) or vector(0)) != 1
+          for: {{ .Values.metrics.prometheusRule.leaderFor }}
+          labels:
+            severity: critical
+          annotations:
+            summary: "ZTNA hub: the number of serving replicas is not 1"
+            description: "sum(wghub_leader) is not 1 for {{ .Values.metrics.prometheusRule.leaderFor }}. 0: no replica serves (or none is scraped) and Service wg-hub has no endpoints; 2 or more: split sessions."
+        - alert: WgHubRolePatchErrors
+          expr: increase(wghub_role_patch_errors_total{namespace={{ .Release.Namespace | quote }}}[5m]) > 0
+          labels:
+            severity: warning
+          annotations:
+            summary: "ZTNA hub {{ "{{ $labels.pod }}" }}: its hub-role label could not be updated"
+            description: "The hub could not patch the hub-role label of its own pod; Service wg-hub follows that label, so the leader may be unreachable."
+        - alert: WgHubReplicaNotScraped
+          expr: (count(up{job="wg-hub-metrics",namespace={{ .Release.Namespace | quote }}} == 1) or vector(0)) < {{ int .Values.hub.replicas }}
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "ZTNA hub: fewer hub replicas are scraped than hub.replicas ({{ int .Values.hub.replicas }})"
+            description: "A hub pod (a standby too) is down or missing from the scrape."
+{{- end }}
 {{- end }}

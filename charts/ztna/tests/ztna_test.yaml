@@ -459,7 +459,103 @@ tests:
           path: spec.endpoints[0].port
           value: http-metrics
 
-  - it: renders no ServiceMonitor when switched off
+  - it: scrapes every hub pod, standby and leaderless pods included, through a Service of its own (not the leader-only wg-hub)
+    template: templates/hub.yaml
+    documentSelector:
+      path: metadata.name
+      value: wg-hub-metrics
+    asserts:
+      - equal:
+          path: kind
+          value: Service
+      - equal:
+          path: spec.clusterIP
+          value: None
+      - equal:
+          path: spec.publishNotReadyAddresses
+          value: true
+      # no hub-role in the selector: both replicas, whatever their role label
+      - equal:
+          path: spec.selector
+          value:
+            app.kubernetes.io/name: wg-hub
+            app.kubernetes.io/component: hub
+      - equal:
+          path: spec.ports
+          value:
+            - {name: http-metrics, port: 9090, targetPort: metrics, protocol: TCP}
+      - equal:
+          path: metadata.labels["ztna.teknoir.org/scrape"]
+          value: hub-pods
+
+  - it: points the ServiceMonitor at the all-pods metrics Service only (wg-hub and wg-hub-pods lack its label)
+    template: templates/hub.yaml
+    documentSelector:
+      path: kind
+      value: ServiceMonitor
+    asserts:
+      - equal:
+          path: spec.selector.matchLabels
+          value:
+            app.kubernetes.io/name: wg-hub
+            ztna.teknoir.org/scrape: hub-pods
+
+  - it: alerts when the serving replicas are not exactly one, when a role patch fails and when a replica is not scraped
+    template: templates/hub.yaml
+    documentSelector:
+      path: kind
+      value: PrometheusRule
+    asserts:
+      - equal:
+          path: metadata.labels.release
+          value: monitoring
+      - equal:
+          path: spec.groups[0].rules[0].alert
+          value: WgHubLeaderCount
+      - equal:
+          path: spec.groups[0].rules[0].expr
+          value: (sum(wghub_leader{namespace="teknoir-ztna"}) or vector(0)) != 1
+      - equal:
+          path: spec.groups[0].rules[0].for
+          value: 5m
+      - equal:
+          path: spec.groups[0].rules[1].alert
+          value: WgHubRolePatchErrors
+      - equal:
+          path: spec.groups[0].rules[1].expr
+          value: increase(wghub_role_patch_errors_total{namespace="teknoir-ztna"}[5m]) > 0
+      - equal:
+          path: spec.groups[0].rules[2].alert
+          value: WgHubReplicaNotScraped
+      - equal:
+          path: spec.groups[0].rules[2].expr
+          value: (count(up{job="wg-hub-metrics",namespace="teknoir-ztna"} == 1) or vector(0)) < 2
+
+  - it: follows hub.replicas and the leader window in the alerts
+    template: templates/hub.yaml
+    set:
+      hub.replicas: 3
+      metrics.prometheusRule.leaderFor: 8m
+    documentSelector:
+      path: kind
+      value: PrometheusRule
+    asserts:
+      - equal:
+          path: spec.groups[0].rules[0].for
+          value: 8m
+      - matchRegex:
+          path: spec.groups[0].rules[2].expr
+          pattern: "< 3$"
+
+  - it: renders no alert when metrics.prometheusRule is off
+    template: templates/hub.yaml
+    set:
+      metrics.prometheusRule.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 6
+
+  - it: renders no ServiceMonitor, metrics Service or alert when switched off
     template: templates/hub.yaml
     set:
       metrics.serviceMonitor.enabled: false

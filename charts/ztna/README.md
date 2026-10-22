@@ -72,7 +72,16 @@ and the admission policies against a throwaway local apiserver).
   one replica without `hub.leaderElection.enabled` fails the render. Covered: pod deletion, eviction, rollouts. Not
   covered: open TCP streams end at the handover; a crash of the leader still costs the agents the dead-tunnel limit; a
   single node stays a single point of failure (`kubectl drain` of that node blocks on the last hub pod, as it does on
-  the other PDBs there). The standby's metrics are not scraped: the ServiceMonitor follows Service `wg-hub`.
+  the other PDBs there). The metrics of every hub pod, the standby
+  included, are scraped through the headless Service `wg-hub-metrics` (label `ztna.teknoir.org/scrape: hub-pods`, no role
+  selector; the ServiceMonitor selects only that label), so `wghub_leader` and `wghub_role_patch_errors_total` stay
+  visible when no pod carries the leader label. PrometheusRule `wg-hub` (`metrics.prometheusRule`) alerts on
+  `WgHubLeaderCount` (`(sum(wghub_leader) or vector(0)) != 1` for `leaderFor`, default 5m, above `leaseDuration` so a normal
+  failover is no incident), `WgHubRolePatchErrors` and `WgHubReplicaNotScraped`.
+  **Rollback:** do not repin `hub.image.tag` alone. `scripts/pin-image wg-hub=<tag>` resets `hub.image.leaderElection` to
+  false (and `--leader-election` sets it true for an image with leader election), so the render stops instead of leaving
+  Service `wg-hub` without endpoints; to go back to an image without leader election, switch `hub.leaderElection.enabled`
+  and `hub.replicas` off first (selector without the role label, one replica), then repin.
 
 ## The flags watcher (`templates/flags.yaml`)
 
