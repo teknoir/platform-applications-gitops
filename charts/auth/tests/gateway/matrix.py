@@ -11,6 +11,7 @@ logged-in-but-not-allowed ("forbidden"); "legacy" cookies and /legacy403, /oauth
 import collections
 import hashlib
 import itertools
+import json
 import os
 import select
 import socket
@@ -687,9 +688,42 @@ def run_websocket():
             s.close()
 
 
+def run_identity_headers():
+    """Client-supplied identity headers never reach the backend (teamspace policies trust x-auth-request-email from the gateway)."""
+    g = "identity headers"
+    forged = ["X-Auth-Request-Email: root@evil.test", "X-Auth-Request-User: root", "X-Auth-Request-Preferred-Username: root",
+              "X-Auth-Request-Groups: admin", "X-Auth-Request-Access-Token: forged", "X-Forwarded-Access-Token: forged",
+              "X-Forwarded-Email: root@evil.test", "X-Forwarded-User: root"]
+    for proto in ("h1", "h2"):
+        # authenticated: the forged copy is replaced by oauth2-proxy's value, every other forged header is gone
+        for cred, tag in (([f"Cookie: {COOKIE}=good"], "cookie"), (["Authorization: Bearer good-token"], "bearer")):
+            st, ver, h, body, rc, err, _ = curl(proto, "/whoami", cred + forged)
+            try:
+                seen = json.loads(body)
+            except ValueError:
+                seen = None
+            expect(g, f"{proto} {tag}: only oauth2-proxy's email reaches the backend",
+                   st == 200 and seen == {"x-auth-request-email": "tester@teknoir.test"}, f"{st} {body[:200]!r}")
+        # one forged header at a time, authenticated: none survives except the email oauth2-proxy sets
+        for one_h in forged:
+            st, ver, h, body, rc, err, _ = curl(proto, "/whoami", [f"Cookie: {COOKIE}=good", one_h])
+            name = one_h.split(":")[0].lower()
+            seen = json.loads(body) if st == 200 else None
+            want = {"x-auth-request-email": "tester@teknoir.test"}
+            expect(g, f"{proto} forged {name} is stripped", seen == want, f"{st} {body[:200]!r}")
+        # unauthenticated: the forged headers do not get a request through
+        for hdrs, tag in (([], "api"), (["Sec-Fetch-Mode: navigate", "Accept: text/html"], "browser")):
+            st, ver, h, body, rc, err, _ = curl(proto, "/whoami", forged + hdrs)
+            expect(g, f"{proto} {tag} without credentials and with forged headers is still denied",
+                   st in (302, 401) and b"root@evil.test" not in body, f"{st}")
+            st, ver, h, body, rc, err, _ = curl(proto, "/whoami", ["Authorization: Bearer junk"] + forged)
+            expect(g, f"{proto} bad bearer with forged headers is still 401", st == 401, f"{st}")
+
+
 def main():
     run_matrix()
     run_targeted()
+    run_identity_headers()
     run_session_expiry()
     run_large()
     run_raw()

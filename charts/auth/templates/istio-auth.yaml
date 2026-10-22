@@ -136,8 +136,26 @@ spec:
                 return "api"
               end
 
+              -- Identity headers only oauth2-proxy may set (ext_authz copies them from its response, it does not
+              -- clear them). A client copy must never reach a teamspace: the AuthorizationPolicies trust
+              -- x-auth-request-email when the request comes from this gateway. See README "Identity headers".
+              local identity_headers = {
+                "x-auth-request-email",
+                "x-auth-request-user",
+                "x-auth-request-preferred-username",
+                "x-auth-request-groups",
+                "x-auth-request-access-token",
+                "x-forwarded-access-token",
+                "x-forwarded-email",
+                "x-forwarded-user",
+              }
+
               function envoy_on_request(handle)
                 local h = handle:headers()
+                -- First, before anything reads the request: this filter runs before ext_authz.
+                for _, name in ipairs(identity_headers) do
+                  h:remove(name)
+                end
                 -- rd and the /oauth2 exemption come from :authority/:path (what Envoy routes on),
                 -- never from client-supplied x-forwarded-host/-uri. The scheme comes from
                 -- x-forwarded-proto, which the edge Envoy sets.
