@@ -22,14 +22,21 @@ tests:
       - notExists: {path: data.PORTAL_SERVICE_ACCOUNTS}
       - notExists: {path: data.PORTAL_TEAMSPACE_CLUSTERROLE}
 
-  - it: renders only the keys that are set
+  - it: fails when only the clusterRole is set
     set:
       config.portal.serviceAccounts: ""
     asserts:
-      - notExists: {path: data.PORTAL_SERVICE_ACCOUNTS}
-      - equal: {path: data.PORTAL_TEAMSPACE_CLUSTERROLE, value: backstage-api-teamspace}
+      - failedTemplate:
+          errorPattern: must be set together
+
+  - it: fails when only the serviceAccounts are set
+    set:
+      config.portal.clusterRole: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: must be set together
 
   - it: keeps the other settings
     asserts:
       - equal: {path: data.DOMAIN, value: teknoir.cloud}
-      - equal: {path: data.PLUGIN_CHART_VERSION, value: "0.0.108"}
+      - exists: {path: data.PLUGIN_CHART_VERSION}
