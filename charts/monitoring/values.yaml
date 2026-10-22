@@ -25,6 +25,23 @@ meshScrape:
     # The workload certificate carries a SPIFFE ID, not the pod IP the target is addressed by.
     insecureSkipVerify: true
 
+# Platform monitoring UIs (Grafana, Prometheus, Alertmanager of teknoir-system, routed through the ingress
+# gateway at /teknoir-system/...) for platform administrators only (plans/platform-monitoring-access.md).
+# With this block (templates/platform-admin-only.yaml) each of the three workloads gets
+#   - a RequestAuthentication that validates the Keycloak access token oauth2-proxy puts in the header
+#     x-auth-request-access-token (the gateway Lua filter removes every client copy of that header first), and
+#   - a DENY AuthorizationPolicy: a request from the ingress gateway is refused unless the validated token's
+#     "groups" claim contains adminGroup (the Keycloak group "admin": ArgoCD, Argo Workflows and Harbor admins).
+# Calls with another workload identity (Prometheus scraping Grafana/Alertmanager, Prometheus -> Alertmanager
+# alerts, Grafana -> Prometheus, in-namespace callers) never match the DENY and keep working through the
+# existing ALLOW policies. A values file without this block renders as before (teknoir-online, teknoir-local).
+platformAdminOnly:
+  enabled: true
+  # Keycloak group (flat name in the "groups" claim of the access token, realm master).
+  adminGroup: admin
+  # Principal of the user ingress gateway (never the -public gateway, which has no login).
+  gatewayPrincipal: cluster.local/ns/istio-system/sa/istio-ingressgateway
+
 kube-prometheus-stack:
   namespaceOverride: "teknoir-system"
   fullnameOverride: "monitoring"
