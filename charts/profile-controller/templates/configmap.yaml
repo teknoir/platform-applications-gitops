@@ -27,3 +27,13 @@ data:
   {{- with .Values.config.pluginChartVersion }}
   PLUGIN_CHART_VERSION: {{ . | toString | quote }}
   {{- end }}
+  {{- /* The portal (Backstage) service account gets a ClusterRole inside every teamspace through a
+  RoleBinding "teknoir-portal". Both unset: no binding. */}}
+  {{- with .Values.config.portal }}
+  {{- with .serviceAccounts }}
+  PORTAL_SERVICE_ACCOUNTS: {{ . | quote }}
+  {{- end }}
+  {{- with .clusterRole }}
+  PORTAL_TEAMSPACE_CLUSTERROLE: {{ . | quote }}
+  {{- end }}
+  {{- end }}

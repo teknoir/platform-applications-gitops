@@ -1,0 +1,96 @@
+suite: backstage API teamspace role
+templates:
+  - templates/rbac.yaml
+tests:
+  - it: has a teamspace ClusterRole and no binding for it in this chart
+    asserts:
+      - hasDocuments: {count: 4}
+      - equal: {path: kind, value: ClusterRole}
+        documentIndex: 3
+      - equal: {path: metadata.name, value: backstage-api-teamspace}
+        documentIndex: 3
+      # profile-controller binds it per teamspace (RoleBinding teknoir-portal); a ClusterRoleBinding here would
+      # give the rights in every namespace. The two bindings that exist point at other roles (4 documents only).
+      - equal: {path: roleRef.name, value: backstage-api-resources-role}
+        documentIndex: 1
+      - equal: {path: roleRef.name, value: teknoir-admin}
+        documentIndex: 2
+
+  - it: prefixes the teamspace ClusterRole with the instance name
+    set: {name: backstage-next}
+    asserts:
+      - equal: {path: metadata.name, value: backstage-next-api-teamspace}
+        documentIndex: 3
+
+  - it: gives full access to the teamspace Teknoir resources and their status
+    documentIndex: 3
+    asserts:
+      - equal:
+          path: rules[0]
+          value:
+            apiGroups: [teknoir.org]
+            resources: [devices, robots, robottypes, deviceapplicationsets, devstudios, notebooks, claimsets]
+            verbs: [get, list, watch, create, update, patch, delete]
+      - equal:
+          path: rules[1]
+          value:
+            apiGroups: [teknoir.org]
+            resources:
+              - devices/status
+              - robots/status
+              - robottypes/status
+              - deviceapplicationsets/status
+              - devstudios/status
+              - notebooks/status
+              - claimsets/status
+            verbs: [get]
+
+  - it: reads secrets by name only and writes only the peripheral ConfigMap
+    documentIndex: 3
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [secrets]
+            resourceNames: [mongodb-credentials, emqx-bootstrap-user]
+            verbs: [get]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [configmaps]
+            resourceNames: [peripheral-config]
+            verbs: [get, update]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [configmaps]
+            verbs: [create]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [authorization.k8s.io]
+            resources: [localsubjectaccessreviews]
+            verbs: [create]
+
+  - it: grants nothing that would let the API become another identity or run code
+    documentIndex: 3
+    asserts:
+      # no wildcard group, resource or verb anywhere
+      - notMatchRegex: {path: "rules[*].apiGroups[*]", pattern: "\\*"}
+      - notMatchRegex: {path: "rules[*].resources[*]", pattern: "\\*"}
+      - notMatchRegex: {path: "rules[*].verbs[*]", pattern: "\\*"}
+      - notMatchRegex: {path: "rules[*].verbs[*]", pattern: "^(impersonate|bind|escalate|deletecollection)$"}
+      - notMatchRegex: {path: "rules[*].resources[*]", pattern: "^pods"}
+      - notMatchRegex: {path: "rules[*].resources[*]", pattern: "^(serviceaccounts|namespaces|nodes)"}
+      - notMatchRegex: {path: "rules[*].resources[*]", pattern: "^(roles|rolebindings|clusterroles|clusterrolebindings)$"}
+      - notMatchRegex: {path: "rules[*].apiGroups[*]", pattern: "^rbac.authorization.k8s.io$"}
+      # the only Secrets are the two named ones, and the only ConfigMap with get/update is peripheral-config
+      - equal:
+          path: "rules[?(@.resources[0]=='secrets')].resourceNames"
+          value: [mongodb-credentials, emqx-bootstrap-user]
+      - equal:
+          path: "rules[?(@.resources[0]=='secrets')].verbs"
+          value: [get]

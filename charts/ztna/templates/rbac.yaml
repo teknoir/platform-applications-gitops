@@ -185,3 +185,40 @@ subjects:
   - kind: ServiceAccount
     name: wg-flags
     namespace: {{ .Release.Namespace }}
+---
+{{- /*
+Backstage backend: reads the hub Deployments (wgt-<hash>, fleet kube.ts createKubeAccessWorkloads) here and nothing
+else in this namespace. Its rights in teamspaces come from charts/backstage (ClusterRole *-api-teamspace).
+backstage.serviceAccount is system:serviceaccount:<namespace>:<name>; any other shape fails the render.
+*/ -}}
+{{- $parts := splitList ":" .Values.backstage.serviceAccount }}
+{{- if or (ne (len $parts) 4) (ne (index $parts 0) "system") (ne (index $parts 1) "serviceaccount") (eq (index $parts 2) "") (eq (index $parts 3) "") }}
+{{- fail (printf "backstage.serviceAccount must be system:serviceaccount:<namespace>:<name>, got %q" .Values.backstage.serviceAccount) }}
+{{- end }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: backstage-api-hub-workloads
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: backstage-api-hub-workloads
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: backstage-api-hub-workloads
+subjects:
+  - kind: ServiceAccount
+    name: {{ index $parts 3 }}
+    namespace: {{ index $parts 2 }}

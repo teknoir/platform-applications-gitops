@@ -137,3 +137,108 @@ subjects:
   - kind: ServiceAccount
     name: {{ .Values.name }}-api
     namespace: {{ .Release.Namespace }}
+---
+# What the API may do inside a teamspace. A ClusterRole with NO binding in this chart: profile-controller
+# binds it with a namespaced RoleBinding "teknoir-portal" in every teamspace it owns (charts/profile-controller
+# config.portal), so the rights stop at the teamspace boundary. Read from the code of the Backstage backend
+# (plans/ztna-later.md, "backstage-sa"): no pods, exec, secret lists, roles or service accounts.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Values.name }}-api-teamspace
+rules:
+- apiGroups:
+  - teknoir.org
+  resources:
+  - devices
+  - robots
+  - robottypes
+  - deviceapplicationsets
+  - devstudios
+  - notebooks
+  - claimsets
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - teknoir.org
+  resources:
+  - devices/status
+  - robots/status
+  - robottypes/status
+  - deviceapplicationsets/status
+  - devstudios/status
+  - notebooks/status
+  - claimsets/status
+  verbs:
+  - get
+# ProfileEntityProvider lists the teamspace's VirtualServices.
+- apiGroups:
+  - networking.istio.io
+  resources:
+  - virtualservices
+  verbs:
+  - get
+  - list
+  - watch
+# Volumes (VolumeEntityProvider, core-resource routes).
+- apiGroups:
+  - ""
+  resources:
+  - persistentvolumeclaims
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - delete
+# Peripherals: create the ConfigMap, then read and replace only peripheral-config. (A create cannot be limited by name.)
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - create
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  resourceNames:
+  - peripheral-config
+  verbs:
+  - get
+  - update
+# The two credentials the org tree and the peripherals read, by name only.
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  resourceNames:
+  - mongodb-credentials
+  - emqx-bootstrap-user
+  verbs:
+  - get
+# "Needs you" list and the TunnelAccessEnabled/Disabled Events on Devices.
+- apiGroups:
+  - ""
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - patch
+# The end-user checks (fleet canExec/isAdmin, teamspace admin): LocalSubjectAccessReview as the user's email.
+- apiGroups:
+  - authorization.k8s.io
+  resources:
+  - localsubjectaccessreviews
+  verbs:
+  - create

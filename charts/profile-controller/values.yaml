@@ -51,6 +51,13 @@ config:
   # 0.0.108: the prometheus LowDiskSpace rule fires on <20 GB free or >90% used (not only the percentage).
   # 0.0.109: EMQX dashboard without its own login behind an owner-only proxy; default dashboard passwords rotated.
   pluginChartVersion: "0.0.109"
+  # The portal (Backstage) service account and the ClusterRole it gets inside every teamspace, as a RoleBinding
+  # "teknoir-portal" next to the owner's (env PORTAL_SERVICE_ACCOUNTS, PORTAL_TEAMSPACE_CLUSTERROLE; plans/ztna-later.md
+  # "backstage-sa"). serviceAccounts is a comma list of <namespace>/<name>; the ClusterRole is in charts/backstage
+  # (<name>-api-teamspace). Both empty: no binding. An image that does not know the keys ignores them.
+  portal:
+    serviceAccounts: "teknoir-system/backstage-api"
+    clusterRole: backstage-api-teamspace
 
 resources: {}
   # limits:

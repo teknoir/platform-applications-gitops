@@ -658,7 +658,7 @@ tests:
     template: templates/rbac.yaml
     asserts:
       - hasDocuments:
-          count: 10
+          count: 12
       - equal:
           path: metadata.namespace
           value: stunner-system
@@ -1292,3 +1292,66 @@ tests:
       - equal:
           path: spec.validationActions
           value: [Deny, Audit]
+
+  - it: lets the Backstage service account get hub Deployments in teknoir-ztna and nothing else
+    template: templates/rbac.yaml
+    asserts:
+      - equal: {path: kind, value: Role}
+        documentIndex: 10
+      - equal: {path: metadata.name, value: backstage-api-hub-workloads}
+        documentIndex: 10
+      - equal: {path: metadata.namespace, value: teknoir-ztna}
+        documentIndex: 10
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [apps]
+              resources: [deployments]
+              verbs: [get]
+        documentIndex: 10
+      - equal: {path: kind, value: RoleBinding}
+        documentIndex: 11
+      - equal: {path: metadata.namespace, value: teknoir-ztna}
+        documentIndex: 11
+      - equal: {path: roleRef, value: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: backstage-api-hub-workloads}}
+        documentIndex: 11
+      - equal:
+          path: subjects
+          value:
+            - {kind: ServiceAccount, name: backstage-api, namespace: teknoir-system}
+        documentIndex: 11
+
+  - it: takes the hub Role subject from backstage.serviceAccount
+    template: templates/rbac.yaml
+    set:
+      backstage.serviceAccount: system:serviceaccount:portal:backstage-next-api
+    asserts:
+      - equal:
+          path: subjects
+          value:
+            - {kind: ServiceAccount, name: backstage-next-api, namespace: portal}
+        documentIndex: 11
+
+  - it: fails the render when backstage.serviceAccount is not a service account username
+    template: templates/rbac.yaml
+    set:
+      backstage.serviceAccount: "oidc:someone@example.org"
+    asserts:
+      - failedTemplate:
+          errorPattern: "backstage.serviceAccount must be system:serviceaccount:<namespace>:<name>"
+
+  - it: fails the render for a service account username with a missing part
+    template: templates/rbac.yaml
+    set:
+      backstage.serviceAccount: "system:serviceaccount:teknoir-system:"
+    asserts:
+      - failedTemplate:
+          errorPattern: "backstage.serviceAccount must be"
+
+  - it: fails the render for a group-shaped subject
+    template: templates/rbac.yaml
+    set:
+      backstage.serviceAccount: "system:serviceaccounts:teknoir-system"
+    asserts:
+      - failedTemplate:
+          errorPattern: "backstage.serviceAccount must be"

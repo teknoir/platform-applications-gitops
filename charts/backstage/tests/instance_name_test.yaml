@@ -87,6 +87,8 @@ tests:
         documentIndex: 2
       - equal: {path: roleRef.name, value: teknoir-admin}
         documentIndex: 2
+      - equal: {path: metadata.name, value: backstage-next-api-teamspace}
+        documentIndex: 3
 
   - it: lets the API read and write robots, robot models and fleets, and read events
     template: templates/rbac.yaml
