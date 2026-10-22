@@ -7,7 +7,7 @@
 # is removed again on exit (the namespaces, the rendered RBAC, and the CRDs only if it installed them).
 #
 # What it proves (plans/ztna-later.md, "backstage-sa"): the service account can do what the Backstage backend does and
-# cannot become another identity (impersonate), run code (pods, exec), read Secrets in bulk, change RBAC, or write
+# cannot directly become another identity (impersonate), run a pod (pods, exec), read Secrets in bulk, change RBAC, or write
 # outside a teamspace that has the RoleBinding.
 #
 # Run from scripts/tests/run.sh with K3D=1, or alone:
@@ -91,6 +91,15 @@ done
 # the same templates the Applications render: backstage (name backstage, namespace teknoir-system) and ztna
 helm template backstage "${CHARTS}/backstage" --namespace "$SYS_NS" -s templates/rbac.yaml > "$TMP/rbac.yaml" || { echo "helm template backstage failed" >&2; exit 2; }
 helm template ztna "${CHARTS}/ztna" --namespace "$HUB_NS" --set hub.image.tag="$IMG_TAG" -s templates/rbac.yaml >> "$TMP/rbac.yaml" || { echo "helm template ztna failed" >&2; exit 2; }
+# the admission policy that keeps the service account from naming itself as a User or Profile owner (charts/ztna)
+helm template ztna "${CHARTS}/ztna" --namespace "$HUB_NS" --set hub.image.tag="$IMG_TAG" -s templates/admission.yaml > "$TMP/admission-all.yaml" || { echo "helm template ztna admission failed" >&2; exit 2; }
+python3 -I - "$TMP/admission-all.yaml" >> "$TMP/rbac.yaml" <<'PY'
+import sys
+for doc in open(sys.argv[1]).read().split("\n---\n"):
+    if "name: ztna-backstage-identities" in doc:
+        print("---\n" + doc.strip())
+PY
+grep -q "kind: ValidatingAdmissionPolicyBinding" "$TMP/rbac.yaml" || { echo "ztna-backstage-identities not rendered" >&2; exit 2; }
 "${KC[@]}" apply -f "$TMP/rbac.yaml" >/dev/null || { echo "applying the rendered RBAC failed" >&2; exit 2; }
 # what profile-controller writes into a teamspace it owns
 "${KC[@]}" -n "$TS" create rolebinding teknoir-portal --clusterrole=backstage-api-teamspace --serviceaccount="${SYS_NS}:backstage-api" >/dev/null \
@@ -142,7 +151,7 @@ can yes create users.teknoir.org
 can yes get resourcequotas -n "${TS}-vdev"
 can yes get deployments.apps -n "$HUB_NS"
 
-echo "== no: it cannot become another identity, run code, read Secrets or change RBAC"
+echo "== no: no direct route to another identity, a pod, Secrets in bulk or RBAC"
 for ns in "$SYS_NS" "$HUB_NS" "$TS"; do
   can no impersonate serviceaccounts -n "$ns"
 done
@@ -202,6 +211,31 @@ can no create events -n "$TS_OTHER"
 can yes list devices.teknoir.org -n "$TS_OTHER"
 can no delete devices.teknoir.org -n "$TS_OTHER"
 
+echo "== it cannot hand itself a role through a User or a Profile (ValidatingAdmissionPolicy ztna-backstage-identities)"
+# admission policies are cached for a moment: wait until the policy answers
+sa_create() { "${KC[@]}" create --dry-run=server --as="$SA" -f - 2>&1; }
+user_yaml() { printf 'apiVersion: teknoir.org/v1\nkind: User\nmetadata:\n  name: idprobe\nspec:\n  email: %s\n' "$1"; }
+profile_yaml() { printf 'apiVersion: teknoir.org/v1\nkind: Profile\nmetadata:\n  name: idprobe\nspec:\n  owner:\n    kind: %s\n    name: %s\n' "$1" "$2"; }
+for _ in $(seq 1 30); do
+  user_yaml "system:serviceaccount:${SYS_NS}:backstage-api" | sa_create | grep -q "ztna-backstage-identities" && break
+  sleep 1
+done
+# verdict <description> <want allow|deny> <manifest>
+verdict() {
+  local d=$1 want=$2 out got
+  out=$(sa_create <<<"$3") && got=allow || { grep -q "ztna-backstage-identities" <<<"$out" && got=deny || got="other: $out"; }
+  [[ $got == "$want" ]] && ok "$want  $d" || bad "$d: want $want, got $got"
+}
+verdict "User with email system:serviceaccount:...:backstage-api" deny "$(user_yaml "$SA")"
+verdict "User with email system:masters" deny "$(user_yaml system:masters)"
+verdict "User with an email without @" deny "$(user_yaml kubernetes-admin)"
+verdict "User with an ordinary email" allow "$(user_yaml someone@example.com)"
+verdict "Profile owned by the service account (kind User, its username)" deny "$(profile_yaml User "$SA")"
+verdict "Profile owned by kind ServiceAccount" deny "$(printf 'apiVersion: teknoir.org/v1\nkind: Profile\nmetadata:\n  name: idprobe\nspec:\n  owner:\n    kind: ServiceAccount\n    name: backstage-api\n    namespace: %s\n' "$SYS_NS")"
+verdict "Profile owned by the Group system:serviceaccounts:${SYS_NS}" deny "$(profile_yaml Group "system:serviceaccounts:${SYS_NS}")"
+verdict "Profile owned by the Group system:authenticated" deny "$(profile_yaml Group system:authenticated)"
+verdict "Profile owned by an e-mail User" allow "$(profile_yaml User owner@example.com)"
+
 echo "== the old broad binding is gone, and nothing grants teknoir-admin or cluster-admin to the service account"
 if "${KC[@]}" get clusterrolebinding backstage-api-teknoir-admin-rolebinding >/dev/null 2>&1; then
   bad "ClusterRoleBinding backstage-api-teknoir-admin-rolebinding exists"
@@ -210,15 +244,24 @@ else
 fi
 cat > "$TMP/bindings.py" <<'PY'
 import json, sys
+SA_NAME, SYS_NS = "backstage-api", "teknoir-system"
+SA_USER = "system:serviceaccount:%s:%s" % (SYS_NS, SA_NAME)
+GROUPS = ("system:serviceaccounts", "system:serviceaccounts:" + SYS_NS, "system:authenticated")
 for o in json.load(sys.stdin)["items"]:
+    if o["metadata"]["name"].startswith("system:"):
+        continue  # the cluster's own bootstrap bindings (system:basic-user, system:discovery, ...)
     for s in o.get("subjects") or []:
-        if s.get("kind") == "ServiceAccount" and s.get("name") == "backstage-api":
+        kind, name = s.get("kind"), s.get("name")
+        hit = (kind == "ServiceAccount" and name == SA_NAME) \
+            or (kind == "User" and name == SA_USER) \
+            or (kind == "Group" and name in GROUPS)
+        if hit:
             ns = o["metadata"].get("namespace", "-")
-            print(o["kind"], ns + "/" + o["metadata"]["name"], "->", o["roleRef"]["name"])
+            print(o["kind"], ns + "/" + o["metadata"]["name"], "->", o["roleRef"]["name"], "(" + kind + " " + name + ")")
 PY
 bound=$("${KC[@]}" get clusterrolebinding,rolebinding -A -o json 2>/dev/null | python3 -I "$TMP/bindings.py" | sort)
-expected=$'ClusterRoleBinding -/backstage-api-resources-rolebinding -> backstage-api-resources-role\nRoleBinding rbac-ts/teknoir-portal -> backstage-api-teamspace\nRoleBinding teknoir-ztna/backstage-api-hub-workloads -> backstage-api-hub-workloads'
-[[ "$bound" == "$expected" ]] && ok "the service account has exactly three bindings" || bad "bindings of backstage-api: ${bound//$'\n'/ ; }"
+expected=$'ClusterRoleBinding -/backstage-api-resources-rolebinding -> backstage-api-resources-role (ServiceAccount backstage-api)\nRoleBinding rbac-ts/teknoir-portal -> backstage-api-teamspace (ServiceAccount backstage-api)\nRoleBinding teknoir-ztna/backstage-api-hub-workloads -> backstage-api-hub-workloads (ServiceAccount backstage-api)'
+[[ "$bound" == "$expected" ]] && ok "the service account has exactly three bindings (no User, Group or ServiceAccount subject names it elsewhere)" || bad "bindings of backstage-api: ${bound//$'\n'/ ; }"
 
 echo
 echo "${pass} passed, ${failn} failed"

@@ -1293,6 +1293,45 @@ tests:
           path: spec.validationActions
           value: [Deny, Audit]
 
+  - it: keeps the Backstage service account from naming itself in a User or Profile
+    template: templates/admission.yaml
+    documentSelector:
+      path: metadata.name
+      value: ztna-backstage-identities
+    asserts:
+      - equal:
+          path: spec.matchConstraints.resourceRules[0].resources
+          value: [users, profiles]
+      - equal:
+          path: spec.matchConstraints.resourceRules[0].operations
+          value: [CREATE, UPDATE]
+      - equal:
+          path: spec.failurePolicy
+          value: Fail
+      # applies to requests from the Backstage service account only
+      - equal:
+          path: spec.matchConditions[0].expression
+          value: "request.userInfo.username == 'system:serviceaccount:teknoir-system:backstage-api'"
+      - matchRegex:
+          path: spec.validations[0].expression
+          pattern: "contains\\('@'\\).*startsWith\\('system:'\\)"
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "ownerKind == 'User'.*contains\\('@'\\).*startsWith\\('system:'\\)"
+
+  - it: binds the Backstage identities policy with Deny
+    template: templates/admission.yaml
+    documentSelector:
+      path: metadata.name
+      value: ztna-backstage-identities-binding
+    asserts:
+      - equal:
+          path: spec.policyName
+          value: ztna-backstage-identities
+      - equal:
+          path: spec.validationActions
+          value: [Deny, Audit]
+
   - it: lets the Backstage service account get hub Deployments in teknoir-ztna and nothing else
     template: templates/rbac.yaml
     asserts:

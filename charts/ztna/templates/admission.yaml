@@ -38,12 +38,23 @@ does not keep a compromised UI out of the access policy.
                       containers to pods in teknoir-ztna and stunner-system (the hub holds the
                       session keys in memory, stunnerd the TURN secret).
 
-Backstage's service account (backstage.serviceAccount) cannot stand in for another identity: it holds no
-impersonate, pod, exec, secret-list or RBAC rights (charts/backstage templates/rbac.yaml; its teamspace rights are a
-RoleBinding per teamspace written by profile-controller, and in this namespace it may only get Deployments). The
-two username exemptions for it (ztna-device-annotations, ztna-user-org-annotations) are deliberate: Backstage applies
-the org gate and the end user's SubjectAccessReview before it writes. The policies check request.userInfo.username,
-so they are only as strong as the right to become another identity.
+  ztna-backstage-identities: the Backstage service account may not create or change a User whose spec.email is
+                      not an e-mail address (no '@', or starting with `system:`), nor a Profile whose owner is
+                      not a User with such an address: the controllers bind roles to those names verbatim.
+
+Backstage's service account (backstage.serviceAccount) holds no impersonate, pod, exec, secret-list or RBAC rights
+(charts/backstage templates/rbac.yaml; its teamspace rights are a RoleBinding per teamspace written by
+profile-controller, and in this namespace it may only get Deployments). It can still write Users and Profiles, and
+user-controller and profile-controller turn those into role bindings (teknoir-admin for a Profile's owner), so
+ztna-backstage-identities stops it from naming itself, a service account or a group there. Two things remain, as
+ACCEPTED RISKS, and it is NOT true that a compromised Backstage cannot run code or act as someone else:
+  - it can make any e-mail address, its own included, an owner of a teamspace (the create-Profiles right itself);
+  - it may write Devstudios and Notebooks, and their controllers run spec.image in a privileged container, so it
+    can run any image privileged in any teamspace (as can teamspace developers). An image allowlist is a named
+    follow-up for Anders to decide ("teamspace image allowlist", plans/ztna-later.md).
+The two username exemptions for it (ztna-device-annotations, ztna-user-org-annotations) are deliberate: Backstage
+applies the org gate and the end user's SubjectAccessReview before it writes. The policies check
+request.userInfo.username, so they are only as strong as the right to become another identity.
 
 ArgoCD is not affected: the policy and identity ConfigMaps are not in Git, so ArgoCD never writes
 them, and Argo's own resources here are no ConfigMaps at all. Namespace teardown is: the namespace
@@ -492,4 +503,70 @@ metadata:
     {{- include "ztna.hubLabels" . | nindent 4 }}
 spec:
   policyName: ztna-user-org-annotations
+  validationActions: ["Deny", "Audit"]
+---
+{{- /*
+ztna-backstage-identities: keeps the Backstage service account from turning its right to write Users and Profiles
+into teknoir-admin (or any other role) for ITSELF. Both controllers bind a role to a name taken verbatim from the
+object: user-controller writes a RoleBinding to teknoir-admin (or the claim set's role) for `kind: User, name:
+<spec.email>`, and profile-controller binds teknoir-admin in the new teamspace to `spec.owner`. Without this policy
+a User with spec.email `system:serviceaccount:teknoir-system:backstage-api`, or a Profile whose owner is that
+service account (kind ServiceAccount, or the Group system:serviceaccounts:teknoir-system), gives the service
+account teknoir-admin: pods, exec, impersonation and Secrets in that namespace. For requests from the Backstage
+service account only (matchConditions):
+  - a User's spec.email must contain an '@' and must not start with `system:`;
+  - a Profile's spec.owner must be `kind: User` with such an e-mail name.
+Every legitimate flow uses an e-mail address (create_profile.ts, the Members page). Everyone else is unaffected.
+What is NOT closed: Backstage can still make any e-mail address, its own included, an owner of a teamspace (that
+is the "create Profiles" right itself; the README lists it). Break-glass as for the other policies.
+*/}}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: ztna-backstage-identities
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["teknoir.org"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["users", "profiles"]
+  matchConditions:
+    - name: from-backstage
+      expression: "request.userInfo.username == {{ .Values.backstage.serviceAccount | squote }}"
+  variables:
+    - name: email
+      expression: >-
+        (request.resource.resource == 'users' && has(object.spec) && has(object.spec.email)) ? object.spec.email : ''
+    - name: owner
+      expression: >-
+        (request.resource.resource == 'profiles' && has(object.spec) && has(object.spec.owner) && has(object.spec.owner.name)) ?
+          object.spec.owner.name : ''
+    - name: ownerKind
+      expression: >-
+        (request.resource.resource == 'profiles' && has(object.spec) && has(object.spec.owner) && has(object.spec.owner.kind)) ?
+          object.spec.owner.kind : ''
+  validations:
+    - expression: >-
+        request.resource.resource != 'users' ||
+        (variables.email.contains('@') && !variables.email.lowerAscii().startsWith('system:'))
+      message: "a User's spec.email must be an e-mail address (with an '@', not starting with 'system:'): the controllers bind roles to that name"
+      reason: Forbidden
+    - expression: >-
+        request.resource.resource != 'profiles' ||
+        (variables.ownerKind == 'User' && variables.owner.contains('@') && !variables.owner.lowerAscii().startsWith('system:'))
+      message: "a Profile's spec.owner must be kind User with an e-mail address (with an '@', not starting with 'system:'): profile-controller binds teknoir-admin to it"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: ztna-backstage-identities-binding
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+spec:
+  policyName: ztna-backstage-identities
   validationActions: ["Deny", "Audit"]

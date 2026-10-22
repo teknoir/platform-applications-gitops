@@ -473,6 +473,47 @@ uverdict "user-controller rewrites a User, org-tree kept" allow "${USER_CTRL}" r
 if "${KC[@]}" replace -f "${TMP}/u-strip.yaml" >/dev/null 2>&1; then ok "allowed: system:masters removes the org-tree annotations"; else bad "system:masters User replace denied"; fi
 if as "${EDITOR_SA}" delete user u2 >/dev/null 2>&1; then ok "allowed: DELETE of a User is not matched"; else bad "DELETE of a User was denied"; fi
 
+# --- Backstage identities: the Backstage service account cannot name itself (or a group) as a User or Profile owner,
+# which profile-controller / user-controller would turn into teknoir-admin. Everyone else is unaffected.
+"${KC[@]}" apply -f "${CHART}/../profile-controller/crds/crd.yaml" >/dev/null
+"${KC[@]}" wait --for=condition=Established crd/profiles.teknoir.org --timeout=30s >/dev/null
+iverdict() { # description want(allow|deny) user verb manifest
+  local d=$1 want=$2 u=$3 v=$4 f=$5 out got
+  out=$(as "$u" "$v" -f "$f" 2>&1) && got=allow || { grep -q "ValidatingAdmissionPolicy 'ztna-backstage-identities'" <<<"$out" && got=deny || got="other: $out"; }
+  if [[ $got == "$want" ]]; then ok "$d ($want)"; else bad "$d: want $want, got $got"; fi
+}
+uemail() { printf 'apiVersion: teknoir.org/v1\nkind: User\nmetadata:\n  name: %s\nspec:\n  email: %s\n' "$1" "$2"; }
+for bad_email in "system:serviceaccount:teknoir-system:backstage-api" "System:Serviceaccount:x:y" "system:masters" "kubernetes-admin"; do
+  uemail ib1 "$bad_email" > "${TMP}/i-user.yaml"
+  iverdict "backstage-api creates a User with email '${bad_email}'" deny "${BACKSTAGE_API}" create "${TMP}/i-user.yaml"
+done
+uemail ib1 "system:serviceaccount:teknoir-system:backstage-api" > "${TMP}/i-user-bad.yaml"
+uemail ib2 "someone@example.com" > "${TMP}/i-user-ok.yaml"
+iverdict "backstage-api creates a User with an e-mail address" allow "${BACKSTAGE_API}" create "${TMP}/i-user-ok.yaml"
+printf 'apiVersion: teknoir.org/v1\nkind: User\nmetadata:\n  name: ib2\nspec:\n  email: system:serviceaccount:teknoir-system:backstage-api\n' > "${TMP}/i-user-change.yaml"
+iverdict "backstage-api changes a User's email to a service account name" deny "${BACKSTAGE_API}" replace "${TMP}/i-user-change.yaml"
+iverdict "an editor (not Backstage) creates a User without an '@'" allow "${EDITOR_SA}" create "${TMP}/i-user-bad.yaml"
+iverdict "ArgoCD (not Backstage) replaces a User without an '@'" allow "${ARGO}" replace "${TMP}/i-user-bad.yaml"
+prof() { # name kind owner-name [namespace] -> manifest
+  printf 'apiVersion: teknoir.org/v1\nkind: Profile\nmetadata:\n  name: %s\nspec:\n  owner:\n    kind: %s\n    name: %s\n' "$1" "$2" "$3"
+  [[ -n ${4:-} ]] && printf '    namespace: %s\n' "$4"
+  return 0
+}
+prof ibp1 User "owner@example.com" > "${TMP}/i-prof-ok.yaml"
+iverdict "backstage-api creates a Profile owned by an e-mail User" allow "${BACKSTAGE_API}" create "${TMP}/i-prof-ok.yaml"
+prof ibp2 ServiceAccount backstage-api teknoir-system > "${TMP}/i-prof-sa.yaml"
+iverdict "backstage-api creates a Profile owned by a ServiceAccount" deny "${BACKSTAGE_API}" create "${TMP}/i-prof-sa.yaml"
+prof ibp3 Group "system:serviceaccounts:teknoir-system" > "${TMP}/i-prof-group.yaml"
+iverdict "backstage-api creates a Profile owned by a Group" deny "${BACKSTAGE_API}" create "${TMP}/i-prof-group.yaml"
+prof ibp4 User "system:serviceaccount:teknoir-system:backstage-api" > "${TMP}/i-prof-user-sa.yaml"
+iverdict "backstage-api creates a Profile owned by a User named like the service account" deny "${BACKSTAGE_API}" create "${TMP}/i-prof-user-sa.yaml"
+prof ibp5 User "admin" > "${TMP}/i-prof-noat.yaml"
+iverdict "backstage-api creates a Profile owned by a User without an '@'" deny "${BACKSTAGE_API}" create "${TMP}/i-prof-noat.yaml"
+printf 'apiVersion: teknoir.org/v1\nkind: Profile\nmetadata:\n  name: ibp1\nspec:\n  owner:\n    kind: Group\n    name: system:serviceaccounts\n' > "${TMP}/i-prof-change.yaml"
+iverdict "backstage-api changes a Profile owner to a Group" deny "${BACKSTAGE_API}" replace "${TMP}/i-prof-change.yaml"
+iverdict "an editor (not Backstage) creates a Profile owned by a Group" allow "${EDITOR_SA}" create "${TMP}/i-prof-group.yaml"
+if "${KC[@]}" create -f "${TMP}/i-prof-sa.yaml" >/dev/null 2>&1; then ok "allowed: system:masters creates a Profile owned by a ServiceAccount"; else bad "system:masters Profile create denied"; fi
+
 # --- namespace teardown: DELETE of a policy ConfigMap by anyone while the namespace is Terminating
 as "${DC}" create -n teknoir-ztna -f "${TMP}/policy.yaml" >/dev/null
 if as "${BACKSTAGE}" delete configmap ztna-policy-ts.dev1 -n teknoir-ztna >/dev/null 2>&1; then bad "pre-teardown delete should be denied"; else ok "denied: delete before teardown"; fi

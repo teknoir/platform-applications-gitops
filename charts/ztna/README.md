@@ -131,17 +131,34 @@ Backstage's service account can write Devices and Users in every teamspace, so R
   renders no ConfigMap. **Namespace teardown**: the namespace controller deletes the ConfigMaps as itself, so DELETE is
   allowed while the namespace is `Terminating`. The Namespace itself carries `Prune=false,Delete=false`, so removing the
   Application never deletes the pinned identities.
-- **Backstage cannot become another identity.** The policies match `request.userInfo.username`, so they hold only while
-  no caller can stand in for an allowed identity. Backstage's service account has no `impersonate`, no pods, `pods/exec`,
-  Secret list/read (two named Secrets per teamspace only), `roles`/`rolebindings` or `serviceaccounts` right, no
-  `teknoir-admin` and no `*` group: cluster-wide it manages Profiles and Users and reads Devices, DeviceApplicationSets and
-  claims (`backstage-api-resources-role`); inside a teamspace it has the ClusterRole `backstage-api-teamspace` through a
-  RoleBinding `teknoir-portal` that profile-controller writes (and only in namespaces the Profile owns); in
-  `teknoir-ztna` it may only `get` Deployments (Role `backstage-api-hub-workloads`, this chart). The two username
-  exemptions for it, `ztna-device-annotations` and `ztna-user-org-annotations`, are deliberate: Backstage checks the end
-  user (SubjectAccessReview, org gate) before it writes; making the policy check the end user would need impersonation of
-  users and groups, a stronger right than the one removed. What remains: a compromised Backstage can still change
-  `ztna.teknoir.org/*` and org-tree annotations through those exemptions, create Profiles and make anyone a teamspace owner.
+- **Backstage cannot become another identity directly, but it is not harmless.** The policies match
+  `request.userInfo.username`, so they hold only while no caller can stand in for an allowed identity. Backstage's
+  service account has no `impersonate`, no pods, `pods/exec`, Secret list/read (two named Secrets per teamspace only),
+  `roles`/`rolebindings` or `serviceaccounts` right, no `teknoir-admin` and no `*` group: cluster-wide it manages
+  Profiles and Users and reads Devices, DeviceApplicationSets and claims (`backstage-api-resources-role`); inside a
+  teamspace it has the ClusterRole `backstage-api-teamspace` through a RoleBinding `teknoir-portal` that
+  profile-controller writes (and only in namespaces the Profile owns); in `teknoir-ztna` it may only `get`
+  Deployments (Role `backstage-api-hub-workloads`, this chart). The two username exemptions for it,
+  `ztna-device-annotations` and `ztna-user-org-annotations`, are deliberate: Backstage checks the end user
+  (SubjectAccessReview, org gate) before it writes; making the policy check the end user would need impersonation of
+  users and groups, a stronger right than the one removed.
+- `ztna-backstage-identities`: closes the route from "may write Users and Profiles" to teknoir-admin. user-controller
+  writes a RoleBinding for `kind: User, name: <spec.email>` and profile-controller binds `teknoir-admin` to a
+  Profile's `spec.owner` verbatim, and neither checks the name. For requests from the Backstage service account (only):
+  a User's `spec.email` must contain an `@` and must not start with `system:`, and a Profile's owner must be
+  `kind: User` with such an address. So it cannot make itself (`system:serviceaccount:teknoir-system:backstage-api`),
+  `system:masters` or a service account group a teamspace owner. Everyone else is unaffected. Tested in
+  `tests/vap-test.sh` (kube-apiserver) and `charts/backstage/tests/k3d-rbac-test.sh` (as the service account).
+- **Remaining risks of a compromised Backstage (accepted, not closed):**
+  - it can still change `ztna.teknoir.org/*` and org-tree annotations through the two username exemptions, create
+    Profiles and make any e-mail address, its own included, an owner of a teamspace;
+  - **it can run code.** It may create and patch Devstudios and Notebooks in every teamspace, and
+    devstudio-controller and notebook-controller copy `spec.image` into a container that runs privileged
+    (`privileged: true`, SYS_ADMIN). So it can run any image privileged on a node, which is a host escape and a way
+    around these policies. Teamspace developers have the same right today (it is not new with this change). Closing it
+    needs an image allowlist on `devstudios`/`notebooks` (platform images only, the Harbor mirror on airgapped
+    installs) or unprivileged workloads; both change what teamspace developers may do, so they are parked as the named
+    follow-up "teamspace image allowlist" for Anders to decide.
 - <a name="break-glass"></a>**Break-glass**: the `ztna` Application has `selfHeal`, so a deleted binding is restored within
   seconds. Order: (1) `argocd app set ztna --sync-policy none`; (2) delete the ValidatingAdmissionPolicyBinding; (3) act;
   (4) re-apply the binding (or re-sync) and `argocd app set ztna --sync-policy automated --self-heal`. system:masters is

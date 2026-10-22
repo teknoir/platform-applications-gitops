@@ -1,7 +1,10 @@
 suite: backstage API service account RBAC (least privilege)
-# The API is the policy point (it asks the end user's SubjectAccessReview itself), so it must not be able to become
-# another identity, run code or read Secrets in bulk: that would bypass the teknoir-ztna admission policies
-# (plans/ztna-later.md, "backstage-sa"). Anything added to templates/rbac.yaml has to pass these.
+# The API is the policy point (it asks the end user's SubjectAccessReview itself), so it must not hold a direct route
+# to another identity, to pods or exec, to Secrets in bulk or to RBAC: that would bypass the teknoir-ztna admission
+# policies (plans/ztna-later.md, "backstage-sa"). Anything added to templates/rbac.yaml has to pass these. These
+# tests do NOT prove it cannot run code: writing devstudios and notebooks runs spec.image privileged (a remaining
+# risk, see templates/rbac.yaml and README.md), and writing Users and Profiles is only constrained by the admission
+# policy ztna-backstage-identities.
 templates:
   - templates/rbac.yaml
 tests:
@@ -66,7 +69,7 @@ tests:
       - notMatchRegex: {path: "rules[*].apiGroups[*]", pattern: "\\*"}
       - notMatchRegex: {path: "rules[*].resources[*]", pattern: "\\*"}
       - notMatchRegex: {path: "rules[*].verbs[*]", pattern: "\\*"}
-      # no way to become another identity, grant rights or run code
+      # no direct way to become another identity, grant rights or run a pod
       - notMatchRegex: {path: "rules[*].verbs[*]", pattern: "^(impersonate|bind|escalate|approve|sign|use|deletecollection)$"}
       - notMatchRegex: {path: "rules[?(!@.resourceNames)].resources[*]", pattern: "^secrets"}
       - notMatchRegex: {path: "rules[*].resources[*]", pattern: "^pods"}
