@@ -9,7 +9,13 @@ metadata:
 spec:
   host: emqx-dashboard.{{ .Release.Namespace }}.svc.cluster.local
   exportTo:
+    {{- if .Values.dashboard.enabled }}
+    # Only the user ingress gateway talks to the proxy, always over mTLS, so every request
+    # carries its principal (see emqx-dashboard-gateway-only).
+    - "istio-system"
+    {{- else }}
     - "teknoir-system"
+    {{- end }}
   trafficPolicy:
     tls:
       mode: ISTIO_MUTUAL

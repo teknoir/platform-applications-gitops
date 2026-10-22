@@ -58,7 +58,7 @@ spec:
   http:
     - route:
         - destination:
-            host: emqx.{{ .Release.Namespace }}.svc.cluster.local
+            host: {{ if .Values.dashboard.enabled }}emqx-dashboard{{ else }}emqx{{ end }}.{{ .Release.Namespace }}.svc.cluster.local
             port:
               number: 18083
 

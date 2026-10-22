@@ -19,3 +19,64 @@ a renewed certificate into the teamspace. EMQX picks the new files up by hot
 reload (about 2 minutes, no restart, no dropped clients). Do not add a
 `subPath` to the mount and do not add a restart-on-secret-change tool: either
 would break this or restart EMQX on every renewal.
+
+## Dashboard: no EMQX login, owners only
+
+EMQX 5 Open Source cannot run its dashboard without a login, and `teknoir` / `teknoir` was
+the well-known password. So the dashboard host (`emqx-dashboard-<ns>.<domain>`) no longer
+routes to EMQX. It routes to the `emqx-dashboard` Deployment (`templates/dashboard.yaml`,
+`dashboard.enabled`), an nginx proxy with a guard container next to it.
+
+Flow:
+1. The user ingress gateway (Keycloak + oauth2-proxy sign-in) sends the request to the proxy
+   Service `emqx-dashboard:18083` over mTLS.
+2. **Who may reach it is decided by Istio.** The `emqx-dashboard-gateway-only` DENY policy
+   admits only `dashboard.gatewayPrincipals` (the user gateway's service account; never the
+   `-public` gateway). Notebooks, Devstudios, other teamspaces and plaintext pods get 403,
+   whatever the namespace-wide ALLOW policies say. On top of that, the gateway forwards only
+   owners: the per-user policy user-controller compiles from the claim presets admits port
+   18083 only for the `role-user-management` claim (the `owner` claim set). Every other claim
+   rule carries `notPorts: ["18083"]`. The rule lives in platform-applications-gitops
+   `charts/user-controller/templates/presets.yaml`; a future Claim with rules must exclude
+   18083 too (its unit test lists the claims that have no rules).
+3. The proxy adds the teamspace's EMQX API key (Secret `emqx-bootstrap-api-keys`, read by
+   reference, never sent to the browser) to `/api/v5/*` calls. It answers the dashboard's
+   `/api/v5/login` and `/logout` itself, and injects `teknoir-sso.js` into the page, which
+   gives the dashboard a placeholder session so it never shows its login page.
+4. The proxy never returns 401 (an upstream 401 becomes 403
+   `EMQX_CREDENTIAL_REJECTED`): the gateway hangs on backend 401 responses.
+5. `/api/v5/users*` and `/api/v5/api_key*` answer 403 `MANAGED_BY_TEKNOIR`, so the dashboard's
+   Users and API keys pages and Change password do not work (by design). A request whose
+   raw path is not `/api/v5/...` (for example `/events%2F..%2Fapi/v5/nodes`) gets 400, so
+   path-prefix rules cannot reach the API.
+
+**Fail-safe.** `teknoir-sso.js` uses internals of the dashboard UI (v1.10.5: `__vue_app__`,
+`$store`, `$router`, `UPDATE_USER_INFO`). If an EMQX upgrade renames them, owners see EMQX's
+login page and any username and password work (the proxy answers the login); nothing is
+exposed either way. Run `tests/dashboard-proxy-e2e.sh` (and look at the dashboard) on every
+EMQX image bump.
+
+**Default passwords.** The chart sets no dashboard password. The `default-login-guard`
+container logs in with the known defaults (`dashboard.knownDefaultPasswords`: `teknoir`, and
+EMQX's built-in `public`) every `dashboard.guardIntervalSeconds` and, whenever one works,
+changes the password to a random value that is never stored (nobody needs it: the proxy and
+profile-controller use the API key). It covers upgrades of an existing volume, fresh installs
+and wiped volumes, logs one line without values, and leaves any other password alone.
+Break-glass for a cluster admin:
+`kubectl -n <ns> exec emqx-0 -- emqx ctl admins passwd teknoir <password>` (the guard rotates
+`teknoir`/`public` again, but not another value).
+
+**Not changed.** `emqx-authz` and `emqx-api` keep allowing `emqx:18083` in the mesh:
+profile-controller (no sidecar) calls the EMQX API in plaintext. Developers (`teknoir-edit`)
+can still read the API key Secret and exec into `emqx-0`, so "owners only" guards the browser
+path, not what a developer can do with kubectl. The dashboard's built-in WebSocket client does
+not work against the dashboard host; use `mqtt-<ns>.<domain>:443/mqtt`.
+
+**New cluster.** Set `dashboard.gatewayPrincipals` to that cluster's user-gateway service
+account and ship the claim presets with it. The image `nginxinc/nginx-unprivileged` (pinned by
+digest in `values.yaml`) must be mirrored for airgapped installs.
+
+Tests (`tests/`): `helm unittest` (`dashboard_test.yaml`), `dashboard-proxy-e2e.sh` (docker:
+real EMQX, the rendered proxy and guard, read-only like the pod), `k3d-dashboard-authz.sh`
+(throwaway k3d cluster with Istio: owner, developer, path confusion, sidecar, plaintext and
+other-namespace matrix). Both scripts take `--check` for a dry run.

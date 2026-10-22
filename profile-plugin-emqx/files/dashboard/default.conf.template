@@ -1,0 +1,44 @@
+server {
+    listen 18083;
+    server_tokens off;
+    absolute_redirect off;
+    client_max_body_size 64m;
+    add_header X-Frame-Options DENY always;
+
+    location = /teknoir-healthz { access_log off; default_type text/plain; return 200 "ok\n"; }
+    location = /teknoir-sso.js { alias /teknoir/teknoir-sso.js; default_type application/javascript; add_header Cache-Control "no-store" always; }
+
+    # The dashboard never logs in to EMQX: Istio decided who may be here.
+    location = /api/v5/login  { default_type application/json; return 200 '{"token":"teknoir-istio","username":"teknoir","role":"administrator","version":"${EMQX_VERSION}","license":{"edition":"opensource"}}'; }
+    location = /api/v5/logout { return 204; }
+    location ^~ /api/v5/users   { default_type application/json; return 403 '{"code":"MANAGED_BY_TEKNOIR","message":"Dashboard users are not used: access is managed by Teknoir (teamspace owners)."}'; }
+    location ^~ /api/v5/api_key { default_type application/json; return 403 '{"code":"MANAGED_BY_TEKNOIR","message":"API keys are managed by Teknoir."}'; }
+
+    location ^~ /api/v5/ {
+        # Credentials only when the raw request path itself is /api/v5/...: a decoded or
+        # dot-normalised path from another prefix (e.g. /events%2F..%2Fapi/v5/...) gets 400.
+        if ($request_uri !~ "^/api/v5/") { return 400; }
+        proxy_set_header Authorization "${EMQX_DASHBOARD_AUTH}";
+        proxy_set_header Cookie "";
+        proxy_set_header X-Auth-Request-Access-Token "";
+        proxy_set_header X-Forwarded-Access-Token "";
+        proxy_intercept_errors on;
+        error_page 401 = @emqx_rejected;   # the gateway hangs on backend 401s (see README)
+        proxy_http_version 1.1;
+        proxy_read_timeout 300s;
+        proxy_pass ${EMQX_DASHBOARD_UPSTREAM};
+    }
+    location @emqx_rejected { default_type application/json; return 403 '{"code":"EMQX_CREDENTIAL_REJECTED","message":"EMQX rejected the teamspace API key; see the emqx-dashboard pod."}'; }
+
+    location / {
+        proxy_set_header Authorization "";
+        proxy_set_header Cookie "";
+        proxy_set_header X-Auth-Request-Access-Token "";
+        proxy_set_header X-Forwarded-Access-Token "";
+        proxy_set_header Accept-Encoding "";
+        sub_filter_once on;
+        sub_filter '</body>' '<script src="teknoir-sso.js"></script></body>';
+        proxy_http_version 1.1;
+        proxy_pass ${EMQX_DASHBOARD_UPSTREAM};
+    }
+}

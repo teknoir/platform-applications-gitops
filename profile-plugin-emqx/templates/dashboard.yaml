@@ -1,0 +1,191 @@
+{{- if .Values.dashboard.enabled }}
+# EMQX dashboard without its own login. Istio admits only the user ingress gateway
+# (DENY below) and the gateway's per-user policies admit only teamspace owners on port
+# 18083. This proxy adds the teamspace API key to /api/v5/* calls and rotates the
+# well-known default dashboard passwords. See the README.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: emqx-dashboard
+  namespace: {{ .Release.Namespace }}
+  labels:
+    teknoir.org/plugin: emqx
+    app.kubernetes.io/name: emqx-dashboard
+automountServiceAccountToken: false
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: emqx-dashboard
+  namespace: {{ .Release.Namespace }}
+  labels:
+    teknoir.org/plugin: emqx
+    app.kubernetes.io/name: emqx-dashboard
+data:
+{{ include "emqx.dashboard.configdata" . | indent 2 }}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: emqx-dashboard
+  namespace: {{ .Release.Namespace }}
+  labels:
+    teknoir.org/plugin: emqx
+    app.kubernetes.io/name: emqx-dashboard
+spec:
+  selector:
+    app.kubernetes.io/name: emqx-dashboard
+  ports:
+    # Named http-* with appProtocol http: Istio must treat it as HTTP, because ALLOW
+    # rules with header conditions are ignored on TCP filter chains.
+    - name: http-dashboard
+      port: 18083
+      targetPort: 18083
+      protocol: TCP
+      appProtocol: http
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: emqx-dashboard
+  namespace: {{ .Release.Namespace }}
+  labels:
+    teknoir.org/plugin: emqx
+    app.kubernetes.io/name: emqx-dashboard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: emqx-dashboard
+  template:
+    metadata:
+      labels:
+        teknoir.org/plugin: emqx
+        app.kubernetes.io/name: emqx-dashboard
+        app: emqx-dashboard
+      annotations:
+        checksum/config: {{ include "emqx.dashboard.configdata" . | sha256sum }}
+    spec:
+      serviceAccountName: emqx-dashboard
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: nginx
+          image: {{ .Values.dashboard.image | quote }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: EMQX_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: emqx-bootstrap-api-keys
+                  key: apiKey
+            - name: EMQX_API_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: emqx-bootstrap-api-keys
+                  key: apiSecret
+            - name: EMQX_DASHBOARD_UPSTREAM
+              value: http://emqx.{{ .Release.Namespace }}.svc.cluster.local:18083
+            - name: EMQX_VERSION
+              value: {{ .Chart.AppVersion | trimPrefix "v" | quote }}
+            - name: NGINX_ENTRYPOINT_QUIET_LOGS
+              value: "1"
+          ports:
+            - name: http
+              containerPort: 18083
+          readinessProbe:
+            httpGet: {path: /teknoir-healthz, port: 18083}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /teknoir-healthz, port: 18083}
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.dashboard.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - {name: templates, mountPath: /etc/nginx/templates, readOnly: true}
+            - {name: teknoir, mountPath: /teknoir, readOnly: true}
+            - {name: entrypoint-envsh, mountPath: /docker-entrypoint.d/05-teknoir-auth.envsh, subPath: 05-teknoir-auth.envsh, readOnly: true}
+            - {name: conf-d, mountPath: /etc/nginx/conf.d}
+            - {name: tmp, mountPath: /tmp}
+        - name: default-login-guard
+          image: {{ .Values.dashboard.image | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "/teknoir/default-login-guard.sh"]
+          env:
+            - name: EMQX_DASHBOARD_UPSTREAM
+              value: http://emqx.{{ .Release.Namespace }}.svc.cluster.local:18083
+            - name: EMQX_DASHBOARD_ADMIN
+              value: teknoir
+            - name: EMQX_KNOWN_DEFAULT_PASSWORDS
+              value: {{ join " " .Values.dashboard.knownDefaultPasswords | quote }}
+            - name: GUARD_INTERVAL_SECONDS
+              value: {{ .Values.dashboard.guardIntervalSeconds | quote }}
+          resources:
+            {{- toYaml .Values.dashboard.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - {name: teknoir, mountPath: /teknoir, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: templates
+          configMap:
+            name: emqx-dashboard
+            items:
+              - {key: default.conf.template, path: default.conf.template}
+        - name: teknoir
+          configMap:
+            name: emqx-dashboard
+            items:
+              - {key: teknoir-sso.js, path: teknoir-sso.js}
+              - {key: default-login-guard.sh, path: default-login-guard.sh}
+        # The entrypoint sources only executable *.envsh files.
+        - name: entrypoint-envsh
+          configMap:
+            name: emqx-dashboard
+            defaultMode: 0555
+            items:
+              - {key: 05-teknoir-auth.envsh, path: 05-teknoir-auth.envsh}
+        - name: conf-d
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: emqx-dashboard-gateway-only
+  namespace: {{ .Release.Namespace }}
+  labels:
+    teknoir.org/plugin: emqx
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: emqx-dashboard
+  action: DENY
+  rules:
+    # DENY is evaluated before every ALLOW, so notebooks, Devstudios, other teamspaces and
+    # plaintext pods cannot reach the proxy, whatever the namespace-wide ALLOWs say.
+    - from:
+        - source:
+            notPrincipals: {{ toJson .Values.dashboard.gatewayPrincipals }}
+{{- end }}

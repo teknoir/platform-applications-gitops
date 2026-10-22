@@ -1,0 +1,212 @@
+#!/usr/bin/env bash
+# End-to-end test of the EMQX dashboard proxy (templates/dashboard.yaml) with docker only:
+# the real emqx/emqx image, the rendered nginx config, envsh and guard script, and the
+# pinned nginx image, run read-only as the chart runs them.
+#
+#   tests/dashboard-proxy-e2e.sh            run the matrix, remove everything at the end
+#   tests/dashboard-proxy-e2e.sh --check    dry run: render, extract, check tools, no containers
+#   tests/dashboard-proxy-e2e.sh --keep     leave the containers up and print the dashboard URL
+#                                           (for a browser check); remove with --cleanup
+#   tests/dashboard-proxy-e2e.sh --cleanup  remove containers and network of a --keep run
+#
+# Idempotent: every run uses the fixed names below and removes leftovers first.
+# No secrets are printed: the API key is random per run and only used on the docker network.
+set -uo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CHART="$(cd "$HERE/.." && pwd)"
+MODE=run
+case "${1:-}" in
+  --check) MODE=check ;;
+  --keep) MODE=keep ;;
+  --cleanup) MODE=cleanup ;;
+  "") ;;
+  *) echo "usage: $0 [--check|--keep|--cleanup]" >&2; exit 2 ;;
+esac
+
+NET=emqx-dash-e2e
+EMQX_IMAGE="${EMQX_IMAGE:-emqx/emqx:5.8.9}"
+WORK="$(mktemp -d)"
+PASS=0; FAIL=0
+
+cleanup_containers() {
+  docker rm -f "$NET-emqx" "$NET-proxy" "$NET-guard" "$NET-emqx2" "$NET-guard2" "$NET-badproxy" >/dev/null 2>&1 || true
+  docker network rm "$NET" >/dev/null 2>&1 || true
+}
+finish() {
+  [ "$MODE" = keep ] || cleanup_containers
+  rm -rf "$WORK"
+}
+trap finish EXIT
+
+if [ "$MODE" = cleanup ]; then cleanup_containers; echo "removed"; exit 0; fi
+
+need() { command -v "$1" >/dev/null 2>&1 || { echo "missing tool: $1" >&2; exit 2; }; }
+for t in helm docker curl python3; do need "$t"; done
+
+ok()   { PASS=$((PASS+1)); echo "ok   - $1"; }
+nok()  { FAIL=$((FAIL+1)); echo "FAIL - $1 ($2)"; }
+expect() { # expect <description> <want> <got>
+  if [ "$2" = "$3" ]; then ok "$1"; else nok "$1" "want $2, got $3"; fi
+}
+code() { curl -s -o /dev/null -m 20 -w '%{http_code}' "$@"; }
+
+# 1. Render the chart and extract the proxy files from the ConfigMap -----------------------
+if ! ls "$CHART"/charts/emqx-*.tgz >/dev/null 2>&1; then
+  if [ "$MODE" = check ]; then echo "note: charts/emqx is missing, run: helm dependency build $CHART"
+  else helm dependency build "$CHART" >/dev/null || { echo "helm dependency build failed" >&2; exit 2; }; fi
+fi
+if ls "$CHART"/charts/emqx-*.tgz >/dev/null 2>&1; then
+  helm template emqx "$CHART" -n teknoir-demo --show-only templates/dashboard.yaml > "$WORK/dashboard.yaml" || exit 2
+  FILES="$WORK/files"; mkdir -p "$FILES"
+  python3 -I - "$WORK/dashboard.yaml" "$FILES" <<'PY' || exit 2
+import sys, yaml
+docs = [d for d in yaml.safe_load_all(open(sys.argv[1])) if d]
+cm = next(d for d in docs if d["kind"] == "ConfigMap")
+dep = next(d for d in docs if d["kind"] == "Deployment")
+for k, v in cm["data"].items():
+    open(f"{sys.argv[2]}/{k}", "w").write(v)
+img = dep["spec"]["template"]["spec"]["containers"][0]["image"]
+open(f"{sys.argv[2]}/IMAGE", "w").write(img)
+PY
+  chmod 0555 "$FILES/05-teknoir-auth.envsh"
+  chmod 0444 "$FILES/default.conf.template" "$FILES/teknoir-sso.js" "$FILES/default-login-guard.sh"
+  IMAGE="$(cat "$FILES/IMAGE")"
+fi
+
+if [ "$MODE" = check ]; then
+  echo "check: would run $EMQX_IMAGE and ${IMAGE:-<proxy image>} on docker network $NET"
+  for t in default.conf.template teknoir-sso.js 05-teknoir-auth.envsh default-login-guard.sh; do
+    [ -s "$FILES/$t" ] && echo "check: extracted $t" || { echo "check: MISSING $t"; exit 1; }
+  done
+  sh -n "$FILES/default-login-guard.sh" && echo "check: guard script parses"
+  bash -n "$FILES/05-teknoir-auth.envsh" && echo "check: envsh parses"
+  exit 0
+fi
+
+cleanup_containers
+docker network create "$NET" >/dev/null || exit 2
+
+# 2. Start EMQX (legacy chart default password teknoir/teknoir) and a fresh one (public) ----
+KEY="e2e$(head -c 12 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+SECRET="$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+printf '%s:%s\n' "$KEY" "$SECRET" > "$WORK/api-keys.txt"
+chmod 0644 "$WORK/api-keys.txt"
+start_emqx() { # start_emqx <name> [extra env...]
+  local name="$1"; shift
+  docker run -d --name "$name" --network "$NET" --network-alias "${name#$NET-}" -p 127.0.0.1::18083 \
+    -v "$WORK/api-keys.txt:/opt/emqx-bootstrap/api-keys.txt:ro" \
+    -e EMQX_API_KEY__BOOTSTRAP_FILE=/opt/emqx-bootstrap/api-keys.txt \
+    -e EMQX_DASHBOARD__DEFAULT_USERNAME=teknoir "$@" "$EMQX_IMAGE" >/dev/null
+}
+start_emqx "$NET-emqx" -e EMQX_DASHBOARD__DEFAULT_PASSWORD=teknoir
+start_emqx "$NET-emqx2"   # fresh volume: EMQX's built-in default password (public)
+
+run_nginx() { # run_nginx <name> <upstream> <key> <secret>
+  docker run -d --name "$1" --network "$NET" -p 127.0.0.1::18083 \
+    --read-only --user 101:101 --cap-drop ALL --security-opt no-new-privileges \
+    --tmpfs /tmp:uid=101,gid=101,mode=1777 --tmpfs /etc/nginx/conf.d:uid=101,gid=101,mode=0777 \
+    -v "$FILES/default.conf.template:/etc/nginx/templates/default.conf.template:ro" \
+    -v "$FILES/teknoir-sso.js:/teknoir/teknoir-sso.js:ro" \
+    -v "$FILES/05-teknoir-auth.envsh:/docker-entrypoint.d/05-teknoir-auth.envsh:ro" \
+    -e EMQX_API_KEY="$3" -e EMQX_API_SECRET="$4" \
+    -e EMQX_DASHBOARD_UPSTREAM="$2" -e EMQX_VERSION=5.8.9 -e NGINX_ENTRYPOINT_QUIET_LOGS=1 \
+    "$IMAGE" >/dev/null
+}
+run_guard() { # run_guard <name> <upstream> <known passwords>
+  docker run -d --name "$1" --network "$NET" \
+    --read-only --user 101:101 --cap-drop ALL --security-opt no-new-privileges \
+    --tmpfs /tmp:uid=101,gid=101,mode=1777 \
+    -v "$FILES/default-login-guard.sh:/teknoir/default-login-guard.sh:ro" \
+    -e EMQX_DASHBOARD_UPSTREAM="$2" -e EMQX_DASHBOARD_ADMIN=teknoir \
+    -e EMQX_KNOWN_DEFAULT_PASSWORDS="$3" -e GUARD_INTERVAL_SECONDS=3 \
+    "$IMAGE" sh /teknoir/default-login-guard.sh >/dev/null
+}
+hostport() { docker port "$1" 18083/tcp | head -1 | sed 's/.*://'; }
+
+run_nginx "$NET-proxy" "http://$NET-emqx:18083" "$KEY" "$SECRET"
+run_nginx "$NET-badproxy" "http://$NET-emqx:18083" "$KEY" "wrong-secret"
+
+echo "waiting for EMQX ..."
+for n in emqx emqx2; do
+  for i in $(seq 1 90); do
+    p="$(hostport "$NET-$n")"
+    [ -n "$p" ] && [ "$(code "http://127.0.0.1:$p/status")" = 200 ] && break
+    sleep 2
+  done
+done
+EMQX_URL="http://127.0.0.1:$(hostport "$NET-emqx")"
+EMQX2_URL="http://127.0.0.1:$(hostport "$NET-emqx2")"
+PROXY="http://127.0.0.1:$(hostport "$NET-proxy")"
+BADPROXY="http://127.0.0.1:$(hostport "$NET-badproxy")"
+expect "EMQX is up" 200 "$(code "$EMQX_URL/status")"
+for i in $(seq 1 30); do [ "$(code "$PROXY/teknoir-healthz")" = 200 ] && break; sleep 1; done
+
+login_code() { # login_code <emqx url> <password>
+  curl -s -o /dev/null -m 20 -w '%{http_code}' -H 'Content-Type: application/json' \
+    -d "{\"username\":\"teknoir\",\"password\":\"$2\"}" "$1/api/v5/login"
+}
+
+# 3. Before the guard: the known defaults work (proves the test would notice) ---------------
+expect "before the guard: teknoir/teknoir logs in to EMQX" 200 "$(login_code "$EMQX_URL" teknoir)"
+expect "before the guard: teknoir/public logs in to the fresh EMQX" 200 "$(login_code "$EMQX2_URL" public)"
+
+# 4. Proxy matrix ---------------------------------------------------------------------------
+expect "healthz" 200 "$(code "$PROXY/teknoir-healthz")"
+expect "sso script is served" 200 "$(code "$PROXY/teknoir-sso.js")"
+expect "index is served" 200 "$(code "$PROXY/")"
+curl -s -m 20 "$PROXY/" | grep -q 'teknoir-sso.js' && ok "index references teknoir-sso.js" || nok "index references teknoir-sso.js" "not injected"
+expect "nodes without credentials: 200 (proxy adds the API key)" 200 "$(code "$PROXY/api/v5/nodes")"
+expect "nodes with a junk bearer: 200" 200 "$(code -H 'Authorization: Bearer junk' "$PROXY/api/v5/nodes")"
+expect "nodes with a client Basic header: 200 (replaced by the proxy)" 200 "$(code -H 'Authorization: Basic Zm9vOmJhcg==' "$PROXY/api/v5/nodes")"
+expect "clients list" 200 "$(code "$PROXY/api/v5/clients")"
+expect "login is answered by the proxy" 200 "$(code -X POST -H 'Content-Type: application/json' -d '{"username":"x","password":"y"}' "$PROXY/api/v5/login")"
+curl -s -m 20 -X POST -d '{}' "$PROXY/api/v5/login" | grep -q '"role":"administrator"' && ok "login response has the placeholder session" || nok "login response has the placeholder session" "unexpected body"
+expect "logout" 204 "$(code -X POST "$PROXY/api/v5/logout")"
+expect "users list is refused" 403 "$(code "$PROXY/api/v5/users")"
+expect "users/x/change_pwd is refused" 403 "$(code -X POST -d '{}' "$PROXY/api/v5/users/teknoir/change_pwd")"
+expect "users (POST create) is refused" 403 "$(code -X POST -d '{}' "$PROXY/api/v5/users")"
+expect "api_key list is refused" 403 "$(code "$PROXY/api/v5/api_key")"
+expect "api_key create is refused" 403 "$(code -X POST -d '{}' "$PROXY/api/v5/api_key")"
+expect "api_key/x delete is refused" 403 "$(code -X DELETE "$PROXY/api/v5/api_key/foo")"
+expect "path confusion /static/..%2Fapi/v5/nodes" 400 "$(code --path-as-is "$PROXY/static/..%2Fapi/v5/nodes")"
+expect "path confusion /events%2F..%2Fapi/v5/nodes" 400 "$(code --path-as-is "$PROXY/events%2F..%2Fapi/v5/nodes")"
+expect "path confusion /x/../api/v5/nodes (dot-normalised by nginx)" 400 "$(code --path-as-is "$PROXY/x/../api/v5/nodes")"
+# Nothing the browser sees contains the credential
+hdrs="$(curl -s -D - -o /dev/null -m 20 "$PROXY/api/v5/nodes"; curl -s -m 20 "$PROXY/"; curl -s -m 20 "$PROXY/api/v5/nodes")"
+case "$hdrs" in *"$SECRET"*|*"$KEY"*) nok "responses never contain the API key or secret" "found" ;; *) ok "responses never contain the API key or secret" ;; esac
+# The dashboard's own API paths that do not need credentials stay reachable
+expect "status passes through" 200 "$(code "$PROXY/status")"
+
+# 5. A wrong API key never produces a 401 (the gateway hangs on backend 401s) ----------------
+expect "wrong key: nodes gives 403, never 401" 403 "$(code "$BADPROXY/api/v5/nodes")"
+curl -s -m 20 "$BADPROXY/api/v5/nodes" | grep -q EMQX_CREDENTIAL_REJECTED && ok "wrong key: body is EMQX_CREDENTIAL_REJECTED" || nok "wrong key: body is EMQX_CREDENTIAL_REJECTED" "unexpected body"
+
+# 6. The guard rotates the known defaults, once, and then does nothing ----------------------
+run_guard "$NET-guard" "http://$NET-emqx:18083" "teknoir public"
+run_guard "$NET-guard2" "http://$NET-emqx2:18083" "teknoir public"
+for i in $(seq 1 30); do
+  [ "$(login_code "$EMQX_URL" teknoir)" = 401 ] && [ "$(login_code "$EMQX2_URL" public)" = 401 ] && break
+  sleep 2
+done
+expect "after the guard: EMQX rejects teknoir/teknoir" 401 "$(login_code "$EMQX_URL" teknoir)"
+expect "after the guard: EMQX rejects teknoir/public" 401 "$(login_code "$EMQX_URL" public)"
+expect "after the guard: fresh EMQX rejects teknoir/public" 401 "$(login_code "$EMQX2_URL" public)"
+expect "after the guard: fresh EMQX rejects teknoir/teknoir" 401 "$(login_code "$EMQX2_URL" teknoir)"
+sleep 8   # two more guard cycles
+expect "guard logs exactly one rotation per EMQX (idempotent)" "1 1" "$(docker logs "$NET-guard" 2>&1 | grep -c 'rotated a known default dashboard password for teknoir') $(docker logs "$NET-guard2" 2>&1 | grep -c 'rotated a known default dashboard password for teknoir')"
+expect "guard never reports a failed rotation" "0" "$(docker logs "$NET-guard" "$NET-guard2" 2>&1 | grep -c 'could not rotate')"
+case "$(docker logs "$NET-guard" 2>&1)" in *"$SECRET"*) nok "guard log has no secrets" "api secret found" ;; *) ok "guard log has no secrets" ;; esac
+expect "the proxy keeps working after the rotation" 200 "$(code "$PROXY/api/v5/nodes")"
+expect "API key still works directly against EMQX" 200 "$(curl -s -o /dev/null -m 20 -w '%{http_code}' -u "$KEY:$SECRET" "$EMQX_URL/api/v5/nodes")"
+# The guard leaves a custom (non-default) password alone
+docker exec "$NET-emqx" emqx ctl admins passwd teknoir 'Custom-e2e-pw-1' >/dev/null 2>&1
+sleep 8
+expect "guard leaves a custom admin password alone" 200 "$(login_code "$EMQX_URL" 'Custom-e2e-pw-1')"
+
+echo
+echo "passed: $PASS, failed: $FAIL"
+if [ "$MODE" = keep ]; then
+  echo "dashboard (no login): $PROXY/   (remove with: $0 --cleanup)"
+fi
+[ "$FAIL" = 0 ]

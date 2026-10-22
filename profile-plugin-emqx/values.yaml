@@ -1,6 +1,23 @@
 domain: teknoir.cloud
 domainPrefix:
 
+# Dashboard proxy: the EMQX dashboard without its own login, owners only (README).
+dashboard:
+  enabled: true
+  image: nginxinc/nginx-unprivileged:1.30.6-alpine@sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03
+  # Principals allowed to reach the proxy (everything else is denied). The user ingress
+  # gateway of this cluster; never the -public gateway.
+  gatewayPrincipals: ["cluster.local/ns/istio-system/sa/istio-ingressgateway"]
+  # Passwords the guard rotates away whenever the dashboard accepts one of them.
+  knownDefaultPasswords: ["teknoir", "public"]
+  guardIntervalSeconds: 600
+  resources:
+    requests:
+      cpu: 5m
+      memory: 16Mi
+    limits:
+      memory: 64Mi
+
 emqx:
   replicaCount: 1
   # Adds a checksum/config annotation (sha of the upstream configmap, which holds
@@ -20,8 +37,12 @@ emqx:
   emqxConfig:
     EMQX_API_KEY__BOOTSTRAP_FILE: "/opt/emqx-bootstrap/api-keys.txt"
     EMQX_CLUSTER__DISCOVERY_STRATEGY: "k8s"
+    # No chart-set dashboard password: the dashboard is reached through the emqx-dashboard
+    # proxy (see README), nobody logs in to EMQX. EMQX's built-in default applies on a
+    # fresh volume until the guard in the proxy pod rotates it to a random value.
     EMQX_DASHBOARD__DEFAULT_USERNAME: "teknoir"
-    EMQX_DASHBOARD__DEFAULT_PASSWORD: "teknoir"
+    # empty: the upstream chart default ("public") is not rendered (its configmap skips empty values)
+    EMQX_DASHBOARD__DEFAULT_PASSWORD: ""
     # --AUTHENTICATION & AUTHORIZATION ---
     # 1. Built-in Database Authentication
     EMQX_AUTHENTICATION__1__ENABLE: "true"

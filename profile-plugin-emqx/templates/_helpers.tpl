@@ -54,3 +54,18 @@ teknoir
 {{- define "emqx.apiSecret_b64" -}}
 {{ include "emqx.apiSecret" . | b64enc }}
 {{- end -}}
+
+{{/*
+Files of the dashboard proxy ConfigMap. Shared by the ConfigMap and by the
+checksum/config annotation of the Deployment.
+*/}}
+{{- define "emqx.dashboard.configdata" -}}
+default.conf.template: |
+{{ .Files.Get "files/dashboard/default.conf.template" | indent 2 }}
+teknoir-sso.js: |
+{{ .Files.Get "files/dashboard/teknoir-sso.js" | indent 2 }}
+05-teknoir-auth.envsh: |
+{{ .Files.Get "files/dashboard/05-teknoir-auth.envsh" | indent 2 }}
+default-login-guard.sh: |
+{{ .Files.Get "files/dashboard/default-login-guard.sh" | indent 2 }}
+{{- end -}}
