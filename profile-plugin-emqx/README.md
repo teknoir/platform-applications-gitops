@@ -45,7 +45,17 @@ Flow:
    gives the dashboard a placeholder session so it never shows its login page.
 4. The proxy never returns 401 (an upstream 401 becomes 403
    `EMQX_CREDENTIAL_REJECTED`): the gateway hangs on backend 401 responses.
-5. `/api/v5/users*` and `/api/v5/api_key*` answer 403 `MANAGED_BY_TEKNOIR`, so the dashboard's
+5. CSRF guard on the credentialed API. The oauth2-proxy cookie (`SameSite=None`,
+   `Domain=teknoir.cloud`) is sent by a browser on any site, so Istio alone does not prove an
+   owner meant a call, and the proxy adds an admin credential to it. The proxy therefore
+   requires `Authorization: Bearer teknoir-istio` (the placeholder session; the dashboard's
+   axios client sends it on every call; a foreign page cannot send a custom header without a
+   CORS preflight, which fails) and, for anything but GET/HEAD, `Sec-Fetch-Site: same-origin`
+   (browsers set it, pages cannot; same-site `*.teknoir.cloud` pages send `same-site` and are
+   refused; a missing header on a write fails closed). Otherwise 403 `TEKNOIR_CSRF_GUARD`,
+   never 401. Covered by `tests/dashboard-proxy-e2e.sh` (cross-origin multipart `import_users`
+   creates no user) and `tests/k3d-dashboard-authz.sh`.
+6. `/api/v5/users*` and `/api/v5/api_key*` answer 403 `MANAGED_BY_TEKNOIR`, so the dashboard's
    Users and API keys pages and Change password do not work (by design). A request whose
    raw path is not `/api/v5/...` (for example `/events%2F..%2Fapi/v5/nodes`) gets 400, so
    path-prefix rules cannot reach the API.

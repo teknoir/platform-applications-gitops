@@ -328,20 +328,27 @@ GW="http://istio-ingressgateway.istio-system.svc.cluster.local"
 GWPUB="http://istio-ingressgateway-public.istio-system.svc.cluster.local"
 PX="http://emqx-dashboard.$NS.svc.cluster.local:18083"
 HOSTH="$(H Host "$HOST")"
+# What the dashboard SPA sends on every API call (placeholder session + browser fetch metadata).
+# Rows that expect 403 from Istio send these too, so a 403 cannot come from the proxy's CSRF guard.
+BEARER="$(H Authorization 'Bearer teknoir-istio')"
+SAMEORIGIN="$(H Sec-Fetch-Site same-origin)"
 
 log "matrix: through the user ingress gateway"
 expect "gateway, owner: /"                                    200 "$(http $OTHER_NS other-plain "$GW/" -H "$HOSTH" -H "$(H X-Auth-Request-Email $OWNER)")"
-expect "gateway, owner: /api/v5/nodes (proxy adds the API key through the mesh)" 200 "$(http $OTHER_NS other-plain "$GW/api/v5/nodes" -H "$HOSTH" -H "$(H X-Auth-Request-Email $OWNER)")"
+expect "gateway, owner: /api/v5/nodes (proxy adds the API key through the mesh)" 200 "$(http $OTHER_NS other-plain "$GW/api/v5/nodes" -H "$BEARER" -H "$SAMEORIGIN" -H "$HOSTH" -H "$(H X-Auth-Request-Email $OWNER)")"
+expect "gateway, owner: /api/v5/nodes without the placeholder bearer (CSRF guard)" 403 "$(http $OTHER_NS other-plain "$GW/api/v5/nodes" -H "$HOSTH" -H "$(H X-Auth-Request-Email $OWNER)")"
+expect "gateway, owner: cross-site multipart POST import_users, no bearer (CSRF guard)" 403 "$(http $OTHER_NS other-plain "$GW/api/v5/authentication/password_based:built_in_database/import_users?type=plain" -X POST -F 'filename=@/etc/hostname' -H "$HOSTH" -H "$(H X-Auth-Request-Email $OWNER)" -H "$(H Origin https://evil.example)" -H "$(H Sec-Fetch-Site cross-site)")"
+expect "gateway, owner: same-site POST even with the bearer (CSRF guard)" 403 "$(http $OTHER_NS other-plain "$GW/api/v5/clients/x/kickout" -X POST -H "$HOSTH" -H "$(H X-Auth-Request-Email $OWNER)" -H "$BEARER" -H "$(H Sec-Fetch-Site same-site)")"
 expect "gateway, owner: /api/v5/login is answered by the proxy" 200 "$(http $OTHER_NS other-plain "$GW/api/v5/login" -X POST -d '{}' -H "$HOSTH" -H "$(H X-Auth-Request-Email $OWNER)")"
 expect "gateway, owner: /api/v5/users is refused by the proxy" 403 "$(http $OTHER_NS other-plain "$GW/api/v5/users" -H "$HOSTH" -H "$(H X-Auth-Request-Email $OWNER)")"
 expect "gateway, owner: /events%2F..%2Fapi/v5/nodes (nginx raw-path guard)" 400 "$(http $OTHER_NS other-plain "$GW/events%2F..%2Fapi/v5/nodes" -H "$HOSTH" -H "$(H X-Auth-Request-Email $OWNER)")"
 body $OTHER_NS other-plain "$GW/" -H "$HOSTH" -H "$(H X-Auth-Request-Email $OWNER)" | grep -q teknoir-sso.js && r=yes || r=no
 expect "gateway, owner: the dashboard page carries teknoir-sso.js" yes "$r"
-case "$(body $OTHER_NS other-plain "$GW/api/v5/nodes" -H "$HOSTH" -H "$(H X-Auth-Request-Email $OWNER)")$(body $OTHER_NS other-plain "$GW/" -H "$HOSTH" -H "$(H X-Auth-Request-Email $OWNER)")" in
+case "$(body $OTHER_NS other-plain "$GW/api/v5/nodes" -H "$BEARER" -H "$SAMEORIGIN" -H "$HOSTH" -H "$(H X-Auth-Request-Email $OWNER)")$(body $OTHER_NS other-plain "$GW/" -H "$HOSTH" -H "$(H X-Auth-Request-Email $OWNER)")" in
   *"$API_SECRET"*|*"$API_KEY"*) r=leaked ;; *) r=clean ;; esac
 expect "gateway, owner: no response contains the API key or secret" clean "$r"
 expect "gateway, developer: /"                                403 "$(http $OTHER_NS other-plain "$GW/" -H "$HOSTH" -H "$(H X-Auth-Request-Email $DEV)")"
-expect "gateway, developer: /api/v5/nodes"                    403 "$(http $OTHER_NS other-plain "$GW/api/v5/nodes" -H "$HOSTH" -H "$(H X-Auth-Request-Email $DEV)")"
+expect "gateway, developer: /api/v5/nodes"                    403 "$(http $OTHER_NS other-plain "$GW/api/v5/nodes" -H "$BEARER" -H "$SAMEORIGIN" -H "$HOSTH" -H "$(H X-Auth-Request-Email $DEV)")"
 expect "gateway, developer: /teknoir-sso.js"                  403 "$(http $OTHER_NS other-plain "$GW/teknoir-sso.js" -H "$HOSTH" -H "$(H X-Auth-Request-Email $DEV)")"
 expect_any "gateway, developer: /events%2F..%2Fapi/v5/nodes (path confusion; never 200)" "403 400" "$(http $OTHER_NS other-plain "$GW/events%2F..%2Fapi/v5/nodes" -H "$HOSTH" -H "$(H X-Auth-Request-Email $DEV)")"
 expect_any "gateway, developer: /events/..%2Fapi/v5/nodes (never 200)" "403 400" "$(http $OTHER_NS other-plain "$GW/events/..%2Fapi/v5/nodes" -H "$HOSTH" -H "$(H X-Auth-Request-Email $DEV)")"
@@ -352,13 +359,13 @@ expect "public gateway, owner header: / (the -public principal is not admitted)"
 expect "public gateway, developer header: /"                  403 "$(http $OTHER_NS other-plain "$GWPUB/" -H "$HOSTH" -H "$(H X-Auth-Request-Email $DEV)")"
 
 log "matrix: inside the mesh (the DENY on the proxy pod beats every ALLOW)"
-expect "sidecar same ns, no header -> proxy"                  403 "$(http $NS sidecar-client "$PX/api/v5/nodes")"
-expect "sidecar same ns, forged owner header -> proxy"        403 "$(http $NS sidecar-client "$PX/api/v5/nodes" -H "$(H X-Auth-Request-Email $OWNER)")"
+expect "sidecar same ns, no header -> proxy"                  403 "$(http $NS sidecar-client "$PX/api/v5/nodes" -H "$BEARER" -H "$SAMEORIGIN")"
+expect "sidecar same ns, forged owner header -> proxy"        403 "$(http $NS sidecar-client "$PX/api/v5/nodes" -H "$BEARER" -H "$SAMEORIGIN" -H "$(H X-Auth-Request-Email $OWNER)")"
 expect "sidecar same ns, forged owner header -> proxy /"      403 "$(http $NS sidecar-client "$PX/" -H "$(H X-Auth-Request-Email $OWNER)")"
-expect "plaintext same ns, forged owner header -> proxy"      403 "$(http $NS plain-client "$PX/api/v5/nodes" -H "$(H X-Auth-Request-Email $OWNER)")"
-expect "plaintext same ns, no header -> proxy"                403 "$(http $NS plain-client "$PX/api/v5/nodes")"
-expect "sidecar other ns, forged owner header -> proxy"       403 "$(http $OTHER_NS other-sidecar "$PX/api/v5/nodes" -H "$(H X-Auth-Request-Email $OWNER)")"
-expect "plaintext other ns, forged owner header -> proxy"     403 "$(http $OTHER_NS other-plain "$PX/api/v5/nodes" -H "$(H X-Auth-Request-Email $OWNER)")"
+expect "plaintext same ns, forged owner header -> proxy"      403 "$(http $NS plain-client "$PX/api/v5/nodes" -H "$BEARER" -H "$SAMEORIGIN" -H "$(H X-Auth-Request-Email $OWNER)")"
+expect "plaintext same ns, no header -> proxy"                403 "$(http $NS plain-client "$PX/api/v5/nodes" -H "$BEARER" -H "$SAMEORIGIN")"
+expect "sidecar other ns, forged owner header -> proxy"       403 "$(http $OTHER_NS other-sidecar "$PX/api/v5/nodes" -H "$BEARER" -H "$SAMEORIGIN" -H "$(H X-Auth-Request-Email $OWNER)")"
+expect "plaintext other ns, forged owner header -> proxy"     403 "$(http $OTHER_NS other-plain "$PX/api/v5/nodes" -H "$BEARER" -H "$SAMEORIGIN" -H "$(H X-Auth-Request-Email $OWNER)")"
 
 log "matrix: the guard and the proxy reach EMQX through the mesh"
 EMQX="http://emqx.$NS.svc.cluster.local:18083"
@@ -367,12 +374,12 @@ for i in $(seq 1 40); do [ "$(login teknoir)" = 401 ] && break; sleep 3; done
 expect "EMQX rejects the legacy default teknoir/teknoir after the guard" 401 "$(login teknoir)"
 expect "EMQX rejects the built-in default teknoir/public"     401 "$(login public)"
 expect "the guard logged one rotation and no failure" "1 0" "$(k -n $NS logs deploy/emqx-dashboard -c default-login-guard | grep -c 'rotated a known default') $(k -n $NS logs deploy/emqx-dashboard -c default-login-guard | grep -c 'could not rotate')"
-expect "owner still gets the dashboard API after the rotation" 200 "$(http $OTHER_NS other-plain "$GW/api/v5/nodes" -H "$HOSTH" -H "$(H X-Auth-Request-Email $OWNER)")"
+expect "owner still gets the dashboard API after the rotation" 200 "$(http $OTHER_NS other-plain "$GW/api/v5/nodes" -H "$BEARER" -H "$SAMEORIGIN" -H "$HOSTH" -H "$(H X-Auth-Request-Email $OWNER)")"
 
 log "control: without the DENY the in-namespace ALLOW admits a sidecar pod (the matrix above would notice)"
 k -n "$NS" delete authorizationpolicy emqx-dashboard-gateway-only >/dev/null || exit 2
-for i in $(seq 1 20); do [ "$(http $NS sidecar-client "$PX/api/v5/nodes")" = 200 ] && break; sleep 3; done   # istiod push delay
-expect "control (DENY removed): sidecar same ns -> proxy"     200 "$(http $NS sidecar-client "$PX/api/v5/nodes")"
+for i in $(seq 1 20); do [ "$(http $NS sidecar-client "$PX/api/v5/nodes" -H "$BEARER" -H "$SAMEORIGIN")" = 200 ] && break; sleep 3; done   # istiod push delay
+expect "control (DENY removed): sidecar same ns -> proxy"     200 "$(http $NS sidecar-client "$PX/api/v5/nodes" -H "$BEARER" -H "$SAMEORIGIN")"
 
 echo
 if [ "$FAILED" -eq 0 ]; then

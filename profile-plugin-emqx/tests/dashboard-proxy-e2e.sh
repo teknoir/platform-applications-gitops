@@ -156,10 +156,33 @@ expect "healthz" 200 "$(code "$PROXY/teknoir-healthz")"
 expect "sso script is served" 200 "$(code "$PROXY/teknoir-sso.js")"
 expect "index is served" 200 "$(code "$PROXY/")"
 curl -s -m 20 "$PROXY/" | grep -q 'teknoir-sso.js' && ok "index references teknoir-sso.js" || nok "index references teknoir-sso.js" "not injected"
-expect "nodes without credentials: 200 (proxy adds the API key)" 200 "$(code "$PROXY/api/v5/nodes")"
-expect "nodes with a junk bearer: 200" 200 "$(code -H 'Authorization: Bearer junk' "$PROXY/api/v5/nodes")"
-expect "nodes with a client Basic header: 200 (replaced by the proxy)" 200 "$(code -H 'Authorization: Basic Zm9vOmJhcg==' "$PROXY/api/v5/nodes")"
-expect "clients list" 200 "$(code "$PROXY/api/v5/clients")"
+# What the dashboard SPA sends on every API call (its axios client uses the placeholder session)
+SPA=(-H 'Authorization: Bearer teknoir-istio' -H 'Sec-Fetch-Site: same-origin')
+expect "nodes from the SPA (placeholder bearer, same-origin): 200 (proxy adds the API key)" 200 "$(code "${SPA[@]}" "$PROXY/api/v5/nodes")"
+expect "nodes without the placeholder bearer: 403 (CSRF guard)" 403 "$(code "$PROXY/api/v5/nodes")"
+expect "nodes with a junk bearer: 403" 403 "$(code -H 'Authorization: Bearer junk' "$PROXY/api/v5/nodes")"
+expect "nodes with a client Basic header: 403 (not the SPA)" 403 "$(code -H 'Authorization: Basic Zm9vOmJhcg==' "$PROXY/api/v5/nodes")"
+expect "nodes with the bearer plus junk suffix: 403" 403 "$(code -H 'Authorization: Bearer teknoir-istio-x' "$PROXY/api/v5/nodes")"
+expect "clients list from the SPA" 200 "$(code "${SPA[@]}" "$PROXY/api/v5/clients")"
+expect "a read with the bearer needs no Sec-Fetch-Site (GET, e.g. old browsers)" 200 "$(code -H 'Authorization: Bearer teknoir-istio' "$PROXY/api/v5/nodes")"
+expect "a GET with the bearer passes whatever Sec-Fetch-Site says (a page cannot set the bearer: preflight)" 200 "$(code -H 'Authorization: Bearer teknoir-istio' -H 'Sec-Fetch-Site: cross-site' "$PROXY/api/v5/nodes")"
+expect "a CORS preflight gets no credentials and no ACAO" 403 "$(code -X OPTIONS -H 'Origin: https://evil.example' -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: authorization' "$PROXY/api/v5/nodes")"
+curl -s -D - -o /dev/null -m 20 -X OPTIONS -H 'Origin: https://evil.example' -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: authorization' "$PROXY/api/v5/nodes" | grep -qi '^access-control-allow' && nok "a CORS preflight has no Access-Control-Allow-*" "found" || ok "a CORS preflight has no Access-Control-Allow-*"
+# CSRF: a cross-site form/multipart POST carries the owner's cookie but no placeholder bearer
+printf 'user_id,password,is_superuser\ncsrfdevice,pw-not-used-1,true\n' > "$WORK/u.csv"
+# The chart's authenticator 1 is the built-in database; create it so the import has a target
+# (without it EMQX answers 404 and the rows below would pass for the wrong reason).
+expect "setup: built-in database authenticator created (direct, with the API key)" 200 "$(curl -s -o /dev/null -m 20 -w '%{http_code}' -u "$KEY:$SECRET" -H 'Content-Type: application/json' -d '{"mechanism":"password_based","backend":"built_in_database","user_id_type":"username","password_hash_algorithm":{"name":"sha256","salt_position":"suffix"}}' "$EMQX_URL/api/v5/authentication")"
+IMPORT="$PROXY/api/v5/authentication/password_based:built_in_database/import_users?type=plain"
+expect "CSRF: cross-origin multipart import_users (Sec-Fetch-Site cross-site, no bearer) is 403" 403 "$(code -X POST -H 'Origin: https://evil.example' -H 'Sec-Fetch-Site: cross-site' -F "filename=@$WORK/u.csv" "$IMPORT")"
+expect "CSRF: same-site (*.teknoir.cloud) multipart import_users without bearer is 403" 403 "$(code -X POST -H 'Origin: https://app.example.test' -H 'Sec-Fetch-Site: same-site' -F "filename=@$WORK/u.csv" "$IMPORT")"
+expect "CSRF: a POST with the bearer but Sec-Fetch-Site same-site is 403" 403 "$(code -X POST -H 'Authorization: Bearer teknoir-istio' -H 'Sec-Fetch-Site: same-site' -F "filename=@$WORK/u.csv" "$IMPORT")"
+expect "CSRF: a POST with the bearer but Sec-Fetch-Site cross-site is 403" 403 "$(code -X POST -H 'Authorization: Bearer teknoir-istio' -H 'Sec-Fetch-Site: cross-site' -F "filename=@$WORK/u.csv" "$IMPORT")"
+expect "CSRF: a POST with the bearer but no Sec-Fetch-Site is 403 (writes fail closed)" 403 "$(code -X POST -H 'Authorization: Bearer teknoir-istio' -F "filename=@$WORK/u.csv" "$IMPORT")"
+expect "CSRF: a bare POST without any header is 403" 403 "$(code -X POST -F "filename=@$WORK/u.csv" "$IMPORT")"
+expect "CSRF: no user was created by the blocked requests" 0 "$(curl -s -m 20 -u "$KEY:$SECRET" "$EMQX_URL/api/v5/authentication/password_based:built_in_database/users" | grep -c csrfdevice)"
+expect "SPA upload: the same multipart POST with bearer and same-origin reaches EMQX (200)" 200 "$(code -X POST "${SPA[@]}" -F "filename=@$WORK/u.csv" "$IMPORT")"
+expect "SPA upload: the user exists after the legitimate import" 1 "$(curl -s -m 20 -u "$KEY:$SECRET" "$EMQX_URL/api/v5/authentication/password_based:built_in_database/users" | grep -c csrfdevice)"
 expect "login is answered by the proxy" 200 "$(code -X POST -H 'Content-Type: application/json' -d '{"username":"x","password":"y"}' "$PROXY/api/v5/login")"
 curl -s -m 20 -X POST -d '{}' "$PROXY/api/v5/login" | grep -q '"role":"administrator"' && ok "login response has the placeholder session" || nok "login response has the placeholder session" "unexpected body"
 expect "logout" 204 "$(code -X POST "$PROXY/api/v5/logout")"
@@ -169,18 +192,18 @@ expect "users (POST create) is refused" 403 "$(code -X POST -d '{}' "$PROXY/api/
 expect "api_key list is refused" 403 "$(code "$PROXY/api/v5/api_key")"
 expect "api_key create is refused" 403 "$(code -X POST -d '{}' "$PROXY/api/v5/api_key")"
 expect "api_key/x delete is refused" 403 "$(code -X DELETE "$PROXY/api/v5/api_key/foo")"
-expect "path confusion /static/..%2Fapi/v5/nodes" 400 "$(code --path-as-is "$PROXY/static/..%2Fapi/v5/nodes")"
-expect "path confusion /events%2F..%2Fapi/v5/nodes" 400 "$(code --path-as-is "$PROXY/events%2F..%2Fapi/v5/nodes")"
-expect "path confusion /x/../api/v5/nodes (dot-normalised by nginx)" 400 "$(code --path-as-is "$PROXY/x/../api/v5/nodes")"
+expect "path confusion /static/..%2Fapi/v5/nodes" 400 "$(code "${SPA[@]}" --path-as-is "$PROXY/static/..%2Fapi/v5/nodes")"
+expect "path confusion /events%2F..%2Fapi/v5/nodes" 400 "$(code "${SPA[@]}" --path-as-is "$PROXY/events%2F..%2Fapi/v5/nodes")"
+expect "path confusion /x/../api/v5/nodes (dot-normalised by nginx)" 400 "$(code "${SPA[@]}" --path-as-is "$PROXY/x/../api/v5/nodes")"
 # Nothing the browser sees contains the credential
-hdrs="$(curl -s -D - -o /dev/null -m 20 "$PROXY/api/v5/nodes"; curl -s -m 20 "$PROXY/"; curl -s -m 20 "$PROXY/api/v5/nodes")"
+hdrs="$(curl -s -D - -o /dev/null -m 20 "${SPA[@]}" "$PROXY/api/v5/nodes"; curl -s -m 20 "$PROXY/"; curl -s -m 20 "${SPA[@]}" "$PROXY/api/v5/nodes")"
 case "$hdrs" in *"$SECRET"*|*"$KEY"*) nok "responses never contain the API key or secret" "found" ;; *) ok "responses never contain the API key or secret" ;; esac
 # The dashboard's own API paths that do not need credentials stay reachable
 expect "status passes through" 200 "$(code "$PROXY/status")"
 
 # 5. A wrong API key never produces a 401 (the gateway hangs on backend 401s) ----------------
-expect "wrong key: nodes gives 403, never 401" 403 "$(code "$BADPROXY/api/v5/nodes")"
-curl -s -m 20 "$BADPROXY/api/v5/nodes" | grep -q EMQX_CREDENTIAL_REJECTED && ok "wrong key: body is EMQX_CREDENTIAL_REJECTED" || nok "wrong key: body is EMQX_CREDENTIAL_REJECTED" "unexpected body"
+expect "wrong key: nodes gives 403, never 401" 403 "$(code "${SPA[@]}" "$BADPROXY/api/v5/nodes")"
+curl -s -m 20 "${SPA[@]}" "$BADPROXY/api/v5/nodes" | grep -q EMQX_CREDENTIAL_REJECTED && ok "wrong key: body is EMQX_CREDENTIAL_REJECTED" || nok "wrong key: body is EMQX_CREDENTIAL_REJECTED" "unexpected body"
 
 # 6. The guard rotates the known defaults, once, and then does nothing ----------------------
 run_guard "$NET-guard" "http://$NET-emqx:18083" "teknoir public"
@@ -197,7 +220,7 @@ sleep 8   # two more guard cycles
 expect "guard logs exactly one rotation per EMQX (idempotent)" "1 1" "$(docker logs "$NET-guard" 2>&1 | grep -c 'rotated a known default dashboard password for teknoir') $(docker logs "$NET-guard2" 2>&1 | grep -c 'rotated a known default dashboard password for teknoir')"
 expect "guard never reports a failed rotation" "0" "$(docker logs "$NET-guard" "$NET-guard2" 2>&1 | grep -c 'could not rotate')"
 case "$(docker logs "$NET-guard" 2>&1)" in *"$SECRET"*) nok "guard log has no secrets" "api secret found" ;; *) ok "guard log has no secrets" ;; esac
-expect "the proxy keeps working after the rotation" 200 "$(code "$PROXY/api/v5/nodes")"
+expect "the proxy keeps working after the rotation" 200 "$(code "${SPA[@]}" "$PROXY/api/v5/nodes")"
 expect "API key still works directly against EMQX" 200 "$(curl -s -o /dev/null -m 20 -w '%{http_code}' -u "$KEY:$SECRET" "$EMQX_URL/api/v5/nodes")"
 # The guard leaves a custom (non-default) password alone
 docker exec "$NET-emqx" emqx ctl admins passwd teknoir 'Custom-e2e-pw-1' >/dev/null 2>&1
