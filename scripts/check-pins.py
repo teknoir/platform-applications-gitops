@@ -13,12 +13,11 @@ Checks the rendered manifests of a release (scripts/staging-render.sh output, or
   errors once release-policy.yaml has `images: deny`, otherwise warnings
     first-party-unpinned   a first-party image that is not repo:<tag>@sha256:<digest>
     first-party-latest     the same, with :latest or no tag
-    hub-audience-unchecked a wg-hub rendered with KEYCLOAK_AUDIENCE_MODE=enforce whose image tag is NOT listed in
-                           release-policy.yaml `audience_hub_tags` (an allowlist of the tags known to have the
-                           audience check; any other hub ignores it, so enforce would only look enforced)
+    hub-audience-unchecked a wg-hub rendered with KEYCLOAK_AUDIENCE_MODE (transition or enforce) whose image tag is
+                           NOT listed in release-policy.yaml `audience_hub_tags` (an allowlist of the tags known to
+                           have the audience check; any other hub ignores the env, so enforce would only look
+                           enforced and transition would never produce the audience metric the plan gates on)
   warnings
-    hub-audience-unchecked the same with KEYCLOAK_AUDIENCE_MODE=transition (nothing is lost, but the audience
-                           metric does not exist until the hub is re-pinned)
     third-party-no-digest  a third-party image without a digest (exact version tags are fine)
     cr-revision            a teknoir.org DeviceApplicationSet/Device/Robot/RobotType with a revision that is not 40-hex
     profile-version        a Profile with spec.plugins[].spec.version or *Version/image* values
@@ -263,7 +262,7 @@ def check_hub_audience(docs: list[tuple[str, dict]], policy: dict) -> list[Findi
     KEYCLOAK_AUDIENCE_MODE, so `enforce` would be reported while the downscoped main token (the one Backstage sees)
     still opens hub sessions. This is an allowlist and fails closed: only the exact tags listed in the policy as
     `audience_hub_tags` are known to have the check, any other tag (an old main build, a branch build, a digest-only
-    reference) is an error for enforce and a warning for transition. An empty or missing list allows no tag.
+    reference) is an error in both modes. An empty or missing list allows no tag.
     """
     known = {str(t) for t in (policy.get("audience_hub_tags") or [])}
     out: list[Finding] = []
@@ -280,15 +279,12 @@ def check_hub_audience(docs: list[tuple[str, dict]], policy: dict) -> list[Findi
             if mode is None or (image_tag(img) or "") in known:
                 continue
             where = f"{d.get('kind')}/{name} {c.get('name', '')}"
-            if mode == "enforce":
-                out.append(Finding("error", "hub-audience-unchecked",
-                                   f"KEYCLOAK_AUDIENCE_MODE=enforce but {img} is not listed in release-policy.yaml "
-                                   "audience_hub_tags (hubs known to have the audience check): re-pin wg-hub to the "
-                                   "wg-tunnel ztna-audience commit or later with scripts/pin-image and list its tag", where))
-            else:
-                out.append(Finding("warn", "hub-audience-unchecked",
-                                   f"{img} is not listed in release-policy.yaml audience_hub_tags: it may ignore "
-                                   f"KEYCLOAK_AUDIENCE_MODE={mode} (re-pin wg-hub with scripts/pin-image before enforce)", where))
+            hint = ("re-pin wg-hub to the wg-tunnel ztna-audience commit or later with scripts/pin-image and list its "
+                    "tag in release-policy.yaml audience_hub_tags")
+            out.append(Finding("error", "hub-audience-unchecked",
+                               f"KEYCLOAK_AUDIENCE_MODE={mode} but {img} is not listed in release-policy.yaml "
+                               f"audience_hub_tags (hubs known to have the audience check): it ignores the setting; "
+                               f"{hint}", where))
     return out
 
 

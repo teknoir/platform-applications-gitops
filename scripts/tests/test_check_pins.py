@@ -313,9 +313,10 @@ class HubAudience(unittest.TestCase):
         f = CP.check_hub_audience(self.hub(self.OLD, "enforce"), self.pol())
         self.assertEqual(codes(f, "error"), ["hub-audience-unchecked"])
 
-    def test_transition_on_an_unlisted_image_only_warns(self):
+    def test_transition_on_an_unlisted_image_is_an_error_too(self):
         f = CP.check_hub_audience(self.hub(self.OLD, "transition"), self.pol())
-        self.assertEqual((codes(f, "error"), codes(f, "warn")), ([], ["hub-audience-unchecked"]))
+        self.assertEqual((codes(f, "error"), codes(f, "warn")), (["hub-audience-unchecked"], []))
+        self.assertIn("KEYCLOAK_AUDIENCE_MODE=transition", f[0].message)
 
     def test_a_listed_image_passes_in_both_modes(self):
         for mode in ("enforce", "transition"):
@@ -339,15 +340,17 @@ class HubAudience(unittest.TestCase):
         self.assertEqual(CP.check_hub_audience(self.hub(self.OLD, None), self.pol()), [])
 
     def test_lint_includes_the_check(self):
-        f = CP.lint(self.hub(self.OLD, "enforce"), policy=self.pol(), release=None, project="teknoir-online",
-                    repo_root=None, today=TODAY)
-        self.assertIn("hub-audience-unchecked", codes(f, "error"))
+        for mode in ("enforce", "transition"):
+            f = CP.lint(self.hub(self.OLD, mode), policy=self.pol(), release=None, project="teknoir-online",
+                        repo_root=None, today=TODAY)
+            self.assertIn("hub-audience-unchecked", codes(f, "error"), mode)
 
     def test_shipped_policy_rejects_every_pre_audience_hub(self):
         pol = CP.load_policy(self.SHIPPED)
         for tag in self.PRE_AUDIENCE:
-            f = CP.check_hub_audience(self.hub(f"ghcr.io/teknoir/wg-hub:{tag}" + D, "enforce"), pol)
-            self.assertEqual(codes(f, "error"), ["hub-audience-unchecked"], tag)
+            for mode in ("enforce", "transition"):
+                f = CP.check_hub_audience(self.hub(f"ghcr.io/teknoir/wg-hub:{tag}" + D, mode), pol)
+                self.assertEqual(codes(f, "error"), ["hub-audience-unchecked"], (tag, mode))
 
     def test_shipped_allowlist_has_no_pre_audience_tag(self):
         tags = CP.load_policy(self.SHIPPED)["audience_hub_tags"]
