@@ -27,6 +27,15 @@ data:
   {{- with .Values.config.pluginChartVersion }}
   PLUGIN_CHART_VERSION: {{ . | toString | quote }}
   {{- end }}
+  {{- /* Issuer and JWKS URI of the RequestAuthentication jwt-policy that profile-controller creates in every
+  teamspace. Derived from config.domain, like the auth chart (auth.<domain>). Unset keys would leave the
+  controller default (the production Keycloak, https://auth.teknoir.online). */}}
+  {{- $oidc := .Values.config.oidc | default dict }}
+  {{- $issuer := $oidc.issuer | default (printf "https://auth.%s/auth/realms/master" .Values.config.domain) }}
+  OIDC_ISSUER: {{ $issuer | quote }}
+  {{- with $oidc.jwksUri }}
+  OIDC_JWKS_URI: {{ . | quote }}
+  {{- end }}
   {{- /* The portal (Backstage) service account gets a ClusterRole inside every teamspace through a
   RoleBinding "teknoir-portal". Both unset: no binding. Exactly one set: the controller refuses to start
   ("must be set together"), so fail here instead of in a CrashLoop. */}}
