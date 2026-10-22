@@ -1,7 +1,7 @@
 {{- /*
 ValidatingAdmissionPolicies (Kubernetes 1.30+, r415 runs 1.34) that protect the policy store and
-the hub. Backstage's service account has cluster-wide teknoir-admin (ConfigMaps, Secrets, exec),
-so RBAC alone does not keep a compromised UI out of the access policy.
+the hub. Backstage's service account can write Devices and Users in every teamspace, so RBAC alone
+does not keep a compromised UI out of the access policy.
 
   ztna-policy-store:  - ConfigMaps labelled ztna.teknoir.org/policy (or named ztna-policy-*):
                         only device-controller's service account may create, update or delete them;
@@ -34,14 +34,16 @@ so RBAC alone does not keep a compromised UI out of the access policy.
                       leadership and with it the sessions.
   ztna-no-token-mint: serviceaccounts/token (TokenRequest) for wg-hub, wg-flags and the terminal
                       accounts (wgt-*) only by the kubelet (system:node:*) and kube-system.
-
-Accepted risk (plan "Rev 3 changes"): these policies check request.userInfo.username. A caller that
-may impersonate ServiceAccounts (the Backstage SA holds cluster-wide teknoir-admin) can still stand
-in for an allowed identity. The policies close the direct routes; scoping that binding per
-teamspace is a platform follow-up.
   ztna-no-exec:       nobody may exec into, attach to, port-forward to or add ephemeral
                       containers to pods in teknoir-ztna and stunner-system (the hub holds the
                       session keys in memory, stunnerd the TURN secret).
+
+Backstage's service account (backstage.serviceAccount) cannot stand in for another identity: it holds no
+impersonate, pod, exec, secret-list or RBAC rights (charts/backstage templates/rbac.yaml; its teamspace rights are a
+RoleBinding per teamspace written by profile-controller, and in this namespace it may only get Deployments). The
+two username exemptions for it (ztna-device-annotations, ztna-user-org-annotations) are deliberate: Backstage applies
+the org gate and the end user's SubjectAccessReview before it writes. The policies check request.userInfo.username,
+so they are only as strong as the right to become another identity.
 
 ArgoCD is not affected: the policy and identity ConfigMaps are not in Git, so ArgoCD never writes
 them, and Argo's own resources here are no ConfigMaps at all. Namespace teardown is: the namespace

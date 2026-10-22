@@ -1,0 +1,108 @@
+suite: backstage API service account RBAC (least privilege)
+# The API is the policy point (it asks the end user's SubjectAccessReview itself), so it must not be able to become
+# another identity, run code or read Secrets in bulk: that would bypass the teknoir-ztna admission policies
+# (plans/ztna-later.md, "backstage-sa"). Anything added to templates/rbac.yaml has to pass these.
+templates:
+  - templates/rbac.yaml
+tests:
+  - it: renders the cluster-wide role, its one binding and the teamspace role, and nothing else
+    asserts:
+      - hasDocuments: {count: 3}
+      - equal: {path: kind, value: ClusterRole}
+        documentIndex: 0
+      - equal: {path: kind, value: ClusterRoleBinding}
+        documentIndex: 1
+      - equal: {path: kind, value: ClusterRole}
+        documentIndex: 2
+
+  - it: does not bind teknoir-admin (or any other aggregated or built-in role) to the API
+    documentSelector:
+      path: kind
+      value: ClusterRoleBinding
+    asserts:
+      - equal: {path: roleRef.name, value: backstage-api-resources-role}
+      - notEqual: {path: roleRef.name, value: teknoir-admin}
+      - notEqual: {path: roleRef.name, value: cluster-admin}
+      - equal: {path: subjects, value: [{kind: ServiceAccount, name: backstage-api, namespace: NAMESPACE}]}
+    release:
+      namespace: NAMESPACE
+
+  - it: has no binding for the teamspace role (profile-controller binds it per teamspace)
+    documentSelector:
+      path: kind
+      value: ClusterRoleBinding
+    asserts:
+      - notEqual: {path: roleRef.name, value: backstage-api-teamspace}
+
+  - it: gives the cluster-wide role exactly Profiles and Users to manage and a few reads
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [teknoir.org]
+              resources: [profiles, users]
+              verbs: [get, list, watch, create, update, patch, delete]
+            - apiGroups: [teknoir.org]
+              resources: [profiles/status, users/status]
+              verbs: [get]
+            - apiGroups: [teknoir.org]
+              resources: [devices, deviceapplicationsets, claims, claimsets]
+              verbs: [get, list, watch]
+            - apiGroups: [""]
+              resources: [resourcequotas]
+              verbs: [get, list]
+
+  - it: gives the cluster-wide role no write on Devices, no Secrets, no ConfigMaps and no Events
+    documentIndex: 0
+    asserts:
+      - notMatchRegex: {path: "rules[*].resources[*]", pattern: "^(secrets|configmaps|events|persistentvolumeclaims|robots|devstudios|notebooks)"}
+      - notMatchRegex: {path: "rules[*].resources[*]", pattern: "helmcharts"}
+
+  - it: keeps the cluster-wide role free of wildcards, impersonation, pods, RBAC and service accounts
+    documentIndex: 0
+    asserts: &forbidden
+      # no '*' group, resource or verb
+      - notMatchRegex: {path: "rules[*].apiGroups[*]", pattern: "\\*"}
+      - notMatchRegex: {path: "rules[*].resources[*]", pattern: "\\*"}
+      - notMatchRegex: {path: "rules[*].verbs[*]", pattern: "\\*"}
+      # no way to become another identity, grant rights or run code
+      - notMatchRegex: {path: "rules[*].verbs[*]", pattern: "^(impersonate|bind|escalate|approve|sign|use|deletecollection)$"}
+      - notMatchRegex: {path: "rules[?(!@.resourceNames)].resources[*]", pattern: "^secrets"}
+      - notMatchRegex: {path: "rules[*].resources[*]", pattern: "^pods"}
+      - notMatchRegex: {path: "rules[*].resources[*]", pattern: "^(deployments|replicasets|statefulsets|daemonsets|jobs|cronjobs)"}
+      - notMatchRegex: {path: "rules[*].resources[*]", pattern: "^(serviceaccounts|namespaces|nodes|tokenreviews|subjectaccessreviews|certificatesigningrequests)"}
+      - notMatchRegex: {path: "rules[*].resources[*]", pattern: "^(roles|rolebindings|clusterroles|clusterrolebindings)$"}
+      - notMatchRegex: {path: "rules[*].apiGroups[*]", pattern: "^(rbac.authorization.k8s.io|apps|batch|policy|admissionregistration.k8s.io|helm.cattle.io)$"}
+
+  - it: keeps the teamspace role free of wildcards, impersonation, pods, RBAC and service accounts
+    documentIndex: 2
+    asserts: *forbidden
+
+  - it: holds the same limits under an instance name
+    set: {name: backstage-next}
+    documentIndex: 2
+    asserts: *forbidden
+
+  - it: lets the teamspace role read only two named Secrets and write only peripheral-config
+    documentIndex: 2
+    asserts:
+      # every Secret rule is get on named Secrets
+      - equal:
+          path: "rules[?(@.resources[0]=='secrets')].resourceNames"
+          value: [mongodb-credentials, emqx-bootstrap-user]
+      - equal:
+          path: "rules[?(@.resources[0]=='secrets')].verbs"
+          value: [get]
+      # configmaps: create (cannot be limited by name) and get/update of peripheral-config only
+      - equal:
+          path: "rules[?(@.resources[0]=='configmaps' && @.resourceNames)].resourceNames"
+          value: [peripheral-config]
+      - equal:
+          path: "rules[?(@.resources[0]=='configmaps' && @.resourceNames)].verbs"
+          value: [get, update]
+      - equal:
+          path: "rules[?(@.resources[0]=='configmaps' && !@.resourceNames)].verbs"
+          value: [create]
+      # no Users or Profiles in a teamspace role
+      - notMatchRegex: {path: "rules[*].resources[*]", pattern: "^(users|profiles)"}

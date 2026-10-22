@@ -94,7 +94,7 @@ not expose device keys.
 
 ## Admission policies (`templates/admission.yaml`)
 
-Backstage's service account has cluster-wide `teknoir-admin`, so RBAC alone does not protect the policy store.
+Backstage's service account can write Devices and Users in every teamspace, so RBAC alone does not protect the policy store.
 
 - `ztna-policy-store`: ConfigMaps labelled `ztna.teknoir.org/policy` or named `ztna-policy-*` are written only by
   `system:serviceaccount:teknoir-system:device-controller-service-account`; `ztna.teknoir.org/identity` or
@@ -131,11 +131,17 @@ Backstage's service account has cluster-wide `teknoir-admin`, so RBAC alone does
   renders no ConfigMap. **Namespace teardown**: the namespace controller deletes the ConfigMaps as itself, so DELETE is
   allowed while the namespace is `Terminating`. The Namespace itself carries `Prune=false,Delete=false`, so removing the
   Application never deletes the pinned identities.
-- **Accepted platform risk**: the policies match `request.userInfo.username`. Backstage's service account holds a
-  cluster-wide `teknoir-admin`, which includes impersonating ServiceAccounts, so a compromised Backstage can still stand in
-  for an allowed identity (for example to write `ztna-identity-*`). The policies close the direct routes only; scoping that
-  binding per teamspace (profile-controller RoleBindings) is a platform follow-up, and the ZTNA path cannot be stronger than
-  its control plane.
+- **Backstage cannot become another identity.** The policies match `request.userInfo.username`, so they hold only while
+  no caller can stand in for an allowed identity. Backstage's service account has no `impersonate`, no pods, `pods/exec`,
+  Secret list/read (two named Secrets per teamspace only), `roles`/`rolebindings` or `serviceaccounts` right, no
+  `teknoir-admin` and no `*` group: cluster-wide it manages Profiles and Users and reads Devices, DeviceApplicationSets and
+  claims (`backstage-api-resources-role`); inside a teamspace it has the ClusterRole `backstage-api-teamspace` through a
+  RoleBinding `teknoir-portal` that profile-controller writes (and only in namespaces the Profile owns); in
+  `teknoir-ztna` it may only `get` Deployments (Role `backstage-api-hub-workloads`, this chart). The two username
+  exemptions for it, `ztna-device-annotations` and `ztna-user-org-annotations`, are deliberate: Backstage checks the end
+  user (SubjectAccessReview, org gate) before it writes; making the policy check the end user would need impersonation of
+  users and groups, a stronger right than the one removed. What remains: a compromised Backstage can still change
+  `ztna.teknoir.org/*` and org-tree annotations through those exemptions, create Profiles and make anyone a teamspace owner.
 - <a name="break-glass"></a>**Break-glass**: the `ztna` Application has `selfHeal`, so a deleted binding is restored within
   seconds. Order: (1) `argocd app set ztna --sync-policy none`; (2) delete the ValidatingAdmissionPolicyBinding; (3) act;
   (4) re-apply the binding (or re-sync) and `argocd app set ztna --sync-policy automated --self-heal`. system:masters is
