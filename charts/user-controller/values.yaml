@@ -4,7 +4,7 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/teknoir/user-controller
-  tag: "teknoir-cloud-20260413-054338@sha256:7fb5a7cdc4995a0dd11e462499d1d2d76d73e7774a31991f8004fc02be3041cb"
+  tag: "sha-34155e78@sha256:c1c1423dd8fc655227e1bdff0c31f42f9c08530481856e49f730da5f35fb468b"
   pullPolicy: Always
 
 imagePullSecrets:
