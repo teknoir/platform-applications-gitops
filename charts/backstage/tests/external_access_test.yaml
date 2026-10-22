@@ -2,23 +2,25 @@ suite: backstage Keycloak externalAccess restrictions
 templates:
   - templates/configmap-app-config.yaml
 tests:
-  - it: restricts the Keycloak principal to catalog read and the device plugin by default (P0)
-    asserts:
-      - matchRegex:
-          path: data["app-config.prod-env.yaml"]
-          pattern: "subjectPrefix: keycloak\\n        accessRestrictions:\\n          - permission: catalog.entity.read\\n            plugin: catalog\\n          - plugin: device\\n"
-
-  - it: renders the P2 target list
-    set:
-      config.externalAccess.accessRestrictions:
-        - plugin: device
+  - it: restricts the Keycloak principal to the device plugin by default (P2)
     asserts:
       - matchRegex:
           path: data["app-config.prod-env.yaml"]
           pattern: "subjectPrefix: keycloak\\n        accessRestrictions:\\n          - plugin: device\\n    keys:"
       - notMatchRegex:
           path: data["app-config.prod-env.yaml"]
-          pattern: "catalog.entity.read"
+          pattern: "plugin: catalog"
+
+  - it: renders the P0 list (catalog read and device) when set
+    set:
+      config.externalAccess.accessRestrictions:
+        - plugin: catalog
+          permission: catalog.entity.read
+        - plugin: device
+    asserts:
+      - matchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: "subjectPrefix: keycloak\\n        accessRestrictions:\\n          - permission: catalog.entity.read\\n            plugin: catalog\\n          - plugin: device\\n"
 
   - it: renders no accessRestrictions key when the list is empty
     set:
