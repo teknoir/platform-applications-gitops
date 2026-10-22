@@ -108,12 +108,104 @@ from cert-manager (`tokenServiceCert`, templates/token-service-cert.yaml).
 ### Configuration as code (`harborConfig`)
 `files/harbor-config.py` (PostSync hook + hourly CronJob `harbor-config`) reconciles:
 - system settings (admin-only project creation, no self-registration);
-- proxy-cache upstreams and projects `dockerhub`, `ghcr`, `quay`, `k8s` (private);
-- project `teknoir` (CI images) and the proxies with storage quotas (1 TiB + 4 x 150 GiB,
-  the hard stop that keeps `/opt` from filling) and tag retention:
-  `ci` keeps release/environment tags, the 15 newest pushes per repository and anything
-  pulled in 30 days; `proxy` keeps what was pulled in 30 days;
-- weekly GC (untagged too), audit-log purge (30 days), weekly scan-all;
+- proxy-cache upstreams and projects `dockerhub`, `ghcr`, `quay`, `k8s`, `gcr`, `nvcr` (all
+  private; see [Pull-through cache](#pull-through-cache-for-the-cluster-and-the-robots));
+- project `teknoir` (CI images) and the proxies with storage quotas and tag retention. Harbor's
+  data is on vpro's root filesystem (1.8 TB, 1.2 TB free on 2026-10-22) and kubelet image GC
+  starts at 75 % use, so the quotas total 700 GiB: `teknoir` 250, `ghcr` 150, `dockerhub` 100,
+  `nvcr` 100, `quay` 40, `gcr` 30, `k8s` 30. Retention: `ci` keeps release/environment tags,
+  the 15 newest pushes per repository and anything pulled in 30 days; `proxy` keeps what was
+  pulled in 30 days, digest-pinned (untagged) pulls included;
+- weekly GC (blobs only; `deleteUntagged: false`, untagged artifacts go through the retention rules), audit-log purge (30 days), weekly scan-all;
 - robot `robot$ci`, written as `teknoir-ci/harbor-ci-robot` (charts/ci grants the Job that
-  Secret). A missing or stale Secret gets a fresh robot secret; delete it to rotate.
+  Secret), robot `robot$nodes` (pull-only on the six proxies, never on `teknoir`), written as
+  `teknoir-system/harbor-nodes-pull`, and one pull-only robot per teamspace (below). A missing
+  or stale Secret (or empty one, in teknoir-system) gets a fresh robot secret; delete `harbor-ci-robot` or empty the data of the other two to rotate.
 The Job only changes what differs and never prints a credential.
+
+### Pull-through cache for the cluster and the robots
+Design: `plans/harbor-proxy-staging.md`. Every image the staging nodes and robots pull can go
+through `harbor.teknoir.cloud/<project>/<path>`, with the upstream as the fallback (k3s
+`registries.yaml`, see infra `scripts/ci-node-setup.sh`, cli `tnctl bootstrap` and ansible
+`playbooks/registry-mirror.yml`).
+
+- **Upstream credentials.** `harborConfig.config.registries[].credential` names a Secret that is
+  mounted (optional volume) at `/upstream/<registry>`. `ghcr` uses the platform's `ghcr-token`
+  (dockerconfigjson) and is used only by harbor-core's outbound fetch; robots never see it.
+  `dockerhub` is anonymous until Secret `harbor-upstream-dockerhub` exists (a Docker Hub
+  "Public Repo Read-only" token), stored with
+  `scripts/set-upstream-credential.sh dockerhub --context vpro` (reads the username and the
+  token from stdin, never prints them). Harbor never returns the secret, so the registry
+  description carries `credential sha256:<12 hex>` (a truncated hash of username and token) and
+  the credential is sent again only when it changes; removing the Secret makes the upstream
+  anonymous again. A credential that is `optional: false` and missing is an ERROR (the registry
+  is not created without it).
+- **Never public.** harbor-config refuses (ERROR, the step fails, the project stays private) a
+  `public: true` project whose upstream has a credential or held one, so the private ghcr cache
+  cannot become public through a values edit.
+- **Teamspace robots.** `teamspaceRobots` lists `profiles.teknoir.org` (ClusterRole
+  `harbor-config-profiles`: get/list on profiles only) and keeps one system robot
+  `robot$ts-<profile>` per Profile: pull-only on the six proxies, never expiring (nothing rotates
+  it yet), all credentials in ONE Secret `teknoir-system/harbor-teamspace-pull` with the keys
+  `<profile>.username` and `<profile>.password` (Role `harbor-config`: get/update on that Secret
+  and `harbor-nodes-pull`, no `create`; see "Secrets in teknoir-system" below). A robot with the
+  description `managed by harbor-config (teamspace)` is deleted when its Profile is gone; robots
+  made by hand are never touched. Delete a key (or empty the Secret's data) to rotate that
+  teamspace's credential. A failing Profile list deletes nothing.
+  **A rotation (or a new secret after a missing key or a Harbor 401/403 on the robot) invalidates
+  the credential on every robot of that teamspace**: their `registries.yaml` still holds the old
+  password, Harbor answers 401 and containerd falls through to the upstream (public images keep
+  working, private `ghcr.io/teknoir/*` images stop pulling). Re-run ansible
+  `playbooks/registry-mirror.yml` (`--limit` the teamspace's robots) afterwards; there is no
+  automatic roll-out of the new credential yet (plan phase 1b/2). Proposed, not built: a
+  Prometheus alert on failed Harbor logins by `robot$ts-*` (harbor-core's access log or the
+  gateway's 401 count on `harbor.<domain>/v2/` and `/service/token` grouped by robot name),
+  so a stale robot credential shows up before a pull fails on a robot.
+- **Secrets in teknoir-system.** harbor-config has no `create` on Secrets there. A Role that
+  could create Secrets in `teknoir-system` could mint a `kubernetes.io/service-account-token`
+  Secret for one of the cluster-admin ServiceAccounts that live in that namespace
+  (`profile-controller`, `user-controller`) and read its token. The chart therefore renders
+  `harbor-nodes-pull` and `harbor-teamspace-pull` as empty Opaque Secrets
+  (`templates/harbor-config-rbac.yaml`; `Prune=false,Delete=false`, and `ignoreDifferences` on
+  `.data` in the harbor Application), and harbor-config only updates them (Secret `type` is
+  immutable, so get/update cannot turn them into a token Secret). Rotate by deleting the data
+  keys, never the Secret; if it is deleted anyway, ArgoCD renders it again and the next job run
+  fills it (until then the job logs `may not create it`). `teknoir-ci/harbor-ci-robot` is
+  created by harbor-config as before (the ci chart grants that Role).
+- **Path guard.** The ghcr credential can read every package its owner can read, but robots need
+  only `ghcr.io/teknoir/*`. `templates/harbor-proxy-guard.yaml` is an EnvoyFilter on
+  harbor-core's inbound listener (port 8080, before the router) that runs
+  `files/harbor-proxy-guard.lua`: it percent-decodes (until stable), merges slashes and lowercases
+  the path, answers 403 for any `/v2/` path with a `.` or `..` segment (refused, never resolved:
+  no valid repository name has one, and `/v2/ghcr/teknoir/..%2F..%2Fdexidp/...` must not be
+  judged as another path than harbor-core routes), and answers 403 for `/v2/ghcr/<org>/...` unless `<org>` is
+  in `harborConfig.proxyGuard.ghcr.allowOrgs` (default `[teknoir]`). Public ghcr images of other
+  organisations (for example `dexidp/dex`) then get 403 from Harbor and containerd falls through
+  to ghcr.io. An AuthorizationPolicy `notPaths` rule could not do this: it cannot see `%2F`
+  forms. Not suitable for customer teamspaces: the teamspace robot can pull every private
+  `ghcr.io/teknoir/*` image (plan phase 2: one credential per device).
+  The same goes for the `nodes` robot: its credential sits in every node's `registries.yaml`, so
+  any pod on such a node, in any namespace and without a pull secret, can pull those images.
+  On a cluster with customer teamspaces drop the `ghcr` line from `nodes`, or enable
+  `KubeletEnsureSecretPulledImages` / `AlwaysPullImages`.
+  Pods with their own upstream pull secret (staging: 22 pods carry `ghcr-token`) bypass the
+  cache: kubelet never sets the credential's server address, so containerd sends the pod's
+  credential to every mirror endpoint, including this Harbor, which rejects it; the pull then goes
+  to the upstream. The credential reaches only harbor-core. Accepted on staging
+  (plans/harbor-proxy-staging.md); on a new cluster do not put upstream pull secrets on pods of
+  mirrored nodes (plans/new-cluster-requirements.md section 10).
+
+### Tests
+- `python3 -m unittest discover -s charts/harbor/tests -p 'test_*.py'` (stdlib only):
+  - `test_harbor_config.py`: files/harbor-config.py against an in-process fake Harbor and
+    Kubernetes API (idempotency, credential hash, public guard, retention, teamspace robot
+    lifecycle, no secret in the logs), plus the chart's real config rendered with helm;
+  - `test_proxy_guard.py`: the Lua guard in LuaJIT (needs docker and the digest-pinned
+    `nickblah/luajit` image locally, else skipped) and the rendered EnvoyFilter;
+  - `test_set_upstream_credential.py`: the credential script with a stub kubectl.
+- `helm unittest charts/harbor` (`tests/*_test.yaml`): RBAC, credential volumes, guard.
+  Both helm-based tests need the subchart: `helm dependency build charts/harbor` once.
+- `ROOT_RENDER_EXPECTED=teknoir-cloud scripts/tests/run.sh`: the root render must equal the base ref
+  (`origin/teknoir-cloud`); this chart's intended difference on teknoir-cloud (the harbor
+  Application `ignoreDifferences`) is accepted only with that variable, any other mismatch fails the
+  run. Once this branch is merged the variable is no longer needed.
