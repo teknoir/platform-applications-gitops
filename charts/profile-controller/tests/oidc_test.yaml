@@ -1,0 +1,39 @@
+suite: profile-controller teamspace jwt-policy issuer
+templates:
+  - templates/configmap.yaml
+tests:
+  - it: derives the issuer from the staging domain, not the production Keycloak
+    asserts:
+      - equal: {path: data.OIDC_ISSUER, value: "https://auth.teknoir.cloud/auth/realms/master"}
+      - notExists: {path: data.OIDC_JWKS_URI}
+
+  - it: follows the domain of the install
+    set:
+      config.domain: teknoir.airgapped
+    asserts:
+      - equal: {path: data.OIDC_ISSUER, value: "https://auth.teknoir.airgapped/auth/realms/master"}
+
+  - it: renders the controller default for the production domain
+    set:
+      config.domain: teknoir.online
+    asserts:
+      - equal: {path: data.OIDC_ISSUER, value: "https://auth.teknoir.online/auth/realms/master"}
+
+  - it: lets an explicit issuer and JWKS URI win
+    set:
+      config.oidc.issuer: "https://sso.example.com/realms/x"
+      config.oidc.jwksUri: "https://sso.example.com/realms/x/keys"
+    asserts:
+      - equal: {path: data.OIDC_ISSUER, value: "https://sso.example.com/realms/x"}
+      - equal: {path: data.OIDC_JWKS_URI, value: "https://sso.example.com/realms/x/keys"}
+
+  - it: still derives the issuer when the oidc block is removed
+    set:
+      config.oidc: null
+    asserts:
+      - equal: {path: data.OIDC_ISSUER, value: "https://auth.teknoir.cloud/auth/realms/master"}
+
+  - it: leaves the other settings alone
+    asserts:
+      - equal: {path: data.DOMAIN, value: teknoir.cloud}
+      - exists: {path: data.PLUGIN_CHART_VERSION}
