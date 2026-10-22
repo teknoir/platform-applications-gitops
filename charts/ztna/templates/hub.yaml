@@ -200,6 +200,8 @@ spec:
 # The hub's own endpoint (POD_IP:51820) avoids ClusterIP NAT and conntrack on the TURN leg. UDP is
 # not captured by the Istio sidecar; the TCP ports are. STUNner's UDPRoute permits the hub pods
 # through wg-hub-pods (below), so a failover does not wait for the operator to re-render.
+# Needs a wg-hub image with leader election: an older image never sets the hub-role label and this Service
+# would have no endpoints. Release stage 2 only when the live pods show hub-role=leader (plans/ztna-later.md).
 apiVersion: v1
 kind: Service
 metadata:
