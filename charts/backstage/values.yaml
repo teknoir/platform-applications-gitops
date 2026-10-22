@@ -16,13 +16,14 @@ config:
   logLevel: info
   # Restrictions on the Keycloak (tnctl) access-token principal of backend.auth.externalAccess.
   # Without them a service principal passes every plugin and permission check.
-  # P0 (now): the device plugin plus read-only catalog (tnctl still lists teamspaces/devices from the catalog).
-  # P2 target, once tnctl uses the user-scoped fleet routes: [{plugin: device}] only.
+  # P2 (staging, since tnctl v0.1.0-beta): only the device plugin. tnctl >= v0.1.0-beta calls nothing but
+  # /api/device/fleet/... (user-scoped fleet routes); everything else (catalog, kubernetes proxy, search, techdocs,
+  # permission, ...) answers 403 for its token. tnctl <= v0.0.9-beta read the catalog and stops working
+  # against this platform: upgrade tnctl.
+  # Earlier steps: P0 = [catalog: catalog.entity.read, device], P1 = fleet routes for tnctl.
   # Plugin ids must be unique in the list (a duplicate stops backstage-api at start). Empty list = no restriction.
   externalAccess:
     accessRestrictions:
-      - plugin: catalog
-        permission: catalog.entity.read
       - plugin: device
   prometheusUrl: http://prometheus.__NAMESPACE__.svc.cluster.local:80
 
