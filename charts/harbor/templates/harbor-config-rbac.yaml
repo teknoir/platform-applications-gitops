@@ -11,9 +11,29 @@ teamspace pull Secret. Everything else (teknoir-ci) is granted by the consuming 
 {{- $names = append $names $cfg.teamspaceRobots.secret.name }}
 {{- end }}
 {{- if $names }}
+{{- range $names | uniq | sortAlpha }}
 ---
-# harbor-config writes the robot credentials it manages into Secrets in this namespace:
-# get/update on exactly those Secrets, and create for the first write.
+# The Secret is rendered here (empty, Opaque) so that harbor-config never needs `create` in this
+# namespace: a Role with `create` on Secrets could mint a kubernetes.io/service-account-token
+# Secret for one of the cluster-admin ServiceAccounts that live in teknoir-system and read its
+# token. Secret `type` is immutable, so get/update on a name that already exists as Opaque cannot
+# do that. harbor-config fills in the data; ArgoCD must neither prune nor reset it. Rotate by
+# deleting a key (teamspace Secret) or the data keys, never the Secret.
+apiVersion: v1
+kind: Secret
+type: Opaque
+metadata:
+  name: {{ . }}
+  namespace: {{ $namespace }}
+  labels:
+    teknoir.org/managed-by: harbor-config
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+    argocd.argoproj.io/compare-options: IgnoreExtraneous
+{{- end }}
+---
+# harbor-config writes the robot credentials it manages into the Secrets above: get/update on
+# exactly those names. No `create` (see above) and no list/watch/delete.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -22,11 +42,8 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: [secrets]
-    resourceNames: {{ $names | uniq | toJson }}
+    resourceNames: {{ $names | uniq | sortAlpha | toJson }}
     verbs: [get, update]
-  - apiGroups: [""]
-    resources: [secrets]
-    verbs: [create]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

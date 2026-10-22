@@ -40,6 +40,15 @@ spec:
         duration: 30s
         factor: 2
         maxDuration: 5m
+  # The harbor chart renders the Secrets harbor-config writes its robot credentials into as empty
+  # Opaque Secrets (harbor-config has no `create` in teknoir-system); the data is not ArgoCD's.
+  ignoreDifferences:
+    - kind: Secret
+      name: harbor-nodes-pull
+      jqPathExpressions: [.data]
+    - kind: Secret
+      name: harbor-teamspace-pull
+      jqPathExpressions: [.data]
 {{- end }}
 {{- if and (.Values.ci).enabled (has .Values.project $allowedProjects) }}
 ---

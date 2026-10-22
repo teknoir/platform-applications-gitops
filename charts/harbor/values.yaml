@@ -190,7 +190,8 @@ harborConfig:
     robots:
       # CI push/pull (charts/ci). The Secret is a dockerconfigjson with extra
       # username/password keys; charts/ci grants this Job's ServiceAccount write access
-      # to it. Delete the Secret to rotate the credential.
+      # to it. Delete the Secret to rotate the credential (teknoir-ci only; in teknoir-system the chart
+      # renders the Secrets, see templates/harbor-config-rbac.yaml: empty the data instead).
       - name: ci
         secret: {namespace: teknoir-ci, name: harbor-ci-robot}
         permissions:
@@ -208,8 +209,7 @@ harborConfig:
       # imagePullSecret, can pull every private ghcr.io/teknoir/* image (kubelet only checks
       # credentials for images it has not pulled yet; the node credential is the node's, not the
       # pod's). Accepted on staging, where teamspace developers can read the PAT anyway. A cluster
-      # with customer teamspaces must drop the ghcr line below from `nodes` (platform pods keep
-      # their pull secrets and fall through to ghcr.io), or enable KubeletEnsureSecretPulledImages
+      # with customer teamspaces must drop the ghcr line below from `nodes`, or enable KubeletEnsureSecretPulledImages
       # / AlwaysPullImages (plans/new-cluster-requirements.md section 10).
       - name: nodes
         secret: {namespace: teknoir-system, name: harbor-nodes-pull}

@@ -411,6 +411,28 @@ def k8s(method, path, body=None):
     return call(method, path, body, auth="Bearer " + token, base=K8S, ctx=ctx)
 
 
+def write_secret(ns, name, ksec, obj):
+    """Create the Secret (only where harbor-config may: teknoir-ci) or update the existing one.
+
+    The Role in teknoir-system has no `create` (a Role that can create Secrets there can mint a
+    service-account-token Secret for a cluster-admin ServiceAccount), so the chart renders the
+    Secrets and this only fills them in. An existing Secret keeps its type (immutable)."""
+    path = f"/api/v1/namespaces/{ns}/secrets/{name}"
+    if ksec is None:
+        try:
+            k8s("POST", f"/api/v1/namespaces/{ns}/secrets", obj)
+        except HTTPError as e:
+            if e.code == 403:
+                log(f"Secret {ns}/{name} does not exist and harbor-config may not create it; "
+                    "ArgoCD renders it from the harbor chart (sync the app), then run the job again")
+            raise
+        return
+    obj["metadata"]["resourceVersion"] = ksec["metadata"]["resourceVersion"]
+    if ksec.get("type"):
+        obj["type"] = ksec["type"]
+    k8s("PUT", path, obj)
+
+
 def new_secret():
     alphabet = string.ascii_letters + string.digits
     while True:
@@ -514,11 +536,7 @@ def robots():
                             "labels": {"teknoir.org/managed-by": "harbor-config"},
                             "annotations": {"teknoir.org/harbor-robot": full}},
                "data": data}
-        if ksec is None:
-            k8s("POST", f"/api/v1/namespaces/{ns}/secrets", obj)
-        else:
-            obj["metadata"]["resourceVersion"] = ksec["metadata"]["resourceVersion"]
-            k8s("PUT", path, obj)
+        write_secret(ns, sname, ksec, obj)
         log(f"robot {full}: Secret {ns}/{sname} written")
 
 
@@ -571,11 +589,7 @@ def teamspace_robots():
     obj = {"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
            "metadata": {"name": sname, "namespace": ns, "labels": {"teknoir.org/managed-by": "harbor-config"}},
            "data": {k: base64.b64encode(v.encode()).decode() for k, v in sorted(data.items())}}
-    if ksec is None:
-        k8s("POST", f"/api/v1/namespaces/{ns}/secrets", obj)
-    else:
-        obj["metadata"]["resourceVersion"] = ksec["metadata"]["resourceVersion"]
-        k8s("PUT", path, obj)
+    write_secret(ns, sname, ksec, obj)
     log(f"teamspace robots: Secret {ns}/{sname} written ({len(profiles)} teamspaces)")
 
 

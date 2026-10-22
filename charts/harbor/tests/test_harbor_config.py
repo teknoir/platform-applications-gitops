@@ -76,6 +76,21 @@ class Harness:
             f.write(fake_harbor.K8S_TOKEN)
         self.config = config or base_config()
         self.outputs = []
+        # teknoir-system as the chart sets it up: harbor-config has no `create` there, the chart
+        # renders every Secret it writes as an empty Opaque Secret.
+        self.fake.no_create.add("teknoir-system")
+        self.render_chart_secrets()
+
+    def render_chart_secrets(self):
+        names = [r["secret"] for r in self.config.get("robots", [])]
+        t = self.config.get("teamspaceRobots")
+        if t and t.get("enabled") is not False:
+            names.append(t["secret"])
+        for sec in names:
+            if sec["namespace"] in self.fake.no_create and (sec["namespace"], sec["name"]) not in self.fake.secrets:
+                self.fake.secrets[(sec["namespace"], sec["name"])] = {
+                    "apiVersion": "v1", "kind": "Secret", "type": "Opaque",
+                    "metadata": {"name": sec["name"], "namespace": sec["namespace"], "resourceVersion": "1"}}
 
     def write_secret_files(self, registry, files):
         d = os.path.join(self.upstream, registry)
@@ -449,15 +464,28 @@ class TeamspaceRobotsTest(Base):
         self.assertIn("secret refreshed (stale Secret)", out)
         self.assertEqual(self.fake.robot("robot$ts-a")["_secret"], self.fake.secret_data(*self.SEC)["a.password"])
 
-    def test_deleting_the_whole_secret_rotates_everyone(self):
+    def test_emptying_the_secret_rotates_everyone(self):
         self.fake.profiles = ["a", "b"]
         self.h.run()
-        del self.fake.secrets[self.SEC]
+        self.fake.set_secret_data(*self.SEC, {})
         self.h.run()
+        self.assertEqual(self.fake.secrets[self.SEC]["type"], "Opaque")
         data = self.fake.secret_data(*self.SEC)
         self.assertEqual(sorted(data), ["a.password", "a.username", "b.password", "b.username"])
         for ns in "ab":
             self.assertEqual(self.fake.robot(f"robot$ts-{ns}")["_secret"], data[f"{ns}.password"])
+
+    def test_never_creates_a_secret_in_teknoir_system(self):
+        """The Role has no `create` there: a missing Secret is an error, never a POST."""
+        self.fake.profiles = ["a"]
+        del self.fake.secrets[self.SEC]
+        out = self.h.run(expect_rc=1)
+        self.assertIn("may not create it", out)
+        self.assertNotIn(self.SEC, self.fake.secrets)
+        # ArgoCD renders it again; the next run fills it
+        self.h.render_chart_secrets()
+        self.h.run()
+        self.assertEqual(sorted(self.fake.secret_data(*self.SEC)), ["a.password", "a.username"])
 
     def test_permissions_drift_is_repaired(self):
         self.fake.profiles = ["a"]
@@ -481,7 +509,7 @@ class TeamspaceRobotsTest(Base):
         self.fake.profiles = ["a"]
         self.h.run()
         self.assertNotIn("robot$ts-a", self.robot_names())
-        self.assertNotIn(self.SEC, self.fake.secrets)
+        self.assertEqual(self.fake.secret_data(*self.SEC), {})
         self.assertNotIn("/apis/teknoir.org/v1/profiles", [c[1] for c in self.fake.calls])
 
 

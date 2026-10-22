@@ -120,7 +120,7 @@ from cert-manager (`tokenServiceCert`, templates/token-service-cert.yaml).
 - robot `robot$ci`, written as `teknoir-ci/harbor-ci-robot` (charts/ci grants the Job that
   Secret), robot `robot$nodes` (pull-only on the six proxies, never on `teknoir`), written as
   `teknoir-system/harbor-nodes-pull`, and one pull-only robot per teamspace (below). A missing
-  or stale Secret gets a fresh robot secret; delete it to rotate.
+  or stale Secret (or empty one, in teknoir-system) gets a fresh robot secret; delete `harbor-ci-robot` or empty the data of the other two to rotate.
 The Job only changes what differs and never prints a credential.
 
 ### Pull-through cache for the cluster and the robots
@@ -148,10 +148,21 @@ through `harbor.teknoir.cloud/<project>/<path>`, with the upstream as the fallba
   `robot$ts-<profile>` per Profile: pull-only on the six proxies, never expiring (nothing rotates
   it yet), all credentials in ONE Secret `teknoir-system/harbor-teamspace-pull` with the keys
   `<profile>.username` and `<profile>.password` (Role `harbor-config`: get/update on that Secret
-  and `harbor-nodes-pull`, plus create). A robot with the description `managed by harbor-config
-  (teamspace)` is deleted when its Profile is gone; robots made by hand are never touched.
-  Delete a key (or the Secret) to rotate that teamspace's credential. A failing Profile list
-  deletes nothing.
+  and `harbor-nodes-pull`, no `create`; see "Secrets in teknoir-system" below). A robot with the
+  description `managed by harbor-config (teamspace)` is deleted when its Profile is gone; robots
+  made by hand are never touched. Delete a key (or empty the Secret's data) to rotate that
+  teamspace's credential. A failing Profile list deletes nothing.
+- **Secrets in teknoir-system.** harbor-config has no `create` on Secrets there. A Role that
+  could create Secrets in `teknoir-system` could mint a `kubernetes.io/service-account-token`
+  Secret for one of the cluster-admin ServiceAccounts that live in that namespace
+  (`profile-controller`, `user-controller`) and read its token. The chart therefore renders
+  `harbor-nodes-pull` and `harbor-teamspace-pull` as empty Opaque Secrets
+  (`templates/harbor-config-rbac.yaml`; `Prune=false,Delete=false`, and `ignoreDifferences` on
+  `.data` in the harbor Application), and harbor-config only updates them (Secret `type` is
+  immutable, so get/update cannot turn them into a token Secret). Rotate by deleting the data
+  keys, never the Secret; if it is deleted anyway, ArgoCD renders it again and the next job run
+  fills it (until then the job logs `may not create it`). `teknoir-ci/harbor-ci-robot` is
+  created by harbor-config as before (the ci chart grants that Role).
 - **Path guard.** The ghcr credential can read every package its owner can read, but robots need
   only `ghcr.io/teknoir/*`. `templates/harbor-proxy-guard.yaml` is an EnvoyFilter on
   harbor-core's inbound listener (port 8080, before the router) that runs
@@ -164,8 +175,14 @@ through `harbor.teknoir.cloud/<project>/<path>`, with the upstream as the fallba
   `ghcr.io/teknoir/*` image (plan phase 2: one credential per device).
   The same goes for the `nodes` robot: its credential sits in every node's `registries.yaml`, so
   any pod on such a node, in any namespace and without a pull secret, can pull those images.
-  On a cluster with customer teamspaces drop the `ghcr` line from `nodes` (platform pods keep
-  their pull secrets), or enable `KubeletEnsureSecretPulledImages` / `AlwaysPullImages`.
+  On a cluster with customer teamspaces drop the `ghcr` line from `nodes`, or enable
+  `KubeletEnsureSecretPulledImages` / `AlwaysPullImages`.
+  Pods with their own upstream pull secret (staging: 22 pods carry `ghcr-token`) bypass the
+  cache: kubelet never sets the credential's server address, so containerd sends the pod's
+  credential to every mirror endpoint, including this Harbor, which rejects it; the pull then goes
+  to the upstream. The credential reaches only harbor-core. Accepted on staging
+  (plans/harbor-proxy-staging.md); on a new cluster do not put upstream pull secrets on pods of
+  mirrored nodes (plans/new-cluster-requirements.md section 10).
 
 ### Tests
 - `python3 -m unittest discover -s charts/harbor/tests -p 'test_*.py'` (stdlib only):

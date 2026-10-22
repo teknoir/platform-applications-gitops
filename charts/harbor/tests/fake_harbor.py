@@ -31,6 +31,7 @@ class Fake:
         self.robots = {}         # id -> dict (with private _secret)
         self.namespaces = {"teknoir-system", "teknoir-ci"}
         self.secrets = {}        # (ns, name) -> object
+        self.no_create = set()   # namespaces where the Role has no `create` on Secrets (POST -> 403)
         self.profiles = []       # names
         self.profiles_status = 200
         self.rv = 1
@@ -261,6 +262,8 @@ class Handler(BaseHTTPRequestHandler):
         if ns not in f.namespaces:
             return self._send(404, {"message": f'namespaces "{ns}" not found'})
         if method == "POST":
+            if ns in f.no_create:
+                return self._send(403, {"message": 'secrets is forbidden: User "harbor-config" cannot create resource "secrets"'})
             key = (ns, body["metadata"]["name"])
             if key in f.secrets:
                 return self._send(409, {"message": "already exists"})
@@ -272,6 +275,8 @@ class Handler(BaseHTTPRequestHandler):
         if obj is None:
             return self._send(404, {"message": f'secrets "{name}" not found'})
         if method == "PUT":
+            if body.get("type") != obj.get("type"):
+                return self._send(422, {"message": "Secret: field is immutable: type"})
             if body["metadata"].get("resourceVersion") != obj["metadata"]["resourceVersion"]:
                 return self._send(409, {"message": "conflict"})
             f.rv += 1
