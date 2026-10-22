@@ -466,6 +466,37 @@ tests:
           path: spec.endpoints[0].port
           value: http-metrics
 
+  - it: scrapes the hub with the Istio workload certificate of the Prometheus sidecar (mTLS), so the wg-hub policy sees its principal
+    template: templates/hub.yaml
+    documentSelector:
+      path: kind
+      value: ServiceMonitor
+    asserts:
+      - equal:
+          path: spec.endpoints[0].scheme
+          value: https
+      - equal:
+          path: spec.endpoints[0].tlsConfig
+          value:
+            caFile: /etc/prom-certs/root-cert.pem
+            certFile: /etc/prom-certs/cert-chain.pem
+            keyFile: /etc/prom-certs/key.pem
+            insecureSkipVerify: true
+
+  - it: scrapes in plaintext as before when scheme and tlsConfig are empty (a Prometheus without the mesh certificate setup)
+    template: templates/hub.yaml
+    documentSelector:
+      path: kind
+      value: ServiceMonitor
+    set:
+      metrics.serviceMonitor.scheme: ""
+      metrics.serviceMonitor.tlsConfig: null
+    asserts:
+      - notExists:
+          path: spec.endpoints[0].scheme
+      - notExists:
+          path: spec.endpoints[0].tlsConfig
+
   - it: scrapes every hub pod, standby and leaderless pods included, through a Service of its own (not the leader-only wg-hub)
     template: templates/hub.yaml
     documentSelector:

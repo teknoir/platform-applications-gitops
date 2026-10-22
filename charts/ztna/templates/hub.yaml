@@ -312,6 +312,13 @@ spec:
     - port: http-metrics
       path: /metrics
       interval: {{ .Values.metrics.serviceMonitor.interval }}
+      {{- with .Values.metrics.serviceMonitor.scheme }}
+      scheme: {{ . }}
+      {{- end }}
+      {{- with .Values.metrics.serviceMonitor.tlsConfig }}
+      tlsConfig:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
 {{- if .Values.metrics.prometheusRule.enabled }}
 ---
 # Alerts for the hub-ha design (plans/ztna-later.md): exactly one replica serves, and the role label
