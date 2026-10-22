@@ -24,3 +24,47 @@ tests:
           pattern: '(?m)^offlineSessionIdleTimeout: 2592000(\s|$)'
 
   # Keep in step with oauth2Proxy.cookie.expire (168h = 604800 s), pinned in oauth2_proxy_test.yaml: change both together.
+
+  # ztna-audience (plans/ztna-later.md): the hub audience comes from an OPTIONAL scope of teknoir-cli, so the
+  # token tnctl sends to Backstage (downscoped) never has it. A default scope cannot be left out of a token.
+  - it: defines the client scope teknoir-ztna with an access-token audience mapper
+    set:
+      ztna.enabled: true
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["master.yaml"]
+          pattern: '(?m)^  - name: teknoir-ztna\n    description: .*\n    protocol: openid-connect\n    attributes:\n      include\.in\.token\.scope: "true"\n      display\.on\.consent\.screen: "false"\n    protocolMappers:\n      - name: audience-teknoir-ztna\n        protocol: openid-connect\n        protocolMapper: oidc-audience-mapper\n        consentRequired: false\n        config:\n          included\.custom\.audience: teknoir-ztna\n          access\.token\.claim: "true"\n          id\.token\.claim: "false"\n          introspection\.token\.claim: "true"\n'
+
+  - it: lists teknoir-ztna as an optional scope of teknoir-cli only, and as a default scope of no client
+    set:
+      ztna.enabled: true
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["master.yaml"]
+          pattern: '(?m)^  - clientId: teknoir-cli\n(?: {4,}[^\n]*\n)*? {4}optionalClientScopes: \[offline_access, teknoir-ztna\]\n'
+      # the browser client (azp teknoir) is unchanged: its tokens are forwarded to every upstream
+      - matchRegex:
+          path: data["master.yaml"]
+          pattern: '(?m)^  - clientId: teknoir\n(?: {4,}[^\n]*\n)*? {4}optionalClientScopes: \[offline_access\]\n'
+      - notMatchRegex:
+          path: data["master.yaml"]
+          pattern: '(?m)^    defaultClientScopes: .*teknoir-ztna'
+
+  # Only an install with ZTNA on gets the scope: with ztna off the realm is unchanged.
+  - it: has no teknoir-ztna scope with ztna off
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - notMatchRegex:
+          path: data["master.yaml"]
+          pattern: 'teknoir-ztna'
+      - matchRegex:
+          path: data["master.yaml"]
+          pattern: '(?m)^  - clientId: teknoir-cli\n(?: {4,}[^\n]*\n)*? {4}optionalClientScopes: \[offline_access\]\n'

@@ -13,6 +13,10 @@ Checks the rendered manifests of a release (scripts/staging-render.sh output, or
   errors once release-policy.yaml has `images: deny`, otherwise warnings
     first-party-unpinned   a first-party image that is not repo:<tag>@sha256:<digest>
     first-party-latest     the same, with :latest or no tag
+    hub-audience-unchecked a wg-hub rendered with KEYCLOAK_AUDIENCE_MODE (transition or enforce) whose image tag is
+                           NOT listed in release-policy.yaml `audience_hub_tags` (an allowlist of the tags known to
+                           have the audience check; any other hub ignores the env, so enforce would only look
+                           enforced and transition would never produce the audience metric the plan gates on)
   warnings
     third-party-no-digest  a third-party image without a digest (exact version tags are fine)
     cr-revision            a teknoir.org DeviceApplicationSet/Device/Robot/RobotType with a revision that is not 40-hex
@@ -110,7 +114,8 @@ def load_docs(paths: list[str]) -> list[tuple[str, dict]]:
 
 
 def load_policy(path: str | None) -> dict:
-    pol = {"images": "warn", "cr_revisions": "warn", "first_party_prefixes": DEFAULT_PREFIXES, "exceptions": [], "rollback_floor": ""}
+    pol = {"images": "warn", "cr_revisions": "warn", "first_party_prefixes": DEFAULT_PREFIXES, "exceptions": [], "rollback_floor": "",
+           "audience_hub_tags": []}
     if path:
         with open(path) as fh:
             pol.update(yaml.safe_load(fh) or {})
@@ -247,6 +252,39 @@ def check_images(images: list[ImageRef], policy: dict, today: dt.date, verbose: 
         out.append(Finding("warn", "floating",
                            f"{len(floating)} image(s) will be re-pulled by restarts or hook reruns: "
                            + ", ".join(sorted(floating))))
+    return out
+
+
+def check_hub_audience(docs: list[tuple[str, dict]], policy: dict) -> list[Finding]:
+    """A wg-hub that renders KEYCLOAK_AUDIENCE_MODE must run an image that has the audience check.
+
+    The hub image is pinned by hand (scripts/pin-image). A pin that predates the check ignores KEYCLOAK_AUDIENCE and
+    KEYCLOAK_AUDIENCE_MODE, so `enforce` would be reported while the downscoped main token (the one Backstage sees)
+    still opens hub sessions. This is an allowlist and fails closed: only the exact tags listed in the policy as
+    `audience_hub_tags` are known to have the check, any other tag (an old main build, a branch build, a digest-only
+    reference) is an error in both modes. An empty or missing list allows no tag.
+    """
+    known = {str(t) for t in (policy.get("audience_hub_tags") or [])}
+    out: list[Finding] = []
+    for _, d in docs:
+        path = POD_PATHS.get(d.get("kind"))
+        spec = _dig(d, path) if path else None
+        if not isinstance(spec, dict):
+            continue
+        name = (d.get("metadata") or {}).get("name", "?")
+        for c in spec.get("containers") or []:
+            mode = next((e.get("value") for e in c.get("env") or []
+                         if isinstance(e, dict) and e.get("name") == "KEYCLOAK_AUDIENCE_MODE"), None)
+            img = str(c.get("image") or "")
+            if mode is None or (image_tag(img) or "") in known:
+                continue
+            where = f"{d.get('kind')}/{name} {c.get('name', '')}"
+            hint = ("re-pin wg-hub to the wg-tunnel ztna-audience commit or later with scripts/pin-image and list its "
+                    "tag in release-policy.yaml audience_hub_tags")
+            out.append(Finding("error", "hub-audience-unchecked",
+                               f"KEYCLOAK_AUDIENCE_MODE={mode} but {img} is not listed in release-policy.yaml "
+                               f"audience_hub_tags (hubs known to have the audience check): it ignores the setting; "
+                               f"{hint}", where))
     return out
 
 
@@ -415,6 +453,7 @@ def lint(docs, *, policy: dict, release: str | None, project: str, repo_root: st
     out += check_images(collect_images(docs), policy, today, verbose)
     out += check_crs(docs, "error" if policy.get("cr_revisions") == "deny" else "warn")
     out += check_profiles(docs)
+    out += check_hub_audience(docs, policy)
     return out
 
 

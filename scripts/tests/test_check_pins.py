@@ -289,5 +289,73 @@ class CrRevisions(unittest.TestCase):
         self.assertEqual(CP.load_policy(os.path.join(H.SCRIPTS, "release-policy.yaml"))["cr_revisions"], "deny")
 
 
+class HubAudience(unittest.TestCase):
+    OLD = "ghcr.io/teknoir/wg-hub:sha-9c9bdae" + D
+    NEW = "ghcr.io/teknoir/wg-hub:sha-1234567" + D
+    SHIPPED = os.path.join(H.SCRIPTS, "release-policy.yaml")
+    # Every wg-hub build that predates the ztna-audience merge: first-parent history of wg-tunnel main, plus the
+    # earlier staging pins. None may ever be in the allowlist.
+    PRE_AUDIENCE = ["sha-92680d4", "sha-c975288", "sha-0967baf", "sha-41a0c20", "sha-37fe475", "sha-6da242d",
+                    "sha-729e6e6", "sha-5772c6f", "sha-6c22125", "sha-9c9bdae", "sha-8521b43", "sha-b2eadfd",
+                    "sha-d4f2686"]
+
+    def hub(self, image, mode):
+        env = [{"name": "KEYCLOAK_AUDIENCE_MODE", "value": mode}] if mode else []
+        _, d = deploy(image)
+        d["metadata"]["name"] = "wg-hub"
+        d["spec"]["template"]["spec"]["containers"][0]["env"] = env
+        return [("hub.yaml", d)]
+
+    def pol(self):
+        return policy(audience_hub_tags=["sha-1234567"])
+
+    def test_enforce_on_an_unlisted_image_is_an_error(self):
+        f = CP.check_hub_audience(self.hub(self.OLD, "enforce"), self.pol())
+        self.assertEqual(codes(f, "error"), ["hub-audience-unchecked"])
+
+    def test_transition_on_an_unlisted_image_is_an_error_too(self):
+        f = CP.check_hub_audience(self.hub(self.OLD, "transition"), self.pol())
+        self.assertEqual((codes(f, "error"), codes(f, "warn")), (["hub-audience-unchecked"], []))
+        self.assertIn("KEYCLOAK_AUDIENCE_MODE=transition", f[0].message)
+
+    def test_a_listed_image_passes_in_both_modes(self):
+        for mode in ("enforce", "transition"):
+            self.assertEqual(CP.check_hub_audience(self.hub(self.NEW, mode), self.pol()), [])
+
+    def test_fails_closed_on_tags_nobody_listed(self):
+        for img in ("ghcr.io/teknoir/wg-hub:sha-7654321" + D,    # a future or branch build that is not listed
+                    "ghcr.io/teknoir/wg-hub:sha-12345678" + D,   # only the exact tag counts, not a prefix
+                    "ghcr.io/teknoir/wg-hub:latest",
+                    "ghcr.io/teknoir/wg-hub" + D):               # no tag at all
+            f = CP.check_hub_audience(self.hub(img, "enforce"), self.pol())
+            self.assertEqual(codes(f, "error"), ["hub-audience-unchecked"], img)
+
+    def test_an_empty_or_missing_allowlist_allows_no_tag(self):
+        for pol in (policy(audience_hub_tags=[]), policy(audience_hub_tags=None)):
+            f = CP.check_hub_audience(self.hub(self.NEW, "enforce"), pol)
+            self.assertEqual(codes(f, "error"), ["hub-audience-unchecked"])
+        self.assertEqual(CP.load_policy(None)["audience_hub_tags"], [])
+
+    def test_the_flags_watcher_without_the_env_is_not_checked(self):
+        self.assertEqual(CP.check_hub_audience(self.hub(self.OLD, None), self.pol()), [])
+
+    def test_lint_includes_the_check(self):
+        for mode in ("enforce", "transition"):
+            f = CP.lint(self.hub(self.OLD, mode), policy=self.pol(), release=None, project="teknoir-online",
+                        repo_root=None, today=TODAY)
+            self.assertIn("hub-audience-unchecked", codes(f, "error"), mode)
+
+    def test_shipped_policy_rejects_every_pre_audience_hub(self):
+        pol = CP.load_policy(self.SHIPPED)
+        for tag in self.PRE_AUDIENCE:
+            for mode in ("enforce", "transition"):
+                f = CP.check_hub_audience(self.hub(f"ghcr.io/teknoir/wg-hub:{tag}" + D, mode), pol)
+                self.assertEqual(codes(f, "error"), ["hub-audience-unchecked"], (tag, mode))
+
+    def test_shipped_allowlist_has_no_pre_audience_tag(self):
+        tags = CP.load_policy(self.SHIPPED)["audience_hub_tags"]
+        self.assertEqual(set(tags) & set(self.PRE_AUDIENCE), set())
+
+
 if __name__ == "__main__":
     unittest.main()

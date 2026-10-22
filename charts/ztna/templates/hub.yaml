@@ -117,6 +117,13 @@ spec:
               value: {{ include "ztna.orgGateMode" . | quote }}
             - name: ALLOWED_AZP
               value: {{ .Values.hub.allowedAZP | quote }}
+            # Keycloak tokens must also carry this audience (tnctl asks for the optional scope
+            # teknoir-ztna on hub calls only). transition accepts and counts tokens without it
+            # (wghub_user_tokens_total{audience="legacy"}); enforce refuses them.
+            - name: KEYCLOAK_AUDIENCE
+              value: {{ (.Values.hub.keycloak).audience | default "teknoir-ztna" | quote }}
+            - name: KEYCLOAK_AUDIENCE_MODE
+              value: {{ include "ztna.keycloakAudienceMode" . | quote }}
             # Live status listener (Backstage only; AuthorizationPolicy + exact TokenReview username).
             - name: STATUS_ADDR
               value: ":8082"

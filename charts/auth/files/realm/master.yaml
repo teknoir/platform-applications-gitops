@@ -64,6 +64,28 @@ clientScopes:
           access.token.claim: "true"
           id.token.claim: "false"
           introspection.token.claim: "true"
+{{- if (.Values.ztna).enabled }}
+  # Audience "teknoir-ztna" for the WireGuard hub (wg.{{ $d }}). OPTIONAL on teknoir-cli: tnctl asks
+  # for it only on hub calls, so the token it sends to Backstage and the fleet API never has the
+  # audience and cannot open tunnel sessions (a default scope cannot be left out of a token). The
+  # hub checks aud on top of azp teknoir-cli (plans/ztna-later.md, "ztna-audience").
+  - name: teknoir-ztna
+    description: Audience teknoir-ztna (WireGuard hub)
+    protocol: openid-connect
+    attributes:
+      include.in.token.scope: "true"
+      display.on.consent.screen: "false"
+    protocolMappers:
+      - name: audience-teknoir-ztna
+        protocol: openid-connect
+        protocolMapper: oidc-audience-mapper
+        consentRequired: false
+        config:
+          included.custom.audience: teknoir-ztna
+          access.token.claim: "true"
+          id.token.claim: "false"
+          introspection.token.claim: "true"
+{{- end }}
 
 groups:
   # Platform administrators: ArgoCD role:admin, Argo Workflows ci-admin, Harbor admin.
@@ -95,6 +117,9 @@ clients:
     optionalClientScopes: [offline_access]
   # tnctl (cli): public client, OAuth device flow; tokens carry audience teknoir-cli, which
   # oauth2-proxy (--extra-jwt-issuers) and Backstage externalAccess accept.
+{{- if (.Values.ztna).enabled }}
+  # The optional scope teknoir-ztna adds the hub audience to the tokens tnctl sends to wg.{{ $d }} only.
+{{- end }}
   - clientId: teknoir-cli
     name: tnctl
     enabled: true
@@ -116,7 +141,7 @@ clients:
           access.token.claim: "true"
           id.token.claim: "false"
     defaultClientScopes: {{ toJson $scopes }}
-    optionalClientScopes: [offline_access]
+    optionalClientScopes: {{ if (.Values.ztna).enabled }}[offline_access, teknoir-ztna]{{ else }}[offline_access]{{ end }}
   # Argo CD (infra charts/argo, oidc.config): group admin -> role:admin.
   - clientId: argocd
     name: Argo CD (argocd.{{ $d }})
