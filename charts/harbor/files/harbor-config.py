@@ -428,6 +428,14 @@ def write_secret(ns, name, ksec, obj):
             raise
         return
     obj["metadata"]["resourceVersion"] = ksec["metadata"]["resourceVersion"]
+    # A PUT replaces metadata: carry over what others put on the Secret (ArgoCD's tracking-id and
+    # sync-options annotations, IgnoreExtraneous, last-applied) so a write does not make the app
+    # OutOfSync; harbor-config's own keys win.
+    for key in ("labels", "annotations"):
+        merged = dict((ksec["metadata"].get(key) or {}))
+        merged.update(obj["metadata"].get(key) or {})
+        if merged:
+            obj["metadata"][key] = merged
     if ksec.get("type"):
         obj["type"] = ksec["type"]
     k8s("PUT", path, obj)

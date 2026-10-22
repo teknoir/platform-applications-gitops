@@ -166,8 +166,10 @@ through `harbor.teknoir.cloud/<project>/<path>`, with the upstream as the fallba
 - **Path guard.** The ghcr credential can read every package its owner can read, but robots need
   only `ghcr.io/teknoir/*`. `templates/harbor-proxy-guard.yaml` is an EnvoyFilter on
   harbor-core's inbound listener (port 8080, before the router) that runs
-  `files/harbor-proxy-guard.lua`: it percent-decodes (until stable), merges slashes, resolves dot
-  segments and lowercases the path, then answers 403 for `/v2/ghcr/<org>/...` unless `<org>` is
+  `files/harbor-proxy-guard.lua`: it percent-decodes (until stable), merges slashes and lowercases
+  the path, answers 403 for any `/v2/` path with a `.` or `..` segment (refused, never resolved:
+  no valid repository name has one, and `/v2/ghcr/teknoir/..%2F..%2Fdexidp/...` must not be
+  judged as another path than harbor-core routes), and answers 403 for `/v2/ghcr/<org>/...` unless `<org>` is
   in `harborConfig.proxyGuard.ghcr.allowOrgs` (default `[teknoir]`). Public ghcr images of other
   organisations (for example `dexidp/dex`) then get 403 from Harbor and containerd falls through
   to ghcr.io. An AuthorizationPolicy `notPaths` rule could not do this: it cannot see `%2F`

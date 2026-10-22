@@ -487,6 +487,27 @@ class TeamspaceRobotsTest(Base):
         self.h.run()
         self.assertEqual(sorted(self.fake.secret_data(*self.SEC)), ["a.password", "a.username"])
 
+    def test_writes_keep_argocd_metadata_of_the_rendered_secret(self):
+        """A PUT replaces metadata: tracking-id, sync-options and the label must survive every write
+        (and rotation), or the harbor app turns OutOfSync."""
+        self.fake.profiles = ["a"]
+        meta = self.fake.secrets[self.SEC]["metadata"]
+        meta["annotations"] = {"argocd.argoproj.io/tracking-id": "harbor:/Secret:teknoir-system/harbor-teamspace-pull",
+                               "argocd.argoproj.io/sync-options": "Prune=false,Delete=false",
+                               "argocd.argoproj.io/compare-options": "IgnoreExtraneous"}
+        meta["labels"] = {"app.kubernetes.io/instance": "harbor", "teknoir.org/managed-by": "harbor-config"}
+        self.h.run()
+        self.fake.set_secret_data(*self.SEC, {})  # rotate everyone
+        self.h.run()
+        meta = self.fake.secrets[self.SEC]["metadata"]
+        self.assertEqual(meta["annotations"]["argocd.argoproj.io/tracking-id"],
+                         "harbor:/Secret:teknoir-system/harbor-teamspace-pull")
+        self.assertEqual(meta["annotations"]["argocd.argoproj.io/sync-options"], "Prune=false,Delete=false")
+        self.assertEqual(meta["annotations"]["argocd.argoproj.io/compare-options"], "IgnoreExtraneous")
+        self.assertEqual(meta["labels"]["app.kubernetes.io/instance"], "harbor")
+        self.assertEqual(meta["labels"]["teknoir.org/managed-by"], "harbor-config")
+        self.assertEqual(sorted(self.fake.secret_data(*self.SEC)), ["a.password", "a.username"])
+
     def test_permissions_drift_is_repaired(self):
         self.fake.profiles = ["a"]
         self.h.run()

@@ -5,6 +5,8 @@
 #                    release-guard, root render vs origin/teknoir-cloud when that ref exists; the CI's
 #                    shallow clone has none, so that part is skipped)
 #   chart-unittests: helm unittest of every chart with tests/*_test.yaml
+#   harbor-scripts:  python unittest of charts/harbor/tests (harbor-config against a fake Harbor and k8s API,
+#                    the ghcr path guard in LuaJIT); CI=1 makes the Lua tests fail, not skip, without luajit
 branches: ['**']
 tests:
   - name: release-tooling
@@ -26,4 +28,11 @@ tests:
       c=${t%/tests}; echo "== $c"; helm unittest "$c" || rc=1;
       done &&
       exit $rc
+  - name: harbor-scripts
+    # the digest is the one in charts/harbor/tests/test_proxy_guard.py (Alpine, luajit on PATH)
+    image: "docker.io/nickblah/luajit@sha256:0c1d93093ea91bdb1b93a0c2ccb3b907f48aca901a27d74db8aa660b587c68c4"
+    memory: 1Gi
+    run: >-
+      apk add --no-cache -q python3 >/dev/null &&
+      CI=1 python3 -m unittest discover -s charts/harbor/tests -p 'test_*.py'
 githubActions: keep

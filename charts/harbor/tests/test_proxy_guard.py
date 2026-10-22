@@ -1,8 +1,9 @@
 """Tests of the ghcr path guard (files/harbor-proxy-guard.lua, templates/harbor-proxy-guard.yaml).
 
-The Lua runs in LuaJIT, the Lua flavour of Envoy, from a container image that must be present
-locally (LUAJIT_IMAGE, default a digest-pinned nickblah/luajit); the tests skip when docker or the
-image is missing. The rendered EnvoyFilter is checked against the file when helm and the chart's
+The Lua runs in LuaJIT, the Lua flavour of Envoy: with a `luajit` binary on PATH (the CI step runs
+in the digest-pinned nickblah/luajit image; LUAJIT_BIN overrides), otherwise from a container image
+that must be present locally (LUAJIT_IMAGE, default the same digest). Without either the tests skip
+locally and FAIL when CI=1 (or REQUIRE_LUAJIT=1), so the guard cannot go untested in CI. The rendered EnvoyFilter is checked against the file when helm and the chart's
 subchart (helm dependency build) are available.
 """
 import json
@@ -43,6 +44,16 @@ CASES = [
     ("/v2/ghcr/teknoir/%2E%2E%2Fdexidp/dex", 403),
     ("/v2/ghcr/./dexidp/dex", 403),
     ("/v2/x/../ghcr/dexidp/dex", 403),
+    ("/v2/ghcr/teknoir/..%2F..%2Fdexidp/dex/manifests/v1", 403),  # encoded dot segments climbing out of /v2/ghcr
+    ("/v2/ghcr/teknoir/../../dexidp/dex/manifests/v1", 403),
+    ("/v2/ghcr/x/..%2F..%2F..%2Fdexidp", 403),
+    ("/v2/ghcr/dexidp/..%2Fteknoir/x/manifests/v1", 403),
+    ("/v2/ghcr/dexidp%2F..%2Fteknoir/dex/manifests/v1", 403),
+    ("/v2/dockerhub/library/../busybox/manifests/1", 403),  # dot segments are refused on every /v2/ path
+    ("/v2/ghcr/teknoir/x/..", 403),
+    ("/v2/ghcr/teknoir/..x/y", "pass"),  # only whole "." / ".." segments
+    ("/v2/ghcr/teknoir/a.b/c", "pass"),
+    ("/api/v2.0/projects/../x", "pass"),  # not /v2/: untouched
     ("/v2/ghcr\\dexidp/dex/manifests/v1", 403),  # backslash
     ("/v2/ghcr%5Cdexidp/dex/manifests/v1", 403),
     ("/v2/ghcr", 403),  # no organisation
@@ -72,21 +83,32 @@ def lua_string(s):
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
+LUAJIT_BIN = os.environ.get("LUAJIT_BIN") or shutil.which("luajit")
+REQUIRE = os.environ.get("CI") == "1" or os.environ.get("REQUIRE_LUAJIT") == "1"
+
+
 def luajit_available():
+    if LUAJIT_BIN:
+        return True
     if not shutil.which("docker"):
         return False
     return subprocess.run(["docker", "image", "inspect", IMAGE], capture_output=True).returncode == 0
 
 
 def run_lua(code):
-    return subprocess.run(["docker", "run", "--rm", "-i", "--network", "none", IMAGE, "luajit", "-"],
-                          input=code, capture_output=True, text=True, timeout=120)
+    if LUAJIT_BIN:
+        cmd = [LUAJIT_BIN, "-"]
+    else:
+        cmd = ["docker", "run", "--rm", "-i", "--network", "none", IMAGE, "luajit", "-"]
+    return subprocess.run(cmd, input=code, capture_output=True, text=True, timeout=120)
 
 
 class ProxyGuardLuaTest(unittest.TestCase):
     def setUp(self):
         if not luajit_available():
-            self.skipTest("docker or the LuaJIT image is not available")
+            if REQUIRE:
+                self.fail("no luajit binary and no local LuaJIT image, and CI=1 / REQUIRE_LUAJIT=1 forbids skipping")
+            self.skipTest("no luajit binary, and docker or the LuaJIT image is not available")
 
     def chunk(self, orgs, cases):
         allow = "local ALLOW_GHCR_ORGS = { " + ", ".join(f"[{lua_string(o)}] = true" for o in orgs) + " }\n"
