@@ -193,7 +193,14 @@ if git -C "$REPO" rev-parse --verify -q "$BASE_REF" >/dev/null; then
       # with the flag off; everything else must be byte-identical.
       grep -v -E '^\s*image: |^\s*tag: ' "$TMP/base-$n.yaml" >"$TMP/base-$n.cmp"
       grep -v -E '^\s*image: |^\s*tag: ' "$TMP/head-$n.yaml" >"$TMP/head-$n.cmp"
-      cmp -s "$TMP/base-$n.cmp" "$TMP/head-$n.cmp" || { diff "$TMP/base-$n.yaml" "$TMP/head-$n.yaml" | head -10 || true; bad "$n ($proj): render with the flag off differs from $BASE_REF"; continue 2; }
+      if ! cmp -s "$TMP/base-$n.cmp" "$TMP/head-$n.cmp"; then
+        diff "$TMP/base-$n.yaml" "$TMP/head-$n.yaml" | head -10 || true
+        # ZTNA_OFF_EXPECTED="chart ...": charts a branch changes on purpose outside the ztna switch (e.g. backstage-sa R2
+        # drops teknoir-admin from the Backstage API service account). The difference is printed and accepted; once the
+        # branch is merged the base has it and the chart is byte-identical again.
+        if [[ " ${ZTNA_OFF_EXPECTED:-} " == *" $n "* ]]; then ok "$n ($proj): differs from $BASE_REF as expected (ZTNA_OFF_EXPECTED)"; continue 2; fi
+        bad "$n ($proj): render with the flag off differs from $BASE_REF"; continue 2
+      fi
       [[ $n == app-of-apps ]] || break   # only app-of-apps depends on the project
     done
     ok "$n: byte-identical to $BASE_REF with ztna off"
@@ -333,7 +340,7 @@ assert {"apiGroups": ["coordination.k8s.io"], "resources": ["leases"], "resource
 assert {"apiGroups": ["coordination.k8s.io"], "resources": ["leases"], "verbs": ["create"]} in hr["rules"]
 assert {"apiGroups": [""], "resources": ["pods"], "verbs": ["patch"]} in hr["rules"]
 vaps = {d["metadata"]["name"] for d in by(z, "ValidatingAdmissionPolicy")}
-assert vaps == {"ztna-policy-store", "ztna-no-exec", "ztna-workloads", "ztna-hub-lease", "ztna-no-token-mint", "ztna-device-annotations", "ztna-user-org-annotations"}, vaps
+assert vaps == {"ztna-policy-store", "ztna-no-exec", "ztna-workloads", "ztna-hub-lease", "ztna-no-token-mint", "ztna-device-annotations", "ztna-user-org-annotations", "ztna-backstage-identities"}, vaps
 bindings = {d["spec"]["policyName"] for d in by(z, "ValidatingAdmissionPolicyBinding")}
 assert bindings == vaps, bindings ^ vaps
 for b in by(z, "ValidatingAdmissionPolicyBinding"):
