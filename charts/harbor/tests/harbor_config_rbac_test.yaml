@@ -1,0 +1,100 @@
+suite: harbor-config RBAC (Secrets it writes, Profiles it lists)
+templates:
+  - templates/harbor-config-rbac.yaml
+release:
+  name: harbor
+  namespace: teknoir-system
+tests:
+  - it: gives get/update on exactly the Secrets in teknoir-system plus create
+    documentSelector:
+      path: kind
+      value: Role
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: teknoir-system
+      - equal:
+          path: rules[0].resourceNames
+          value: [harbor-nodes-pull, harbor-teamspace-pull]
+      - equal:
+          path: rules[0].verbs
+          value: [get, update]
+      - equal:
+          path: rules[1].verbs
+          value: [create]
+      - notExists:
+          path: rules[1].resourceNames
+      - lengthEqual:
+          path: rules
+          count: 2
+  - it: never grants delete, list or watch on Secrets
+    documentSelector:
+      path: kind
+      value: Role
+    asserts:
+      - notContains:
+          path: rules[0].verbs
+          content: delete
+      - notContains:
+          path: rules[0].verbs
+          content: list
+      - notContains:
+          path: rules[0].verbs
+          content: watch
+  - it: leaves the Secret in teknoir-ci to the ci chart
+    documentSelector:
+      path: kind
+      value: Role
+    asserts:
+      - notContains:
+          path: rules[0].resourceNames
+          content: harbor-ci-robot
+  - it: binds the Role to the harbor-config ServiceAccount
+    documentSelector:
+      path: kind
+      value: RoleBinding
+    asserts:
+      - equal:
+          path: subjects[0]
+          value: {kind: ServiceAccount, name: harbor-config, namespace: teknoir-system}
+      - equal:
+          path: roleRef.name
+          value: harbor-config
+  - it: lets the job list Profiles and nothing else cluster-wide
+    documentSelector:
+      path: kind
+      value: ClusterRole
+    asserts:
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [teknoir.org]
+              resources: [profiles]
+              verbs: [get, list]
+  - it: binds the ClusterRole to the harbor-config ServiceAccount
+    documentSelector:
+      path: kind
+      value: ClusterRoleBinding
+    asserts:
+      - equal:
+          path: subjects[0]
+          value: {kind: ServiceAccount, name: harbor-config, namespace: teknoir-system}
+  - it: renders only the Role and its binding when teamspace robots are off
+    set:
+      harborConfig.config.teamspaceRobots.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: Role
+        documentIndex: 0
+      - equal:
+          path: rules[0].resourceNames
+          value: [harbor-nodes-pull]
+        documentIndex: 0
+  - it: renders nothing when harbor-config is disabled
+    set:
+      harborConfig.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0

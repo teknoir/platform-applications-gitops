@@ -6,7 +6,11 @@ Idempotent: every run converges Harbor to /config/config.json and changes nothin
 that already matches.
 
   - system settings (PUT /configurations)
-  - upstream registry endpoints for the proxy-cache projects
+  - upstream registry endpoints for the proxy-cache projects, with an optional upstream
+    credential read from a mounted Secret (/upstream/<registry>/). Harbor never returns
+    the secret, so the registry description carries "credential sha256:<12 hex>" (a
+    truncated hash of the username and token) and the credential is sent again only
+    when that hash changes; when the Secret disappears the credential is removed again
   - projects: visibility, proxy upstream, storage quota, tag-retention policy, immutable-tag
     rules (exactly the patterns in `immutableTags`; other rules are removed)
   - garbage collection, audit-log purge and scan-all schedules
@@ -15,15 +19,25 @@ that already matches.
     namespace that consumes it. A robot whose Secret is missing or whose
     credential no longer logs in gets a new secret (refresh), so deleting the
     Secret rotates the credential.
+  - teamspace robots: one pull-only system robot `robot$ts-<profile>` per Profile
+    (profiles.teknoir.org), never expiring, with all credentials in ONE Opaque Secret
+    (keys <profile>.username / <profile>.password). A robot that this job created
+    (description "managed by harbor-config (teamspace)") is deleted when its Profile is
+    gone. Deleting a key rotates that teamspace's credential.
+  - a project that is `public: true` on an upstream with a credential is refused (ERROR,
+    the project is kept private), so the private cache can never become public.
 
 Never prints a credential. Python stdlib only (python:3.x-alpine).
 Environment: HARBOR_URL, HARBOR_ADMIN_PASSWORD, CONFIG (path), HARBOR_HOST (registry
-host written into the docker config).
+host written into the docker config). Optional, for tests: UPSTREAM_DIR (default /upstream),
+K8S_API (default https://kubernetes.default.svc), SA_DIR (service account directory).
 """
 import base64
+import hashlib
 import json
 import os
 import secrets
+import re
 import ssl
 import string
 import sys
@@ -35,7 +49,12 @@ HOST = os.environ["HARBOR_HOST"]
 ADMIN = "Basic " + base64.b64encode(("admin:" + os.environ["HARBOR_ADMIN_PASSWORD"]).encode()).decode()
 CFG = json.load(open(os.environ.get("CONFIG", "/config/config.json")))
 GIB = 1024 ** 3
+UPSTREAM_DIR = os.environ.get("UPSTREAM_DIR", "/upstream")
+REGISTRY_DESCRIPTION = "managed by harbor-config (platform-applications-gitops)"
+TEAMSPACE_DESCRIPTION = "managed by harbor-config (teamspace)"
 failures = []
+# Registries that carry (or are declared to carry) an upstream credential: their projects stay private.
+CREDENTIALED = {r["name"] for r in CFG.get("registries", []) if r.get("credential")}
 
 
 def log(msg):
@@ -164,25 +183,97 @@ def scan_all():
 
 # ---------------------------------------------------------------- registries
 
+def read_credential(r):
+    """The upstream credential (username, password) of registry config `r`, or None (anonymous).
+
+    The Secret is mounted at UPSTREAM_DIR/<name>/ (optional volume, so a missing Secret is an empty
+    directory): format dockerconfigjson reads `.dockerconfigjson` (entry for `host`), format basic
+    reads `username` and `password`. A missing credential is fine for an `optional` hook and an
+    error otherwise. Error messages never contain a value.
+    """
+    c = r.get("credential")
+    if not c:
+        return None
+    base = os.path.join(UPSTREAM_DIR, r["name"])
+    fmt = c.get("format", "basic")
+    user = password = ""
+    try:
+        if fmt == "dockerconfigjson":
+            with open(os.path.join(base, ".dockerconfigjson")) as f:
+                auths = (json.load(f).get("auths") or {})
+            entry = auths.get(c["host"]) or {}
+            user, password = entry.get("username", ""), entry.get("password", "")
+            if (not user or not password) and entry.get("auth"):
+                user, _, password = base64.b64decode(entry["auth"]).decode().partition(":")
+        elif fmt == "basic":
+            with open(os.path.join(base, "username")) as f:
+                user = f.read().strip()
+            with open(os.path.join(base, "password")) as f:
+                password = f.read().strip()
+        else:
+            raise RuntimeError(f"registry {r['name']}: unknown credential format {fmt!r}")
+    except FileNotFoundError:
+        pass
+    except (ValueError, AttributeError, TypeError):
+        # Malformed JSON / base64: report which Secret, never its content.
+        raise RuntimeError(f"registry {r['name']}: credential Secret {c.get('secret')} is malformed") from None
+    if user and password:
+        return user, password
+    if c.get("optional"):
+        return None
+    raise RuntimeError(f"registry {r['name']}: credential Secret {c.get('secret')} is missing or incomplete")
+
+
+def credential_hash(user, password):
+    return hashlib.sha256(f"{user}\0{password}".encode()).hexdigest()[:12]
+
+
 @step("registries")
 def registries():
     have = {r["name"]: r for r in get_all("/registries")}
     ids = {}
+    # A registry that holds a credential in Harbor now (even one about to be removed) may have cached
+    # private content: its projects are not made public in this run.
+    CREDENTIALED.update(n for n, r in have.items() if (r.get("credential") or {}).get("access_key"))
     for r in CFG.get("registries", []):
-        body = {"name": r["name"], "type": r["type"], "url": r["url"], "insecure": False,
-                "description": "managed by harbor-config (platform-applications-gitops)"}
+        try:
+            cred = read_credential(r)
+        except RuntimeError as e:
+            failures.append(f"registry {r['name']} credential")
+            log(f"ERROR {e}")
+            continue
+        desc = REGISTRY_DESCRIPTION
+        if cred:
+            desc += " credential sha256:" + credential_hash(*cred)
+        body = {"name": r["name"], "type": r["type"], "url": r["url"], "insecure": False, "description": desc}
+        if cred:
+            body["credential"] = {"type": "basic", "access_key": cred[0], "access_secret": cred[1]}
         cur = have.get(r["name"])
         if cur is None:
             call("POST", "/registries", body)
-            log(f"registry {r['name']}: created")
+            log(f"registry {r['name']}: created" + (" with credential" if cred else ""))
         elif cur.get("type") != r["type"]:
             # The type cannot be changed in place: re-create (only if no project uses it yet).
             call("DELETE", f"/registries/{cur['id']}")
             call("POST", "/registries", body)
             log(f"registry {r['name']}: re-created as {r['type']}")
-        elif cur.get("url") != r["url"]:
-            call("PUT", f"/registries/{cur['id']}", {"url": r["url"], "name": r["name"]})
-            log(f"registry {r['name']}: updated")
+        else:
+            upd = {}
+            if cur.get("url") != r["url"]:
+                upd["url"] = r["url"]
+            if cur.get("description") != desc:
+                upd["description"] = desc
+                if cred:
+                    upd.update(credential_type="basic", access_key=cred[0], access_secret=cred[1])
+            if not cred and ((cur.get("credential") or {}).get("access_key") or "credential sha256:" in (cur.get("description") or "")):
+                # Anonymous is the wanted state: remove a credential that is no longer configured.
+                upd.update(credential_type="basic", access_key="", access_secret="", description=desc)
+            if upd:
+                call("PUT", f"/registries/{cur['id']}", {"name": r["name"], **upd})
+                what = [k for k in ("url", "description") if k in upd]
+                if "access_key" in upd:
+                    what.append("credential " + ("set" if cred else "removed"))
+                log(f"registry {r['name']}: updated ({', '.join(what)})")
     for r in get_all("/registries"):
         ids[r["name"]] = r["id"]
     return ids
@@ -223,11 +314,23 @@ def projects(registry_ids):
     for p in CFG.get("projects", []):
         name = p["name"]
         quota = int(p["quotaGiB"] * GIB) if p.get("quotaGiB") else -1
-        public = "true" if p.get("public") else "false"
+        want_public = bool(p.get("public"))
+        if want_public and p.get("proxyRegistry") in CREDENTIALED:
+            # A public project would serve the cached private images to anyone: refuse, keep it private.
+            failures.append(f"project {name} public")
+            log(f"ERROR project {name}: refusing public=true, the upstream {p['proxyRegistry']} has a "
+                "credential; the project stays private")
+            want_public = False
+        public = "true" if want_public else "false"
         cur = have.get(name)
         if cur is None:
             body = {"project_name": name, "metadata": {"public": public}, "storage_limit": quota}
             if p.get("proxyRegistry"):
+                if p["proxyRegistry"] not in registry_ids:
+                    # e.g. a required upstream credential is missing: do not stop the other projects.
+                    failures.append(f"project {name} upstream")
+                    log(f"ERROR project {name}: upstream registry {p['proxyRegistry']} does not exist; skipped")
+                    continue
                 body["registry_id"] = registry_ids[p["proxyRegistry"]]
             call("POST", "/projects", body)
             log(f"project {name}: created")
@@ -298,12 +401,12 @@ def immutable_tags(name, pid, patterns):
 
 # ---------------------------------------------------------------- robots + k8s
 
-SA = "/var/run/secrets/kubernetes.io/serviceaccount"
-K8S = "https://kubernetes.default.svc"
+SA = os.environ.get("SA_DIR", "/var/run/secrets/kubernetes.io/serviceaccount")
+K8S = os.environ.get("K8S_API", "https://kubernetes.default.svc")
 
 
 def k8s(method, path, body=None):
-    ctx = ssl.create_default_context(cafile=f"{SA}/ca.crt")
+    ctx = ssl.create_default_context(cafile=f"{SA}/ca.crt") if K8S.startswith("https") else None
     token = open(f"{SA}/token").read().strip()
     return call(method, path, body, auth="Bearer " + token, base=K8S, ctx=ctx)
 
@@ -335,12 +438,53 @@ def robot_permissions(r):
     return out
 
 
+def ensure_robot(prefix, have, name, r, description, stored):
+    """Create or repair system robot `prefix+name` so it has the permissions of config `r`.
+
+    `stored` is the password currently kept in Kubernetes (or None). Returns (full name, password):
+    the password is set when the robot was created or its secret refreshed (no usable stored
+    credential), else None.
+    """
+    full = prefix + name
+    cur = have.get(full)
+    if cur is None:
+        password = new_secret()
+        body = {"name": name, "level": "system", "duration": -1, "disable": False,
+                "description": description, "secret": password,
+                "permissions": robot_permissions(r)}
+        created = call("POST", "/robots", body)
+        # Harbor ignores a requested secret on create in some versions; set it explicitly.
+        call("PATCH", f"/robots/{created['id']}", {"secret": password})
+        log(f"robot {full}: created")
+        return full, password
+    want_perm = json.dumps(sorted(robot_permissions(r), key=lambda x: x["namespace"]), sort_keys=True)
+    have_perm = json.dumps(sorted([{"kind": p["kind"], "namespace": p["namespace"],
+                                    "access": [{"resource": a["resource"], "action": a["action"]}
+                                               for a in p["access"]]}
+                                   for p in cur.get("permissions") or []],
+                                  key=lambda x: x["namespace"]), sort_keys=True)
+    if want_perm != have_perm:
+        full_robot = call("GET", f"/robots/{cur['id']}")
+        full_robot["permissions"] = robot_permissions(r)
+        call("PUT", f"/robots/{cur['id']}", full_robot)
+        log(f"robot {full}: permissions updated")
+    if stored is None or not robot_works(full, stored):
+        password = new_secret()
+        call("PATCH", f"/robots/{cur['id']}", {"secret": password})
+        log(f"robot {full}: secret refreshed ({'no Secret' if stored is None else 'stale Secret'})")
+        return full, password
+    return full, None
+
+
+def robot_prefix():
+    return (call("GET", "/configurations") or {}).get("robot_name_prefix", {}).get("value", "robot$")
+
+
 @step("robots")
 def robots():
-    prefix = (call("GET", "/configurations") or {}).get("robot_name_prefix", {}).get("value", "robot$")
+    prefix = robot_prefix()
     have = {r["name"]: r for r in get_all("/robots?q=level%3Dsystem")}
     for r in CFG.get("robots", []):
-        full = prefix + r["name"]
         ns, sname = r["secret"]["namespace"], r["secret"]["name"]
         path = f"/api/v1/namespaces/{ns}/secrets/{sname}"
         try:
@@ -352,38 +496,12 @@ def robots():
             if e.code != 404:
                 raise
             ksec = None
-        cur = have.get(full)
-        password = None
-        if cur is None:
-            password = new_secret()
-            body = {"name": r["name"], "level": "system", "duration": -1, "disable": False,
-                    "description": "managed by harbor-config", "secret": password,
-                    "permissions": robot_permissions(r)}
-            created = call("POST", "/robots", body)
-            # Harbor ignores a requested secret on create in some versions; set it explicitly.
-            call("PATCH", f"/robots/{created['id']}", {"secret": password})
-            log(f"robot {full}: created")
-        else:
-            want_perm = json.dumps(sorted(robot_permissions(r), key=lambda x: x["namespace"]), sort_keys=True)
-            have_perm = json.dumps(sorted([{"kind": p["kind"], "namespace": p["namespace"],
-                                            "access": [{"resource": a["resource"], "action": a["action"]}
-                                                       for a in p["access"]]}
-                                           for p in cur.get("permissions") or []],
-                                          key=lambda x: x["namespace"]), sort_keys=True)
-            if want_perm != have_perm:
-                full_robot = call("GET", f"/robots/{cur['id']}")
-                full_robot["permissions"] = robot_permissions(r)
-                call("PUT", f"/robots/{cur['id']}", full_robot)
-                log(f"robot {full}: permissions updated")
-            stored = None
-            if ksec:
-                d = ksec.get("data") or {}
-                if "password" in d:
-                    stored = base64.b64decode(d["password"]).decode()
-            if stored is None or not robot_works(full, stored):
-                password = new_secret()
-                call("PATCH", f"/robots/{cur['id']}", {"secret": password})
-                log(f"robot {full}: secret refreshed ({'no Secret' if stored is None else 'stale Secret'})")
+        stored = None
+        if ksec:
+            d = ksec.get("data") or {}
+            if "password" in d:
+                stored = base64.b64decode(d["password"]).decode()
+        full, password = ensure_robot(prefix, have, r["name"], r, "managed by harbor-config", stored)
         if password is None:
             continue
         auth = base64.b64encode(f"{full}:{password}".encode()).decode()
@@ -404,6 +522,63 @@ def robots():
         log(f"robot {full}: Secret {ns}/{sname} written")
 
 
+ROBOT_NAME = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
+
+
+@step("teamspace robots")
+def teamspace_robots():
+    """One pull-only robot per Profile, all credentials in one Secret; robots of gone Profiles are deleted."""
+    t = CFG.get("teamspaceRobots")
+    if not t or t.get("enabled") is False:
+        return
+    prefix = robot_prefix()
+    tprefix = t.get("namePrefix", "ts-")
+    ns, sname = t["secret"]["namespace"], t["secret"]["name"]
+    # Read the Profiles first: when the list fails, nothing is deleted.
+    profiles = sorted({i["metadata"]["name"] for i in (k8s("GET", "/apis/teknoir.org/v1/profiles") or {}).get("items", [])})
+    have = {r["name"]: r for r in get_all("/robots?q=level%3Dsystem")}
+    path = f"/api/v1/namespaces/{ns}/secrets/{sname}"
+    try:
+        ksec = k8s("GET", path)
+    except HTTPError as e:
+        if e.code != 404:
+            raise
+        ksec = None
+    data = {k: base64.b64decode(v).decode() for k, v in ((ksec or {}).get("data") or {}).items()}
+    before = dict(data)
+    for prof in profiles:
+        name = tprefix + prof
+        if not ROBOT_NAME.match(name):
+            log(f"teamspace {prof}: not a valid robot name; skipped")
+            continue
+        full, password = ensure_robot(prefix, have, name, t, TEAMSPACE_DESCRIPTION, data.get(f"{prof}.password"))
+        if password is not None:
+            data[f"{prof}.password"] = password
+        data[f"{prof}.username"] = full
+    # Robots (and keys) of Profiles that are gone.
+    for full, rob in have.items():
+        short = full[len(prefix):] if full.startswith(prefix) else None
+        if short and short.startswith(tprefix) and rob.get("description") == TEAMSPACE_DESCRIPTION \
+                and short[len(tprefix):] not in profiles:
+            call("DELETE", f"/robots/{rob['id']}")
+            log(f"robot {full}: deleted (Profile {short[len(tprefix):]} is gone)")
+    for key in list(data):
+        owner, _, field = key.rpartition(".")
+        if field in ("username", "password") and owner not in profiles:
+            del data[key]
+    if ksec is not None and data == before:
+        return
+    obj = {"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
+           "metadata": {"name": sname, "namespace": ns, "labels": {"teknoir.org/managed-by": "harbor-config"}},
+           "data": {k: base64.b64encode(v.encode()).decode() for k, v in sorted(data.items())}}
+    if ksec is None:
+        k8s("POST", f"/api/v1/namespaces/{ns}/secrets", obj)
+    else:
+        obj["metadata"]["resourceVersion"] = ksec["metadata"]["resourceVersion"]
+        k8s("PUT", path, obj)
+    log(f"teamspace robots: Secret {ns}/{sname} written ({len(profiles)} teamspaces)")
+
+
 def main():
     call("GET", "/users/current")  # fail fast when Harbor is down or the admin password is wrong
     configurations()
@@ -413,6 +588,7 @@ def main():
     purge()
     scan_all()
     robots()
+    teamspace_robots()
     if failures:
         log(f"FAILED steps: {', '.join(failures)}")
         sys.exit(1)

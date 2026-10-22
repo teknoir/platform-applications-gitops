@@ -33,7 +33,21 @@ containers:
       capabilities: {drop: ["ALL"]}
     volumeMounts:
       - {name: config, mountPath: /config, readOnly: true}
+{{- range $cfg.config.registries }}
+{{- if .credential }}
+      - {name: upstream-{{ .name }}, mountPath: /upstream/{{ .name }}, readOnly: true}
+{{- end }}
+{{- end }}
 volumes:
   - name: config
     configMap: {name: harbor-config}
+{{- /* Upstream credential Secrets (files/harbor-config.py read_credential). Always optional at
+the volume level, so a missing Secret never blocks the Job; harbor-config decides whether a
+missing credential is an error (credential.optional). */}}
+{{- range $cfg.config.registries }}
+{{- if .credential }}
+  - name: upstream-{{ .name }}
+    secret: {secretName: {{ .credential.secret | quote }}, optional: true}
+{{- end }}
+{{- end }}
 {{- end }}

@@ -1,0 +1,88 @@
+suite: harbor-config Job (optional upstream credential volumes, config)
+templates:
+  - templates/harbor-config.yaml
+release:
+  name: harbor
+  namespace: teknoir-system
+tests:
+  - it: mounts every upstream credential Secret read-only and optional
+    documentSelector:
+      path: metadata.name
+      value: harbor-config-sync
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: {name: upstream-dockerhub, mountPath: /upstream/dockerhub, readOnly: true}
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: {name: upstream-ghcr, mountPath: /upstream/ghcr, readOnly: true}
+      - contains:
+          path: spec.template.spec.volumes
+          content: {name: upstream-dockerhub, secret: {secretName: harbor-upstream-dockerhub, optional: true}}
+      - contains:
+          path: spec.template.spec.volumes
+          content: {name: upstream-ghcr, secret: {secretName: ghcr-token, optional: true}}
+  - it: mounts nothing for anonymous upstreams
+    documentSelector:
+      path: metadata.name
+      value: harbor-config-sync
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.volumes
+          count: 3
+      - lengthEqual:
+          path: spec.template.spec.containers[0].volumeMounts
+          count: 3
+  - it: the CronJob mounts the same credentials
+    documentSelector:
+      path: kind
+      value: CronJob
+    asserts:
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.volumes
+          content: {name: upstream-ghcr, secret: {secretName: ghcr-token, optional: true}}
+  - it: adds a volume for a newly declared credential
+    set:
+      harborConfig.config.registries:
+        - {name: nvcr, type: docker-registry, url: "https://nvcr.io", credential: {secret: harbor-upstream-nvcr, format: basic, optional: true}}
+    documentSelector:
+      path: metadata.name
+      value: harbor-config-sync
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content: {name: upstream-nvcr, secret: {secretName: harbor-upstream-nvcr, optional: true}}
+  - it: keeps the Job unprivileged and non-root
+    documentSelector:
+      path: metadata.name
+      value: harbor-config-sync
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+  - it: config.json holds the six proxies, untagged retention, quotas and the teamspace block, but no credential value
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["config.json"]
+          pattern: '"name": "gcr"'
+      - matchRegex:
+          path: data["config.json"]
+          pattern: '"name": "nvcr"'
+      - matchRegex:
+          path: data["config.json"]
+          pattern: '"untagged": true'
+      - matchRegex:
+          path: data["config.json"]
+          pattern: '"teamspaceRobots"'
+      - matchRegex:
+          path: data["config.json"]
+          pattern: '"name": "harbor-teamspace-pull"'
+      - matchRegex:
+          path: data["config.json"]
+          pattern: '"secret": "harbor-upstream-dockerhub"'

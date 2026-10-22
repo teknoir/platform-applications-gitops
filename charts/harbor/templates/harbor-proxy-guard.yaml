@@ -1,0 +1,45 @@
+{{- if and .Values.harborConfig.enabled (.Values.harborConfig.proxyGuard).enabled }}
+{{- $namespace := .Values.namespace | default .Release.Namespace -}}
+{{- $orgs := list }}
+{{- range .Values.harborConfig.proxyGuard.ghcr.allowOrgs }}{{ $orgs = append $orgs (printf "[%s] = true" (. | lower | quote)) }}{{ end }}
+---
+# Path guard for the ghcr proxy-cache project (plans/harbor-proxy-staging.md). The upstream
+# credential of project ghcr can read every package its owner can read; robots need only the
+# allowed organisations. This filter runs on harbor-core's INBOUND listener, before core relays
+# the request (and before it fetches anything from ghcr.io), and answers 403 for
+# /v2/ghcr/<org>/... when <org> is not in harborConfig.proxyGuard.ghcr.allowOrgs. The logic is in
+# files/harbor-proxy-guard.lua (percent-decodes, merges slashes, resolves dot segments, lowercases,
+# so %2F and case variants cannot slip by); an AuthorizationPolicy notPaths cannot see those forms.
+# The ingress VirtualService sends harbor.<domain>/v2/ to harbor-core, so every pull passes here.
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: harbor-core-proxy-guard
+  namespace: {{ $namespace }}
+spec:
+  workloadSelector:
+    labels:
+      app: harbor
+      component: core
+  configPatches:
+    - applyTo: HTTP_FILTER
+      match:
+        context: SIDECAR_INBOUND
+        listener:
+          # harbor-core's container port (Service harbor-core:80 -> 8080).
+          portNumber: 8080
+          filterChain:
+            filter:
+              name: envoy.filters.network.http_connection_manager
+              subFilter:
+                name: envoy.filters.http.router
+      patch:
+        operation: INSERT_BEFORE
+        value:
+          name: envoy.filters.http.lua
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+            inlineCode: |
+              local ALLOW_GHCR_ORGS = { {{ join ", " $orgs }} }
+{{ .Files.Get "files/harbor-proxy-guard.lua" | trim | indent 14 }}
+{{- end }}

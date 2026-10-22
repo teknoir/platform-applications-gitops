@@ -1,0 +1,71 @@
+suite: ghcr path guard (inbound EnvoyFilter on harbor-core)
+templates:
+  - templates/harbor-proxy-guard.yaml
+release:
+  name: harbor
+  namespace: teknoir-system
+tests:
+  - it: is an inbound filter on harbor-core's container port, before the router
+    asserts:
+      - isKind:
+          of: EnvoyFilter
+      - equal:
+          path: spec.workloadSelector.labels
+          value: {app: harbor, component: core}
+      - equal:
+          path: spec.configPatches[0].match.context
+          value: SIDECAR_INBOUND
+      - equal:
+          path: spec.configPatches[0].match.listener.portNumber
+          value: 8080
+      - equal:
+          path: spec.configPatches[0].patch.operation
+          value: INSERT_BEFORE
+      - equal:
+          path: spec.configPatches[0].match.listener.filterChain.filter.subFilter.name
+          value: envoy.filters.http.router
+      - equal:
+          path: spec.configPatches[0].patch.value.name
+          value: envoy.filters.http.lua
+  - it: allows teknoir by default and answers 403 through the guard code
+    asserts:
+      - matchRegex:
+          path: spec.configPatches[0].patch.value.typed_config.inlineCode
+          pattern: 'local ALLOW_GHCR_ORGS = \{ \["teknoir"\] = true \}'
+      - matchRegex:
+          path: spec.configPatches[0].patch.value.typed_config.inlineCode
+          pattern: '":status"\] = "403"'
+      - matchRegex:
+          path: spec.configPatches[0].patch.value.typed_config.inlineCode
+          pattern: 'function envoy_on_request'
+  - it: normalises before matching (percent-decoding, slashes, dot segments, case)
+    asserts:
+      - matchRegex:
+          path: spec.configPatches[0].patch.value.typed_config.inlineCode
+          pattern: '%%\(%x%x\)'
+      - matchRegex:
+          path: spec.configPatches[0].patch.value.typed_config.inlineCode
+          pattern: 'string\.lower'
+      - matchRegex:
+          path: spec.configPatches[0].patch.value.typed_config.inlineCode
+          pattern: '"/\+", "/"'
+  - it: takes the allowed organisations from values, lowercased
+    set:
+      harborConfig.proxyGuard.ghcr.allowOrgs: [teknoir, Acme]
+    asserts:
+      - matchRegex:
+          path: spec.configPatches[0].patch.value.typed_config.inlineCode
+          pattern: 'local ALLOW_GHCR_ORGS = \{ \["teknoir"\] = true, \["acme"\] = true \}'
+  - it: an empty allow list denies every ghcr organisation
+    set:
+      harborConfig.proxyGuard.ghcr.allowOrgs: []
+    asserts:
+      - matchRegex:
+          path: spec.configPatches[0].patch.value.typed_config.inlineCode
+          pattern: 'local ALLOW_GHCR_ORGS = \{  \}'
+  - it: renders nothing when disabled
+    set:
+      harborConfig.proxyGuard.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0

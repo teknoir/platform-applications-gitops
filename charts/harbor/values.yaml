@@ -117,24 +117,44 @@ harborConfig:
       project_creation_restriction: adminonly
       self_registration: false
       robot_token_duration: 30
-    # Upstreams for the pull-through proxy-cache projects (anonymous: public images only).
+    # Upstreams for the pull-through proxy-cache projects (plans/harbor-proxy-staging.md).
+    # `credential` points at a Secret that is mounted (optional volume) into the harbor-config
+    # pod at /upstream/<name>; Harbor stores it and never returns it, so the registry description
+    # carries a short hash and the credential is re-sent only when it changes. `optional: true`
+    # means anonymous until the Secret exists. A project on an upstream with a credential can
+    # never be public (harbor-config refuses it).
     registries:
-      - {name: dockerhub, type: docker-hub, url: "https://hub.docker.com"}
-      - {name: ghcr, type: github-ghcr, url: "https://ghcr.io"}
+      # Anonymous (rate limited per IP) until Secret harbor-upstream-dockerhub exists: a Docker Hub
+      # "Public Repo Read-only" token, stored with scripts/set-upstream-credential.sh dockerhub.
+      - name: dockerhub
+        type: docker-hub
+        url: "https://hub.docker.com"
+        credential: {secret: harbor-upstream-dockerhub, format: basic, optional: true}
+      # The platform's ghcr read PAT. It stays inside harbor-core (outbound fetches); robots never
+      # see it. templates/harbor-proxy-guard.yaml limits the paths it can reach to proxyGuard below.
+      - name: ghcr
+        type: github-ghcr
+        url: "https://ghcr.io"
+        credential: {secret: ghcr-token, format: dockerconfigjson, host: ghcr.io}
       # Harbor's "quay" adapter cannot back a proxy-cache project; the generic one can.
       - {name: quay, type: docker-registry, url: "https://quay.io"}
       - {name: k8s, type: docker-registry, url: "https://registry.k8s.io"}
-    # Quotas are the hard stop that keeps /opt from filling: 1 TiB + 4 x 150 GiB fits
-    # in /opt (3.6 TB, 3.3 TB free on 2026-10-16) with room for k3s and the PVs.
+      - {name: gcr, type: docker-registry, url: "https://gcr.io"}
+      - {name: nvcr, type: docker-registry, url: "https://nvcr.io"}
+    # Quotas are the hard stop that keeps the disk from filling. Harbor's data is on vpro's root
+    # filesystem (1.8 TB, 1.2 TB free on 2026-10-22); kubelet image GC starts at 75 % use, so
+    # Harbor gets 700 GiB in all: 250 + 150 + 100 + 100 + 40 + 30 + 30.
     projects:
       # Immutable: release tags v*, and adopted-* (copies of digests production also runs,
       # plans/staging-releases.md). sha-* stays mutable (CI skips re-pushing them instead);
       # branch, timestamp and latest tags stay mutable (production pulls some of them).
-      - {name: teknoir, public: false, quotaGiB: 1024, retention: ci, immutableTags: ["{v[0-9]*,adopted-*}"]}
-      - {name: dockerhub, proxyRegistry: dockerhub, public: false, quotaGiB: 150, retention: proxy}
+      - {name: teknoir, public: false, quotaGiB: 250, retention: ci, immutableTags: ["{v[0-9]*,adopted-*}"]}
+      - {name: dockerhub, proxyRegistry: dockerhub, public: false, quotaGiB: 100, retention: proxy}
       - {name: ghcr, proxyRegistry: ghcr, public: false, quotaGiB: 150, retention: proxy}
-      - {name: quay, proxyRegistry: quay, public: false, quotaGiB: 150, retention: proxy}
-      - {name: k8s, proxyRegistry: k8s, public: false, quotaGiB: 150, retention: proxy}
+      - {name: quay, proxyRegistry: quay, public: false, quotaGiB: 40, retention: proxy}
+      - {name: k8s, proxyRegistry: k8s, public: false, quotaGiB: 30, retention: proxy}
+      - {name: gcr, proxyRegistry: gcr, public: false, quotaGiB: 30, retention: proxy}
+      - {name: nvcr, proxyRegistry: nvcr, public: false, quotaGiB: 100, retention: proxy}
     retentionPolicies:
       # CI images (rules are OR-ed; anything no rule retains is deleted, including
       # untagged digests):
@@ -148,11 +168,12 @@ harborConfig:
           - {template: always, tags: "{v[0-9]*,[0-9]*,adopted-*,latest,main,master,teknoir-cloud,teknoir-online,teknoir-local,robot}"}
           - {template: latestPushedK, value: 15}
           - {template: nDaysSinceLastPull, value: 30}
-      # Proxy caches: keep what was pulled in the last 30 days.
+      # Proxy caches: keep what was pulled in the last 30 days. `untagged` includes digest-pinned
+      # pulls (name@sha256:...), which are cached without a tag.
       proxy:
         schedule: "0 30 2 * * *"
         rules:
-          - {template: nDaysSinceLastPull, value: 30}
+          - {template: nDaysSinceLastPull, value: 30, untagged: true}
     # Blob GC after retention (Sunday); untagged manifests go too.
     gc: {schedule: "0 0 4 * * 0", deleteUntagged: true, workers: 1}
     auditPurge:
@@ -176,6 +197,37 @@ harborConfig:
           - {project: ghcr, access: ["repository:pull"]}
           - {project: quay, access: ["repository:pull"]}
           - {project: k8s, access: ["repository:pull"]}
+      # The platform's cluster nodes (k3s registries.yaml, infra scripts/ci-node-setup.sh
+      # --registry-mirror): pull-only on the proxy projects, never on `teknoir`. The credential is
+      # copied from this Secret onto the nodes by hand (never printed).
+      - name: nodes
+        secret: {namespace: teknoir-system, name: harbor-nodes-pull}
+        permissions: &proxyPull
+          - {project: dockerhub, access: ["repository:pull"]}
+          - {project: ghcr, access: ["repository:pull"]}
+          - {project: quay, access: ["repository:pull"]}
+          - {project: k8s, access: ["repository:pull"]}
+          - {project: gcr, access: ["repository:pull"]}
+          - {project: nvcr, access: ["repository:pull"]}
+    # One pull-only robot `robot$ts-<profile>` per Profile (profiles.teknoir.org), never expiring
+    # (nothing rotates it automatically yet). All credentials live in ONE Secret with the keys
+    # <profile>.username and <profile>.password; delete a key (or the Secret) to rotate it. The
+    # robot of a Profile that is gone is deleted. Robots created by hand are never touched.
+    teamspaceRobots:
+      enabled: true
+      namePrefix: ts-
+      secret: {namespace: teknoir-system, name: harbor-teamspace-pull}
+      permissions: *proxyPull
+
+  # Path guard on harbor-core's inbound listener (templates/harbor-proxy-guard.yaml). The ghcr
+  # upstream credential can read every package its owner can read, but robots need only the
+  # allowed organisations: /v2/ghcr/<org>/... for any other <org> answers 403 before Harbor
+  # fetches anything from upstream. Public images of other organisations are then pulled by
+  # containerd directly from ghcr.io (mirror fall-through).
+  proxyGuard:
+    enabled: true
+    ghcr:
+      allowOrgs: [teknoir]
 
 registryAuth:
   enabled: true
