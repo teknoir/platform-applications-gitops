@@ -35,3 +35,186 @@ tests:
           path: spec.authpolicy[1].rules[0].to[0].operation.paths[2]
           value: "/{{.namespace}}/media-service*"
         documentIndex: 0
+
+  # The EMQX dashboard proxy (port 18083, profile-plugin-emqx >= 0.0.109) is owners only.
+  # user-controller compiles every Claim rule into the user's namespace-wide ALLOW policy,
+  # so only role-user-management (owner claim set) may admit the port, and every other
+  # claim that has rules must exclude it. See plans/emqx-dashboard-access.md.
+  - it: core excludes the EMQX dashboard port in all three operations
+    documentSelector:
+      path: metadata.name
+      value: core
+    asserts:
+      - equal:
+          path: spec.authpolicymatch
+          value: strict
+      - lengthEqual:
+          path: spec.authpolicy
+          count: 3
+      - equal:
+          path: spec.authpolicy[0].rules[0].to[0].operation.notPorts
+          value: ["18083"]
+      - equal:
+          path: spec.authpolicy[1].rules[0].to[0].operation.notPorts
+          value: ["18083"]
+      - equal:
+          path: spec.authpolicy[2].rules[0].to[0].operation.notPorts
+          value: ["18083"]
+      - equal:
+          path: spec.authpolicy[0].rules[0].to[0].operation.paths
+          value: ["/*"]
+
+  - it: observatory excludes the EMQX dashboard port in both operations
+    documentSelector:
+      path: metadata.name
+      value: observatory
+    asserts:
+      - equal:
+          path: spec.authpolicy[0].rules[0].to[0].operation.notPorts
+          value: ["18083"]
+      - equal:
+          path: spec.authpolicy[1].rules[0].to[0].operation.notPorts
+          value: ["18083"]
+
+  - it: role-user-management (owners) alone admits the EMQX dashboard port
+    documentSelector:
+      path: metadata.name
+      value: role-user-management
+    asserts:
+      - equal:
+          path: spec.authpolicymatch
+          value: contains
+      - lengthEqual:
+          path: spec.authpolicy
+          count: 1
+      - equal:
+          path: spec.authpolicy[0].permissions
+          value: [write]
+      - equal:
+          path: spec.authpolicy[0].rules
+          value:
+            - to:
+                - operation:
+                    ports: ["18083"]
+
+  # The owners-only invariant: these claims have no rules. If a rule is added to one of them,
+  # it would be compiled into the user's namespace-wide policy and would admit port 18083
+  # unless it carries notPorts ["18083"] (or its own ports). Update this list only after
+  # adding that exclusion.
+  - it: claim artifacts has no rules (see the EMQX dashboard port note above)
+    documentSelector:
+      path: metadata.name
+      value: artifacts
+    asserts:
+      - isKind:
+          of: Claim
+      - isNull:
+          path: spec.authpolicy
+  - it: claim audit-logging has no rules (see the EMQX dashboard port note above)
+    documentSelector:
+      path: metadata.name
+      value: audit-logging
+    asserts:
+      - isKind:
+          of: Claim
+      - isNull:
+          path: spec.authpolicy
+  - it: claim dev-studio has no rules (see the EMQX dashboard port note above)
+    documentSelector:
+      path: metadata.name
+      value: dev-studio
+    asserts:
+      - isKind:
+          of: Claim
+      - isNull:
+          path: spec.authpolicy
+  - it: claim devices has no rules (see the EMQX dashboard port note above)
+    documentSelector:
+      path: metadata.name
+      value: devices
+    asserts:
+      - isKind:
+          of: Claim
+      - isNull:
+          path: spec.authpolicy
+  - it: claim github has no rules (see the EMQX dashboard port note above)
+    documentSelector:
+      path: metadata.name
+      value: github
+    asserts:
+      - isKind:
+          of: Claim
+      - isNull:
+          path: spec.authpolicy
+  - it: claim help-documentation has no rules (see the EMQX dashboard port note above)
+    documentSelector:
+      path: metadata.name
+      value: help-documentation
+    asserts:
+      - isKind:
+          of: Claim
+      - isNull:
+          path: spec.authpolicy
+  - it: claim label-studio has no rules (see the EMQX dashboard port note above)
+    documentSelector:
+      path: metadata.name
+      value: label-studio
+    asserts:
+      - isKind:
+          of: Claim
+      - isNull:
+          path: spec.authpolicy
+  - it: claim label-studio-projects has no rules (see the EMQX dashboard port note above)
+    documentSelector:
+      path: metadata.name
+      value: label-studio-projects
+    asserts:
+      - isKind:
+          of: Claim
+      - isNull:
+          path: spec.authpolicy
+  - it: claim monitoring-tools has no rules (see the EMQX dashboard port note above)
+    documentSelector:
+      path: metadata.name
+      value: monitoring-tools
+    asserts:
+      - isKind:
+          of: Claim
+      - isNull:
+          path: spec.authpolicy
+  - it: claim notebooks has no rules (see the EMQX dashboard port note above)
+    documentSelector:
+      path: metadata.name
+      value: notebooks
+    asserts:
+      - isKind:
+          of: Claim
+      - isNull:
+          path: spec.authpolicy
+  - it: claim teamspace-management has no rules (see the EMQX dashboard port note above)
+    documentSelector:
+      path: metadata.name
+      value: teamspace-management
+    asserts:
+      - isKind:
+          of: Claim
+      - isNull:
+          path: spec.authpolicy
+  - it: claim volumes has no rules (see the EMQX dashboard port note above)
+    documentSelector:
+      path: metadata.name
+      value: volumes
+    asserts:
+      - isKind:
+          of: Claim
+      - isNull:
+          path: spec.authpolicy
+  - it: claim workflows has no rules (see the EMQX dashboard port note above)
+    documentSelector:
+      path: metadata.name
+      value: workflows
+    asserts:
+      - isKind:
+          of: Claim
+      - isNull:
+          path: spec.authpolicy
