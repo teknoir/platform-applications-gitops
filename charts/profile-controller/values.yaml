@@ -7,7 +7,7 @@ image:
   # Pinned by tag@digest: profile-controller teknoir-cloud (59523f59), r5 release line.
   # profile-controller 2b54db9 (teknoir-cloud #211: Deadend plugin off by default, plans/ssh-tunnel-removal.md
   # step 8). Previous pin: sha-59523f59@sha256:6d67f83d05da3f043f4a1382798830773d72fe721addef5919fd4d1c393b0fcf
-  tag: "sha-fd269839@sha256:f7b0f68bb0043ddf1ecb2e7e91adaa89302d790b401476ea16c326288a6a699e"
+  tag: "sha-cb7ce1af@sha256:f8295311e374337a88e80e9524957d797c460995895f80c3861768b1d9088479"
   pullPolicy: Always
 
 imagePullSecrets:
@@ -51,6 +51,13 @@ config:
   # 0.0.108: the prometheus LowDiskSpace rule fires on <20 GB free or >90% used (not only the percentage).
   # 0.0.109: EMQX dashboard without its own login behind an owner-only proxy; default dashboard passwords rotated.
   pluginChartVersion: "0.0.109"
+  # The portal (Backstage) service account and the ClusterRole it gets inside every teamspace, as a RoleBinding
+  # "teknoir-portal" next to the owner's (env PORTAL_SERVICE_ACCOUNTS, PORTAL_TEAMSPACE_CLUSTERROLE; plans/ztna-later.md
+  # "backstage-sa"). serviceAccounts is a comma list of <namespace>/<name>; the ClusterRole is in charts/backstage
+  # (<name>-api-teamspace). Both empty: no binding. An image that does not know the keys ignores them.
+  portal:
+    serviceAccounts: "teknoir-system/backstage-api"
+    clusterRole: backstage-api-teamspace
 
 resources: {}
   # limits:

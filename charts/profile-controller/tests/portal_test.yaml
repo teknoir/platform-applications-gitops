@@ -1,0 +1,42 @@
+suite: profile-controller portal binding settings
+templates:
+  - templates/configmap.yaml
+tests:
+  - it: sets the portal service account and ClusterRole on staging
+    asserts:
+      - equal: {path: data.PORTAL_SERVICE_ACCOUNTS, value: "teknoir-system/backstage-api"}
+      - equal: {path: data.PORTAL_TEAMSPACE_CLUSTERROLE, value: backstage-api-teamspace}
+
+  - it: renders neither key when both are unset (production default, airgapped)
+    set:
+      config.portal: null
+    asserts:
+      - notExists: {path: data.PORTAL_SERVICE_ACCOUNTS}
+      - notExists: {path: data.PORTAL_TEAMSPACE_CLUSTERROLE}
+
+  - it: renders neither key when the portal values are empty strings
+    set:
+      config.portal.serviceAccounts: ""
+      config.portal.clusterRole: ""
+    asserts:
+      - notExists: {path: data.PORTAL_SERVICE_ACCOUNTS}
+      - notExists: {path: data.PORTAL_TEAMSPACE_CLUSTERROLE}
+
+  - it: fails when only the clusterRole is set
+    set:
+      config.portal.serviceAccounts: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: must be set together
+
+  - it: fails when only the serviceAccounts are set
+    set:
+      config.portal.clusterRole: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: must be set together
+
+  - it: keeps the other settings
+    asserts:
+      - equal: {path: data.DOMAIN, value: teknoir.cloud}
+      - exists: {path: data.PLUGIN_CHART_VERSION}

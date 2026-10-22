@@ -137,3 +137,121 @@ subjects:
   - kind: ServiceAccount
     name: {{ .Values.name }}-api
     namespace: {{ .Release.Namespace }}
+---
+# What the API may do inside a teamspace. A ClusterRole with NO binding in this chart: profile-controller
+# binds it with a namespaced RoleBinding "teknoir-portal" in every teamspace it owns (charts/profile-controller
+# config.portal), so the rights stop at the teamspace boundary. Read from the code of the Backstage backend
+# (plans/ztna-later.md, "backstage-sa"): no pods, exec, secret lists, roles or service accounts.
+#
+# REMAINING RISKS (not closed here); this role must not be described as unable to run code or as unable to bypass
+# the ztna admission policies:
+#  1. create/update/patch on devstudios and notebooks is a way to run code. The devstudio and notebook controllers
+#     copy spec.image into a privileged container (SYS_ADMIN), so whoever may write these objects, this service
+#     account and teamspace developers alike, can run any image privileged in a teamspace.
+#  2. create/update on devices is a second, independent route: device-controller runs a virtual Device as a
+#     privileged Deployment (internal/controller/k8s/virtual_device.go, `privileged := true`, image
+#     ghcr.io/teknoir/virtual-device:<spec version>), and deviceapplicationsets deploy any HelmChart into that nested
+#     k3s. An image allowlist for devstudios/notebooks does NOT close this one.
+# Both reach the node (on a single-node cluster every service account token). They are named follow-ups for Anders to
+# decide ("teamspace image allowlist" and "virtual device / DeviceApplicationSet workloads", plans/ztna-later.md),
+# because they change what teamspace developers may do.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Values.name }}-api-teamspace
+rules:
+- apiGroups:
+  - teknoir.org
+  resources:
+  - devices
+  - robots
+  - robottypes
+  - deviceapplicationsets
+  - devstudios
+  - notebooks
+  - claimsets
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - teknoir.org
+  resources:
+  - devices/status
+  - robots/status
+  - robottypes/status
+  - deviceapplicationsets/status
+  - devstudios/status
+  - notebooks/status
+  - claimsets/status
+  verbs:
+  - get
+# ProfileEntityProvider lists the teamspace's VirtualServices.
+- apiGroups:
+  - networking.istio.io
+  resources:
+  - virtualservices
+  verbs:
+  - get
+  - list
+  - watch
+# Volumes (VolumeEntityProvider, core-resource routes).
+- apiGroups:
+  - ""
+  resources:
+  - persistentvolumeclaims
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - delete
+# Peripherals: create the ConfigMap, then read and replace only peripheral-config. (A create cannot be limited by name.)
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - create
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  resourceNames:
+  - peripheral-config
+  verbs:
+  - get
+  - update
+# The two credentials the org tree and the peripherals read, by name only.
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  resourceNames:
+  - mongodb-credentials
+  - emqx-bootstrap-user
+  verbs:
+  - get
+# "Needs you" list and the TunnelAccessEnabled/Disabled Events on Devices.
+- apiGroups:
+  - ""
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - patch
+# The end-user checks (fleet canExec/isAdmin, teamspace admin): LocalSubjectAccessReview as the user's email.
+- apiGroups:
+  - authorization.k8s.io
+  resources:
+  - localsubjectaccessreviews
+  verbs:
+  - create
