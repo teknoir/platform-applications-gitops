@@ -37,4 +37,4 @@ exceptions: []
 # tag not listed here (fail closed: old main builds, branch builds and unknown tags all count as unchecked). Add a tag only after confirming the image was built from the ztna-audience merge commit or a descendant
 # of it (git merge-base --is-ancestor <merge> <sha> in wg-tunnel; the tag is sha-<first 7 of the commit>). Empty until
 # the ztna-audience PR is merged and its image is built and pinned.
-audience_hub_tags: []
+audience_hub_tags: [sha-a2478da]
