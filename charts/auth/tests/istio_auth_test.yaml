@@ -336,3 +336,31 @@ tests:
       - matchRegex:
           path: spec.configPatches[1].patch.value.typed_config.inlineCode
           pattern: '(?s)function envoy_on_response.*authz\["passed"\] == "true" then\s+return\s+end.*has_session and status == "403"'
+
+  - it: removes client-supplied identity headers first thing in the gateway Lua, before anything reads the request
+    documentIndex: 0
+    asserts:
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'function envoy_on_request\(handle\)\n\s+local h = handle:headers\(\)\n\s+-- First[^\n]*\n\s+for _, name in ipairs\(identity_headers\) do\n\s+h:remove\(name\)\n\s+end\n'
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'local identity_headers = \{\n\s+"x-auth-request-email",\n\s+"x-auth-request-user",\n\s+"x-auth-request-preferred-username",\n\s+"x-auth-request-groups",\n\s+"x-auth-request-access-token",\n\s+"x-forwarded-access-token",\n\s+"x-forwarded-email",\n\s+"x-forwarded-user",\n\s*\}'
+      # the strip runs in the filter that sits before ext_authz, never in the marker filter after it
+      - equal:
+          path: spec.configPatches[1].patch.value.name
+          value: envoy.filters.http.lua
+      - equal:
+          path: spec.configPatches[1].patch.operation
+          value: INSERT_BEFORE
+      - notMatchRegex:
+          path: spec.configPatches[2].patch.value.typed_config.inlineCode
+          pattern: 'identity_headers|remove'
+
+  - it: still lets ext_authz copy the identity headers from oauth2-proxy's response (login and bearer flows)
+    documentIndex: 0
+    asserts:
+      - contains:
+          path: spec.configPatches[0].patch.value.typed_config.http_service.authorization_response.allowed_upstream_headers.patterns
+          content:
+            exact: x-auth-request-email

@@ -131,6 +131,21 @@ lua (denial shaping)  ->  ext_authz  ->  lua.authz_passed (marker)  ->  ... ->  
 Requests flow left to right; responses (including ext_authz's local denial) flow right to left, so the denial shaping sees the denial
 but never a marker, and sees a backend answer together with the marker.
 
+### 7. Identity headers
+
+Teamspace AuthorizationPolicies (user-controller's per-user policies, profile-controller's `ns-owner-access-istio`) accept
+`X-Auth-Request-Email` only from the ingress gateway's mesh identity (`TRUSTED_GATEWAY_PRINCIPALS`, default
+`cluster.local/ns/istio-system/sa/istio-ingressgateway`). That is only sound if the gateway never forwards a client's own copy. ext_authz
+copies the headers listed in `allowed_upstream_headers` from oauth2-proxy's response but does not clear them when oauth2-proxy does
+not return them, so the first thing the Lua `envoy_on_request` does (this filter runs before ext_authz) is to remove
+`x-auth-request-email`, `-user`, `-preferred-username`, `-groups`, `-access-token`, `x-forwarded-access-token`, `x-forwarded-email` and
+`x-forwarded-user` from the request. ext_authz forwards only cookie, authorization and `x-forwarded-proto/-host/-uri` to oauth2-proxy,
+and then sets the real headers, so the login and bearer flows are unchanged.
+
+The vhosts and routes where the Lua is switched off (harbor, keycloak, wg, contoai) do not strip. None of them routes to a teamspace; a
+new vhost that does must keep the Lua on. The public gateway (`istio-ingressgateway-public`, MQTT) has no ext_authz and is never trusted.
+`tests/gateway` (`identity headers` group) sends forged headers through the real filters.
+
 ## Session lifetimes
 
 Realm `master` (`files/realm/master.yaml`, imported by keycloak-config-cli after every sync) pins `accessTokenLifespan: 300` (5 min),

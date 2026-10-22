@@ -4,6 +4,8 @@
 authz  (oauth2-proxy lookalike): called by ext_authz as GET /oauth2/auth<original path>.
   Models oauth2-proxy v7.6.0 with --force-json-errors=true (the chart default):
   Authorization "Bearer good-token" or cookie _teknoir_oauth2_proxy_v2=good -> 200 (allow)
+  Authorization "Bearer noemail-token" or cookie ...=noemail -> 200 (allow) and NO x-auth-request-email (a token without an
+    email claim): the request is allowed but oauth2-proxy sets no identity, so a client-forged email must not survive
   cookie ...=stale (decodable, session gone server-side) -> 401 {} + its clearing Set-Cookie
   cookie ...=garbage (undecodable: it cannot clear it) -> 401 {}, no Set-Cookie
   cookie ...=forbidden (logged in, not authorized) -> 403 {} + clearing Set-Cookie
@@ -14,9 +16,10 @@ authz  (oauth2-proxy lookalike): called by ext_authz as GET /oauth2/auth<origina
   Like the real ext_authz client response, the gateway keeps only set-cookie and location of these answers; the
   content-type below is dropped by Envoy.
 backend: 200 everywhere, except /forbidden (403), /backend401 (401 + own challenge), /oauth2/unauth (401, 13 bytes),
-  /stream (chunked, slow), /ws (WebSocket upgrade, then echo), /big (BIG bytes, 200), /big403 (BIG_403 bytes, 403).
+  /stream (chunked, slow), /ws (WebSocket upgrade, then echo), /whoami (JSON of the identity headers received), /big (BIG bytes, 200), /big403 (BIG_403 bytes, 403).
 """
 import sys
+import json
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -26,6 +29,8 @@ SIGNIN = ("<html><head><title>Sign In</title></head><body>" + "x" * 8400).encode
 SIGNIN += b"</body></html>" + b"\n" * (8492 - len(SIGNIN) - len(b"</body></html>"))
 assert len(SIGNIN) == 8492
 BLOCK = bytes(range(256)) * 4  # 1 KiB, repeated to make the large bodies (matrix.py recomputes them)
+IDENTITY_HEADERS = ("x-auth-request-email", "x-auth-request-user", "x-auth-request-preferred-username", "x-auth-request-groups",
+                    "x-auth-request-access-token", "x-forwarded-access-token", "x-forwarded-email", "x-forwarded-user")
 BIG = 20 * 1024 * 1024
 BIG_403 = 5 * 1024 * 1024
 
@@ -64,6 +69,8 @@ class Authz(Quiet):
         cookie = self.headers.get("cookie", "")
         if auth == "Bearer good-token" or f"{COOKIE}=good" in cookie:
             return self.reply(200, b"", [("x-auth-request-email", "tester@teknoir.test")], head)
+        if auth == "Bearer noemail-token" or f"{COOKIE}=noemail" in cookie:
+            return self.reply(200, b"", [], head)
         clear = ("set-cookie", f"{COOKIE}=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=None")
         if f"{COOKIE}=forbidden" in cookie:
             return self.reply(403, b"{}", [("content-type", "application/json"), clear], head)
@@ -86,6 +93,9 @@ class Backend(Quiet):
             return self.reply(401, b"backend-unauthorized", [("content-type", "text/plain"), ("www-authenticate", 'Basic realm="backend"')], head)
         if p == "/oauth2/unauth":
             return self.reply(401, b"Unauthorized", [], head)
+        if p == "/whoami":  # the identity headers the backend received, as the mesh policies would see them
+            seen = {k: self.headers.get(k) for k in IDENTITY_HEADERS if self.headers.get(k) is not None}
+            return self.reply(200, json.dumps(seen).encode(), [("content-type", "application/json")], head)
         if p == "/big":
             return self.reply(200, big_body(BIG), [("content-type", "application/octet-stream")], head)
         if p == "/big403":
