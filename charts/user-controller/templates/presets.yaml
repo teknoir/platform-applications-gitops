@@ -33,6 +33,10 @@ metadata:
     teknoir.org/part-of: user-controller
   name: core
   namespace: {{ .Release.Namespace }}
+# Port 18083 is the EMQX dashboard proxy (profile-plugin-emqx >= 0.0.109). Only the
+# role-user-management claim (owners) admits it, so every claim that has rules must
+# exclude it (notPorts) or name its own ports. A future Claim with rules without this
+# exclusion would open the EMQX dashboard to its users. See plans/emqx-dashboard-access.md.
 spec:
   authpolicy:
   - permissions:
@@ -42,6 +46,8 @@ spec:
       - operation:
           paths:
           - /*
+          notPorts:
+          - "18083"
   - permissions:
     - write
     rules:
@@ -49,6 +55,8 @@ spec:
       - operation:
           paths:
           - /*
+          notPorts:
+          - "18083"
   - permissions:
     - read
     - write
@@ -57,6 +65,8 @@ spec:
       - operation:
           paths:
           - /*
+          notPorts:
+          - "18083"
   authpolicymatch: strict
 
 ---
@@ -183,6 +193,8 @@ spec:
           - /events*
           - /feedbacks*
           - /notifications*
+          notPorts:
+          - "18083"
   - permissions:
     - write
     rules:
@@ -201,6 +213,8 @@ spec:
           - /events*
           - /feedbacks*
           - /notifications*
+          notPorts:
+          - "18083"
 
 ---
 apiVersion: teknoir.org/v1
@@ -213,6 +227,18 @@ metadata:
     teknoir.org/part-of: user-controller
   name: role-user-management
   namespace: {{ .Release.Namespace }}
+spec:
+  # Owners only (the owner claim set is the only one with this claim): the EMQX dashboard
+  # proxy on port 18083, reached through the gateway with the owner's email header.
+  authpolicymatch: contains
+  authpolicy:
+  - permissions:
+    - write
+    rules:
+    - to:
+      - operation:
+          ports:
+          - "18083"
 
 ---
 apiVersion: teknoir.org/v1
