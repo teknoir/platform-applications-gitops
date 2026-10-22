@@ -70,10 +70,11 @@ rules:
     verbs: ["get", "update"]
   # The hub sets the hub-role label and the pod-deletion-cost annotation of its own pod (RBAC
   # cannot name a pod of a Deployment). The admission policy ztna-workloads lets it change nothing
-  # else, and only on hub pods.
+  # else, and only on hub pods. Patch only, no get: the hub never reads a pod, so it cannot read the
+  # spec of the others in this namespace (web terminal pods, pull-secret pods).
   - apiGroups: [""]
     resources: ["pods"]
-    verbs: ["get", "patch"]
+    verbs: ["patch"]
   {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1

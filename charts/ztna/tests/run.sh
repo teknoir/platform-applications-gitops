@@ -306,11 +306,11 @@ assert env["LEADER_ELECTION"]["value"] == "wg-hub" and env["HANDOVER_WAIT"]["val
 for j in by(z, "Job") + by(z, "CronJob"):
     tpl = j["spec"]["template"] if j["kind"] == "Job" else j["spec"]["jobTemplate"]["spec"]["template"]
     assert tpl["metadata"]["labels"]["app.kubernetes.io/component"] == "pull-secret", j["metadata"]["name"]
-# the hub's Role: Lease create plus get/update on the one name, pods get/patch (the role label), never delete
+# the hub's Role: Lease create plus get/update on the one name, pods patch only (the role label; no get: the hub must not read other pods), never delete
 hr, = [d for d in by(z, "Role", "wg-hub") if d["metadata"]["namespace"] == "teknoir-ztna"]
 assert {"apiGroups": ["coordination.k8s.io"], "resources": ["leases"], "resourceNames": ["wg-hub"], "verbs": ["get", "update"]} in hr["rules"]
 assert {"apiGroups": ["coordination.k8s.io"], "resources": ["leases"], "verbs": ["create"]} in hr["rules"]
-assert {"apiGroups": [""], "resources": ["pods"], "verbs": ["get", "patch"]} in hr["rules"]
+assert {"apiGroups": [""], "resources": ["pods"], "verbs": ["patch"]} in hr["rules"]
 vaps = {d["metadata"]["name"] for d in by(z, "ValidatingAdmissionPolicy")}
 assert vaps == {"ztna-policy-store", "ztna-no-exec", "ztna-workloads", "ztna-hub-lease", "ztna-no-token-mint", "ztna-device-annotations", "ztna-user-org-annotations"}, vaps
 bindings = {d["spec"]["policyName"] for d in by(z, "ValidatingAdmissionPolicyBinding")}

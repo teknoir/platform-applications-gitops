@@ -472,7 +472,7 @@ tests:
               verbs: [get, update]
             - apiGroups: [""]
               resources: [pods]
-              verbs: [get, patch]
+              verbs: [patch]
         documentIndex: 2
 
   - it: gives the hub no Lease or Pod rights when leader election is off

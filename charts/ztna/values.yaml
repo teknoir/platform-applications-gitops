@@ -15,6 +15,10 @@ hub:
     # wg-tunnel 41a0c20 (main: rev 3 zero-touch activation, revoke notice, k3s Service
     # discovery, agent race fixes #4): hub + flags watcher, index digest.
     # Previous pin: sha-37fe475@sha256:4a405ccced8b389e254d3f9965b0c2ea35ca1b0a77bb6c42c17b076b7b27f58b
+    # hub-ha: this pin MUST be replaced by an image built from wg-tunnel with leader election (branch
+    # hub-ha, hub.leaderElection) BEFORE stage 1 is released. An older image ignores LEADER_ELECTION and never
+    # sets ztna.teknoir.org/hub-role, so after stage 2 the Service wg-hub has no endpoints (full ZTNA outage).
+    # Gate for stage 2: the live stage-1 pod shows hub-role=leader.
     tag: "sha-9c9bdae@sha256:f9bf658fc8c993054ce2a4cda35aa79d3b7a894ac78ee887136dcdcfdca08c63"
     pullPolicy: IfNotPresent
   imagePullSecrets:

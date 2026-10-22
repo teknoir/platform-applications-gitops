@@ -46,8 +46,8 @@ and the admission policies against a throwaway local apiserver).
   metadata-only access, and a Device carries the legacy RSA private key in `spec.keys`.
 - **Role in `teknoir-ztna`**: get/list/watch/create/update/patch ConfigMaps (it reads policy and flags, writes identity
   ConfigMaps only, by admission policy), get ServiceAccounts. No delete, no Secrets. With `hub.leaderElection.enabled`
-  (default): create Leases plus get/update on the one Lease `wg-hub` (leader election), and get/patch Pods (it sets
-  the role label of its own pod; admission policy `ztna-workloads` lets it change nothing else).
+  (default): create Leases plus get/update on the one Lease `wg-hub` (leader election), and patch Pods, without get (it sets
+  the role label of its own pod; it cannot read other pods; admission policy `ztna-workloads` lets it change nothing else).
 - **Role in `stunner-system`**: get Secret `stunner-auth-secret` (by name).
 - The hub image runs non-root, read-only root file system, all capabilities dropped, RuntimeDefault seccomp,
   no service account token beyond its own, **Recreate** strategy and one replica (STUNner routes to every endpoint
