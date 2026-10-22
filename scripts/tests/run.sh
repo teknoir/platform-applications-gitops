@@ -3,7 +3,7 @@
 #   - python unittest of scripts/ (pure logic, throwaway git repos, a fake cluster/GitHub/registry; no network)
 #   - helm unittest of charts/app-of-apps (release helper, 19 replacements), charts/release-guard and charts/monitoring (mesh scrape)
 #   - the root render against a base ref (BASE=origin/teknoir-cloud, default): identical except for the removal of the
-#     fields ArgoCD's Go types drop (`sources: [ ]` on every child, monitoring's `group: ""`), see EXPECTED below
+#     fields ArgoCD's Go types drop (`sources: [ ]` on every child, monitoring's `group: ""`), see EXPECTED below; ROOT_RENDER_EXPECTED="project ..." accepts an intended difference of a project (a mismatch fails the run)
 #   - K3D=1: charts/release-guard/tests/k3d-guard-test.sh (impersonated identities) and k3d-argocd-real-test.sh (a real
 #     ArgoCD v3.5.1, real CLI and REST calls) and charts/backstage/tests/k3d-rbac-test.sh (can-i matrix and the identity admission policy of the Backstage
 #     API service account) against the throwaway cluster k3d-teknoir-dev
@@ -25,6 +25,7 @@ echo "== helm unittest"
 compgen -G "charts/monitoring/charts/kube-prometheus-stack-*.tgz" >/dev/null || helm dependency build charts/monitoring >/dev/null 2>&1 || echo "WARN: helm dependency build charts/monitoring failed (offline?)"
 helm unittest charts/app-of-apps charts/release-guard charts/monitoring 2>&1 | grep -E "^(Charts|Test Suites|Tests):"
 
+rc=0
 BASE="${BASE:-origin/teknoir-cloud}"
 if git rev-parse --verify -q "$BASE" >/dev/null; then
   echo "== root render with release unset equals $BASE, except the round-trip removals"
@@ -43,7 +44,21 @@ s = re.sub(r"^  sources: \[ \]\n", "", s, flags=re.M)
 s = s.replace('    - group: ""\n      kind: Secret\n', '    - kind: Secret\n')
 sys.stdout.write(s)
 PY
-    cmp "$TMP/expected-$p.yaml" "$TMP/new-$p.yaml" && echo "as expected (base minus the removals): $p ($(diff "$TMP/base-$p.yaml" "$TMP/new-$p.yaml" | grep -c '^<') lines removed, $(diff "$TMP/base-$p.yaml" "$TMP/new-$p.yaml" | grep -c '^>') added)"
+    stats="$(diff "$TMP/base-$p.yaml" "$TMP/new-$p.yaml" | grep -c '^<' || true) lines removed, $(diff "$TMP/base-$p.yaml" "$TMP/new-$p.yaml" | grep -c '^>' || true) added"
+    if cmp -s "$TMP/expected-$p.yaml" "$TMP/new-$p.yaml"; then
+      echo "as expected (base minus the removals): $p ($stats)"
+    else
+      diff "$TMP/expected-$p.yaml" "$TMP/new-$p.yaml" | head -20 || true
+      # ROOT_RENDER_EXPECTED="project ...": projects whose root render differs from the base on purpose (this branch's
+      # harbor Application ignoreDifferences on teknoir-cloud). The difference is printed and accepted; once the branch
+      # is merged the base has it and the render is identical again. Any other mismatch fails the run.
+      if [[ " ${ROOT_RENDER_EXPECTED:-} " == *" $p "* ]]; then
+        echo "differs from $BASE as expected (ROOT_RENDER_EXPECTED): $p ($stats)"
+      else
+        echo "FAIL: root render of $p differs from $BASE beyond the round-trip removals (set ROOT_RENDER_EXPECTED=\"$p\" for an intended difference)"
+        rc=1
+      fi
+    fi
   done
   git worktree remove --force "$TMP/base"
 fi
@@ -66,3 +81,5 @@ if [[ "${K3D:-}" == "1" ]]; then
   echo "== Backstage API service account RBAC on k3d-teknoir-dev (rendered RBAC + a teknoir-portal RoleBinding, can-i matrix)"
   charts/backstage/tests/k3d-rbac-test.sh
 fi
+
+exit "$rc"

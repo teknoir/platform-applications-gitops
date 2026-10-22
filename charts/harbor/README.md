@@ -152,6 +152,15 @@ through `harbor.teknoir.cloud/<project>/<path>`, with the upstream as the fallba
   description `managed by harbor-config (teamspace)` is deleted when its Profile is gone; robots
   made by hand are never touched. Delete a key (or empty the Secret's data) to rotate that
   teamspace's credential. A failing Profile list deletes nothing.
+  **A rotation (or a new secret after a missing key or a Harbor 401/403 on the robot) invalidates
+  the credential on every robot of that teamspace**: their `registries.yaml` still holds the old
+  password, Harbor answers 401 and containerd falls through to the upstream (public images keep
+  working, private `ghcr.io/teknoir/*` images stop pulling). Re-run ansible
+  `playbooks/registry-mirror.yml` (`--limit` the teamspace's robots) afterwards; there is no
+  automatic roll-out of the new credential yet (plan phase 1b/2). Proposed, not built: a
+  Prometheus alert on failed Harbor logins by `robot$ts-*` (harbor-core's access log or the
+  gateway's 401 count on `harbor.<domain>/v2/` and `/service/token` grouped by robot name),
+  so a stale robot credential shows up before a pull fails on a robot.
 - **Secrets in teknoir-system.** harbor-config has no `create` on Secrets there. A Role that
   could create Secrets in `teknoir-system` could mint a `kubernetes.io/service-account-token`
   Secret for one of the cluster-admin ServiceAccounts that live in that namespace
@@ -196,3 +205,7 @@ through `harbor.teknoir.cloud/<project>/<path>`, with the upstream as the fallba
   - `test_set_upstream_credential.py`: the credential script with a stub kubectl.
 - `helm unittest charts/harbor` (`tests/*_test.yaml`): RBAC, credential volumes, guard.
   Both helm-based tests need the subchart: `helm dependency build charts/harbor` once.
+- `ROOT_RENDER_EXPECTED=teknoir-cloud scripts/tests/run.sh`: the root render must equal the base ref
+  (`origin/teknoir-cloud`); this chart's intended difference on teknoir-cloud (the harbor
+  Application `ignoreDifferences`) is accepted only with that variable, any other mismatch fails the
+  run. Once this branch is merged the variable is no longer needed.
