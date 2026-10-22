@@ -67,6 +67,9 @@ spec:
         teknoir.org/plugin: emqx
         app.kubernetes.io/name: emqx-dashboard
         app: emqx-dashboard
+        # The DENY policy below is the only thing in front of the API key and needs the
+        # sidecar to be enforced: force injection even if the namespace label is missing.
+        sidecar.istio.io/inject: "true"
       annotations:
         checksum/config: {{ include "emqx.dashboard.configdata" . | sha256sum }}
     spec:

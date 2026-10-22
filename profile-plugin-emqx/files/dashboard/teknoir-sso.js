@@ -10,7 +10,9 @@
     var gp = app.config.globalProperties, store = gp.$store, router = gp.$router;
     if (!store || !router) return;
     function ensure() {
-      if (!store.state.user || !store.state.user.token) {
+      // Replace any other stored session too: an owner who once logged in to EMQX's own
+      // login keeps that JWT in localStorage, and the SPA would keep sending it.
+      if (!store.state.user || store.state.user.token !== TOKEN) {
         store.commit('UPDATE_USER_INFO', { token: TOKEN, username: 'teknoir' });
         store.commit('UPDATE_EDITION', 'opensource');
       }

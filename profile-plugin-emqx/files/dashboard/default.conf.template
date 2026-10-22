@@ -1,12 +1,14 @@
 # CSRF guard for the credentialed API (see the location below). The dashboard's own axios
-# client sends "Authorization: Bearer teknoir-istio" on every call: a custom header makes a
-# cross-origin request preflight (which fails, there is no CORS), so a foreign page cannot
-# forge it. Reads need only the placeholder bearer; writes also need Sec-Fetch-Site
-# same-origin, which browsers set and pages cannot change (same-site *.teknoir.cloud pages
+# client sends "Authorization: Bearer <session token>" on every call (the placeholder
+# "teknoir-istio", or a stale EMQX JWT that an owner's browser still has in localStorage from
+# before the dashboard lost its login: any Bearer value is accepted, the proxy replaces it).
+# An Authorization header makes a cross-origin request preflight (which fails, there is no
+# CORS), so a foreign page cannot forge it. Reads need only a Bearer header; writes also need
+# Sec-Fetch-Site same-origin, which browsers set and pages cannot change (same-site *.teknoir.cloud pages
 # send "same-site" and are refused).
 map $http_authorization $teknoir_bearer_ok {
     default 0;
-    "Bearer teknoir-istio" 1;
+    "~^Bearer .+" 1;
 }
 map "$teknoir_bearer_ok:$request_method:$http_sec_fetch_site" $teknoir_api_allowed {
     default 0;
@@ -37,7 +39,7 @@ server {
         # Cross-site request forgery: the oauth2-proxy cookie is sent by browsers on any site,
         # so Istio alone does not prove the owner meant this call. 403, never 401 (see README).
         default_type application/json;
-        if ($teknoir_api_allowed = 0) { return 403 '{"code":"TEKNOIR_CSRF_GUARD","message":"Blocked: the call did not come from the EMQX dashboard in this page (missing placeholder session or cross-site request)."}'; }
+        if ($teknoir_api_allowed = 0) { return 403 '{"code":"TEKNOIR_CSRF_GUARD","message":"Blocked: the call did not come from the EMQX dashboard in this page (missing session header or cross-site request)."}'; }
         proxy_set_header Authorization "${EMQX_DASHBOARD_AUTH}";
         proxy_set_header Cookie "";
         proxy_set_header X-Auth-Request-Access-Token "";

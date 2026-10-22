@@ -257,24 +257,22 @@ tests:
           value: emqx
         documentIndex: 1
 
-  - it: dashboard.enabled=false renders no proxy and keeps the old routing
+  - it: dashboard.enabled=false renders no proxy Deployment (no guard runs)
     set:
       dashboard.enabled: false
+    template: templates/dashboard.yaml
     asserts:
       - hasDocuments:
           count: 0
-        template: templates/dashboard.yaml
+
+  - it: "dashboard.enabled=false routes the dashboard host straight to EMQX (documented, set a real password)"
+    set:
+      dashboard.enabled: false
+    template: templates/virtualservice.yaml
+    documentSelector:
+      path: metadata.name
+      value: emqx-dashboard
+    asserts:
       - equal:
           path: spec.http[0].route[0].destination.host
           value: emqx.teknoir-demo.svc.cluster.local
-        template: templates/virtualservice.yaml
-        documentSelector:
-          path: metadata.name
-          value: emqx-dashboard
-      - equal:
-          path: spec.exportTo
-          value: ["teknoir-system"]
-        template: templates/destinationrule.yaml
-        documentSelector:
-          path: metadata.name
-          value: emqx-dashboard

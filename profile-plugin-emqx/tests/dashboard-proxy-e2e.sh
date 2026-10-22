@@ -160,9 +160,11 @@ curl -s -m 20 "$PROXY/" | grep -q 'teknoir-sso.js' && ok "index references tekno
 SPA=(-H 'Authorization: Bearer teknoir-istio' -H 'Sec-Fetch-Site: same-origin')
 expect "nodes from the SPA (placeholder bearer, same-origin): 200 (proxy adds the API key)" 200 "$(code "${SPA[@]}" "$PROXY/api/v5/nodes")"
 expect "nodes without the placeholder bearer: 403 (CSRF guard)" 403 "$(code "$PROXY/api/v5/nodes")"
-expect "nodes with a junk bearer: 403" 403 "$(code -H 'Authorization: Bearer junk' "$PROXY/api/v5/nodes")"
+expect "nodes with a stale stored session (old EMQX JWT as bearer): 200, the proxy replaces it (owner who once used EMQX's login)" 200 "$(code -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.stale.stale' -H 'Sec-Fetch-Site: same-origin' "$PROXY/api/v5/nodes")"
+expect "nodes with an empty bearer: 403" 403 "$(code -H 'Authorization: Bearer ' "$PROXY/api/v5/nodes")"
 expect "nodes with a client Basic header: 403 (not the SPA)" 403 "$(code -H 'Authorization: Basic Zm9vOmJhcg==' "$PROXY/api/v5/nodes")"
-expect "nodes with the bearer plus junk suffix: 403" 403 "$(code -H 'Authorization: Bearer teknoir-istio-x' "$PROXY/api/v5/nodes")"
+expect "a POST with a stale bearer but Sec-Fetch-Site cross-site is 403" 403 "$(code -X POST -H 'Authorization: Bearer stale' -H 'Sec-Fetch-Site: cross-site' -H 'Content-Type: application/json' -d '{}' "$PROXY/api/v5/nodes")"
+grep -q '!== TOKEN' "$FILES/teknoir-sso.js" && ok "sso script replaces any stored token, not only an empty one" || nok "sso script replaces any stored token" "check missing"
 expect "clients list from the SPA" 200 "$(code "${SPA[@]}" "$PROXY/api/v5/clients")"
 expect "a read with the bearer needs no Sec-Fetch-Site (GET, e.g. old browsers)" 200 "$(code -H 'Authorization: Bearer teknoir-istio' "$PROXY/api/v5/nodes")"
 expect "a GET with the bearer passes whatever Sec-Fetch-Site says (a page cannot set the bearer: preflight)" 200 "$(code -H 'Authorization: Bearer teknoir-istio' -H 'Sec-Fetch-Site: cross-site' "$PROXY/api/v5/nodes")"

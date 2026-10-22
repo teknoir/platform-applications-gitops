@@ -48,9 +48,11 @@ Flow:
 5. CSRF guard on the credentialed API. The oauth2-proxy cookie (`SameSite=None`,
    `Domain=teknoir.cloud`) is sent by a browser on any site, so Istio alone does not prove an
    owner meant a call, and the proxy adds an admin credential to it. The proxy therefore
-   requires `Authorization: Bearer teknoir-istio` (the placeholder session; the dashboard's
-   axios client sends it on every call; a foreign page cannot send a custom header without a
-   CORS preflight, which fails) and, for anything but GET/HEAD, `Sec-Fetch-Site: same-origin`
+   requires an `Authorization: Bearer ...` header (the placeholder session `teknoir-istio`, or any
+   other bearer: an owner who used EMQX's own login before keeps that old JWT in localStorage
+   until `teknoir-sso.js` replaces it, and the proxy swaps the header for the API key anyway; the
+   dashboard's axios client sends it on every call; a foreign page cannot send an
+   Authorization header without a CORS preflight, which fails) and, for anything but GET/HEAD, `Sec-Fetch-Site: same-origin`
    (browsers set it, pages cannot; same-site `*.teknoir.cloud` pages send `same-site` and are
    refused; a missing header on a write fails closed). Otherwise 403 `TEKNOIR_CSRF_GUARD`,
    never 401. Covered by `tests/dashboard-proxy-e2e.sh` (cross-origin multipart `import_users`
@@ -81,6 +83,20 @@ profile-controller (no sidecar) calls the EMQX API in plaintext. Developers (`te
 can still read the API key Secret and exec into `emqx-0`, so "owners only" guards the browser
 path, not what a developer can do with kubectl. The dashboard's built-in WebSocket client does
 not work against the dashboard host; use `mqtt-<ns>.<domain>:443/mqtt`.
+
+**`dashboard.enabled=false`.** The VirtualService routes the dashboard host straight to
+`emqx:18083` again and the guard no longer runs, while the chart still sets no dashboard
+password. On a fresh volume EMQX then keeps its well-known default `public`. Do not disable the
+proxy without setting `emqx.emqxConfig.EMQX_DASHBOARD__DEFAULT_PASSWORD` to a real value.
+
+**Rollout order (never C1 alone).** The proxy has no owner check of its own and adds the admin
+API key to every call: "owners only" is decided entirely by the claim presets
+(platform-applications-gitops `charts/user-controller`, `notPorts: ["18083"]` on the generic
+rules). So the presets must be live before chart 0.0.109 is pinned on a cluster, and when
+rolling back, pin 0.0.108 first (or together with the presets revert), never revert the presets
+while 0.0.109 is live: every developer would then reach the EMQX admin API without a login.
+Before pinning 0.0.109, check that every user policy in the namespace has `notPorts: ["18083"]`
+or belongs to an owner.
 
 **New cluster.** Set `dashboard.gatewayPrincipals` to that cluster's user-gateway service
 account and ship the claim presets with it. The image `nginxinc/nginx-unprivileged` (pinned by
