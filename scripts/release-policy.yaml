@@ -46,5 +46,6 @@ audience_hub_tags: [sha-a2478da]
 # charts/profile-controller) has lost its teknoir-admin ClusterRoleBinding (backstage-sa R2) while the pinned
 # profile-controller tag is not listed here (fail closed). Add a tag only after confirming the image was built from a
 # commit that has both (git merge-base --is-ancestor <commit> <sha> in profile-controller; the tag is sha-<first 8 of
-# the commit>). sha-cb7ce1af is the merge of profile-controller #218 (both commits are ancestors).
-portal_profile_controller_tags: [sha-cb7ce1af]
+# the commit>). sha-cb7ce1af is the merge of profile-controller #218 (both commits are ancestors); sha-f31a3fbd is the
+# merge of #219 (PULL_SECRET_NAMES, DEFAULT_EDITOR_CLUSTERROLE), a descendant of cb7ce1a.
+portal_profile_controller_tags: [sha-cb7ce1af, sha-f31a3fbd]

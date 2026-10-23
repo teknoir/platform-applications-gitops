@@ -49,3 +49,16 @@ data:
   {{- with $portal.clusterRole }}
   PORTAL_TEAMSPACE_CLUSTERROLE: {{ . | quote }}
   {{- end }}
+  {{- /* Pull secrets copied from teknoir-system into every teamspace by the PullSecrets plugin. Unset: the
+  controller default (ghcr-token,gcr-json-key). "none": copy nothing and delete the copies the Profile owns
+  (plans/security-findings-2026-10-23.md F1). A comma list: exactly those. An image that does not know the key ignores it. */}}
+  {{- $pullSecrets := .Values.config.pullSecrets | default dict }}
+  {{- with $pullSecrets.names }}
+  PULL_SECRET_NAMES: {{ . | toString | quote }}
+  {{- end }}
+  {{- /* ClusterRole bound to the ServiceAccount default-editor of every teamspace (its token is mounted into
+  Devstudio, Notebook and plugin pods). Unset: the controller default, teknoir-edit. An image that does not know
+  the key ignores it and keeps teknoir-edit. */}}
+  {{- with .Values.config.defaultEditorClusterRole }}
+  DEFAULT_EDITOR_CLUSTERROLE: {{ . | toString | quote }}
+  {{- end }}
