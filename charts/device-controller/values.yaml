@@ -89,6 +89,16 @@ tolerations: []
 
 affinity: {}
 
+# Legacy cleanup (plans/ssh-tunnel-removal.md, step 11). On: the controller deletes, in every teamspace,
+# the tunnel-* Deployments, Services, Secrets and VirtualServices that the removed RemoteAccess plugin
+# left behind, and the virtual-device-* Deployments of the 2024 MVP runtime, and the ClusterRole gets the
+# delete (and VirtualService list) rules that needs. Off (default): neither the code nor the ClusterRole
+# does that, so the controller's rights stay at the minimum. Staging has no such objects (checked
+# 2026-10-23). Set it true on an install that still has them (production, airgapped, until their
+# cut-over) and turn it off again afterwards. Needs a device-controller image that reads
+# LEGACY_TUNNEL_CLEANUP (an older image ignores it and always runs the cleanup, which then gets 403).
+legacyTunnelCleanup: false
+
 # Virtual devices (KubeVirt VMs that run the real Robot bootstrap). Everything in
 # this block is inert when enabled is false or the block is absent: no runtime
 # namespaces are rendered and the VIRTUAL_DEVICES key is left out of the controller

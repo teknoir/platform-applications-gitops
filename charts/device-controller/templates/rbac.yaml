@@ -6,19 +6,9 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "device-controller.labels" . | nindent 4 }}
+# Leader election uses Leases (controller-runtime default); the ConfigMap rule of the
+# scaffold was never used, and device-controller-parameters is read by the kubelet (envFrom).
 rules:
-- apiGroups:
-  - ""
-  resources:
-  - configmaps
-  verbs:
-  - get
-  - list
-  - watch
-  - create
-  - update
-  - patch
-  - delete
 - apiGroups:
   - coordination.k8s.io
   resources:
@@ -81,61 +71,53 @@ metadata:
   name: {{ include "device-controller.fullname" . }}-manager-role
   labels:
     {{- include "device-controller.labels" . | nindent 4 }}
+# The minimum of the controller (plans/ssh-tunnel-removal.md, step 11). It equals the ClusterRole that
+# controller-gen generates from the kubebuilder markers (device-controller config/rbac/role.yaml, kept equal
+# by that repo's rbac_markers_test.go and this chart's tests/rbac_test.yaml), plus, on purpose and
+# only when legacyTunnelCleanup is on, the rules at the end.
+# The manager client caches typed objects cluster-wide (cmd/main.go; ConfigMaps and ServiceAccounts excepted),
+# so a typed Get of a Secret, Service, Deployment, Namespace or ResourceQuota needs list and watch.
+# Writes of Secrets, Services, Deployments, VirtualServices and AuthorizationPolicies live in the namespaced
+# Roles (teknoir-ztna below, <teamspace>-vdev further down). Nothing here grants exec, attach, port-forward or proxy.
 rules:
 - apiGroups:
   - ""
   resources:
   - services
   verbs:
-  - '*'
+  - get
+  - list
+  - watch
 - apiGroups:
   - apps
   resources:
-  - daemonsets
   - deployments
-  - deployments/rollback
-  - deployments/scale
-  - replicasets
-  - replicasets/scale
-  - statefulsets
-  - statefulsets/scale
   verbs:
   - get
   - list
   - watch
-  - create
-  - delete
-  - deletecollection
-  - patch
-  - update
+# Secrets: read (cached) and create (Robot token Secret robot-<name>-k3s). Update, patch and delete are not
+# needed cluster-wide: the hub's Secrets are in the ztna Role, the virtual devices' in the <teamspace>-vdev Roles.
 - apiGroups:
   - ""
   resources:
-  - pods/attach
-  - pods/exec
-  - pods/portforward
-  - pods/proxy
   - secrets
-  - services/proxy
   verbs:
   - get
   - list
   - watch
   - create
-  - update
-  - patch
-  - delete
+# controller-runtime's recorder creates events and PATCHES repeated ones.
 - apiGroups:
   - ""
   resources:
   - events
   verbs:
-  - get
-  - list
-  - watch
   - create
+  - patch
 # DeviceConfig plugin: the rendered GitOps sources of a device are cached in the ConfigMap
-# teknoir-config-sources-<device> in the device's teamspace (owned by the Device).
+# teknoir-config-sources-<device> in the device's teamspace (owned by the Device); the published
+# store is teknoir-config-published-<device>. ConfigMaps are not cached, so no list or watch.
 - apiGroups:
   - ""
   resources:
@@ -149,23 +131,6 @@ rules:
   - teknoir.org
   resources:
   - devices
-  - devices/status
-  - devices/finalizers
-  - deviceapplicationsets
-  - deviceapplicationsets/status
-  - deviceapplicationsets/finalizers
-  - robots
-  - robots/status
-  - robots/finalizers
-  - robottypes
-  - robottypes/status
-  - robottypes/finalizers
-  verbs:
-  - '*'
-- apiGroups:
-  - networking.istio.io
-  resources:
-  - virtualservices
   verbs:
   - get
   - list
@@ -173,13 +138,47 @@ rules:
   - create
   - update
   - patch
-  - delete
-# Virtual devices (device-controller vd1-runtime): admission reads, the VM and its disk.
+- apiGroups:
+  - teknoir.org
+  resources:
+  - devices/finalizers
+  - robots/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - teknoir.org
+  resources:
+  - deviceapplicationsets
+  - robottypes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - teknoir.org
+  resources:
+  - robots
+  verbs:
+  - get
+  - list
+  - watch
+  - update
+  - patch
+- apiGroups:
+  - teknoir.org
+  resources:
+  - robots/status
+  - robottypes/status
+  verbs:
+  - get
+  - update
+  - patch
+# Virtual devices (device-controller vd1-runtime): admission reads, and the VMs. VMs are written only in
+# the <teamspace>-vdev Roles below.
 - apiGroups:
   - ""
   resources:
   - namespaces
-  - persistentvolumeclaims
   - resourcequotas
   verbs:
   - get
@@ -189,32 +188,37 @@ rules:
   - kubevirt.io
   resources:
   - virtualmachines
-  verbs:
-  - get
-  - list
-  - watch
-  - create
-  - update
-  - patch
-  - delete
-- apiGroups:
-  - kubevirt.io
-  resources:
   - virtualmachineinstances
   verbs:
   - get
   - list
   - watch
+{{- if .Values.legacyTunnelCleanup }}
+# legacyTunnelCleanup: the controller deletes what removed features left behind, in every teamspace:
+# tunnel-* Deployments, Services, Secrets and VirtualServices of the RemoteAccess plugin, and the
+# virtual-device-* Deployments of the MVP runtime. Only for installs that still have such objects
+# (production and airgapped until their cut-over); staging has none and leaves this off.
 - apiGroups:
-  - cdi.kubevirt.io
+  - apps
   resources:
-  - datavolumes
+  - deployments
   verbs:
-  - get
-  - list
-  - watch
-  - create
   - delete
+- apiGroups:
+  - ""
+  resources:
+  - services
+  - secrets
+  verbs:
+  - delete
+- apiGroups:
+  - networking.istio.io
+  resources:
+  - virtualservices
+  verbs:
+  - list
+  - delete
+{{- end }}
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -285,10 +289,12 @@ subjects:
 # WireGuard (ZTNA) plugin: the policy ConfigMap per device (written here, read by the hub), the
 # identity ConfigMaps (read), and the per-device WireGuard web terminal in the hub namespace
 # (Deployment, Service, Secret, ServiceAccount, VirtualService, AuthorizationPolicy). Namespaced on
-# purpose: the ClusterRole above already covers Deployments, Services, Secrets and VirtualServices
-# cluster-wide, this grants what it lacks (ConfigMaps write, ServiceAccounts, AuthorizationPolicies)
-# only in teknoir-ztna. The ValidatingAdmissionPolicy in charts/ztna lets only this service account
-# write policy ConfigMaps.
+# purpose: this is the only place the controller may write them (the ClusterRole above only reads
+# Services, Secrets and Deployments, for its cache). Equal to the kubebuilder markers in
+# device-controller internal/controller/plugin_wireguard/plugin_wireguard.go (role.yaml, Role in teknoir-ztna).
+# Only what the code calls: no patch (no Patch on a hub object), watch only on Deployments (the one
+# watched kind), list only on ConfigMaps, ServiceAccounts, Deployments and VirtualServices. The
+# ValidatingAdmissionPolicy in charts/ztna lets only this service account write policy ConfigMaps.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -302,15 +308,21 @@ rules:
   resources:
   - configmaps
   - serviceaccounts
+  verbs:
+  - get
+  - list
+  - create
+  - update
+  - delete
+- apiGroups:
+  - ""
+  resources:
   - secrets
   - services
   verbs:
   - get
-  - list
-  - watch
   - create
   - update
-  - patch
   - delete
 - apiGroups:
   - apps
@@ -322,7 +334,6 @@ rules:
   - watch
   - create
   - update
-  - patch
   - delete
 - apiGroups:
   - networking.istio.io
@@ -331,10 +342,8 @@ rules:
   verbs:
   - get
   - list
-  - watch
   - create
   - update
-  - patch
   - delete
 - apiGroups:
   - security.istio.io
@@ -342,11 +351,8 @@ rules:
   - authorizationpolicies
   verbs:
   - get
-  - list
-  - watch
   - create
   - update
-  - patch
   - delete
 
 ---
@@ -365,4 +371,56 @@ subjects:
 - kind: ServiceAccount
   name: {{ include "device-controller.serviceAccountName" . }}
   namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- if (.Values.virtualDevices).enabled }}
+{{- range $ts, $allowance := ((.Values.virtualDevices).allowances | default dict) }}
+
+---
+# Virtual devices: what the controller writes in the runtime namespace <teamspace>-vdev of this allowance
+# (templates/virtual-devices-runtime.yaml). The cloud-init Secret <device>-cloudinit (plugin_virtualdevice/cloudinit.go)
+# and the VirtualMachine (vm.go, plugin_virtualdevice.go). Reads come from the ClusterRole. DataVolumes are
+# not written: the root disk is a dataVolumeTemplate of the VM, which virt-controller creates. If the VM create
+# is ever refused over that template, add create on cdi.kubevirt.io datavolumes here, not cluster-wide.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "device-controller.fullname" $ }}-vdev
+  namespace: {{ $ts }}-vdev
+  labels:
+    {{- include "device-controller.labels" $ | nindent 4 }}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+  - create
+  - delete
+- apiGroups:
+  - kubevirt.io
+  resources:
+  - virtualmachines
+  verbs:
+  - get
+  - create
+  - update
+  - delete
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "device-controller.fullname" $ }}-vdev-rolebinding
+  namespace: {{ $ts }}-vdev
+  labels:
+    {{- include "device-controller.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "device-controller.fullname" $ }}-vdev
+subjects:
+- kind: ServiceAccount
+  name: {{ include "device-controller.serviceAccountName" $ }}
+  namespace: {{ $.Release.Namespace }}
+{{- end }}
 {{- end }}

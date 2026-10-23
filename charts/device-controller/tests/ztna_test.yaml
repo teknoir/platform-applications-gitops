@@ -13,11 +13,11 @@ tests:
       - notExists:
           path: data.ZTNA
 
-  - it: has no Role in teknoir-ztna while disabled (six documents as before)
+  - it: has no Role in teknoir-ztna while disabled (six documents as before, plus the vdev Role and its binding)
     template: templates/rbac.yaml
     asserts:
       - hasDocuments:
-          count: 6
+          count: 8
 
   - it: puts ZTNA in the controller ConfigMap when enabled
     template: templates/configmap.yaml
@@ -133,30 +133,15 @@ tests:
       - equal:
           path: metadata.namespace
           value: teknoir-ztna
-      - contains:
+      # Equal to the kubebuilder markers of plugin_wireguard.go (step 11): only the verbs the code calls.
+      - equal:
           path: rules
-          content:
-            apiGroups: [""]
-            resources: [configmaps, serviceaccounts, secrets, services]
-            verbs: [get, list, watch, create, update, patch, delete]
-      - contains:
-          path: rules
-          content:
-            apiGroups: [apps]
-            resources: [deployments]
-            verbs: [get, list, watch, create, update, patch, delete]
-      - contains:
-          path: rules
-          content:
-            apiGroups: [networking.istio.io]
-            resources: [virtualservices]
-            verbs: [get, list, watch, create, update, patch, delete]
-      - contains:
-          path: rules
-          content:
-            apiGroups: [security.istio.io]
-            resources: [authorizationpolicies]
-            verbs: [get, list, watch, create, update, patch, delete]
+          value:
+            - {apiGroups: [""], resources: [configmaps, serviceaccounts], verbs: [get, list, create, update, delete]}
+            - {apiGroups: [""], resources: [secrets, services], verbs: [get, create, update, delete]}
+            - {apiGroups: [apps], resources: [deployments], verbs: [get, list, watch, create, update, delete]}
+            - {apiGroups: [networking.istio.io], resources: [virtualservices], verbs: [get, list, create, update, delete]}
+            - {apiGroups: [security.istio.io], resources: [authorizationpolicies], verbs: [get, create, update, delete]}
 
   - it: binds the Role to the controller service account
     template: templates/rbac.yaml

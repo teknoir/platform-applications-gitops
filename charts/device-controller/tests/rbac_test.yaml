@@ -1,6 +1,7 @@
 suite: robot type RBAC and the config source cache
 templates:
   - templates/rbac.yaml
+  - templates/configmap.yaml
 tests:
   - it: lets the editor role manage robottypes (not robotmodels)
     documentSelector:
@@ -23,6 +24,31 @@ tests:
       - contains: {path: 'rules[0].resources', content: robottypes}
       - contains: {path: 'rules[1].resources', content: robottypes/status}
 
+  # Step 11 (plans/ssh-tunnel-removal.md): the manager ClusterRole is the minimum of the code and
+  # equals device-controller config/rbac/role.yaml (its rbac_markers_test.go holds the same table).
+  - it: gives the manager exactly the minimum rules (full equality, so any added rule fails)
+    documentSelector:
+      path: metadata.name
+      value: x-device-controller-manager-role
+    release:
+      name: x
+    asserts:
+      - equal:
+          path: rules
+          value:
+            - {apiGroups: [""], resources: [services], verbs: [get, list, watch]}
+            - {apiGroups: [apps], resources: [deployments], verbs: [get, list, watch]}
+            - {apiGroups: [""], resources: [secrets], verbs: [get, list, watch, create]}
+            - {apiGroups: [""], resources: [events], verbs: [create, patch]}
+            - {apiGroups: [""], resources: [configmaps], verbs: [get, create, update, delete]}
+            - {apiGroups: [teknoir.org], resources: [devices], verbs: [get, list, watch, create, update, patch]}
+            - {apiGroups: [teknoir.org], resources: [devices/finalizers, robots/finalizers], verbs: [update]}
+            - {apiGroups: [teknoir.org], resources: [deviceapplicationsets, robottypes], verbs: [get, list, watch]}
+            - {apiGroups: [teknoir.org], resources: [robots], verbs: [get, list, watch, update, patch]}
+            - {apiGroups: [teknoir.org], resources: [robots/status, robottypes/status], verbs: [get, update, patch]}
+            - {apiGroups: [""], resources: [namespaces, resourcequotas], verbs: [get, list, watch]}
+            - {apiGroups: [kubevirt.io], resources: [virtualmachines, virtualmachineinstances], verbs: [get, list, watch]}
+
   - it: gives the manager robottypes (with status and finalizers) and no robotmodels
     documentSelector:
       path: metadata.name
@@ -32,22 +58,76 @@ tests:
     asserts:
       - contains:
           path: rules
-          content:
-            apiGroups: [teknoir.org]
-            resources:
-              - devices
-              - devices/status
-              - devices/finalizers
-              - deviceapplicationsets
-              - deviceapplicationsets/status
-              - deviceapplicationsets/finalizers
-              - robots
-              - robots/status
-              - robots/finalizers
-              - robottypes
-              - robottypes/status
-              - robottypes/finalizers
-            verbs: ['*']
+          content: {apiGroups: [teknoir.org], resources: [deviceapplicationsets, robottypes], verbs: [get, list, watch]}
+      - contains:
+          path: rules
+          content: {apiGroups: [teknoir.org], resources: [robots/status, robottypes/status], verbs: [get, update, patch]}
+
+
+
+  - it: no longer carries any of the rules that step 11 removed (exec, wildcards, PVCs, DataVolumes, VirtualServices)
+    documentSelector:
+      path: metadata.name
+      value: x-device-controller-manager-role
+    release:
+      name: x
+    asserts:
+      - notContains:
+          path: rules
+          content: {apiGroups: [""], resources: [pods/attach, pods/exec, pods/portforward, pods/proxy, secrets, services/proxy], verbs: [get, list, watch, create, update, patch, delete]}
+      - notContains:
+          path: rules
+          content: {apiGroups: [""], resources: [services], verbs: ['*']}
+      - notContains:
+          path: rules
+          content: {apiGroups: [apps], resources: [daemonsets, deployments, deployments/rollback, deployments/scale, replicasets, replicasets/scale, statefulsets, statefulsets/scale], verbs: [get, list, watch, create, delete, deletecollection, patch, update]}
+      - notContains:
+          path: rules
+          content: {apiGroups: [teknoir.org], resources: [devices, devices/status, devices/finalizers, deviceapplicationsets, deviceapplicationsets/status, deviceapplicationsets/finalizers, robots, robots/status, robots/finalizers, robottypes, robottypes/status, robottypes/finalizers], verbs: ['*']}
+      - notContains:
+          path: rules
+          content: {apiGroups: [networking.istio.io], resources: [virtualservices], verbs: [get, list, watch, create, update, patch, delete]}
+      - notContains:
+          path: rules
+          content: {apiGroups: [""], resources: [namespaces, persistentvolumeclaims, resourcequotas], verbs: [get, list, watch]}
+      - notContains:
+          path: rules
+          content: {apiGroups: [kubevirt.io], resources: [virtualmachines], verbs: [get, list, watch, create, update, patch, delete]}
+      - notContains:
+          path: rules
+          content: {apiGroups: [cdi.kubevirt.io], resources: [datavolumes], verbs: [get, list, watch, create, delete]}
+      - notContains:
+          path: rules
+          content: {apiGroups: [""], resources: [events], verbs: [get, list, watch, create]}
+
+  - it: reads Services, Secrets and Deployments cluster-wide for the cache, and writes only Secrets (create)
+    documentSelector:
+      path: metadata.name
+      value: x-device-controller-manager-role
+    release:
+      name: x
+    asserts:
+      - contains:
+          path: rules
+          content: {apiGroups: [""], resources: [services], verbs: [get, list, watch]}
+      - contains:
+          path: rules
+          content: {apiGroups: [""], resources: [secrets], verbs: [get, list, watch, create]}
+      - contains:
+          path: rules
+          content: {apiGroups: [apps], resources: [deployments], verbs: [get, list, watch]}
+
+  - it: lets the manager patch events (the recorder patches repeated ones), no read
+    documentSelector:
+      path: metadata.name
+      value: x-device-controller-manager-role
+    release:
+      name: x
+    asserts:
+      - contains:
+          path: rules
+          content: {apiGroups: [""], resources: [events], verbs: [create, patch]}
+
 
   - it: lets the manager read, create, update and delete the config source cache ConfigMaps in teamspaces
     documentSelector:
@@ -62,3 +142,120 @@ tests:
             apiGroups: [""]
             resources: [configmaps]
             verbs: [get, create, update, delete]
+
+  - it: lets the manager only read VirtualMachines cluster-wide (writes are in the <teamspace>-vdev Role)
+    documentSelector:
+      path: metadata.name
+      value: x-device-controller-manager-role
+    release:
+      name: x
+    asserts:
+      - contains:
+          path: rules
+          content: {apiGroups: [kubevirt.io], resources: [virtualmachines, virtualmachineinstances], verbs: [get, list, watch]}
+
+  # legacyTunnelCleanup: the extra rules, only when on.
+  - it: adds the legacy cleanup rules to the manager only when legacyTunnelCleanup is on
+    documentSelector:
+      path: metadata.name
+      value: x-device-controller-manager-role
+    release:
+      name: x
+    set:
+      legacyTunnelCleanup: true
+    asserts:
+      - lengthEqual: {path: rules, count: 15}
+      - contains:
+          path: rules
+          content: {apiGroups: [apps], resources: [deployments], verbs: [delete]}
+      - contains:
+          path: rules
+          content: {apiGroups: [""], resources: [services, secrets], verbs: [delete]}
+      - contains:
+          path: rules
+          content: {apiGroups: [networking.istio.io], resources: [virtualservices], verbs: [list, delete]}
+      # still no exec
+
+  - it: has twelve manager rules while legacyTunnelCleanup is off (the default)
+    documentSelector:
+      path: metadata.name
+      value: x-device-controller-manager-role
+    release:
+      name: x
+    asserts:
+      - lengthEqual: {path: rules, count: 12}
+
+  - it: narrows the leader election Role to Leases and events (no ConfigMaps)
+    documentSelector:
+      path: metadata.name
+      value: x-device-controller-leader-election-role
+    release:
+      name: x
+    asserts:
+      - contains:
+          path: rules
+          content: {apiGroups: [""], resources: [events], verbs: [create, patch]}
+      - contains:
+          path: rules
+          content: {apiGroups: [coordination.k8s.io], resources: [leases], verbs: [get, list, watch, create, update, patch, delete]}
+
+  - it: grants the vdev Role (Secrets, VirtualMachines writes) per allowance, in <teamspace>-vdev only
+    documentSelector:
+      path: metadata.name
+      value: x-device-controller-vdev
+    release:
+      name: x
+    asserts:
+      - isKind: {of: Role}
+      - equal: {path: metadata.namespace, value: teknoir-demo-vdev}
+      - equal:
+          path: rules
+          value:
+            - {apiGroups: [""], resources: [secrets], verbs: [get, create, delete]}
+            - {apiGroups: [kubevirt.io], resources: [virtualmachines], verbs: [get, create, update, delete]}
+
+  - it: binds the vdev Role to the controller service account
+    documentSelector:
+      path: metadata.name
+      value: x-device-controller-vdev-rolebinding
+    release:
+      name: x
+    asserts:
+      - isKind: {of: RoleBinding}
+      - equal: {path: metadata.namespace, value: teknoir-demo-vdev}
+      - equal: {path: roleRef.name, value: x-device-controller-vdev}
+      - equal: {path: "subjects[0].name", value: device-controller-service-account}
+
+  - it: renders one vdev Role per allowance (the default teknoir-demo plus the two added here)
+    template: templates/rbac.yaml
+    set:
+      virtualDevices.allowances:
+        a: {devices: 1, cpu: "1", memory: 1Gi, disk: 10Gi}
+        b: {devices: 1, cpu: "1", memory: 1Gi, disk: 10Gi}
+    asserts:
+      - containsDocument: {kind: Role, apiVersion: rbac.authorization.k8s.io/v1, name: RELEASE-NAME-device-controller-vdev, namespace: a-vdev}
+        documentIndex: 6
+      - containsDocument: {kind: Role, apiVersion: rbac.authorization.k8s.io/v1, name: RELEASE-NAME-device-controller-vdev, namespace: b-vdev}
+        documentIndex: 8
+      - containsDocument: {kind: Role, apiVersion: rbac.authorization.k8s.io/v1, name: RELEASE-NAME-device-controller-vdev, namespace: teknoir-demo-vdev}
+        documentIndex: 10
+      - hasDocuments: {count: 12}
+
+  - it: renders no vdev Role when virtual devices are off
+    template: templates/rbac.yaml
+    set:
+      virtualDevices.enabled: false
+    asserts:
+      - hasDocuments: {count: 6}
+
+  - it: puts legacyTunnelCleanup (default false) into the controller ConfigMap
+    template: templates/configmap.yaml
+    asserts:
+      - equal: {path: 'data.LEGACY_TUNNEL_CLEANUP', value: "false"}
+
+  - it: turns the cleanup on in the controller ConfigMap
+    template: templates/configmap.yaml
+    set:
+      legacyTunnelCleanup: true
+    asserts:
+      - equal: {path: 'data.LEGACY_TUNNEL_CLEANUP', value: "true"}
