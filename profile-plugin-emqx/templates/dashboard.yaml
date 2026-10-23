@@ -138,6 +138,8 @@ spec:
               value: {{ join " " .Values.dashboard.knownDefaultPasswords | quote }}
             - name: GUARD_INTERVAL_SECONDS
               value: {{ .Values.dashboard.guardIntervalSeconds | quote }}
+            - name: GUARD_RETRY_SECONDS
+              value: {{ .Values.dashboard.guardRetrySeconds | quote }}
           resources:
             {{- toYaml .Values.dashboard.resources | nindent 12 }}
           securityContext:

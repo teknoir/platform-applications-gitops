@@ -30,7 +30,8 @@ WORK="$(mktemp -d)"
 PASS=0; FAIL=0
 
 cleanup_containers() {
-  docker rm -f "$NET-emqx" "$NET-proxy" "$NET-guard" "$NET-emqx2" "$NET-guard2" "$NET-badproxy" >/dev/null 2>&1 || true
+  docker rm -f "$NET-emqx" "$NET-proxy" "$NET-guard" "$NET-emqx2" "$NET-guard2" "$NET-badproxy" \
+    "$NET-emqx3" "$NET-guard3" "$NET-fake" "$NET-guard4" >/dev/null 2>&1 || true
   docker network rm "$NET" >/dev/null 2>&1 || true
 }
 finish() {
@@ -185,6 +186,33 @@ expect "CSRF: a bare POST without any header is 403" 403 "$(code -X POST -F "fil
 expect "CSRF: no user was created by the blocked requests" 0 "$(curl -s -m 20 -u "$KEY:$SECRET" "$EMQX_URL/api/v5/authentication/password_based:built_in_database/users" | grep -c csrfdevice)"
 expect "SPA upload: the same multipart POST with bearer and same-origin reaches EMQX (200)" 200 "$(code -X POST "${SPA[@]}" -F "filename=@$WORK/u.csv" "$IMPORT")"
 expect "SPA upload: the user exists after the legitimate import" 1 "$(curl -s -m 20 -u "$KEY:$SECRET" "$EMQX_URL/api/v5/authentication/password_based:built_in_database/users" | grep -c csrfdevice)"
+# Audit line: owner email, method and PATH of every API write and failing API call; never a query
+# string, never the API key. The default "main" log must not also log API requests (it has them).
+OWNER_HDR=(-H 'X-Auth-Request-Email: owner@example.test' -H 'X-Request-Id: req-audit-1')
+expect "audit: a legitimate import with a query string reaches EMQX (200)" 200 "$(code -X POST "${SPA[@]}" "${OWNER_HDR[@]}" -F "filename=@$WORK/u.csv" "$IMPORT&marker=QSECRET1")"
+expect "audit: a read with a query string (200)" 200 "$(code "${SPA[@]}" "${OWNER_HDR[@]}" "$PROXY/api/v5/nodes?marker=QSECRET2")"
+expect "audit: a failing read with a query string (EMQX 404)" 404 "$(code "${SPA[@]}" "${OWNER_HDR[@]}" "$PROXY/api/v5/no_such_endpoint?marker=QSECRET3")"
+expect "audit: a hostile header value (quote) from the gateway side" 200 "$(code -X POST "${SPA[@]}" -H 'X-Auth-Request-Email: a"b@example.test' -F "filename=@$WORK/u.csv" "$IMPORT")"
+expect "audit: a page request with a query string (main log)" 200 "$(code "$PROXY/?marker=PAGE1")"
+sleep 1
+LOG="$(docker logs "$NET-proxy" 2>&1)"
+AUD="$(printf '%s\n' "$LOG" | grep '^AUDIT ' || true)"
+expect "audit: the write has one line with the owner's email, method, path, status and request id" 1 "$(printf '%s\n' "$AUD" | grep -c '^AUDIT emqx.dashboard user="owner@example.test" method=POST path="/api/v5/authentication/password_based:built_in_database/import_users" status=200 req_id="req-audit-1"$')"
+expect "audit: a failing read is logged too (status 404, path only)" 1 "$(printf '%s\n' "$AUD" | grep -c 'user="owner@example.test" method=GET path="/api/v5/no_such_endpoint" status=404')"
+[ "$(printf '%s\n' "$AUD" | grep -c 'user="-" method=POST path="/api/v5/authentication/password_based:built_in_database/import_users" status=403 ')" -ge 1 ] && ok "audit: a blocked CSRF write is logged (status 403, no user)" || nok "audit: a blocked CSRF write is logged (status 403, no user)" "no line"
+expect "audit: a successful read is not logged" 0 "$(printf '%s\n' "$AUD" | grep -c 'method=GET path="/api/v5/nodes" status=200')"
+expect "audit: the quote in a header value is escaped (one line, no raw quote)" 1 "$(printf '%s\n' "$AUD" | grep -c 'user="a\\x22b@example.test"')"
+expect "no log line of the proxy contains a query string of an API request" 0 "$(printf '%s\n' "$LOG" | grep -c 'QSECRET\|type=plain')"
+expect "the page request is still logged by the default log, with its query" 1 "$(printf '%s\n' "$LOG" | grep -v '^AUDIT ' | grep -c 'GET /?marker=PAGE1 ')"
+expect "no AUDIT line for page requests" 0 "$(printf '%s\n' "$AUD" | grep -c 'PAGE1\|path="/"')"
+case "$LOG" in *"$SECRET"*|*"$KEY"*) nok "audit/access log never contains the API key or secret" "found" ;; *) ok "audit/access log never contains the API key or secret" ;; esac
+# Cache and framing headers of the index page
+IDX="$(curl -s -D - -o /dev/null -m 20 "$PROXY/")"
+expect "index: Cache-Control no-cache (exactly one header)" 1 "$(printf '%s\n' "$IDX" | grep -ci '^cache-control: no-cache')"
+expect "index: no other Cache-Control header from EMQX" 1 "$(printf '%s\n' "$IDX" | grep -ci '^cache-control:')"
+expect "index: X-Frame-Options DENY is kept" 1 "$(printf '%s\n' "$IDX" | grep -ci '^x-frame-options: DENY')"
+expect "an asset is revalidated too" no-cache "$(curl -s -D - -o /dev/null -m 20 "$PROXY/$(curl -s -m 20 "$PROXY/" | grep -o 'static/[^"]*\.js' | head -1)" | tr -d '\r' | sed -n 's/^[Cc]ache-[Cc]ontrol: *//p' | head -1)"
+expect "sso script stays no-store" no-store "$(curl -s -D - -o /dev/null -m 20 "$PROXY/teknoir-sso.js" | tr -d '\r' | sed -n 's/^[Cc]ache-[Cc]ontrol: *//p' | head -1)"
 expect "login is answered by the proxy" 200 "$(code -X POST -H 'Content-Type: application/json' -d '{"username":"x","password":"y"}' "$PROXY/api/v5/login")"
 curl -s -m 20 -X POST -d '{}' "$PROXY/api/v5/login" | grep -q '"role":"administrator"' && ok "login response has the placeholder session" || nok "login response has the placeholder session" "unexpected body"
 expect "logout" 204 "$(code -X POST "$PROXY/api/v5/logout")"
@@ -222,12 +250,63 @@ sleep 8   # two more guard cycles
 expect "guard logs exactly one rotation per EMQX (idempotent)" "1 1" "$(docker logs "$NET-guard" 2>&1 | grep -c 'rotated a known default dashboard password for teknoir') $(docker logs "$NET-guard2" 2>&1 | grep -c 'rotated a known default dashboard password for teknoir')"
 expect "guard never reports a failed rotation" "0" "$(docker logs "$NET-guard" "$NET-guard2" 2>&1 | grep -c 'could not rotate')"
 case "$(docker logs "$NET-guard" 2>&1)" in *"$SECRET"*) nok "guard log has no secrets" "api secret found" ;; *) ok "guard log has no secrets" ;; esac
+expect "guard stays silent about the failing login attempts (no wget 401 noise)" 0 "$(docker logs "$NET-guard" "$NET-guard2" 2>&1 | grep -c 'wget:\|Unauthorized')"
 expect "the proxy keeps working after the rotation" 200 "$(code "${SPA[@]}" "$PROXY/api/v5/nodes")"
 expect "API key still works directly against EMQX" 200 "$(curl -s -o /dev/null -m 20 -w '%{http_code}' -u "$KEY:$SECRET" "$EMQX_URL/api/v5/nodes")"
 # The guard leaves a custom (non-default) password alone
 docker exec "$NET-emqx" emqx ctl admins passwd teknoir 'Custom-e2e-pw-1' >/dev/null 2>&1
 sleep 8
 expect "guard leaves a custom admin password alone" 200 "$(login_code "$EMQX_URL" 'Custom-e2e-pw-1')"
+
+# 7. Guard logging and timing ------------------------------------------------------------------
+# 7a. a failing change_pwd stays visible (wget's message and our line); a fake EMQX that accepts
+#     the login and fails the password change
+cat > "$WORK/fake.conf" <<'FAKE'
+server {
+    listen 18083;
+    location = /status { return 200 "ok"; }
+    location = /api/v5/login { default_type application/json; return 200 '{"token":"faketoken"}'; }
+    location ~ ^/api/v5/users/[^/]+/change_pwd$ { return 500 "boom"; }
+}
+FAKE
+docker run -d --name "$NET-fake" --network "$NET" --network-alias fake --user 101:101 \
+  -v "$WORK/fake.conf:/etc/nginx/conf.d/default.conf:ro" "$IMAGE" >/dev/null
+sleep 3
+docker run -d --name "$NET-guard4" --network "$NET" \
+  --read-only --user 101:101 --cap-drop ALL --security-opt no-new-privileges \
+  --tmpfs /tmp:uid=101,gid=101,mode=1777 \
+  -v "$FILES/default-login-guard.sh:/teknoir/default-login-guard.sh:ro" \
+  -e EMQX_DASHBOARD_UPSTREAM="http://fake:18083" -e EMQX_DASHBOARD_ADMIN=teknoir \
+  -e EMQX_KNOWN_DEFAULT_PASSWORDS="teknoir public" -e GUARD_INTERVAL_SECONDS=3600 \
+  "$IMAGE" sh /teknoir/default-login-guard.sh >/dev/null
+sleep 6
+G4="$(docker logs "$NET-guard4" 2>&1)"
+expect "failing change_pwd: the guard says so (one line per known password)" 2 "$(printf '%s\n' "$G4" | grep -c 'could not rotate a known default dashboard password')"
+expect "failing change_pwd: wget's own error stays visible" 2 "$(printf '%s\n' "$G4" | grep -c 'wget: server returned error: HTTP/1.1 500')"
+case "$G4" in *faketoken*) nok "guard log has no token" "token found" ;; *) ok "guard log has no token" ;; esac
+
+# 7b. EMQX down, then up: the guard (interval 3600 s) rotates within seconds of EMQX coming back,
+#     and while it is down /status failures are visible
+docker run -d --name "$NET-guard3" --network "$NET" \
+  --read-only --user 101:101 --cap-drop ALL --security-opt no-new-privileges \
+  --tmpfs /tmp:uid=101,gid=101,mode=1777 \
+  -v "$FILES/default-login-guard.sh:/teknoir/default-login-guard.sh:ro" \
+  -e EMQX_DASHBOARD_UPSTREAM="http://$NET-emqx3:18083" -e EMQX_DASHBOARD_ADMIN=teknoir \
+  -e EMQX_KNOWN_DEFAULT_PASSWORDS="teknoir public" -e GUARD_INTERVAL_SECONDS=3600 -e GUARD_RETRY_SECONDS=2 \
+  "$IMAGE" sh /teknoir/default-login-guard.sh >/dev/null
+sleep 8
+[ "$(docker logs "$NET-guard3" 2>&1 | grep -c 'wget:')" -ge 1 ] && ok "EMQX down: the failing /status check stays visible and is retried" || nok "EMQX down: the failing /status check stays visible and is retried" "$(docker logs "$NET-guard3" 2>&1 | wc -l) log lines"
+start_emqx "$NET-emqx3"
+for i in $(seq 1 90); do
+  p="$(hostport "$NET-emqx3")"
+  [ -n "$p" ] && [ "$(code "http://127.0.0.1:$p/status")" = 200 ] && break
+  sleep 2
+done
+EMQX3_URL="http://127.0.0.1:$(hostport "$NET-emqx3")"
+expect "EMQX3 is up with the built-in default password" 200 "$(login_code "$EMQX3_URL" public)"
+for i in $(seq 1 15); do [ "$(login_code "$EMQX3_URL" public)" = 401 ] && break; sleep 2; done
+expect "after EMQX came back the guard rotated it within seconds (interval is 3600 s)" 401 "$(login_code "$EMQX3_URL" public)"
+expect "guard logged one rotation after the restart" 1 "$(docker logs "$NET-guard3" 2>&1 | grep -c 'rotated a known default dashboard password')"
 
 echo
 echo "passed: $PASS, failed: $FAIL"

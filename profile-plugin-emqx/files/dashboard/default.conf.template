@@ -16,12 +16,40 @@ map "$teknoir_bearer_ok:$request_method:$http_sec_fetch_site" $teknoir_api_allow
     "~^1:[A-Z]+:same-origin$" 1;
 }
 
+# Audit line for the credentialed API. All dashboard calls reach EMQX as the one teamspace API
+# key, so EMQX's own audit log cannot say who did what: this line carries the owner's email
+# (X-Auth-Request-Email, set by the gateway's ext_authz, which the DENY policy makes the only
+# way in) with the method and the PATH ($uri: no query string, so nothing a client puts in
+# one is logged; never $request), the status and the request id of the gateway. It is written
+# for every API write and for API calls that fail (status 4xx/5xx, e.g. a blocked CSRF
+# attempt); successful reads are not logged. nginx escapes quotes and control characters in
+# header values. API requests are never written by the default "main" log (its $request has
+# the query string), see the access_log lines of the server.
+log_format teknoir_audit 'AUDIT emqx.dashboard user="$http_x_auth_request_email" method=$request_method path="$uri" status=$status req_id="$http_x_request_id"';
+map $request_uri $teknoir_is_api {
+    default 0;
+    "~^/api/v5/" 1;
+}
+map "$teknoir_is_api:$request_method:$status" $teknoir_audit {
+    default 0;
+    "~^1:(GET|HEAD|OPTIONS):[123]" 0;
+    "~^1:" 1;
+}
+map $teknoir_is_api $teknoir_log_main {
+    default 1;
+    1 0;
+}
+
 server {
     listen 18083;
     server_tokens off;
     absolute_redirect off;
     client_max_body_size 64m;
     add_header X-Frame-Options DENY always;
+    # Server level: only requests that no location overrides (login, logout, users, api_key,
+    # health). API requests go to the audit log, everything else to the usual "main" log.
+    access_log /var/log/nginx/access.log teknoir_audit if=$teknoir_audit;
+    access_log /var/log/nginx/access.log main if=$teknoir_log_main;
 
     location = /teknoir-healthz { access_log off; default_type text/plain; return 200 "ok\n"; }
     location = /teknoir-sso.js { alias /teknoir/teknoir-sso.js; default_type application/javascript; add_header Cache-Control "no-store" always; }
@@ -33,6 +61,9 @@ server {
     location ^~ /api/v5/api_key { default_type application/json; return 403 '{"code":"MANAGED_BY_TEKNOIR","message":"API keys are managed by Teknoir."}'; }
 
     location ^~ /api/v5/ {
+        # Explicit on purpose: a location with its own access_log does not inherit the server's,
+        # so the "main" log (with query strings) can never also log these requests.
+        access_log /var/log/nginx/access.log teknoir_audit if=$teknoir_audit;
         # Credentials only when the raw request path itself is /api/v5/...: a decoded or
         # dot-normalised path from another prefix (e.g. /events%2F..%2Fapi/v5/...) gets 400.
         if ($request_uri !~ "^/api/v5/") { return 400; }
@@ -53,6 +84,12 @@ server {
     location @emqx_rejected { default_type application/json; return 403 '{"code":"EMQX_CREDENTIAL_REJECTED","message":"EMQX rejected the teamspace API key; see the emqx-dashboard pod."}'; }
 
     location / {
+        # The index page changes with the EMQX version and with this proxy (teknoir-sso.js is
+        # injected): a stale cached copy made owners see the login form. Revalidate every time.
+        # add_header here replaces the server-level one, so X-Frame-Options is repeated.
+        proxy_hide_header Cache-Control;
+        add_header Cache-Control "no-cache" always;
+        add_header X-Frame-Options DENY always;
         proxy_set_header Authorization "";
         proxy_set_header Cookie "";
         proxy_set_header X-Auth-Request-Access-Token "";

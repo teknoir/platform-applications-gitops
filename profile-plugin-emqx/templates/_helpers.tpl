@@ -69,3 +69,19 @@ teknoir-sso.js: |
 default-login-guard.sh: |
 {{ .Files.Get "files/dashboard/default-login-guard.sh" | indent 2 }}
 {{- end -}}
+
+{{/*
+Principals allowed to call the EMQX management API / dashboard port (18083) of the broker pod,
+as a JSON list: the dashboard proxy's ServiceAccount (the proxy and the guard share it), or the
+gateway principals when the proxy is off, plus emqxApi.extraPrincipals.
+*/}}
+{{- define "emqx.apiPrincipals" -}}
+{{- $p := list -}}
+{{- if .Values.dashboard.enabled -}}
+{{- $p = append $p (printf "%s/ns/%s/sa/emqx-dashboard" .Values.emqxApi.trustDomain .Release.Namespace) -}}
+{{- else -}}
+{{- $p = concat $p .Values.dashboard.gatewayPrincipals -}}
+{{- end -}}
+{{- $p = concat $p .Values.emqxApi.extraPrincipals -}}
+{{- toJson $p -}}
+{{- end -}}

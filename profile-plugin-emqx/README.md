@@ -70,16 +70,61 @@ EMQX image bump.
 
 **Default passwords.** The chart sets no dashboard password. The `default-login-guard`
 container logs in with the known defaults (`dashboard.knownDefaultPasswords`: `teknoir`, and
-EMQX's built-in `public`) every `dashboard.guardIntervalSeconds` and, whenever one works,
+EMQX's built-in `public`) every `dashboard.guardIntervalSeconds` (60) and, whenever one works,
 changes the password to a random value that is never stored (nobody needs it: the proxy and
 profile-controller use the API key). It covers upgrades of an existing volume, fresh installs
 and wiped volumes, logs one line without values, and leaves any other password alone.
+While EMQX does not answer `/status` (restart, wiped volume) the guard retries every
+`dashboard.guardRetrySeconds` (10), so a re-created EMQX with its built-in default password is
+rotated within seconds of coming back. The guard is quiet in normal operation: only the
+stderr of the login attempts (they fail with 401 once the defaults are gone) is silenced; a failing
+`/status` and a failing `change_pwd` stay visible in the container log.
 Break-glass for a cluster admin:
 `kubectl -n <ns> exec emqx-0 -- emqx ctl admins passwd teknoir <password>` (the guard rotates
 `teknoir`/`public` again, but not another value).
 
-**Not changed.** `emqx-authz` and `emqx-api` keep allowing `emqx:18083` in the mesh:
-profile-controller (no sidecar) calls the EMQX API in plaintext. Developers (`teknoir-edit`)
+**Audit log.** All dashboard actions reach EMQX as the one teamspace API key, so EMQX's own
+audit log cannot name the owner. The proxy writes one `AUDIT` line per API write and per failing
+API call to its stdout (`kubectl logs deploy/emqx-dashboard -c nginx | grep ^AUDIT`):
+
+    AUDIT emqx.dashboard user="owner@example.com" method=POST path="/api/v5/clients/x/kickout" status=204 req_id="..."
+
+`user` is the gateway's `X-Auth-Request-Email` (`-` when absent), `path` is `$uri` (no query
+string, never `$request`), `req_id` is the gateway's request id for correlation. Successful reads
+are not logged. The default `main` access log does not log API requests at all (it would write
+their query strings): the API location sets its own `access_log`, and the server-level lines
+route API requests to the audit format and everything else (pages, assets) to `main`. Login and
+logout, answered by the proxy, are audited like any other POST. A malformed raw path
+(`/events%2F..%2Fapi/v5/...`, answered 400) is not an API request and goes to `main`.
+
+**Index caching.** `/` answers `Cache-Control: no-cache` (EMQX's own header is dropped): a stale
+cached `index.html` from before the proxy made owners see EMQX's login form. `X-Frame-Options`
+is repeated in that location because a location with its own `add_header` does not inherit the
+server's.
+
+**Port 18083 of EMQX (management API).** Without more, any pod in any namespace could call
+`emqx:18083` with the API key it can read: `emqx-authz` admits the port from anywhere, the
+`whitelist-namespaces` DENY exempts it, and the namespace-wide policies of profile-controller admit
+every in-namespace sidecar pod on all ports. The DENY policy `emqx-api-restrict` (`emqxApi.*`
+in `values.yaml`) closes that: on port 18083 of the `emqx` pod every mesh caller whose principal is
+not listed is denied (DENY beats every ALLOW). Allowed: the `emqx-dashboard` ServiceAccount (the
+proxy and the guard share its sidecar), or the gateway principals when `dashboard.enabled=false`,
+plus `emqxApi.extraPrincipals`. MQTT/WebSocket ports (1883, 8883, 8083, 8084) are not touched.
+Callers found (all repos, plus the live emqx sidecar): profile-controller (`plugin_emqx.go`,
+creates the MQTT bootstrap user at `emqx:18083`, no sidecar, plaintext), the proxy and the guard
+in the `emqx-dashboard` pod, and the kubelet probes (rewritten by Istio to the sidecar's
+15020, so they never reach the port from outside). Nothing else calls the API.
+
+Because profile-controller has no sidecar it has no principal, so it cannot be named in a policy.
+`emqxApi.allowPlaintext: true` (default) therefore leaves callers *without* mTLS alone and denies
+only mesh callers; that closes the hole for every Devstudio, Notebook, plugin pod and other
+teamspace, but not for a pod someone started with `sidecar.istio.io/inject: "false"`. Closing it
+needs profile-controller in the mesh: give its pod a sidecar, then set
+`emqxApi.extraPrincipals: ["cluster.local/ns/teknoir-system/sa/profile-controller"]` and
+`emqxApi.allowPlaintext: false`. Order: sidecar first, values second (the reverse breaks the MQTT
+user creation). `tests/k3d-dashboard-authz.sh` covers both modes.
+
+**Not changed.** Developers (`teknoir-edit`)
 can still read the API key Secret and exec into `emqx-0`, so "owners only" guards the browser
 path, not what a developer can do with kubectl. The dashboard's built-in WebSocket client does
 not work against the dashboard host; use `mqtt-<ns>.<domain>:443/mqtt`.
@@ -103,6 +148,7 @@ account and ship the claim presets with it. The image `nginxinc/nginx-unprivileg
 digest in `values.yaml`) must be mirrored for airgapped installs.
 
 Tests (`tests/`): `helm unittest` (`dashboard_test.yaml`), `dashboard-proxy-e2e.sh` (docker:
-real EMQX, the rendered proxy and guard, read-only like the pod), `k3d-dashboard-authz.sh`
+real EMQX, the rendered proxy and guard, read-only like the pod; includes the audit line, the
+cache headers and the guard's logging and timing), `k3d-dashboard-authz.sh`
 (throwaway k3d cluster with Istio: owner, developer, path confusion, sidecar, plaintext and
-other-namespace matrix). Both scripts take `--check` for a dry run.
+other-namespace matrix, plus direct EMQX 18083 and MQTT 1883 access in both `emqxApi` modes). Both scripts take `--check` for a dry run.

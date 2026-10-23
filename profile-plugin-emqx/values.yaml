@@ -12,13 +12,34 @@ dashboard:
   gatewayPrincipals: ["cluster.local/ns/istio-system/sa/istio-ingressgateway"]
   # Passwords the guard rotates away whenever the dashboard accepts one of them.
   knownDefaultPasswords: ["teknoir", "public"]
-  guardIntervalSeconds: 600
+  # The guard checks the defaults every guardIntervalSeconds while EMQX answers and every
+  # guardRetrySeconds while it does not (so a restarted EMQX is checked within seconds).
+  guardIntervalSeconds: 60
+  guardRetrySeconds: 10
   resources:
     requests:
       cpu: 5m
       memory: 16Mi
     limits:
       memory: 64Mi
+
+# Who may reach the EMQX management API / dashboard port (18083) of the broker pod. MQTT and
+# WebSocket ports (1883, 8883, 8083, 8084) are not affected. A DENY policy (emqx-api-restrict)
+# denies every mesh caller that is not listed, whatever the namespace-wide ALLOW policies
+# (for example the in-namespace rule of profile-controller's ns-owner-access-istio) say.
+# Allowed: the dashboard proxy's ServiceAccount (its sidecar and the guard use it), or, when
+# dashboard.enabled=false, the gateway principals that route the dashboard host to EMQX.
+emqxApi:
+  restrict: true
+  trustDomain: cluster.local
+  # More principals, for example cluster.local/ns/teknoir-system/sa/profile-controller once
+  # that pod has a sidecar (it creates the MQTT bootstrap user through this API).
+  extraPrincipals: []
+  # Callers without mTLS (no sidecar) have no principal, so Istio cannot tell them apart:
+  # profile-controller runs without a sidecar today and calls emqx:18083 in plaintext. true
+  # keeps that working (only mesh callers are denied); set false, together with
+  # extraPrincipals, once every legitimate caller is in the mesh.
+  allowPlaintext: true
 
 emqx:
   replicaCount: 1

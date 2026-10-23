@@ -4,7 +4,8 @@
 #
 # Creates the dedicated throwaway k3d cluster "emqx-dash" (context k3d-emqx-dash), installs Istio
 # 1.29.2 (minimal) with two injected gateways, then installs from THIS chart: the proxy Deployment
-# (nginx + guard), Service, VirtualService, DestinationRule, the DENY policy and emqx-authz/emqx-api,
+# (nginx + guard), Service, VirtualService, DestinationRule, the DENY policy and emqx-authz/emqx-api/
+# emqx-api-restrict (the DENY that limits EMQX's own port 18083 to the dashboard proxy),
 # in front of a real EMQX 5.8.9. Two user policies stand in for what user-controller compiles from
 # the gitops claim presets (owner: core /* with notPorts 18083 + the port-18083 rule; developer: core
 # /* with notPorts 18083 + an observatory path rule with notPorts), both bound to the gateway
@@ -76,12 +77,12 @@ keep = []
 for d in docs:
     kind, name = d["kind"], d["metadata"]["name"]
     # the dashboard proxy, its routing and the two EMQX policies (not the EMQX subchart: it is stubbed below)
-    if name == "emqx-dashboard" or (kind == "AuthorizationPolicy" and name in ("emqx-authz", "emqx-api", "emqx-dashboard-gateway-only")):
+    if name == "emqx-dashboard" or (kind == "AuthorizationPolicy" and name in ("emqx-authz", "emqx-api", "emqx-api-restrict", "emqx-dashboard-gateway-only")):
         keep.append(d)
 names = sorted(f'{d["kind"]}/{d["metadata"]["name"]}' for d in keep)
 need = {"ServiceAccount/emqx-dashboard", "ConfigMap/emqx-dashboard", "Service/emqx-dashboard", "Deployment/emqx-dashboard",
        "VirtualService/emqx-dashboard", "DestinationRule/emqx-dashboard", "AuthorizationPolicy/emqx-dashboard-gateway-only",
-       "AuthorizationPolicy/emqx-authz", "AuthorizationPolicy/emqx-api"}
+       "AuthorizationPolicy/emqx-authz", "AuthorizationPolicy/emqx-api", "AuthorizationPolicy/emqx-api-restrict"}
 missing = need - set(names)
 if missing:
     sys.exit("chart does not render: " + ", ".join(sorted(missing)))
@@ -240,7 +241,7 @@ kind: Service
 metadata: {name: emqx, namespace: $NS}
 spec:
   selector: {app.kubernetes.io/name: emqx, app.kubernetes.io/instance: emqx}
-  ports: [{name: http-dashboard, port: 18083, targetPort: 18083}]
+  ports: [{name: http-dashboard, port: 18083, targetPort: 18083}, {name: mqtt, port: 1883, targetPort: 1883}]
 ---
 # test only: expose the same host on the public gateway, to prove the DENY (gateway principal) holds
 apiVersion: networking.istio.io/v1
@@ -253,7 +254,7 @@ spec:
   - route: [{destination: {host: emqx-dashboard.$NS.svc.cluster.local, port: {number: 18083}}}]
 EOF
 
-client() { # name namespace inject(true|false)
+client() { # name namespace inject(true|false) [serviceaccount]
   cat <<EOF
 ---
 apiVersion: v1
@@ -264,6 +265,7 @@ metadata:
   labels: {app: $1}
   annotations: {sidecar.istio.io/inject: "$3"}
 spec:
+  ${4:+serviceAccountName: $4}
   containers:
   - {name: curl, image: $CURL_IMAGE, imagePullPolicy: IfNotPresent, command: ["sleep", "100000"]}
 EOF
@@ -273,6 +275,9 @@ EOF
   client plain-client "$NS" false
   client other-sidecar "$OTHER_NS" true
   client other-plain "$OTHER_NS" false
+  # stands in for profile-controller once it has a sidecar (emqxApi.extraPrincipals)
+  printf -- '---\napiVersion: v1\nkind: ServiceAccount\nmetadata: {name: allowed-sa, namespace: %s}\n' "$OTHER_NS"
+  client allowed-sidecar "$OTHER_NS" true allowed-sa
 } > "$WORK/clients.yaml"
 
 log "deploying"
@@ -295,7 +300,7 @@ if ! k -n "$NS" rollout status deploy/emqx-dashboard --timeout=240s >/dev/null; 
   echo "emqx-dashboard not ready (2/2 containers: read-only root, entrypoint env script, mounts)" >&2
   k -n "$NS" get pods >&2; k -n "$NS" logs deploy/emqx-dashboard -c nginx --tail=20 >&2; exit 2
 fi
-for p in "$NS/sidecar-client" "$NS/plain-client" "$OTHER_NS/other-sidecar" "$OTHER_NS/other-plain"; do
+for p in "$NS/sidecar-client" "$NS/plain-client" "$OTHER_NS/other-sidecar" "$OTHER_NS/other-plain" "$OTHER_NS/allowed-sidecar"; do
   k -n "${p%/*}" wait --for=condition=Ready "pod/${p#*/}" --timeout=180s >/dev/null || { echo "pod $p not ready" >&2; exit 2; }
 done
 
@@ -369,17 +374,59 @@ expect "plaintext other ns, forged owner header -> proxy"     403 "$(http $OTHER
 
 log "matrix: the guard and the proxy reach EMQX through the mesh"
 EMQX="http://emqx.$NS.svc.cluster.local:18083"
-login() { http $NS sidecar-client "$EMQX/api/v5/login" -X POST -H 'Content-Type: application/json' -d "{\"username\":\"teknoir\",\"password\":\"$1\"}"; }
+# plain-client: the legacy caller (profile-controller) is plaintext; emqx-api-restrict denies mesh pods on 18083
+login() { http $NS plain-client "$EMQX/api/v5/login" -X POST -H 'Content-Type: application/json' -d "{\"username\":\"teknoir\",\"password\":\"$1\"}"; }
 for i in $(seq 1 40); do [ "$(login teknoir)" = 401 ] && break; sleep 3; done
 expect "EMQX rejects the legacy default teknoir/teknoir after the guard" 401 "$(login teknoir)"
 expect "EMQX rejects the built-in default teknoir/public"     401 "$(login public)"
 expect "the guard logged one rotation and no failure" "1 0" "$(k -n $NS logs deploy/emqx-dashboard -c default-login-guard | grep -c 'rotated a known default') $(k -n $NS logs deploy/emqx-dashboard -c default-login-guard | grep -c 'could not rotate')"
 expect "owner still gets the dashboard API after the rotation" 200 "$(http $OTHER_NS other-plain "$GW/api/v5/nodes" -H "$BEARER" -H "$SAMEORIGIN" -H "$HOSTH" -H "$(H X-Auth-Request-Email $OWNER)")"
 
+log "matrix: EMQX's own port 18083 (management API) and the MQTT port, emqx-api-restrict"
+EMQXD="http://emqx.$NS.svc.cluster.local:18083/status"
+mqtt() { # namespace pod -> hex of the broker's reply to an MQTT 3.1.1 CONNECT ("20 02 00 00" CONNACK), empty when refused
+  k -n "$1" exec "$2" -c curl -- sh -c "(printf '\020\014\000\004MQTT\004\002\000\074\000\000'; sleep 2) | nc -w 4 emqx.$NS.svc.cluster.local 1883 | od -An -tx1 | tr -s ' \n' ' '" 2>/dev/null
+}
+for i in $(seq 1 20); do [ "$(http $NS plain-client "$EMQXD")" = 200 ] && break; sleep 3; done
+expect "EMQX 18083: sidecar pod, same ns (notebook/Devstudio) is denied" 403 "$(http $NS sidecar-client "$EMQXD")"
+expect "EMQX 18083: sidecar pod, other ns is denied"          403 "$(http $OTHER_NS other-sidecar "$EMQXD")"
+expect "EMQX 18083: sidecar pod with the API-style call is denied too" 403 "$(http $NS sidecar-client "http://emqx.$NS.svc.cluster.local:18083/api/v5/nodes" -u "$API_KEY:$API_SECRET")"
+expect "EMQX 18083: plaintext pod (profile-controller today) is allowed (allowPlaintext)" 200 "$(http $NS plain-client "$EMQXD")"
+expect "EMQX 18083: plaintext pod, other ns is allowed (documented limit)" 200 "$(http $OTHER_NS other-plain "$EMQXD")"
+expect "EMQX 18083: the dashboard proxy still reaches EMQX (owner through the gateway)" 200 "$(http $OTHER_NS other-plain "$GW/api/v5/nodes" -H "$BEARER" -H "$SAMEORIGIN" -H "$HOSTH" -H "$(H X-Auth-Request-Email $OWNER)")"
+case "$(mqtt $OTHER_NS other-sidecar)" in *"20 02"*) r=connack ;; *) r=refused ;; esac
+expect "MQTT 1883: sidecar pod in another ns still gets a CONNACK" connack "$r"
+case "$(mqtt $OTHER_NS other-plain)" in *"20 02"*) r=connack ;; *) r=refused ;; esac
+expect "MQTT 1883: plaintext pod in another ns still gets a CONNACK" connack "$r"
+
+log "matrix: emqxApi.allowPlaintext=false and an extra principal"
+helm template emqx "$CHART" -n "$NS" --set "domain=$DOMAIN" --set emqxApi.allowPlaintext=false \
+  --set "emqxApi.extraPrincipals[0]=cluster.local/ns/$OTHER_NS/sa/allowed-sa" \
+  --show-only templates/authorizationpolicy.yaml > "$WORK/strict.yaml" || exit 2
+python3 -I - "$WORK/strict.yaml" "$WORK/strict-restrict.yaml" <<'PY' || exit 2
+import sys, yaml
+docs = [d for d in yaml.safe_load_all(open(sys.argv[1])) if d and d["metadata"]["name"] == "emqx-api-restrict"]
+assert len(docs) == 1
+yaml.safe_dump_all(docs, open(sys.argv[2], "w"))
+PY
+k apply -f "$WORK/strict-restrict.yaml" >/dev/null || exit 2
+for i in $(seq 1 20); do [ "$(http $NS plain-client "$EMQXD")" = 403 ] && break; sleep 3; done
+expect "strict: plaintext pod is denied"                       403 "$(http $NS plain-client "$EMQXD")"
+expect "strict: sidecar pod, same ns is denied"                403 "$(http $NS sidecar-client "$EMQXD")"
+expect "strict: the extra principal (allowed-sa) is allowed"   200 "$(http $OTHER_NS allowed-sidecar "$EMQXD")"
+expect "strict: another ServiceAccount in the same ns is denied" 403 "$(http $OTHER_NS other-sidecar "$EMQXD")"
+expect "strict: the dashboard proxy still reaches EMQX"        200 "$(http $OTHER_NS other-plain "$GW/api/v5/nodes" -H "$BEARER" -H "$SAMEORIGIN" -H "$HOSTH" -H "$(H X-Auth-Request-Email $OWNER)")"
+case "$(mqtt $OTHER_NS other-plain)" in *"20 02"*) r=connack ;; *) r=refused ;; esac
+expect "strict: MQTT 1883 is unaffected (plaintext pod)" connack "$r"
+k apply -f "$WORK/chart-selected.yaml" >/dev/null || exit 2   # back to the defaults
+
 log "control: without the DENY the in-namespace ALLOW admits a sidecar pod (the matrix above would notice)"
 k -n "$NS" delete authorizationpolicy emqx-dashboard-gateway-only >/dev/null || exit 2
 for i in $(seq 1 20); do [ "$(http $NS sidecar-client "$PX/api/v5/nodes" -H "$BEARER" -H "$SAMEORIGIN")" = 200 ] && break; sleep 3; done   # istiod push delay
 expect "control (DENY removed): sidecar same ns -> proxy"     200 "$(http $NS sidecar-client "$PX/api/v5/nodes" -H "$BEARER" -H "$SAMEORIGIN")"
+k -n "$NS" delete authorizationpolicy emqx-api-restrict >/dev/null || exit 2
+for i in $(seq 1 40); do [ "$(http $NS sidecar-client "$EMQXD")" = 200 ] && break; sleep 3; done
+expect "control (emqx-api-restrict removed): sidecar same ns -> EMQX 18083" 200 "$(http $NS sidecar-client "$EMQXD")"
 
 echo
 if [ "$FAILED" -eq 0 ]; then

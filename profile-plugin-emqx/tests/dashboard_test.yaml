@@ -243,11 +243,11 @@ tests:
           path: data.EMQX_DASHBOARD__DEFAULT_USERNAME
           value: teknoir
 
-  - it: emqx-authz and emqx-api are unchanged
+  - it: emqx-authz and emqx-api keep the MQTT ports as they are
     template: templates/authorizationpolicy.yaml
     asserts:
       - hasDocuments:
-          count: 2
+          count: 3
       - equal:
           path: spec.rules[0].to[0].operation.ports
           value: ["1883", "8883", "8083", "8084", "18083"]
@@ -256,6 +256,144 @@ tests:
           path: spec.selector.matchLabels["app.kubernetes.io/name"]
           value: emqx
         documentIndex: 1
+
+  - it: port 18083 of EMQX is denied to every mesh caller except the dashboard proxy (DENY beats all ALLOWs)
+    template: templates/authorizationpolicy.yaml
+    documentSelector:
+      path: metadata.name
+      value: emqx-api-restrict
+    asserts:
+      - equal:
+          path: spec.action
+          value: DENY
+      - equal:
+          path: spec.selector.matchLabels
+          value:
+            app.kubernetes.io/name: emqx
+            app.kubernetes.io/instance: emqx
+      - equal:
+          path: spec.rules
+          value:
+            - from:
+                - source:
+                    principals: ["*"]
+                    notPrincipals: ["cluster.local/ns/teknoir-demo/sa/emqx-dashboard"]
+              to:
+                - operation:
+                    ports: ["18083"]
+      # only the dashboard port: the MQTT / WebSocket ports are never in the DENY
+      - notMatchRegex:
+          path: spec.rules[0].to[0].operation.ports[0]
+          pattern: '^(1883|8883|8083|8084)$'
+
+  - it: the dashboard proxy principal is the ServiceAccount the Deployment runs as
+    template: templates/dashboard.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: emqx-dashboard
+
+  - it: emqxApi.allowPlaintext=false also denies callers without a sidecar; extra principals are added
+    set:
+      emqxApi.allowPlaintext: false
+      emqxApi.extraPrincipals:
+        - cluster.local/ns/teknoir-system/sa/profile-controller
+    template: templates/authorizationpolicy.yaml
+    documentSelector:
+      path: metadata.name
+      value: emqx-api-restrict
+    asserts:
+      - equal:
+          path: spec.rules[0].from[0].source
+          value:
+            notPrincipals:
+              - cluster.local/ns/teknoir-demo/sa/emqx-dashboard
+              - cluster.local/ns/teknoir-system/sa/profile-controller
+
+  - it: with the proxy off, the gateway principals are the allowed callers of EMQX 18083
+    set:
+      dashboard.enabled: false
+    template: templates/authorizationpolicy.yaml
+    documentSelector:
+      path: metadata.name
+      value: emqx-api-restrict
+    asserts:
+      - equal:
+          path: spec.rules[0].from[0].source.notPrincipals
+          value: ["cluster.local/ns/istio-system/sa/istio-ingressgateway"]
+
+  - it: emqxApi.restrict=false renders no DENY
+    set:
+      emqxApi.restrict: false
+    template: templates/authorizationpolicy.yaml
+    asserts:
+      - hasDocuments:
+          count: 2
+
+  - it: the guard checks every 60 s, retries every 10 s while EMQX is down
+    template: templates/dashboard.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[1].env
+          content:
+            name: GUARD_INTERVAL_SECONDS
+            value: "60"
+      - contains:
+          path: spec.template.spec.containers[1].env
+          content:
+            name: GUARD_RETRY_SECONDS
+            value: "10"
+
+  - it: the guard silences only the login attempts, not /status or change_pwd
+    template: templates/dashboard.yaml
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["default-login-guard.sh"]
+          pattern: 'post /api/v5/login "\$W/login.json" 2>/dev/null'
+      - matchRegex:
+          path: data["default-login-guard.sh"]
+          pattern: 'wget -q -T 10 -O /dev/null "\$U/status"; then'
+      - notMatchRegex:
+          path: data["default-login-guard.sh"]
+          pattern: '(change_pwd|/status)[^\n]*2>/dev/null'
+
+  - it: the audit log uses the path ($uri), never $request, and the API location sets its own access_log
+    template: templates/dashboard.yaml
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["default.conf.template"]
+          pattern: 'log_format teknoir_audit [^;]*user="\$http_x_auth_request_email"[^;]*path="\$uri"'
+      - notMatchRegex:
+          path: data["default.conf.template"]
+          pattern: "log_format teknoir_audit[^;]*(\\$request[^_]|\\$request\\b|\\$args|\\$query_string|\\$request_uri)"
+      - matchRegex:
+          path: data["default.conf.template"]
+          pattern: 'location \^~ /api/v5/ \{\s*#[^\n]*\n\s*#[^\n]*\n\s*access_log /var/log/nginx/access.log teknoir_audit if=\$teknoir_audit;'
+      - matchRegex:
+          path: data["default.conf.template"]
+          pattern: 'access_log /var/log/nginx/access.log main if=\$teknoir_log_main;'
+
+  - it: the index page is revalidated and keeps X-Frame-Options
+    template: templates/dashboard.yaml
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["default.conf.template"]
+          pattern: 'location / \{[^}]*add_header Cache-Control "no-cache" always;[^}]*add_header X-Frame-Options DENY always;'
 
   - it: dashboard.enabled=false renders no proxy Deployment (no guard runs)
     set:

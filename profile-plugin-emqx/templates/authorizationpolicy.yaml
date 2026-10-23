@@ -39,3 +39,37 @@ spec:
         - source:
             namespaces:
               - "teknoir-system"
+
+{{- if .Values.emqxApi.restrict }}
+
+---
+# The EMQX management API and dashboard port. emqx-authz above admits port 18083 from anywhere
+# and the namespace-wide policies of profile-controller admit every in-namespace sidecar pod on
+# all ports, so a notebook or a Devstudio could call the API with the API key it can read. A
+# DENY is evaluated before every ALLOW: any mesh caller that is not in emqx.apiPrincipals is
+# denied on 18083. Without mTLS a caller has no principal (profile-controller today): that is
+# allowed while emqxApi.allowPlaintext is true. MQTT/WebSocket ports are not touched.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  labels:
+    teknoir.org/plugin: emqx
+  name: emqx-api-restrict
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: emqx
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  action: DENY
+  rules:
+    - from:
+        - source:
+            {{- if .Values.emqxApi.allowPlaintext }}
+            principals: ["*"]
+            {{- end }}
+            notPrincipals: {{ include "emqx.apiPrincipals" . }}
+      to:
+        - operation:
+            ports: ["18083"]
+{{- end }}

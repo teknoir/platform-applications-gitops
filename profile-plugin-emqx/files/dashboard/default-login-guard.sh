@@ -2,10 +2,19 @@
 # Rotates the well-known EMQX dashboard passwords. Nobody logs in to EMQX any more (the
 # proxy uses the teamspace API key), so the new password is random and never stored.
 # Idempotent: it does nothing once the known defaults are gone, and it logs no values.
+#
+# Logging: the login attempts with the known defaults fail on purpose (HTTP 401) once the
+# defaults are gone, so only the stderr of those POST /api/v5/login calls is silenced. A
+# failing /status (EMQX down) and a failing change_pwd stay visible, with wget's own message.
+# Timing: every GUARD_INTERVAL_SECONDS (60) while EMQX answers; while it does not, the guard
+# retries every GUARD_RETRY_SECONDS (10), so a restarted or re-created EMQX (a wiped volume
+# brings the default password back) is checked within seconds of coming back, not after a
+# whole interval.
 U="${EMQX_DASHBOARD_UPSTREAM:?}"
 USER_NAME="${EMQX_DASHBOARD_ADMIN:-teknoir}"
 KNOWN="${EMQX_KNOWN_DEFAULT_PASSWORDS:-teknoir public}"
-INTERVAL="${GUARD_INTERVAL_SECONDS:-600}"
+INTERVAL="${GUARD_INTERVAL_SECONDS:-60}"
+RETRY="${GUARD_RETRY_SECONDS:-10}"
 W=/tmp/guard
 mkdir -p "$W"
 
@@ -21,7 +30,7 @@ guard_once() { # returns 2 when EMQX is unreachable, else 0
   if ! wget -q -T 10 -O /dev/null "$U/status"; then return 2; fi
   for pw in $KNOWN; do
     printf '{"username":"%s","password":"%s"}' "$USER_NAME" "$pw" > "$W/login.json"
-    resp=$(post /api/v5/login "$W/login.json") || continue
+    resp=$(post /api/v5/login "$W/login.json" 2>/dev/null) || continue
     token=$(printf '%s' "$resp" | sed -n 's/.*"token" *: *"\([^"]*\)".*/\1/p')
     [ -n "$token" ] || continue
     newpw="$(head -c 96 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 40)a1"
@@ -40,5 +49,5 @@ guard_once() { # returns 2 when EMQX is unreachable, else 0
 
 while true; do
   guard_once
-  if [ $? -eq 2 ]; then sleep 30; else sleep "$INTERVAL"; fi
+  if [ $? -eq 2 ]; then sleep "$RETRY"; else sleep "$INTERVAL"; fi
 done
