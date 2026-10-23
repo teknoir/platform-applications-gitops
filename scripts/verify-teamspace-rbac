@@ -1,0 +1,214 @@
+#!/usr/bin/env bash
+# Verifies the teamspace credential hardening of plans/security-findings-2026-10-23.md on STAGING (context vpro):
+#   F1  no ghcr-token (personal PAT) in teamspaces; pods still pull private ghcr.io/teknoir/* through the Harbor node mirror
+#   F2  default-editor is bound to the read-only workload role teknoir-workload; teknoir-edit is the pods/exec policy marker
+#
+# Read-only except --canary, which creates and deletes ONE throwaway pod. Never prints Secret data (names only).
+#
+#   scripts/verify-teamspace-rbac --baseline              # before the release: print today's answers (to diff against)
+#   scripts/verify-teamspace-rbac                         # after the release: assert the expected matrix (exit 1 on any miss)
+#   scripts/verify-teamspace-rbac --canary                # also run the F1 canary pod (needs the new profile-controller live)
+#   scripts/verify-teamspace-rbac --canary-only
+#
+# Options: --context CTX (default vpro; production names are refused)  --namespace NS (default teknoir-demo)
+#          --image IMG (canary image, default ghcr.io/teknoir/devstudio-cloud:latest, private, Always)
+#          --dev USER (developer user, default claude-agent@teknoir.cloud)  --owner USER (default anders.aslund@teknoir.ai)
+# Needs a kubeconfig user that may impersonate (the admin kubeconfig). `kubectl auth can-i --as` is a read.
+set -uo pipefail
+
+CTX=vpro NS=teknoir-demo MODE=check CANARY=0 CANARY_ONLY=0
+IMAGE=ghcr.io/teknoir/devstudio-cloud:latest
+DEV=claude-agent@teknoir.cloud OWNER=anders.aslund@teknoir.ai
+# Namespaces that legitimately keep ghcr-token (platform namespaces, not developer-readable).
+ALLOWED_GHCR_NS="${ALLOWED_GHCR_NS:-teknoir-system teknoir-auth teknoir-ztna}"
+
+while (($#)); do
+  case "$1" in
+    --baseline) MODE=baseline ;;
+    --canary) CANARY=1 ;;
+    --canary-only) CANARY=1 CANARY_ONLY=1 ;;
+    --context) CTX="$2"; shift ;;
+    --namespace) NS="$2"; shift ;;
+    --image) IMAGE="$2"; shift ;;
+    --dev) DEV="$2"; shift ;;
+    --owner) OWNER="$2"; shift ;;
+    -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
+    *) echo "unknown option $1" >&2; exit 2 ;;
+  esac
+  shift
+done
+case "$CTX" in *online*|*eks*|*prod*) echo "refusing context $CTX (production)" >&2; exit 2 ;; esac
+K=(kubectl --context "$CTX")
+"${K[@]}" get ns "$NS" >/dev/null 2>&1 || { echo "cannot read namespace $NS on context $CTX" >&2; exit 2; }
+
+DE="system:serviceaccount:$NS:default-editor"
+DV="system:serviceaccount:$NS:default-viewer"
+BS="system:serviceaccount:teknoir-system:backstage-api"
+
+pass=0 fail=0
+ask() { # who expected verb resource [subresource]   expected: yes|no|-
+  local who="$1" want="$2" verb="$3" res="$4" sub="${5:-}" args out
+  args=(auth can-i "$verb" "$res" -n "$NS" --as "$who")
+  [[ -n "$sub" ]] && args+=(--subresource "$sub")
+  out=$("${K[@]}" "${args[@]}" 2>&1 | head -1)
+  case "$out" in yes|no) ;; *) out="ERROR: $out" ;; esac
+  local label="$verb $res${sub:+/$sub}"
+  if [[ "$MODE" == baseline ]]; then printf '%-52s %-34s %s\n' "$who" "$label" "$out"; return; fi
+  if [[ "$out" == "$want" ]]; then pass=$((pass+1)); printf 'PASS  %-50s %-34s %s\n' "$who" "$label" "$out"
+  else fail=$((fail+1)); printf 'FAIL  %-50s %-34s got %s, want %s\n' "$who" "$label" "$out" "$want"; fi
+}
+
+matrix() {
+  echo "== can-i matrix in $NS on $CTX"
+  # default-editor: the workload identity. Read like a viewer, update Devices, nothing else.
+  ask "$DE" no  get secrets
+  ask "$DE" no  list secrets
+  ask "$DE" no  get secret/domain-wildcard-tls
+  ask "$DE" no  create pods exec
+  ask "$DE" no  create pods
+  ask "$DE" no  delete pods
+  ask "$DE" no  impersonate serviceaccounts
+  ask "$DE" no  create serviceaccounts token
+  ask "$DE" no  create rolebindings.rbac.authorization.k8s.io
+  ask "$DE" no  update deployments.apps
+  ask "$DE" no  update configmaps
+  ask "$DE" yes get pods
+  ask "$DE" yes get pods log
+  ask "$DE" yes list configmaps
+  ask "$DE" yes get devices.teknoir.org
+  ask "$DE" yes list devices.teknoir.org
+  ask "$DE" yes watch devices.teknoir.org
+  ask "$DE" yes update devices.teknoir.org       # Devstudio node-red-teknoir-configure-devices PUTs the Device
+  ask "$DE" yes patch devices.teknoir.org
+  ask "$DE" no  create devices.teknoir.org
+  ask "$DE" no  delete devices.teknoir.org
+  ask "$DE" no  update robots.teknoir.org
+  # default-viewer: unchanged read-only
+  ask "$DV" no  get secrets
+  ask "$DV" no  create pods exec
+  ask "$DV" yes get pods
+  # developer user (teknoir-edit): the exec marker stays (Backstage canExec and the WireGuard hub ask exactly this)
+  ask "$DEV" yes create pods exec
+  ask "$DEV" no  get secrets
+  ask "$DEV" no  list secrets
+  ask "$DEV" no  create pods
+  ask "$DEV" no  delete pods
+  ask "$DEV" no  impersonate serviceaccounts
+  ask "$DEV" no  create pods portforward
+  ask "$DEV" no  create pods attach
+  ask "$DEV" no  create rolebindings.rbac.authorization.k8s.io     # isAdmin is false for developers
+  ask "$DEV" no  update configmaps
+  ask "$DEV" yes get pods
+  # owner (teknoir-admin = edit + rolebindings + LocalSubjectAccessReview): admin gate unchanged
+  ask "$OWNER" yes create pods exec
+  ask "$OWNER" yes create rolebindings.rbac.authorization.k8s.io
+  ask "$OWNER" yes create localsubjectaccessreviews.authorization.k8s.io
+  ask "$OWNER" no  get secrets                                      # owner-visible secrets go through Backstage
+  ask "$OWNER" no  impersonate serviceaccounts
+  # Backstage API: unchanged, only the two named Secrets
+  ask "$BS" yes get secret/mongodb-credentials
+  ask "$BS" yes get secret/emqx-bootstrap-user
+  ask "$BS" no  get secret/ghcr-token
+  ask "$BS" no  list secrets
+  ask "$BS" yes create localsubjectaccessreviews.authorization.k8s.io
+  ask "$BS" yes list devices.teknoir.org
+}
+
+live_state() {
+  echo "== live objects"
+  local ref
+  ref=$("${K[@]}" -n "$NS" get rolebinding default-editor -o jsonpath='{.roleRef.kind}/{.roleRef.name}' 2>&1)
+  chk "RoleBinding $NS/default-editor roleRef" "ClusterRole/teknoir-workload" "$ref"
+  ref=$("${K[@]}" -n "$NS" get rolebinding default-viewer -o jsonpath='{.roleRef.kind}/{.roleRef.name}' 2>&1)
+  chk "RoleBinding $NS/default-viewer roleRef" "ClusterRole/teknoir-view" "$ref"
+  # The aggregated result (ArgoCD ignores .rules of the aggregated roles, so the UI cannot show drift)
+  local rules
+  for cr in teknoir-edit teknoir-admin; do
+    rules=$("${K[@]}" get clusterrole "$cr" -o json 2>/dev/null | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+res = set(); verbs = set()
+for r in d.get("rules", []):
+    for x in r.get("resources", []): res.add(x)
+    for v in r.get("verbs", []): verbs.add(v)
+bad = sorted(x for x in res if x in ("secrets", "pods/attach", "pods/portforward", "pods/proxy", "services/proxy"))
+if "impersonate" in verbs: bad.append("verb impersonate")
+print("pods/exec" if "pods/exec" in res else "NO-EXEC-MARKER", "clean" if not bad else "HAS:" + ",".join(bad))
+' 2>/dev/null)
+    chk "live ClusterRole $cr (aggregated)" "pods/exec clean" "${rules:-unreadable}"
+  done
+  rules=$("${K[@]}" get clusterrole teknoir-workload -o json 2>/dev/null | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+print("aggregated" if d.get("aggregationRule") else "plain", len(d.get("rules", [])))
+' 2>/dev/null)
+  chk "ClusterRole teknoir-workload" "plain 10" "${rules:-missing}"
+}
+
+chk() { # label want got
+  if [[ "$2" == "$3" ]]; then pass=$((pass+1)); printf 'PASS  %-50s %s\n' "$1" "$3"
+  else fail=$((fail+1)); printf 'FAIL  %-50s got %s, want %s\n' "$1" "$3" "$2"; fi
+}
+
+f1_state() {
+  echo "== F1: ghcr-token copies (names only, no data)"
+  local have ns bad=""
+  have=$("${K[@]}" get secret -A --field-selector metadata.name=ghcr-token -o jsonpath='{range .items[*]}{.metadata.namespace}{"\n"}{end}' 2>&1 | sort | tr '\n' ' ')
+  echo "namespaces with ghcr-token: ${have:-none}"
+  if [[ "$MODE" == baseline ]]; then return; fi
+  for ns in $have; do
+    [[ " $ALLOWED_GHCR_NS " == *" $ns "* ]] || bad="$bad $ns"
+  done
+  chk "ghcr-token only in platform namespaces" "" "${bad# }"
+  local out
+  out=$("${K[@]}" -n "$NS" get secret ghcr-token 2>&1 | head -1)
+  [[ "$out" == *NotFound* || "$out" == *"not found"* ]] && out=NotFound
+  chk "secret ghcr-token in $NS" "NotFound" "$out"
+  echo "pods in $NS that still reference ghcr-token (devstudio/notebook controllers and plugin charts add it; harmless, cosmetic):"
+  "${K[@]}" -n "$NS" get pods -o jsonpath='{range .items[?(@.spec.imagePullSecrets)]}{.metadata.name}{"\n"}{end}' 2>/dev/null | sed 's/^/  /'
+  echo "FailedToRetrieveImagePullSecret events in $NS (expected for pods that start after the copy is gone):"
+  "${K[@]}" -n "$NS" get events --field-selector reason=FailedToRetrieveImagePullSecret --no-headers 2>/dev/null | tail -5 | sed 's/^/  /'
+}
+
+canary() {
+  echo "== F1 canary: private image, NO imagePullSecrets, pulled through the Harbor node mirror ($IMAGE)"
+  local name="pullcanary-$(date +%s)" phase="" i st=""
+  "${K[@]}" -n "$NS" apply -f - >/dev/null <<EOF || { echo "FAIL  cannot create the canary pod"; fail=$((fail+1)); return; }
+apiVersion: v1
+kind: Pod
+metadata:
+  name: $name
+  labels: {app: pullcanary, sidecar.istio.io/inject: "false"}
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  serviceAccountName: default
+  containers:
+    - name: canary
+      image: $IMAGE
+      imagePullPolicy: Always
+      command: ["sh", "-c", "exit 0"]
+EOF
+  for i in $(seq 1 60); do
+    phase=$("${K[@]}" -n "$NS" get pod "$name" -o jsonpath='{.status.phase}' 2>/dev/null)
+    st=$("${K[@]}" -n "$NS" get pod "$name" -o jsonpath='{.status.containerStatuses[0].state.waiting.reason}' 2>/dev/null)
+    [[ "$phase" == Succeeded || "$phase" == Failed || "$st" == ErrImagePull || "$st" == ImagePullBackOff ]] && break
+    sleep 3
+  done
+  echo "pod $name: phase=${phase:-?} waiting=${st:-none} imagePullSecrets=$("${K[@]}" -n "$NS" get pod "$name" -o jsonpath='{.spec.imagePullSecrets}' 2>/dev/null)"
+  "${K[@]}" -n "$NS" get events --field-selector involvedObject.name="$name" --no-headers 2>/dev/null | sed 's/^/  event: /'
+  chk "canary pod pulled the private image without a pull secret" "Succeeded" "${phase:-timeout}"
+  "${K[@]}" -n "$NS" delete pod "$name" --wait=false >/dev/null 2>&1
+  echo "Also check Harbor: registry/core logs show ghcr/teknoir/... pulled by robot 'nodes' and no new \"failed to authenticate user:tekn0ir\"."
+}
+
+if ((CANARY_ONLY)); then canary
+else
+  matrix
+  [[ "$MODE" == baseline ]] || live_state
+  f1_state
+  ((CANARY)) && canary
+fi
+if [[ "$MODE" == baseline ]]; then echo "(baseline: no expectations checked)"; exit 0; fi
+echo "== $pass passed, $fail failed"
+((fail == 0))
