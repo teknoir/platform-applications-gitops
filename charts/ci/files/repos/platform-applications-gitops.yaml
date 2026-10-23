@@ -4,9 +4,11 @@
 #   release-tooling: scripts/tests/run.sh (python unittest of scripts/, helm unittest of app-of-apps and
 #                    release-guard, root render vs origin/teknoir-cloud when that ref exists; the CI's
 #                    shallow clone has none, so that part is skipped)
-#   chart-unittests: helm unittest of every chart with tests/*_test.yaml
+#   chart-unittests: helm unittest of every chart with tests/*_test.yaml (dependencies built first: the monitoring
+#                    tests render kube-prometheus-stack subchart templates)
 #   harbor-scripts:  python unittest of charts/harbor/tests (harbor-config against a fake Harbor and k8s API,
-#                    the ghcr path guard in LuaJIT); CI=1 makes the Lua tests fail, not skip, without luajit
+#                    the ghcr path guard in LuaJIT, set-upstream-credential.sh which needs bash); CI=1 makes the
+#                    Lua tests fail, not skip, without luajit
 branches: ['**']
 tests:
   - name: release-tooling
@@ -25,7 +27,9 @@ tests:
       rc=0 &&
       for t in charts/*/tests; do
       ls "$t"/*_test.yaml >/dev/null 2>&1 || continue;
-      c=${t%/tests}; echo "== $c"; helm unittest "$c" || rc=1;
+      c=${t%/tests}; echo "== $c";
+      if grep -q '^dependencies:' "$c/Chart.yaml"; then helm dependency build "$c" >/dev/null || rc=1; fi;
+      helm unittest "$c" || rc=1;
       done &&
       exit $rc
   - name: harbor-scripts
@@ -33,6 +37,6 @@ tests:
     image: "docker.io/nickblah/luajit@sha256:0c1d93093ea91bdb1b93a0c2ccb3b907f48aca901a27d74db8aa660b587c68c4"
     memory: 1Gi
     run: >-
-      apk add --no-cache -q python3 >/dev/null &&
+      apk add --no-cache -q python3 bash >/dev/null &&
       CI=1 python3 -m unittest discover -s charts/harbor/tests -p 'test_*.py'
 githubActions: keep
