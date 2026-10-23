@@ -226,6 +226,12 @@ spec:
                           description: Note says why the override is there.
                           maxLength: 512
                           type: string
+                        "off":
+                          description: |-
+                            Off leaves the resource out of the device's configuration: the device
+                            deletes it (a HelmChart's release is uninstalled). Values, version and
+                            images stay and apply again when Off is removed.
+                          type: boolean
                         setAt:
                           description: SetAt is when the override was set (RFC 3339).
                             The backend stamps it.
@@ -481,8 +487,8 @@ spec:
                             is.
                           type: string
                         state:
-                          description: State is active, redundant, no-target, invalid
-                            or not-applicable.
+                          description: State is active, redundant, no-target, invalid,
+                            not-applicable or off.
                           type: string
                         target:
                           description: |-
