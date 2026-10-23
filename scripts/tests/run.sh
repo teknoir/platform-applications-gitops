@@ -23,7 +23,7 @@ python3 -W ignore -m unittest discover -s scripts/tests -p 'test_*.py' 2>&1 | gr
 echo "== helm unittest"
 # charts/monitoring renders its kube-prometheus-stack dependency (git-ignored charts/; ArgoCD builds it itself): build it once
 compgen -G "charts/monitoring/charts/kube-prometheus-stack-*.tgz" >/dev/null || helm dependency build charts/monitoring >/dev/null 2>&1 || echo "WARN: helm dependency build charts/monitoring failed (offline?)"
-helm unittest charts/app-of-apps charts/release-guard charts/monitoring charts/profile-controller 2>&1 | grep -E "^(Charts|Test Suites|Tests):"
+helm unittest charts/app-of-apps charts/release-guard charts/monitoring charts/profile-controller charts/user-controller 2>&1 | grep -E "^(Charts|Test Suites|Tests):"
 
 rc=0
 BASE="${BASE:-origin/teknoir-cloud}"

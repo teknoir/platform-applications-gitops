@@ -73,6 +73,13 @@ config:
   # Needs profile-controller sha-f31a3fbd or later (an older image ignores the key and keeps copying). Rollback: set to "".
   pullSecrets:
     names: "none"
+  # ClusterRole bound to the ServiceAccount default-editor in every teamspace (env DEFAULT_EDITOR_CLUSTERROLE). Empty: teknoir-edit.
+  # Staging: teknoir-workload (charts/user-controller; read-only plus Devices update), because the default-editor token is mounted
+  # into every Devstudio, Notebook and plugin pod and no pod needs secrets, exec or writes
+  # (plans/security-findings-2026-10-23.md F2). Needs profile-controller sha-f31a3fbd or later and the teknoir-workload
+  # ClusterRole (charts/user-controller, same release). Rollback: scripts/staging-release --rollback (setting "" only
+  # rebinds teknoir-edit, which this release also trims).
+  defaultEditorClusterRole: teknoir-workload
 
 resources: {}
   # limits:

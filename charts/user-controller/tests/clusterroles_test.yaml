@@ -1,0 +1,115 @@
+suite: clusterroles
+# plans/security-findings-2026-10-23.md F2: teknoir-edit is the exec policy marker plus the view read set;
+# teknoir-workload is the identity of teamspace workloads (ServiceAccount default-editor).
+templates:
+  - templates/clusterroles.yaml
+tests:
+  - it: renders the aggregated roles without rules of their own, with the selectors they always had
+    asserts:
+      - equal: {path: 'aggregationRule.clusterRoleSelectors[0].matchLabels["rbac.authorization.teknoir.org/aggregate-to-teknoir-admin"]', value: "true"}
+        documentSelector: {path: metadata.name, value: teknoir-admin}
+      - equal: {path: 'aggregationRule.clusterRoleSelectors[0].matchLabels["rbac.authorization.teknoir.org/aggregate-to-teknoir-edit"]', value: "true"}
+        documentSelector: {path: metadata.name, value: teknoir-edit}
+      - equal: {path: 'aggregationRule.clusterRoleSelectors[0].matchLabels["rbac.authorization.teknoir.org/aggregate-to-teknoir-view"]', value: "true"}
+        documentSelector: {path: metadata.name, value: teknoir-view}
+      - equal: {path: 'metadata.labels["rbac.authorization.teknoir.org/aggregate-to-teknoir-admin"]', value: "true"}
+        documentSelector: {path: metadata.name, value: teknoir-edit}
+      - equal: {path: 'metadata.labels["rbac.authorization.teknoir.org/aggregate-to-teknoir-edit"]', value: "true"}
+        documentSelector: {path: metadata.name, value: teknoir-view}
+
+  # ---- teknoir-kubernetes-edit: exactly the marker ----
+  - it: teknoir-kubernetes-edit is exactly one rule, create pods/exec, labelled into teknoir-edit
+    documentSelector: {path: metadata.name, value: teknoir-kubernetes-edit}
+    asserts:
+      - equal: {path: 'metadata.labels["rbac.authorization.teknoir.org/aggregate-to-teknoir-edit"]', value: "true"}
+      - lengthEqual: {path: rules, count: 1}
+      - equal: {path: "rules[0]", value: {apiGroups: [""], resources: [pods/exec], verbs: [create]}}
+
+  - it: teknoir-kubernetes-edit has no secrets, impersonate, attach, portforward, proxy, or write verbs
+    documentSelector: {path: metadata.name, value: teknoir-kubernetes-edit}
+    asserts:
+      - notEqual: {path: "rules[*].resources[*]", value: secrets}
+      - notEqual: {path: "rules[*].resources[*]", value: serviceaccounts}
+      - notEqual: {path: "rules[*].resources[*]", value: pods/attach}
+      - notEqual: {path: "rules[*].resources[*]", value: pods/portforward}
+      - notEqual: {path: "rules[*].resources[*]", value: pods/proxy}
+      - notEqual: {path: "rules[*].resources[*]", value: services/proxy}
+      - notEqual: {path: "rules[*].verbs[*]", value: impersonate}
+      - notEqual: {path: "rules[*].verbs[*]", value: get}
+      - notEqual: {path: "rules[*].verbs[*]", value: delete}
+      - notEqual: {path: "rules[*].verbs[*]", value: update}
+      - notEqual: {path: "rules[*].verbs[*]", value: patch}
+
+  # ---- teknoir-kubernetes-view: still the non-secret read set, nothing more ----
+  - it: teknoir-kubernetes-view is read only and has no secrets or exec
+    documentSelector: {path: metadata.name, value: teknoir-kubernetes-view}
+    asserts:
+      - equal: {path: 'metadata.labels["rbac.authorization.teknoir.org/aggregate-to-teknoir-view"]', value: "true"}
+      - notEqual: {path: "rules[*].resources[*]", value: secrets}
+      - notEqual: {path: "rules[*].resources[*]", value: pods/exec}
+      - isNotEmpty: {path: "rules[?(@.resources[?(@ == 'pods/log')])]"}
+      - notEqual: {path: "rules[*].verbs[*]", value: create}
+      - notEqual: {path: "rules[*].verbs[*]", value: update}
+      - notEqual: {path: "rules[*].verbs[*]", value: patch}
+      - notEqual: {path: "rules[*].verbs[*]", value: delete}
+      - notEqual: {path: "rules[*].verbs[*]", value: impersonate}
+
+  # ---- teknoir-kubernetes-admin: Owners keep rolebindings (isAdmin) and LocalSubjectAccessReviews ----
+  - it: teknoir-kubernetes-admin keeps rolebindings and localsubjectaccessreviews
+    documentSelector: {path: metadata.name, value: teknoir-kubernetes-admin}
+    asserts:
+      - equal: {path: 'metadata.labels["rbac.authorization.teknoir.org/aggregate-to-teknoir-admin"]', value: "true"}
+      - isNotEmpty: {path: "rules[?(@.resources[?(@ == 'rolebindings')])]"}
+      - isNotEmpty: {path: "rules[?(@.resources[?(@ == 'localsubjectaccessreviews')])]"}
+
+  # ---- teknoir-workload: the identity of teamspace workloads ----
+  - it: teknoir-workload is a plain ClusterRole, not aggregated and not aggregated into anything
+    documentSelector: {path: metadata.name, value: teknoir-workload}
+    asserts:
+      - isKind: {of: ClusterRole}
+      - notExists: {path: aggregationRule}
+      - notExists: {path: metadata.labels}
+
+  - it: teknoir-workload cannot read secrets, exec, attach, forward, proxy or impersonate
+    documentSelector: {path: metadata.name, value: teknoir-workload}
+    asserts:
+      - notEqual: {path: "rules[*].resources[*]", value: secrets}
+      - notEqual: {path: "rules[*].resources[*]", value: pods/exec}
+      - notEqual: {path: "rules[*].resources[*]", value: pods/attach}
+      - notEqual: {path: "rules[*].resources[*]", value: pods/portforward}
+      - notEqual: {path: "rules[*].resources[*]", value: pods/proxy}
+      - notEqual: {path: "rules[*].resources[*]", value: services/proxy}
+      - notEqual: {path: "rules[*].resources[*]", value: rolebindings}
+      - notEqual: {path: "rules[*].resources[*]", value: serviceaccounts/token}
+      - notEqual: {path: "rules[*].verbs[*]", value: impersonate}
+      - notEqual: {path: "rules[*].verbs[*]", value: create}
+      - notEqual: {path: "rules[*].verbs[*]", value: delete}
+      - notEqual: {path: "rules[*].verbs[*]", value: deletecollection}
+      - notEqual: {path: "rules[*].verbs[*]", value: "*"}
+      - notEqual: {path: "rules[*].resources[*]", value: "*"}
+      - notEqual: {path: "rules[*].apiGroups[*]", value: "*"}
+
+  - it: teknoir-workload may only write Devices (Devstudio configure-devices PUTs the Device manifest)
+    documentSelector: {path: metadata.name, value: teknoir-workload}
+    asserts:
+      # the last rule, and the only one with write verbs
+      - equal:
+          path: "rules[?(@.verbs[?(@ == 'update')])]"
+          value:
+            apiGroups: [teknoir.org]
+            resources: [devices]
+            verbs: [get, list, patch, update, watch]
+      - equal:
+          path: "rules[?(@.verbs[?(@ == 'patch')])]"
+          value:
+            apiGroups: [teknoir.org]
+            resources: [devices]
+            verbs: [get, list, patch, update, watch]
+      - notEqual: {path: "rules[*].resources[*]", value: devices/status}
+
+  - it: teknoir-workload is the read set of teknoir-kubernetes-view plus one Devices rule
+    asserts:
+      - lengthEqual: {path: rules, count: 9}
+        documentSelector: {path: metadata.name, value: teknoir-kubernetes-view}
+      - lengthEqual: {path: rules, count: 10}
+        documentSelector: {path: metadata.name, value: teknoir-workload}
