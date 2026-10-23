@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs every test of the staging release tooling:
-#   - python unittest of scripts/ (pure logic, throwaway git repos, a fake cluster/GitHub/registry; no network)
+#   - python unittest of scripts/ (pure logic, throwaway git repos, a fake cluster/GitHub/registry; no network), incl. test_ci_lfs.py (charts/ci plan.py lfs modes, clone.sh LFS pull/guard)
 #   - helm unittest of charts/app-of-apps (release helper, 19 replacements), charts/release-guard and charts/monitoring (mesh scrape)
 #   - the root render against a base ref (BASE=origin/teknoir-cloud, default): identical except for the removal of the
 #     fields ArgoCD's Go types drop (`sources: [ ]` on every child, monitoring's `group: ""`), see EXPECTED below; ROOT_RENDER_EXPECTED="project ..." accepts an intended difference of a project (a mismatch fails the run)

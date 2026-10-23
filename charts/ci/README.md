@@ -65,7 +65,8 @@ images:
     tagTagTemplates: ["{tag}"]                                  # default, tag pushes
     latest: [main, master]  # branches that also move :latest ([] = never)
     versionFile: ""         # file whose content is {version}
-    lfs: false
+    lfs: auto               # true | false | auto (default): auto pulls Git LFS objects when the repo has LFS files;
+                            # the build fails if a tracked file is still a pointer. Tests: lfs: false by default (set per test)
     submodules: false
 helm:                       # chart-releaser, as helm/chart-releaser-action
   release: [main]           # branches that release
