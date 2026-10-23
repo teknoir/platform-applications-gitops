@@ -50,7 +50,8 @@ config:
   # 0.0.107: jwks-server (jwx 1.2.29 / v2 2.0.21) and fleet-metrics (gorilla/websocket 1.5.3) on sha-* tags.
   # 0.0.108: the prometheus LowDiskSpace rule fires on <20 GB free or >90% used (not only the percentage).
   # 0.0.109: EMQX dashboard without its own login behind an owner-only proxy; default dashboard passwords rotated.
-  pluginChartVersion: "0.0.109"
+  # 0.0.110: EMQX dashboard audit line per write (owner email), no-cache index, guard every 60 s, port 18083 for the proxy only.
+  pluginChartVersion: "0.0.110"
   # Issuer and JWKS URI of the teamspace RequestAuthentication jwt-policy (env OIDC_ISSUER, OIDC_JWKS_URI).
   # Empty issuer: https://auth.<domain>/auth/realms/master, derived from `domain` above (same as the auth chart).
   # Empty jwksUri: the controller uses <issuer>/protocol/openid-connect/certs.
