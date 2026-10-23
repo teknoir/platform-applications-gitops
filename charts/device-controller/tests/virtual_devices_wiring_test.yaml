@@ -80,7 +80,7 @@ tests:
           path: spec.template.spec.containers[0].image
           pattern: "^ghcr\\.io/teknoir/device-controller:sha-[0-9a-f]{8}@sha256:[0-9a-f]{64}$"
 
-  - it: grants the manager role what the virtual device runtime needs
+  - it: grants the manager role only the virtual device reads (admission, VM cache); VM, Secret and DataVolume writes are not cluster-wide
     template: templates/rbac.yaml
     documentSelector:
       path: metadata.name
@@ -90,21 +90,15 @@ tests:
           path: rules
           content:
             apiGroups: [""]
-            resources: [namespaces, persistentvolumeclaims, resourcequotas]
+            resources: [namespaces, resourcequotas]
             verbs: [get, list, watch]
       - contains:
           path: rules
           content:
             apiGroups: [kubevirt.io]
-            resources: [virtualmachines]
-            verbs: [get, list, watch, create, update, patch, delete]
-      - contains:
-          path: rules
-          content:
-            apiGroups: [kubevirt.io]
-            resources: [virtualmachineinstances]
+            resources: [virtualmachines, virtualmachineinstances]
             verbs: [get, list, watch]
-      - contains:
+      - notContains:
           path: rules
           content:
             apiGroups: [cdi.kubevirt.io]

@@ -11,6 +11,7 @@ data:
   ISTIO_GATEWAY: {{ .Values.config.istioGateway | quote }}
   PROJECT_ID: {{ .Values.config.projectId | quote }}
   REGION: {{ .Values.config.region | quote }}
+  LEGACY_TUNNEL_CLEANUP: {{ ternary "true" "false" (default false .Values.legacyTunnelCleanup) | quote }}
   {{- if (.Values.virtualDevices).enabled }}
   VIRTUAL_DEVICES: {{ include "device-controller.vdev.configJSON" . | quote }}
   {{- end }}
