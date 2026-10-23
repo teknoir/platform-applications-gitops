@@ -75,6 +75,7 @@ spec:
                 - {name: cpu, value: "{{item.cpu}}"}
                 - {name: memory, value: "{{item.memory}}"}
                 - {name: depth, value: "{{item.depth}}"}
+                - {name: lfs, value: "{{item.lfs}}"}
           - name: image
             depends: test
             when: "{{tasks.plan.outputs.parameters.active}} == true"
@@ -149,6 +150,7 @@ spec:
           - name: cpu
           - name: memory
           - name: depth
+          - name: lfs
       metadata:
         labels: {teknoir.org/ci-role: test}
       # Repo code (tests) runs only on the CI build node, never on r415 (the k3s server).
@@ -167,6 +169,7 @@ spec:
             - {name: REPO, value: "{{workflow.parameters.repo}}"}
             - {name: SHA, value: "{{workflow.parameters.sha}}"}
             - {name: DEPTH, value: "{{inputs.parameters.depth}}"}
+            - {name: LFS, value: "{{inputs.parameters.lfs}}"}
           volumeMounts:
             - {name: src, mountPath: /src}
             - {name: scripts, mountPath: /scripts}

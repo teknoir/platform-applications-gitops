@@ -226,6 +226,14 @@ def b64(s):
     return base64.b64encode(s.encode()).decode()
 
 
+def lfs_mode(value):
+    """Normalize a Git LFS setting to "true", "false" or "auto" (YAML booleans arrive as bool)."""
+    mode = str(value).strip().lower()
+    if mode not in ("true", "false", "auto"):
+        die(f"lfs must be true, false or auto, not {value!r}")
+    return mode
+
+
 def merge(defaults, cfg):
     res = dict(defaults)
     for k, v in cfg.items():
@@ -301,7 +309,7 @@ def main():
                       "script": b64(t["run"]), "shell": t.get("shell", "sh"),
                       "cpu": str(t.get("cpu", defaults["test"]["cpu"])),
                       "memory": str(t.get("memory", defaults["test"]["memory"])),
-                      "depth": str(t.get("depth", 1))})
+                      "depth": str(t.get("depth", 1)), "lfs": lfs_mode(t.get("lfs", False))})
 
     # -- images
     images = []
@@ -354,7 +362,7 @@ def main():
         images.append({"name": img["name"], "refs": " ".join(refs), "args": b64("\n".join(args)),
                        "prebuild": b64(img.get("preBuild", "")),
                        "builders": " ".join(BUILDERS[b] for b in order if b in BUILDERS),
-                       "depth": str(img.get("depth", 1)), "lfs": str(bool(img.get("lfs", False))).lower(),
+                       "depth": str(img.get("depth", 1)), "lfs": lfs_mode(img.get("lfs", "auto")),
                        "submodules": str(bool(img.get("submodules", False))).lower(),
                        "platforms": ",".join(platforms)})
 
