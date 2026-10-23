@@ -622,6 +622,35 @@ spec:
                     type: number
                   storage_usage:
                     type: number
+                  toe:
+                    description: |-
+                      Toe is the TOE build a device reports through toe_build_info, with the
+                      capability tokens that build advertises. It is nil while no build has
+                      been seen (or after an old TOE that does not report the metric has
+                      replaced the reporting one; see the DeviceState plugin).
+                    properties:
+                      capabilities:
+                        description: |-
+                          Capabilities are the capability tokens the build advertises (for
+                          example "apply-v2"), unioned over every series Prometheus reports.
+                          Tokens are compared case-sensitively.
+                        items:
+                          type: string
+                        type: array
+                      commit:
+                        description: Commit is the git commit the reporting build
+                          was made from.
+                        type: string
+                      seenAt:
+                        description: |-
+                          SeenAt (RFC3339) is when the controller last saw a reporting build.
+                          Capabilities stay while the device is gone; they are cleared only when
+                          a running TOE has stopped reporting for a while.
+                        type: string
+                      version:
+                        description: Version is the TOE version of the reporting build.
+                        type: string
+                    type: object
                 type: object
               virtual_device:
                 description: VirtualDevice is set by the VirtualDevice plugin on virtual
