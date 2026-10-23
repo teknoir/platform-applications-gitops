@@ -209,6 +209,9 @@ tests:
       - isKind: {of: Role}
       - equal: {path: metadata.namespace, value: teknoir-demo-vdev}
       - equal:
+          path: metadata.annotations["argocd.argoproj.io/sync-options"]
+          value: Prune=false,Delete=false
+      - equal:
           path: rules
           value:
             - {apiGroups: [""], resources: [secrets], verbs: [get, create, delete]}
@@ -223,6 +226,9 @@ tests:
     asserts:
       - isKind: {of: RoleBinding}
       - equal: {path: metadata.namespace, value: teknoir-demo-vdev}
+      - equal:
+          path: metadata.annotations["argocd.argoproj.io/sync-options"]
+          value: Prune=false,Delete=false
       - equal: {path: roleRef.name, value: x-device-controller-vdev}
       - equal: {path: "subjects[0].name", value: device-controller-service-account}
 

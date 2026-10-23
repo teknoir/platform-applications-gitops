@@ -380,7 +380,8 @@ subjects:
 # (templates/virtual-devices-runtime.yaml). The cloud-init Secret <device>-cloudinit (plugin_virtualdevice/cloudinit.go)
 # and the VirtualMachine (vm.go, plugin_virtualdevice.go). Reads come from the ClusterRole. DataVolumes are
 # not written: the root disk is a dataVolumeTemplate of the VM, which virt-controller creates. If the VM create
-# is ever refused over that template, add create on cdi.kubevirt.io datavolumes here, not cluster-wide.
+# is ever refused over that template, add create on cdi.kubevirt.io datavolumes here, not cluster-wide. A clone or
+# sourceRef disk source (instead of registry) would also need a CDI clone-auth grant for the requester.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -388,6 +389,10 @@ metadata:
   namespace: {{ $ts }}-vdev
   labels:
     {{- include "device-controller.labels" $ | nindent 4 }}
+  annotations:
+    # Lives as long as the runtime namespace (also Prune=false,Delete=false): a removed allowance keeps its VMs,
+    # and this Role is the only grant of their writes.
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
 rules:
 - apiGroups:
   - ""
@@ -414,6 +419,8 @@ metadata:
   namespace: {{ $ts }}-vdev
   labels:
     {{- include "device-controller.labels" $ | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
