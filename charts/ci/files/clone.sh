@@ -40,7 +40,8 @@ if [ "${LFS:-false}" = true ]; then
 	git -c http.https://github.com/.extraHeader="$auth" lfs pull
 	# `git lfs ls-files` marks an object that is not in the working tree with "-" (present: "*").
 	# Fail the step rather than build an image of pointer files.
-	missing=$(git lfs ls-files | grep -E '^[0-9a-f]+ - ' || true)
+	lfs_files=$(git lfs ls-files) || { echo 'clone: git lfs ls-files failed' >&2; exit 1; }
+	missing=$(printf '%s\n' "$lfs_files" | grep -E '^[0-9a-f]+ - ' || true)
 	if [ -n "$missing" ]; then
 		echo "clone: LFS objects missing after git lfs pull (files are still pointers):" >&2
 		echo "$missing" >&2
