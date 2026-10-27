@@ -74,7 +74,11 @@ contoai:
   enabled: true
   domain: contoai.site
   # Explicit host list override (unset = [domain, *.domain]).
-  hosts: []
+  hosts:
+    - contoai.site
+    - "*.contoai.site"
+    - redbluecorner.se
+    - www.redbluecorner.se
   tls:
     mode: PASSTHROUGH
     # SIMPLE only: Secret in istio-system, copied out-of-band (NOT managed by this chart).
