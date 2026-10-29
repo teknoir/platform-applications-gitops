@@ -50,7 +50,7 @@ backstageApi:
 # PostgreSQL database configuration
 postgres:
   replicas: 1
-  image: postgres:17-alpine
+  image: "postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b"
   imagePullPolicy: Always
   storage: 10Gi
   resources:
@@ -61,7 +61,7 @@ postgres:
       cpu: 250m
       memory: 512Mi
   exporter:
-    image: prometheuscommunity/postgres-exporter:v0.15.0
+    image: "prometheuscommunity/postgres-exporter:v0.15.0@sha256:386b12d19eab2a37d7cd8ca8b4c7491cc7a830d9581f49af6c98a393da9605e6"
     imagePullPolicy: Always
     resources:
       limits:

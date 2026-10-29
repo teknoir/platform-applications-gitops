@@ -11,6 +11,12 @@ kube-prometheus-stack:
   crds:
     enabled: true
     upgradeJob:
+      image:
+        kubectl:
+          sha: "5ed410ebac5dc976cc717098994dcdb29bbbd38f6bd65f582311f5be4ba719cf"
+        busybox:
+          # The chart's busybox branch tests upgradeJob.image.sha, not busybox.sha (82.18.0), so the digest goes in the tag.
+          tag: "latest@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e"
       enabled: true
       forceConflicts: true
       resources:
@@ -442,6 +448,8 @@ kube-prometheus-stack:
   ##
   alertmanager:
     alertmanagerSpec:
+      image:
+        sha: "88b605de9aba0410775c1eb3438f951115054e0d307f23f274a4c705f51630c1"
       routePrefix: /teknoir-system/alertmanager
       resources:
         requests:
@@ -451,6 +459,8 @@ kube-prometheus-stack:
   ## Using default values from https://github.com/grafana/helm-charts/blob/main/charts/grafana/values.yaml
   ##
   grafana:
+    image:
+      sha: "83749231c3835e390a3144e5e940203e42b9589761f20ef3169c716e734ad505"
     enabled: true
     namespaceOverride: ""
 
@@ -507,6 +517,8 @@ kube-prometheus-stack:
           memory: 256Mi
 
     sidecar:
+      image:
+        sha: "6e9db2cd6630a663dfa9eec59916f8c289d1efa725a6e2d92ec1b5fef31bbd3d"
       resources:
         requests:
           cpu: 100m
@@ -539,6 +551,8 @@ kube-prometheus-stack:
     ## ref: https://github.com/prometheus-operator/prometheus-operator/blob/main/Documentation/api-reference/api.md#prometheusspec
     ##
     prometheusSpec:
+      image:
+        sha: "131bf4c9d8a0337782ea8b753249f4903afac01379f3cced87ceaf8ca82ab9f3"
       ## Interval between consecutive scrapes.
       ## Defaults to 30s.
       ## ref: https://github.com/prometheus-operator/prometheus-operator/blob/release-0.44/pkg/prometheus/promcfg.go#L180-L183
@@ -587,6 +601,8 @@ kube-prometheus-stack:
           memory: 256Mi
 
   prometheusOperator:
+    image:
+      sha: "fea93ca9be807eee2f51f4d997b7a2bf073d4051d9012b45b3c84a7b9e8b3f25"
     admissionWebhooks:
       deployment:
         resources:
@@ -594,6 +610,8 @@ kube-prometheus-stack:
             cpu: 100m
             memory: 256Mi
       patch:
+        image:
+          sha: "43401e216e89e3a76911bda8b282262468467a613b3086e27bb36acb79cf1498"
         resources:
           requests:
             cpu: 100m
@@ -605,18 +623,24 @@ kube-prometheus-stack:
         memory: 256Mi
 
     prometheusConfigReloader:
+      image:
+        sha: "cb4ac6a56555bef0e202bec11e367dfe07ffb241cf4d30566b12b864692607a8"
       resources:
         requests:
           cpu: 100m
           memory: 256Mi
 
   kube-state-metrics:
+    image:
+      sha: "sha256:1545919b72e3ae035454fc054131e8d0f14b42ef6fc5b2ad5c751cafa6b2130e"
     resources:
       requests:
         cpu: 100m
         memory: 256Mi
 
   prometheus-node-exporter:
+    image:
+      digest: "sha256:2f0cc335ef9ea15d6c96e1c0d693d8b57c0b794d0244b22313a6c162bd1cb1b8"
     resources:
       requests:
         cpu: 100m

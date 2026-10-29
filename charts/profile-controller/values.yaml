@@ -4,7 +4,8 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/teknoir/profile-controller
-  tag: latest
+  # Pinned 2026-10-19: '<tag>@sha256:<digest>' = the image production ran (adopted, no change).
+  tag: "latest@sha256:f348d6d9255126178d17d0cab1b7e3c4247bfaaf467276d57946d9b2b6c70b31"
   pullPolicy: Always
 
 imagePullSecrets:

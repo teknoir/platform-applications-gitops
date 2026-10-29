@@ -1,6 +1,10 @@
 # Values for istio.
 
 global:
+  proxy_init:
+    image: "docker.io/istio/proxyv2:1.29.2@sha256:69ca4585993f4057861954f18be88df8268b713d114e7036bf9b185458c7a2c1"
+  proxy:
+    image: "docker.io/istio/proxyv2:1.29.2@sha256:69ca4585993f4057861954f18be88df8268b713d114e7036bf9b185458c7a2c1"
   domain: teknoir.online
 
 # Dependency configurations
@@ -57,3 +61,7 @@ istio-egressgateway:
     istio: egressgateway
   service:
     type: ClusterIP
+
+istiod:
+  pilot:
+    image: "docker.io/istio/pilot:1.29.2@sha256:3681fe197870abad5c953107e241e104a813ba2d6e63933ff53e0545348ff8b1"
