@@ -44,7 +44,7 @@ spec:
     spec:
       containers:
         - name: redis
-          image: docker.io/redis:7.2-alpine@sha256:29e8589c3f9ba699b5f7aa4b3c7733c58852a3626439e619aa0ee78de08c6ca0
+          image: docker.io/redis:7.2-alpine@sha256:f8548b29a1f1cb358b5fcfec1e0126beab57ad15776c1e87623f865579f16c5a
           command:
             - sh
             - -c
