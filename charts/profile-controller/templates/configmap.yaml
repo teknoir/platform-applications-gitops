@@ -16,3 +16,6 @@ data:
   REGION: {{ .Values.config.region | quote }}
   DNS_ZONE: {{ .Values.config.dnsZone | quote }}
   ISTIO_REVISION: {{ .Values.config.istioRevision | quote }}
+  {{- with .Values.config.pluginChartVersion }}
+  PLUGIN_CHART_VERSION: {{ . | quote }}
+  {{- end }}
