@@ -4,8 +4,9 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/teknoir/profile-controller
-  # Pinned 2026-10-19: '<tag>@sha256:<digest>' = the image production ran (adopted, no change).
-  tag: "latest@sha256:f348d6d9255126178d17d0cab1b7e3c4247bfaaf467276d57946d9b2b6c70b31"
+  # Production hotfix (2026-10-20): master f348d6d9 + TS-C1 only (plugin chart version from config),
+  # branch hotfix/plugin-chart-version (profile-controller #212, not merged to master). Was latest@f348d6d9.
+  tag: "sha-dbe00482@sha256:0b4521df6e2725ada040eab8a9453db8743b7d425f73fb2b55419be6ea6e7937"
   pullPolicy: Always
 
 imagePullSecrets:
@@ -38,6 +39,10 @@ config:
   region: "us-central1"
   dnsZone: "teknoir-online"
   istioRevision: "1.29.0"
+  # Plugin chart version for every teamspace plugin (env PLUGIN_CHART_VERSION, read by the hotfix image).
+  # 0.0.99-p3: the 0.0.99 charts with every image pinned to the digest production runs (2026-10-29)
+  # (profile-plugins-helm branch beta). Empty: the compiled-in 0.0.99.
+  pluginChartVersion: "0.0.99-p3"
 
 resources:
   limits:
