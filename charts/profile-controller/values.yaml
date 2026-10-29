@@ -40,9 +40,9 @@ config:
   dnsZone: "teknoir-online"
   istioRevision: "1.29.0"
   # Plugin chart version for every teamspace plugin (env PLUGIN_CHART_VERSION, read by the hotfix image).
-  # 0.0.99-p2: the 0.0.99 charts with every image pinned to the digest production ran on 2026-10-20
+  # 0.0.99-p3: the 0.0.99 charts with every image pinned to the digest production runs (2026-10-29)
   # (profile-plugins-helm branch beta). Empty: the compiled-in 0.0.99.
-  pluginChartVersion: "0.0.99-p2"
+  pluginChartVersion: "0.0.99-p3"
 
 resources:
   limits:
