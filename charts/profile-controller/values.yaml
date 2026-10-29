@@ -6,7 +6,7 @@ image:
   repository: ghcr.io/teknoir/profile-controller
   # Production hotfix (2026-10-20): master f348d6d9 + TS-C1 only (plugin chart version from config),
   # branch hotfix/plugin-chart-version (profile-controller #212, not merged to master). Was latest@f348d6d9.
-  tag: "sha-dbe00482@sha256:0b4521df6e2725ada040eab8a9453db8743b7d425f73fb2b55419be6ea6e7937"
+  tag: "sha-8d81bace@sha256:2b712a1e4d68294f55fbac8b2dd8cfa672304a97dd058ccb0f686a3407961c4c"
   pullPolicy: Always
 
 imagePullSecrets:
