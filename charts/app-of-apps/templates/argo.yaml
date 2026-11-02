@@ -1,0 +1,51 @@
+---
+# Argo CD manages itself (charts/argo). The Helm release name argo is the one teknoir/infra
+# scripts/deploy-argo.sh installs (as the k3s manifest teknoir-argo.yaml), so the render keeps every
+# name (argo-argocd-*) and this Application adopts the running install in place. Once it is Synced,
+# re-run deploy-argo.sh: it moves teknoir-argo.yaml out of the k3s manifests directory, or every k3s
+# restart re-applies it over this Application.
+#   - Manual sync for the adoption: review the diff of the first sync (it shows any runtime edit of
+#     argocd-cm/argocd-rbac-cm/argocd-cmd-params-cm that the chart would revert), sync by hand, and
+#     enable automated sync (prune, selfHeal) in a follow-up commit.
+#   - Client-side apply, like the other staging Applications: once the first sync has written the
+#     last-applied annotation, a key removed from values is removed from the live object too. The
+#     CRDs carry their own ServerSideApply=true sync option (charts/argo values).
+#   - No resources-finalizer: removing this Application from app-of-apps orphans Argo CD instead of
+#     deleting it. Deleting it from the UI/CLI is denied by RBAC (argocd-rbac-cm), and the CRDs and
+#     argocd-secret carry Delete=false.
+# Wave -5: applied after platform-secrets and before the platform Applications (apply order only:
+# the root does not wait for a child Application to be healthy).
+#
+# teknoir-cloud only, allowlisted here and not in values (as in _helpers.tpl): charts/argo is this
+# environment's Argo CD, and a cherry-pick of this file onto teknoir-online (whose Argo CD is the
+# Application argocd) or teknoir-local (the argo entry of its own app-of-apps) must render nothing
+# there rather than a second Argo CD.
+{{- if has .Values.project (list "teknoir-cloud") }}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo
+  annotations:
+{{- if .Values.releaseName }}
+    teknoir.org/release: {{ .Values.releaseName | quote }}
+{{- end }}
+    argocd.argoproj.io/sync-wave: "-5"
+spec:
+  destination:
+    namespace: teknoir-system
+    server: https://kubernetes.default.svc
+  source:
+    path: charts/argo
+    repoURL: https://github.com/teknoir/platform-applications-gitops
+    targetRevision: {{ include "app-of-apps.revision" . }}
+    helm:
+      releaseName: argo
+  project: {{ .Values.project }}
+  syncPolicy:
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+{{- end }}

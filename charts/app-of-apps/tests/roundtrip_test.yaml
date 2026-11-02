@@ -6,6 +6,7 @@ suite: child Applications are stable through ArgoCD's Go types
 # carries no empty omitempty field. scripts/check-pins.py (app-not-roundtrip-stable) checks the full list on every
 # release render; this suite pins the two that existed.
 templates:
+  - templates/argo.yaml
   - templates/auth.yaml
   - templates/backstage.yaml
   - templates/backstage-next.yaml

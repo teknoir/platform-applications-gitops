@@ -4,6 +4,7 @@ suite: staging release revision (plans/staging-releases.md)
 # make a missed replacement or a new Application without the helper fail here: add the new
 # Application to the count AND to the targetRevision asserts of its file.
 templates:
+  - templates/argo.yaml
   - templates/auth.yaml
   - templates/backstage.yaml
   - templates/backstage-next.yaml
@@ -171,6 +172,22 @@ tests:
 
   - it: "platform-secrets: 1 Application(s), all on the release SHA with the release annotation"
     template: templates/platform-secrets.yaml
+    set:
+      project: teknoir-cloud
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      virtualDevices: {enabled: true, spike: {enabled: true}}
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+    asserts:
+      - hasDocuments: {count: 1}
+      - isKind: {of: Application, documentIndex: 0}
+      - equal: {path: spec.source.repoURL, value: https://github.com/teknoir/platform-applications-gitops, documentIndex: 0}
+      - equal: {path: spec.source.targetRevision, value: "0123456789abcdef0123456789abcdef01234567", documentIndex: 0}
+      - equal: {path: 'metadata.annotations["teknoir.org/release"]', value: staging-20261017.1, documentIndex: 0}
+
+  - it: "argo: 1 Application(s), all on the release SHA with the release annotation"
+    template: templates/argo.yaml
     set:
       project: teknoir-cloud
       release: "0123456789abcdef0123456789abcdef01234567"
@@ -368,6 +385,17 @@ tests:
       - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 0}
       - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 0}
 
+  - it: "argo: follows the branch and has no release annotation while release is unset"
+    template: templates/argo.yaml
+    set:
+      project: teknoir-cloud
+      virtualDevices: {enabled: true, spike: {enabled: true}}
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+    asserts:
+      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 0}
+      - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 0}
+
   - it: "virtual-device-spike: follows the branch and has no release annotation while release is unset"
     template: templates/virtual-device-spike.yaml
     set:
@@ -511,6 +539,19 @@ tests:
     asserts:
       - equal: {path: spec.source.targetRevision, value: teknoir-online, documentIndex: 0}
 
+  - it: "teknoir-online: no argo Application (teknoir-cloud only), even when release and releaseName are set"
+    template: templates/argo.yaml
+    set:
+      project: teknoir-online
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+      harbor: {enabled: true}
+      ci: {enabled: true}
+    asserts:
+      - hasDocuments: {count: 0}
+
   - it: "teknoir-online: cert-manager follows the branch even when release and releaseName are set"
     template: templates/cert-manager.yaml
     set:
@@ -644,6 +685,19 @@ tests:
       ci: {enabled: true}
     asserts:
       - equal: {path: spec.source.targetRevision, value: teknoir-local, documentIndex: 0}
+
+  - it: "teknoir-local: no argo Application (teknoir-cloud only), even when release and releaseName are set"
+    template: templates/argo.yaml
+    set:
+      project: teknoir-local
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+      harbor: {enabled: true}
+      ci: {enabled: true}
+    asserts:
+      - hasDocuments: {count: 0}
 
   - it: "teknoir-local: cert-manager follows the branch even when release and releaseName are set"
     template: templates/cert-manager.yaml
