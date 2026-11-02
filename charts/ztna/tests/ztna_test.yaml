@@ -1337,6 +1337,47 @@ tests:
           path: spec.validations[0].expression
           pattern: "(?s)newA.all\\(k, .*k in variables.disableKeys.*oldA.all\\(k, .*k in variables.disableKeys"
 
+  - it: guards the delete of a disabled Device (delete and re-create would enable it)
+    template: templates/admission.yaml
+    documentSelector:
+      path: metadata.name
+      value: ztna-device-disabled-delete
+    asserts:
+      - equal:
+          path: spec.matchConstraints.resourceRules[0].operations
+          value: ["DELETE"]
+      - equal:
+          path: spec.matchConstraints.resourceRules[0].resources
+          value: ["devices"]
+      - matchRegex:
+          path: spec.variables[0].expression
+          pattern: "system:serviceaccount:teknoir-system:backstage-api"
+      - matchRegex:
+          path: spec.variables[0].expression
+          pattern: "device-controller-service-account"
+      - matchRegex:
+          path: spec.variables[1].expression
+          pattern: "namespaceObject.status.phase == 'Terminating'"
+      - matchRegex:
+          path: spec.variables[2].expression
+          pattern: "annotations\\['teknoir.org/disabled'\\].trim\\(\\).lowerAscii\\(\\) == 'true'"
+      - equal:
+          path: spec.validations[0].expression
+          value: "variables.privileged || variables.teardown || !variables.disabled"
+
+  - it: binds the disabled-Device delete guard with Deny
+    template: templates/admission.yaml
+    documentSelector:
+      path: metadata.name
+      value: ztna-device-disabled-delete-binding
+    asserts:
+      - equal:
+          path: spec.policyName
+          value: ztna-device-disabled-delete
+      - contains:
+          path: spec.validationActions
+          content: Deny
+
   - it: protects the org-tree annotations on Users
     template: templates/admission.yaml
     documentSelector:

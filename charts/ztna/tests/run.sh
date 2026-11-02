@@ -340,7 +340,7 @@ assert {"apiGroups": ["coordination.k8s.io"], "resources": ["leases"], "resource
 assert {"apiGroups": ["coordination.k8s.io"], "resources": ["leases"], "verbs": ["create"]} in hr["rules"]
 assert {"apiGroups": [""], "resources": ["pods"], "verbs": ["patch"]} in hr["rules"]
 vaps = {d["metadata"]["name"] for d in by(z, "ValidatingAdmissionPolicy")}
-assert vaps == {"ztna-policy-store", "ztna-no-exec", "ztna-workloads", "ztna-hub-lease", "ztna-no-token-mint", "ztna-device-annotations", "ztna-user-org-annotations", "ztna-backstage-identities"}, vaps
+assert vaps == {"ztna-policy-store", "ztna-no-exec", "ztna-workloads", "ztna-hub-lease", "ztna-no-token-mint", "ztna-device-annotations", "ztna-device-disabled-delete", "ztna-user-org-annotations", "ztna-backstage-identities"}, vaps
 bindings = {d["spec"]["policyName"] for d in by(z, "ValidatingAdmissionPolicyBinding")}
 assert bindings == vaps, bindings ^ vaps
 for b in by(z, "ValidatingAdmissionPolicyBinding"):

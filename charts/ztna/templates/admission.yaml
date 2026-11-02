@@ -75,7 +75,7 @@ So the goal "cannot bypass the admission policies" is only PARTLY met: the direc
 Secrets, RBAC, teknoir-admin through a User or Profile, Helm values through Profile plugins) are closed, the two
 privileged-workload routes through Devstudio/Notebook images and virtual Devices and the Keycloak password/claims
 route through Users are not.
-The two username exemptions for it (ztna-device-annotations, ztna-user-org-annotations) are deliberate: Backstage
+The username exemptions for it (ztna-device-annotations, ztna-device-disabled-delete, ztna-user-org-annotations) are deliberate: Backstage
 applies the org gate and the end user's SubjectAccessReview before it writes. The policies check
 request.userInfo.username, so they are only as strong as the right to become another identity.
 
@@ -417,7 +417,8 @@ ztna-device-annotations: every ztna.teknoir.org/* annotation on a Device (wiregu
 identity, trusted host key, compromised/health flags, reenroll) is a security decision. Notebook
 pods run as the default-editor service account and can edit Devices, which would bypass the
 Backstage admin gate. Only the Backstage backend, device-controller and system:masters may add,
-change or remove such an annotation; any other Device edit is unaffected, and DELETE is not matched.
+change or remove such an annotation; any other Device edit is unaffected, and DELETE is not matched
+here (ztna-device-disabled-delete below guards the delete of a disabled Device).
 The same holds for the exact keys teknoir.org/org-tree-path and teknoir.org/org-tree-node-id: they
 place a Device in the org tree and so feed the hub org gate. Their writers (checked 2026-10-17):
 device-controller (copy from a Robot), the Backstage backend (Settings > Org tree) and
@@ -478,6 +479,59 @@ metadata:
     {{- include "ztna.hubLabels" . | nindent 4 }}
 spec:
   policyName: ztna-device-annotations
+  validationActions: ["Deny", "Audit"]
+---
+{{- /*
+ztna-device-disabled-delete: deleting a disabled Device and creating it again (from a saved copy, with the
+same spec.keys) would enable it without the admin gate: the new object has no teknoir.org/disabled, so
+device-controller registers its key again. Every editor of Devices may delete them (the device-controller
+editor ClusterRole aggregates to kubeflow-edit), so a Device whose teknoir.org/disabled is "true" (trimmed,
+any case, as device-controller reads it) is deleted only by the Backstage backend (Remove, admin-only),
+device-controller, system:masters, a kube-system controller (garbage collector, namespace controller) or
+while its namespace is Terminating (teamspace teardown). Devices that are not disabled are not affected.
+*/}}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: ztna-device-disabled-delete
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["teknoir.org"]
+        apiVersions: ["*"]
+        operations: ["DELETE"]
+        resources: ["devices"]
+  variables:
+    - name: privileged
+      expression: >-
+        request.userInfo.username in ['{{ include "ztna.controllerUser" . }}', '{{ .Values.backstage.serviceAccount }}', 'system:kube-controller-manager'] ||
+        'system:masters' in request.userInfo.groups ||
+        request.userInfo.username.startsWith('system:serviceaccount:kube-system:')
+    - name: teardown
+      expression: >-
+        namespaceObject != null && has(namespaceObject.status) && has(namespaceObject.status.phase) &&
+        namespaceObject.status.phase == 'Terminating'
+    - name: disabled
+      expression: >-
+        oldObject != null && has(oldObject.metadata.annotations) &&
+        'teknoir.org/disabled' in oldObject.metadata.annotations &&
+        oldObject.metadata.annotations['teknoir.org/disabled'].trim().lowerAscii() == 'true'
+  validations:
+    - expression: "variables.privileged || variables.teardown || !variables.disabled"
+      message: "a disabled Device is removed only by a teamspace admin (Backstage), device-controller or system:masters"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: ztna-device-disabled-delete-binding
+  labels:
+    {{- include "ztna.hubLabels" . | nindent 4 }}
+spec:
+  policyName: ztna-device-disabled-delete
   validationActions: ["Deny", "Audit"]
 ---
 {{- /*
