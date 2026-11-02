@@ -29,7 +29,8 @@ offlineSessionIdleTimeout: 2592000  # 30 d (tnctl's offline token); explicit, wa
 
 # Login pages: the Teknoir sign-in landing (keycloak-theme repo, theme teknoir-theme; it must be in
 # keycloak.image). Every client of the realm gets it; the admin console gets the card without the
-# landing copy. Unset, Keycloak serves its stock keycloak.v2 login.
+# landing copy. To revert, set keycloak.v2 here: deleting the line changes nothing (no-delete import),
+# and neither does a release rollback.
 loginTheme: teknoir-theme
 
 clientScopes:
