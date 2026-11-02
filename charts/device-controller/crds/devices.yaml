@@ -371,7 +371,9 @@ spec:
                       left over from an earlier cycle.
                     type: string
                   last_transition_time:
-                    description: LastTransitionTime is when State last changed (RFC3339).
+                    description: |-
+                      LastTransitionTime is when State last changed (RFC3339). A new disable
+                      (another disabled-at) while the device is already disabled restarts it.
                     type: string
                   message:
                     description: Message says what happened, for people. One sentence,

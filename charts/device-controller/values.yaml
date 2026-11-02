@@ -5,6 +5,7 @@ replicaCount: 1
 image:
   repository: ghcr.io/teknoir/device-controller
   # Pinned: '<immutable tag>@sha256:<linux/amd64 manifest digest>',
+  # device-controller 8dd5b2b (PR #77 into applicationset: a new disable restarts the transition time). Previous pin: sha-2d8ad70a@sha256:4844134cd861ded74839ab2f91407db378b1f203ddd8a369a31b220127a4f89f
   # device-controller 2d8ad70 (PR #76 into applicationset: Disable a device, status.access, EMQX kick, delete drain). Previous pin: sha-0a8c2c7c@sha256:e32653ee0c2e987605a14e02dfe7e1b8d1c4e46b3f8a06f7cb4559c9825b3d78
   # device-controller 7c2a852 (applicationset, F3: quota refusal in status + backoff; index sha256:8807375c31dfb7cb4227f4c26361957cf86a6b280fd864486a778c7eee8561fd). Previous pin: sha-87b8ebfb@sha256:d9cc97729ba89b9a4671dca463f772ec48767a3d7acca194de94aae2d10d7034
   # device-controller 87b8ebf = applicationset-20261012-112318, index sha256:14bbc608e32007d9c294705f0b6aecb5bcab0e7ba66ebdc88b89d5e92c1573e5 (virtual devices Phase 1 runtime). Previous pin: sha-b23700ba@sha256:1b96d735b10e4e0cb80e29cfe9e3a46a93e5efde01f7b4b1973db81e3ad82de4.
@@ -28,7 +29,7 @@ image:
   # Previous pin: sha-1c98c648@sha256:f9281e6bb3f95e29e0b0b3d0d9370346039dbee8faef9921cdb560c9657b5c6e
   # device-controller b946c7e (applicationset #60, Nextgen: copy org-tree placement from a Robot to its Device on
   # initial placement). Previous pin: sha-41a360fd@sha256:b54bf4d8f1f94e016bd0163ef0de25934c27dbfcbb73617733d6800bc40d3ae1
-  tag: "sha-2d8ad70a@sha256:4844134cd861ded74839ab2f91407db378b1f203ddd8a369a31b220127a4f89f"
+  tag: "sha-8dd5b2bd@sha256:d210352a7ef648b893682a2360583ccaa09e60ef3f37fa3b2fae234d3d5b2057"
   pullPolicy: IfNotPresent
 
 imagePullSecrets:
