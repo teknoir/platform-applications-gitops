@@ -1,0 +1,43 @@
+# Argo CD manages itself: app-of-apps renders the Application argo (templates/argo.yaml), Helm
+# release argo, the name teknoir/infra scripts/deploy-argo.sh installs it with, so the render keeps
+# every name (argo-argocd-*) and adopts that install in place. No resources: on staging Argo CD
+# shares the node with everything else (only production sets them).
+
+namespace: teknoir-system
+domain: "teknoir.cloud"
+
+# Istio integration configuration
+istio:
+  gateway:
+    name: teknoir-gateway
+    namespace: istio-system
+
+argo-cd:
+  namespaceOverride: "teknoir-system"
+
+  global:
+    # -- Default domain used by all components
+    ## Used for ingresses, certificates, SSO, notifications, etc.
+    domain: argocd.teknoir.cloud
+
+
+  configs:
+    cm:
+      oidc.config: |
+        name: Keycloak
+        issuer: https://auth.teknoir.cloud/auth/realms/master
+        clientID: argocd
+        clientSecret: $argocd-oidc-secret:oidc.auth.clientSecret
+        requestedScopes: ["openid", "profile", "email", "groups"]
+
+    rbac:
+      policy.default: role:readonly
+      # Map the 'admin' group from Keycloak to ArgoCD admin role
+      policy.csv: |
+        g, admin, role:admin
+        g, argocd-admins, role:admin
+
+  server:
+    extraArgs:
+      - --insecure
+
