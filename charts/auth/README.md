@@ -157,6 +157,13 @@ sends only the listed realm fields; everything else in the realm is left alone. 
 checks the current values on the next use of a session. The values apply to the whole `master` realm (including the admin console).
 A dead session (idle over a day, or over 7 d) is answered as described in "Denied requests".
 
+## Login theme
+
+Realm `master` sets `loginTheme: teknoir-theme`, the sign-in landing built into `keycloak.image` (repo keycloak-theme). Every client of
+the realm shows it; the admin console (`security-admin-console`) gets the sign-in card without the landing copy. To revert, set
+`loginTheme: keycloak.v2` (Keycloak's stock login): the import never deletes a field, so removing the line or rolling back a release
+leaves the theme set in the database.
+
 ## Tests
 
 ```sh
