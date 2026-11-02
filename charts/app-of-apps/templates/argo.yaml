@@ -2,13 +2,19 @@
 # Argo CD manages itself (charts/argo). The Helm release name argo is the one teknoir/infra
 # scripts/deploy-argo.sh installs (as the k3s manifest teknoir-argo.yaml), so the render keeps every
 # name (argo-argocd-*) and this Application adopts the running install in place. Once it is Synced,
-# move teknoir-argo.yaml out of the k3s manifests directory, or every k3s restart re-applies it over
-# this Application.
-#   - ServerSideApply: the ApplicationSet CRD is too large for client-side apply's last-applied
-#     annotation.
-#   - No resources-finalizer: deleting this Application (or pruning it from app-of-apps) must leave
-#     Argo CD running, never cascade-delete it.
-# Wave -5: after platform-secrets, before the platform.
+# re-run deploy-argo.sh: it moves teknoir-argo.yaml out of the k3s manifests directory, or every k3s
+# restart re-applies it over this Application.
+#   - Manual sync for the adoption: review the diff of the first sync (it shows any runtime edit of
+#     argocd-cm/argocd-rbac-cm/argocd-cmd-params-cm that the chart would revert), sync by hand, and
+#     enable automated sync (prune, selfHeal) in a follow-up commit.
+#   - Client-side apply, like the other staging Applications: once the first sync has written the
+#     last-applied annotation, a key removed from values is removed from the live object too. The
+#     CRDs carry their own ServerSideApply=true sync option (charts/argo values).
+#   - No resources-finalizer: removing this Application from app-of-apps orphans Argo CD instead of
+#     deleting it. Deleting it from the UI/CLI is denied by RBAC (argocd-rbac-cm), and the CRDs and
+#     argocd-secret carry Delete=false.
+# Wave -5: applied after platform-secrets and before the platform Applications (apply order only:
+# the root does not wait for a child Application to be healthy).
 #
 # teknoir-cloud only, allowlisted here and not in values (as in _helpers.tpl): charts/argo is this
 # environment's Argo CD, and a cherry-pick of this file onto teknoir-online (whose Argo CD is the
@@ -24,7 +30,6 @@ metadata:
     teknoir.org/release: {{ .Values.releaseName | quote }}
 {{- end }}
     argocd.argoproj.io/sync-wave: "-5"
-    argocd.argoproj.io/compare-options: ServerSideDiff=true
 spec:
   destination:
     namespace: teknoir-system
@@ -37,10 +42,10 @@ spec:
       releaseName: argo
   project: {{ .Values.project }}
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-      enabled: true
-    syncOptions:
-      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
 {{- end }}

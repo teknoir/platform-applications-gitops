@@ -223,7 +223,7 @@ secrets:
       redis-password:
         random: {length: 24, charset: alnum}
 
-  # ArgoCD OIDC (infra charts/argo: $argocd-oidc-secret:oidc.auth.clientSecret; ArgoCD only
+  # ArgoCD OIDC (charts/argo, Application argo: $argocd-oidc-secret:oidc.auth.clientSecret; ArgoCD only
   # reads Secrets labelled part-of=argocd).
   - namespace: teknoir-system
     name: argocd-oidc-secret

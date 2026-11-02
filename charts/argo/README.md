@@ -13,7 +13,7 @@ Argo CD is deployed behind the Istio ingress gateway.
 ## Prerequisites
 
 1.  **First install**: on a new cluster, `scripts/deploy-argo.sh` in [teknoir/infra](https://github.com/teknoir/infra) installs this chart once (Helm release `argo`). From then on the Application `argo` (`charts/app-of-apps/templates/argo.yaml`) manages Argo CD from this directory, and this repository is the source of truth.
-2.  **App-of-apps**: The `[app-of-apps](https://github.com/teknoir/platform-applications-gitops/tree/teknoir-cloud/charts/app-of-apps)` application must be deployed (providing Keycloak).
+2.  **App-of-apps**: The [app-of-apps](https://github.com/teknoir/platform-applications-gitops/tree/teknoir-cloud/charts/app-of-apps) application must be deployed (providing Keycloak).
 3.  **Setup in Keycloak**
 * Client setup in master realm - Client ID: `argocd`
 * OpenID Connect
@@ -27,33 +27,17 @@ Argo CD is deployed behind the Istio ingress gateway.
         2. Save, then go to the **Mappers** tab for the new `groups` scope and click **Configure a new mapper** -> **Group Membership**.
         3. Name the mapper `groups`, set **Token Claim Name** to `groups`, turn OFF **Full group path**, and turn ON **Add to ID token**, **Add to access token**, and **Add to userinfo**.
         4. Go to your `argocd` client, navigate to **Client Scopes**, and ensure the `groups` scope is assigned (add it as `Default` or `Optional` if missing).
-4.  **Secret Generation**: You must generate the Keycloak client secret before deploying.
+4.  **OIDC Secret**: `teknoir-system/argocd-oidc-secret` (key `clientSecret`) comes from the `platform-secrets` Application (`charts/platform-secrets/values.yaml`).
 
+## Self-management
 
-## Setup Instructions
-
-1.  **Generate the OIDC Secret:**
-    Run the secret generation script from the root of the project to create the Kubernetes manifest for the Keycloak client secret:
-
-    ```bash
-    ./scripts/gen-argocd-keycloak-secrets.sh
-    ```
-
-    *Note: The script will prompt you for the OIDC client secret from Keycloak.*
-
-2.  **Deploy the Secret:**
-    Apply the generated secret to your cluster:
-
-    ```bash
-    kubectl apply -f manifest-argocd-keycloak-secret.yaml
-    ```
-
-3.  **Deploy Argo CD:**
-    Use Helm (or your preferred deployment script) to install the chart:
-
-    ```bash
-    ./scripts/deploy-argo.sh
-    ```
+- The Application `argo` starts without automated sync: review the first sync's diff (it shows any runtime edit of
+  `argocd-cm`, `argocd-rbac-cm` or `argocd-cmd-params-cm` that the chart would revert), sync by hand, then enable
+  automated sync in a follow-up commit.
+- Deleting the Application `argo` from the UI or CLI is denied by RBAC (a cascade delete would remove Argo CD); the CRDs
+  and `argocd-secret` also carry `Delete=false`. Remove it from app-of-apps instead: it has no finalizer.
+- A staging rollback to a release from before this chart existed prunes the Application `argo` (orphaning, not
+  deleting, Argo CD); Argo CD is then unmanaged until a release with it is rolled out again.
 
 ## Configuration
 
@@ -61,5 +45,6 @@ The main configuration overrides are located in `values.yaml`.
 
 Key settings include:
 *   `argo-cd.server.extraArgs`: Contains `--insecure` to handle Istio TLS termination.
-*   `argo-cd.server.config.oidc.config`: Contains the Keycloak integration details.
-*   `argo-cd.server.rbacConfig`: Maps the `admin` Keycloak group to the Argo CD `role:admin`.
+*   `argo-cd.configs.cm."oidc.config"`: Contains the Keycloak integration details.
+*   `argo-cd.configs.rbac`: Maps the `admin` Keycloak group to the Argo CD `role:admin`, and denies deleting the
+    Application `argo`.
