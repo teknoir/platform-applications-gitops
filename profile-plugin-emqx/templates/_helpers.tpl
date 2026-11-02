@@ -82,6 +82,9 @@ gateway principals when the proxy is off, plus emqxApi.extraPrincipals.
 {{- else -}}
 {{- $p = concat $p .Values.dashboard.gatewayPrincipals -}}
 {{- end -}}
+{{- range .Values.emqxApi.callers -}}
+{{- $p = append $p (printf "%s/ns/%s/sa/%s" $.Values.emqxApi.trustDomain .namespace .serviceAccount) -}}
+{{- end -}}
 {{- $p = concat $p .Values.emqxApi.extraPrincipals -}}
 {{- toJson $p -}}
 {{- end -}}

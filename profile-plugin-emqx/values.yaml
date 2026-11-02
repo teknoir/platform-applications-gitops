@@ -32,6 +32,13 @@ dashboard:
 emqxApi:
   restrict: true
   trustDomain: cluster.local
+  # Platform workloads in the mesh that call the API (rendered as
+  # <trustDomain>/ns/<namespace>/sa/<serviceAccount>). device-controller closes the MQTT sessions
+  # of a disabled or deleted Device (DELETE /api/v5/clients/{clientid}, device-controller
+  # internal/controller/emqx). Set to [] to deny it.
+  callers:
+    - namespace: teknoir-system
+      serviceAccount: device-controller-service-account
   # More principals, for example cluster.local/ns/teknoir-system/sa/profile-controller once
   # that pod has a sidecar (it creates the MQTT bootstrap user through this API).
   extraPrincipals: []

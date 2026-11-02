@@ -109,11 +109,16 @@ every in-namespace sidecar pod on all ports. The DENY policy `emqx-api-restrict`
 in `values.yaml`) closes that: on port 18083 of the `emqx` pod every mesh caller whose principal is
 not listed is denied (DENY beats every ALLOW). Allowed: the `emqx-dashboard` ServiceAccount (the
 proxy and the guard share its sidecar), or the gateway principals when `dashboard.enabled=false`,
-plus `emqxApi.extraPrincipals`. MQTT/WebSocket ports (1883, 8883, 8083, 8084) are not touched.
+plus `emqxApi.callers` and `emqxApi.extraPrincipals`. MQTT/WebSocket ports (1883, 8883, 8083, 8084)
+are not touched.
 Callers found (all repos, plus the live emqx sidecar): profile-controller (`plugin_emqx.go`,
 creates the MQTT bootstrap user at `emqx:18083`, no sidecar, plaintext), the proxy and the guard
-in the `emqx-dashboard` pod, and the kubelet probes (rewritten by Istio to the sidecar's
-15020, so they never reach the port from outside). Nothing else calls the API.
+in the `emqx-dashboard` pod, the kubelet probes (rewritten by Istio to the sidecar's
+15020, so they never reach the port from outside) and, since 0.0.111, device-controller
+(`internal/controller/emqx`, sidecar, so it is listed in `emqxApi.callers` by default): it closes
+the MQTT sessions of a disabled or deleted Device with `GET /api/v5/clients?username=<device>`
+and `DELETE /api/v5/clients/<clientid>`, using the API key in `emqx-bootstrap-api-keys`. Nothing
+else calls the API.
 
 Because profile-controller has no sidecar it has no principal, so it cannot be named in a policy.
 `emqxApi.allowPlaintext: true` (default) therefore leaves callers *without* mTLS alone and denies

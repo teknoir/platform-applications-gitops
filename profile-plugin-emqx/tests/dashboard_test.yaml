@@ -277,7 +277,9 @@ tests:
             - from:
                 - source:
                     principals: ["*"]
-                    notPrincipals: ["cluster.local/ns/teknoir-demo/sa/emqx-dashboard"]
+                    notPrincipals:
+                      - cluster.local/ns/teknoir-demo/sa/emqx-dashboard
+                      - cluster.local/ns/teknoir-system/sa/device-controller-service-account
               to:
                 - operation:
                     ports: ["18083"]
@@ -311,6 +313,7 @@ tests:
           value:
             notPrincipals:
               - cluster.local/ns/teknoir-demo/sa/emqx-dashboard
+              - cluster.local/ns/teknoir-system/sa/device-controller-service-account
               - cluster.local/ns/teknoir-system/sa/profile-controller
 
   - it: with the proxy off, the gateway principals are the allowed callers of EMQX 18083
@@ -323,7 +326,34 @@ tests:
     asserts:
       - equal:
           path: spec.rules[0].from[0].source.notPrincipals
-          value: ["cluster.local/ns/istio-system/sa/istio-ingressgateway"]
+          value: ["cluster.local/ns/istio-system/sa/istio-ingressgateway", "cluster.local/ns/teknoir-system/sa/device-controller-service-account"]
+
+  - it: emqxApi.callers=[] leaves device-controller out (only the dashboard proxy may call 18083)
+    set:
+      emqxApi.callers: []
+    template: templates/authorizationpolicy.yaml
+    documentSelector:
+      path: metadata.name
+      value: emqx-api-restrict
+    asserts:
+      - equal:
+          path: spec.rules[0].from[0].source.notPrincipals
+          value: ["cluster.local/ns/teknoir-demo/sa/emqx-dashboard"]
+
+  - it: emqxApi.callers render with the trust domain
+    set:
+      emqxApi.trustDomain: example.org
+      emqxApi.callers:
+        - namespace: ops
+          serviceAccount: kicker
+    template: templates/authorizationpolicy.yaml
+    documentSelector:
+      path: metadata.name
+      value: emqx-api-restrict
+    asserts:
+      - equal:
+          path: spec.rules[0].from[0].source.notPrincipals
+          value: ["example.org/ns/teknoir-demo/sa/emqx-dashboard", "example.org/ns/ops/sa/kicker"]
 
   - it: emqxApi.restrict=false renders no DENY
     set:
