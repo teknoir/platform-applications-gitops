@@ -359,6 +359,47 @@ spec:
           status:
             description: SubResourcesStatus defines the observed state of Device
             properties:
+              access:
+                description: Access is written by the JWKS plugin; see AccessStatus.
+                properties:
+                  disabled_at:
+                    description: |-
+                      DisabledAt echoes the teknoir.org/disabled-at annotation of the disable the
+                      controller last carried out (trimmed; empty when the annotation had none).
+                      A failed Enable clears it, so its error belongs to the Enable. Backstage
+                      compares it with the annotation to tell a confirmed disable from a status
+                      left over from an earlier cycle.
+                    type: string
+                  last_transition_time:
+                    description: |-
+                      LastTransitionTime is when State last changed (RFC3339). A new disable
+                      (another disabled-at) while the device is already disabled restarts it.
+                    type: string
+                  message:
+                    description: Message says what happened, for people. One sentence,
+                      stable between identical reconciles.
+                    type: string
+                  mqtt:
+                    description: MQTT is "registered" (key in JWKS), "revoked" (key
+                      removed, sessions closed) or "error".
+                    enum:
+                    - registered
+                    - revoked
+                    - error
+                    type: string
+                  sessions_closed:
+                    description: |-
+                      SessionsClosed counts the MQTT sessions (live connections and kept sessions) the
+                      controller closed since the device was last disabled.
+                    format: int32
+                    type: integer
+                  state:
+                    description: State is "enabled" or "disabled".
+                    enum:
+                    - enabled
+                    - disabled
+                    type: string
+                type: object
               authorized_keys:
                 description: |-
                   INSERT ADDITIONAL STATUS FIELD - define observed state of cluster

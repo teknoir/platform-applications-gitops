@@ -27,3 +27,17 @@ The device-controller keeps the rendered GitOps sources of every device in a Con
 `teknoir-config-sources-<device>` in the device's teamspace (owned by the Device, deleted with it). After a
 rollback the older image ignores it; delete the ConfigMaps by hand if they are unwanted:
 `kubectl --context <ctx> delete configmap -A -l teknoir.org/device`.
+
+**Disabled devices come back on a rollback.** An image without Disable (older than the
+`device-disable` change, for example sha-0a8c2c7c) ignores `teknoir.org/disabled`: within one
+reconcile every disabled Device gets its JWKS key back, its WireGuard revocation tombstone is
+cleared and Tunneling is restored if it was on, and `subresources.status.access` is dropped.
+`scripts/staging-release --auto-rollback` can do this without a human. Before a manual rollback,
+list the disabled devices:
+
+    kubectl --context <ctx> get devices.teknoir.org -A -o json | jq -r '.items[]
+      | select((.metadata.annotations["teknoir.org/disabled"] // "" | gsub("^\\s+|\\s+$"; "") | ascii_downcase) == "true")
+      | .metadata.namespace + "/" + .metadata.name'
+
+Then remove those devices, accept the gap, or roll forward soon: the newer image disables them
+again on its next reconcile.

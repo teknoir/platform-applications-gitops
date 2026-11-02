@@ -437,6 +437,48 @@ dev odev "$OT=se/b" "$ON=a" other.io/x=2 other.io/y=3 > "${TMP}/o-unrelated.yaml
 dverdict "editor changes unrelated annotations, org-tree kept" allow "${EDITOR_SA}" replace "${TMP}/o-unrelated.yaml"
 if "${KC[@]}" replace -n devns -f "${TMP}/o-removed.yaml" >/dev/null 2>&1; then ok "allowed: system:masters removes the org-tree placement"; else bad "system:masters org-tree removal denied"; fi
 
+# --- Device Disable switch (teknoir.org/disabled*, plans/device-disable-remove.md): Backstage backend only
+DA=teknoir.org/disabled; DR=teknoir.org/disabled-reason; DB=teknoir.org/disabled-by; DT=teknoir.org/disabled-at
+dev xdev other.io/x=1 > "${TMP}/x-base.yaml"
+"${KC[@]}" create -n devns -f "${TMP}/x-base.yaml" >/dev/null
+dev xdev "$DA=true" "$DB=admin@example.com" "$DT=2026-11-02T14:03:00Z" "$DR=lost" other.io/x=1 > "${TMP}/x-disabled.yaml"
+dverdict "editor disables a Device" deny "${EDITOR_SA}" replace "${TMP}/x-disabled.yaml"
+dverdict "backstage-api disables a Device" allow "${BACKSTAGE_API}" replace "${TMP}/x-disabled.yaml"
+dverdict "editor enables a disabled Device (removes the annotations)" deny "${EDITOR_SA}" replace "${TMP}/x-base.yaml"
+dev xdev "$DA=false" "$DB=admin@example.com" "$DT=2026-11-02T14:03:00Z" "$DR=lost" other.io/x=1 > "${TMP}/x-false.yaml"
+dverdict "editor flips teknoir.org/disabled to false" deny "${EDITOR_SA}" replace "${TMP}/x-false.yaml"
+dev xdev "$DA=true" "$DB=admin@example.com" "$DT=2026-11-02T14:03:00Z" "$DR=edited" other.io/x=1 > "${TMP}/x-reason.yaml"
+dverdict "editor edits only the disable reason" deny "${EDITOR_SA}" replace "${TMP}/x-reason.yaml"
+dev xdev "$DA=true" "$DB=admin@example.com" "$DT=2026-11-02T14:03:00Z" "$DR=lost" other.io/x=2 > "${TMP}/x-unrelated.yaml"
+dverdict "editor changes unrelated annotations of a disabled Device" allow "${EDITOR_SA}" replace "${TMP}/x-unrelated.yaml"
+dev xdev-new "$DA=true" > "${TMP}/x-create.yaml"
+dverdict "editor creates a Device that is already disabled" deny "${EDITOR_SA}" create "${TMP}/x-create.yaml"
+dverdict "backstage-api enables a Device" allow "${BACKSTAGE_API}" replace "${TMP}/x-base.yaml"
+# DELETE of a disabled Device (ztna-device-disabled-delete): delete and re-create would enable it
+delverdict() { # description want(allow|deny) user name
+  local d=$1 want=$2 u=$3 n=$4 out got
+  out=$(as "$u" delete device "$n" -n devns 2>&1) && got=allow || { grep -q "ValidatingAdmissionPolicy 'ztna-device-disabled-delete'" <<<"$out" && got=deny || got="other: $out"; }
+  if [[ $got == "$want" ]]; then ok "$d ($want)"; else bad "$d: want $want, got $got"; fi
+}
+for n in ddel1 ddel2 ddel3 ddel4; do dev "$n" "$DA=true" "$DT=2026-11-02T14:03:00Z" > "${TMP}/$n.yaml"; "${KC[@]}" create -n devns -f "${TMP}/$n.yaml" >/dev/null; done
+dev ddel6 "$DA= TRUE " > "${TMP}/ddel6.yaml"; "${KC[@]}" create -n devns -f "${TMP}/ddel6.yaml" >/dev/null
+dev ddel7 "$DA=false" > "${TMP}/ddel7.yaml"; "${KC[@]}" create -n devns -f "${TMP}/ddel7.yaml" >/dev/null
+dev ddel8 other.io/x=1 > "${TMP}/ddel8.yaml"; "${KC[@]}" create -n devns -f "${TMP}/ddel8.yaml" >/dev/null
+delverdict "editor deletes a disabled Device" deny "${EDITOR_SA}" ddel1
+delverdict "editor deletes a Device disabled as ' TRUE '" deny "${EDITOR_SA}" ddel6
+delverdict "backstage (classic SA) deletes a disabled Device" deny "${BACKSTAGE}" ddel1
+delverdict "backstage-api deletes a disabled Device" allow "${BACKSTAGE_API}" ddel1
+delverdict "device-controller deletes a disabled Device" allow "${DC}" ddel2
+delverdict "the garbage collector deletes a disabled Device" allow system:serviceaccount:kube-system:generic-garbage-collector ddel3
+if "${KC[@]}" delete device ddel4 -n devns >/dev/null 2>&1; then ok "allowed: system:masters deletes a disabled Device"; else bad "system:masters delete of a disabled Device denied"; fi
+delverdict "editor deletes a Device with disabled=false" allow "${EDITOR_SA}" ddel7
+delverdict "editor deletes a Device that is not disabled" allow "${EDITOR_SA}" ddel8
+# Teamspace teardown: no namespace controller runs here, so the namespace stays Terminating.
+"${KC[@]}" create namespace tdns >/dev/null
+dev ddel5 "$DA=true" > "${TMP}/ddel5.yaml"; "${KC[@]}" create -n tdns -f "${TMP}/ddel5.yaml" >/dev/null
+"${KC[@]}" delete namespace tdns --wait=false >/dev/null
+if out=$(as "${EDITOR_SA}" delete device ddel5 -n tdns 2>&1); then ok "allowed: a disabled Device is deleted while its namespace is Terminating"; else bad "delete in a Terminating namespace denied: $out"; fi
+
 # --- User org annotations (org-tree-member-*, org-tree-units-*): Backstage backend, ArgoCD, user-controller, system:masters
 "${KC[@]}" apply -f "${CHART}/../user-controller/crds/crds.yaml" >/dev/null
 "${KC[@]}" wait --for=condition=Established crd/users.teknoir.org --timeout=30s >/dev/null
