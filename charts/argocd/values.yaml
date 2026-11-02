@@ -1,0 +1,111 @@
+# Argo CD manages itself: app-of-apps renders the Application argocd (templates/argocd.yaml) with
+# helm releaseName argocd, the release name automation/argocd/bootstrap-argocd.sh in
+# teknoir/teknoir-persona-monorepo installs it with. So every resource keeps its name (argocd-*)
+# and this chart adopts the bootstrap install in place. From then on this file is the source of
+# truth; the bootstrap values there are used only for the first install on a new cluster and must
+# render the same objects as this file.
+argo-cd:
+  namespaceOverride: "teknoir-system"
+
+  # Argo CD must survive its own Application: Prune=false,Delete=false keeps the CRDs (and with them
+  # every Application) even if the Application argocd is deleted with cascade. ServerSideApply=true is
+  # the chart default for the CRDs (too large for client-side apply's last-applied annotation).
+  crds:
+    annotations:
+      argocd.argoproj.io/sync-options: ServerSideApply=true,Prune=false,Delete=false
+
+  global:
+    image:
+      tag: "v3.3.8@sha256:5d45dc6db21db32a0638ac9128462c6d9956a90fc81760146dada5a243ff7516"
+      repository: "quay.io/argoproj/argocd"
+    domain: argocd.teknoir.online
+
+  configs:
+    # argocd-secret holds server.secretkey and admin.password (written at runtime): never delete it.
+    secret:
+      annotations:
+        argocd.argoproj.io/sync-options: Prune=false,Delete=false
+    cm:
+      oidc.config: |
+        name: Keycloak
+        issuer: https://auth.teknoir.online/auth/realms/master
+        clientID: argocd
+        clientSecret: $argocd-oidc-secret:oidc.auth.clientSecret
+        requestedScopes: ["openid", "profile", "email", "groups"]
+        refreshTokenThreshold: 30s
+    rbac:
+      policy.default: role:readonly
+      # The deny line: nobody deletes Argo CD's own Application from the UI/CLI (a cascade delete
+      # removes Argo CD). Remove it from app-of-apps instead: no finalizer, so the resources stay.
+      policy.csv: |
+        g, admin, role:admin
+        g, argocd-admins, role:admin
+        p, role:admin, applications, delete, teknoir-online/argocd, deny
+
+  applicationSet:
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        memory: "1Gi"
+
+  controller:
+    # 1Gi OOMKilled the application controller on production (2026-10-29), crash-looping every few
+    # minutes once all 27 teamspace plugin Applications re-synced together. 3Gi gives headroom.
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "1Gi"
+      limits:
+        memory: "3Gi"
+
+  dex:
+    image:
+      tag: "v2.45.1@sha256:8499afd690c437f52301efd2b05b2455da5bd2dfc20332cd697dc9937f808462"
+      repository: "ghcr.io/dexidp/dex"
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        memory: "1Gi"
+
+  notifications:
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        memory: "1Gi"
+
+
+  redis:
+    image:
+      tag: "8.2.3-alpine@sha256:08ad0b1d280850169a790dba1393ff7a90aef951fc19632cf4d3ce4f78e679ba"
+      repository: "ecr-public.aws.com/docker/library/redis"
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        memory: "1Gi"
+
+  server:
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        memory: "1Gi"
+    extraArgs:
+      - --insecure
+
+  repoServer:
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        memory: "1Gi"
+

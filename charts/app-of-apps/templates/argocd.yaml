@@ -1,0 +1,40 @@
+---
+# Argo CD manages itself (charts/argocd). releaseName argocd is the Helm release
+# automation/argocd/bootstrap-argocd.sh (teknoir/teknoir-persona-monorepo) installs, so the
+# render keeps every name and this Application adopts the running install in place.
+#   - Automated from the first sync. Checked before (2026-11-02): production's argocd-* ConfigMaps
+#     are managed by helm only and equal this render apart from the RBAC deny line, the running
+#     chart is argo-cd-9.5.9, and the same adoption on staging (Application argo) changed only the
+#     protections below, with no pod restart and argocd-secret/argocd-redis kept.
+#   - Client-side apply, like every other production Application: once the first sync has written
+#     the last-applied annotation, a key removed from values is removed from the live object too.
+#     The CRDs carry their own ServerSideApply=true sync option (charts/argocd values).
+#   - No resources-finalizer: removing this Application from app-of-apps orphans Argo CD instead of
+#     deleting it. Deleting it from the UI/CLI is denied by RBAC (argocd-rbac-cm), and the CRDs and
+#     argocd-secret carry Delete=false.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd
+spec:
+  destination:
+    namespace: teknoir-system
+    server: https://kubernetes.default.svc
+  source:
+    path: charts/argocd
+    repoURL: https://github.com/teknoir/platform-applications-gitops
+    targetRevision: {{ .Values.project }}
+    helm:
+      releaseName: argocd
+  project: {{ .Values.project }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      enabled: true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
