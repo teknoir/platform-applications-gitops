@@ -27,6 +27,11 @@ ssoSessionIdleTimeout: 86400      # 1 d: a session survives a night and a weeken
 ssoSessionMaxLifespan: 604800     # 7 d: one login a week at most
 offlineSessionIdleTimeout: 2592000  # 30 d (tnctl's offline token); explicit, was the Keycloak default
 
+# Login pages: the Teknoir sign-in landing (keycloak-theme repo, theme teknoir-theme; it must be in
+# keycloak.image). Every client of the realm gets it; the admin console gets the card without the
+# landing copy. Unset, Keycloak serves its stock keycloak.v2 login.
+loginTheme: teknoir-theme
+
 clientScopes:
   # Flat group names as claim "groups" (ArgoCD, Argo Workflows and Harbor RBAC on group admin).
   - name: groups

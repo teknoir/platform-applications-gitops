@@ -10,7 +10,7 @@ keycloak:
     # The keycloakx chart puts image.tag into the app.kubernetes.io/version label, so the pin is the
     # separate digest value (tag@digest in a label is invalid). scripts/pin-image style "digest".
     tag: "latest"
-    digest: "sha256:cb44f58c427e2064f21a0a1d2f8de242befcfd2ba5ceae9ef9874d00ca622a9c"
+    digest: "sha256:7229fd175001d516bd3f36ae86baadcd230f8a962b9fe80402bc60a926551f5e"
     pullPolicy: Always
   imagePullSecrets:
     - name: ghcr-token

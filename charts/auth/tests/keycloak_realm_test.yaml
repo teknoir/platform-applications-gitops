@@ -25,6 +25,15 @@ tests:
 
   # Keep in step with oauth2Proxy.cookie.expire (168h = 604800 s), pinned in oauth2_proxy_test.yaml: change both together.
 
+  - it: sets the Teknoir login theme on the realm
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["master.yaml"]
+          pattern: '(?m)^loginTheme: teknoir-theme(\s|$)'
+
   # ztna-audience (plans/ztna-later.md): the hub audience comes from an OPTIONAL scope of teknoir-cli, so the
   # token tnctl sends to Backstage (downscoped) never has it. A default scope cannot be left out of a token.
   - it: defines the client scope teknoir-ztna with an access-token audience mapper
