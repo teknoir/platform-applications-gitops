@@ -31,9 +31,8 @@ Argo CD is deployed behind the Istio ingress gateway.
 
 ## Self-management
 
-- The Application `argo` starts without automated sync: review the first sync's diff (it shows any runtime edit of
-  `argocd-cm`, `argocd-rbac-cm` or `argocd-cmd-params-cm` that the chart would revert), sync by hand, then enable
-  automated sync in a follow-up commit.
+- The Application `argo` syncs automatically (prune, selfHeal). It adopted the `deploy-argo.sh` install with a reviewed
+  manual sync on 2026-11-02 (release `staging-20261102.1`), and `teknoir-argo.yaml` was detached from k3s right after.
 - Deleting the Application `argo` from the UI or CLI is denied by RBAC (a cascade delete would remove Argo CD); the CRDs
   and `argocd-secret` also carry `Delete=false`. Remove it from app-of-apps instead: it has no finalizer.
 - A staging rollback to a release from before this chart existed prunes the Application `argo` (orphaning, not

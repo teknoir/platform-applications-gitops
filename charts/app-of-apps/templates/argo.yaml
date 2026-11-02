@@ -4,9 +4,8 @@
 # name (argo-argocd-*) and this Application adopts the running install in place. Once it is Synced,
 # re-run deploy-argo.sh: it moves teknoir-argo.yaml out of the k3s manifests directory, or every k3s
 # restart re-applies it over this Application.
-#   - Manual sync for the adoption: review the diff of the first sync (it shows any runtime edit of
-#     argocd-cm/argocd-rbac-cm/argocd-cmd-params-cm that the chart would revert), sync by hand, and
-#     enable automated sync (prune, selfHeal) in a follow-up commit.
+#   - Automated (prune, selfHeal) since the adoption was done by a reviewed manual sync on
+#     2026-11-02 (staging-20261102.1: only the delete protections changed, no pod restarted).
 #   - Client-side apply, like the other staging Applications: once the first sync has written the
 #     last-applied annotation, a key removed from values is removed from the live object too. The
 #     CRDs carry their own ServerSideApply=true sync option (charts/argo values).
@@ -42,6 +41,10 @@ spec:
       releaseName: argo
   project: {{ .Values.project }}
   syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      enabled: true
     retry:
       limit: 5
       backoff:
