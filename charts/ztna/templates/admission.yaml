@@ -424,6 +424,12 @@ device-controller (copy from a Robot), the Backstage backend (Settings > Org tre
 `kubectl annotate` by a cluster admin (system:masters).
 Robot org annotations are not guarded: device-controller copies a Robot's placement only onto an
 unplaced Device, so an editor of Robots can narrow but not widen access. Guarding Robots is a follow-up.
+The same holds for the Disable switch teknoir.org/disabled and its record teknoir.org/disabled-reason,
+-by and -at (plans/device-disable-remove.md): while it is "true" device-controller withdraws the device's
+MQTT key, closes its MQTT sessions and turns Tunneling off. Only a teamspace admin may disable or enable
+a device (Backstage checks it before it writes); without this guard any editor of Devices (a notebook's
+default-editor service account) could enable a disabled device. Writer: the Backstage backend only;
+device-controller only reads them.
 */}}
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
@@ -454,12 +460,14 @@ spec:
       expression: >-
         request.userInfo.username in ['{{ include "ztna.controllerUser" . }}', '{{ .Values.backstage.serviceAccount }}'] ||
         'system:masters' in request.userInfo.groups
+    - name: disableKeys
+      expression: "['teknoir.org/disabled', 'teknoir.org/disabled-reason', 'teknoir.org/disabled-by', 'teknoir.org/disabled-at']"
   validations:
     - expression: >-
         variables.privileged ||
-        (variables.newA.all(k, !(k.startsWith(variables.prefix) || k in variables.orgKeys) || (k in variables.oldA && variables.oldA[k] == variables.newA[k])) &&
-         variables.oldA.all(k, !(k.startsWith(variables.prefix) || k in variables.orgKeys) || k in variables.newA))
-      message: "ztna.teknoir.org/* and teknoir.org/org-tree-path|node-id annotations on a Device are changed only by the Backstage backend, device-controller or system:masters"
+        (variables.newA.all(k, !(k.startsWith(variables.prefix) || k in variables.orgKeys || k in variables.disableKeys) || (k in variables.oldA && variables.oldA[k] == variables.newA[k])) &&
+         variables.oldA.all(k, !(k.startsWith(variables.prefix) || k in variables.orgKeys || k in variables.disableKeys) || k in variables.newA))
+      message: "ztna.teknoir.org/*, teknoir.org/org-tree-path|node-id and teknoir.org/disabled* annotations on a Device are changed only by the Backstage backend, device-controller or system:masters"
       reason: Forbidden
 ---
 apiVersion: admissionregistration.k8s.io/v1

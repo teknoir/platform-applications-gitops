@@ -1321,6 +1321,22 @@ tests:
           path: spec.validations[0].expression
           pattern: "k in variables.orgKeys"
 
+  - it: guards the Disable annotations on Devices (teknoir.org/disabled*)
+    template: templates/admission.yaml
+    documentSelector:
+      path: metadata.name
+      value: ztna-device-annotations
+    asserts:
+      - equal:
+          path: spec.variables[5].name
+          value: disableKeys
+      - matchRegex:
+          path: spec.variables[5].expression
+          pattern: "'teknoir.org/disabled', 'teknoir.org/disabled-reason', 'teknoir.org/disabled-by', 'teknoir.org/disabled-at'"
+      - matchRegex:
+          path: spec.validations[0].expression
+          pattern: "(?s)newA.all\\(k, .*k in variables.disableKeys.*oldA.all\\(k, .*k in variables.disableKeys"
+
   - it: protects the org-tree annotations on Users
     template: templates/admission.yaml
     documentSelector:

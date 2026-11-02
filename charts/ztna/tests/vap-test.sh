@@ -437,6 +437,24 @@ dev odev "$OT=se/b" "$ON=a" other.io/x=2 other.io/y=3 > "${TMP}/o-unrelated.yaml
 dverdict "editor changes unrelated annotations, org-tree kept" allow "${EDITOR_SA}" replace "${TMP}/o-unrelated.yaml"
 if "${KC[@]}" replace -n devns -f "${TMP}/o-removed.yaml" >/dev/null 2>&1; then ok "allowed: system:masters removes the org-tree placement"; else bad "system:masters org-tree removal denied"; fi
 
+# --- Device Disable switch (teknoir.org/disabled*, plans/device-disable-remove.md): Backstage backend only
+DA=teknoir.org/disabled; DR=teknoir.org/disabled-reason; DB=teknoir.org/disabled-by; DT=teknoir.org/disabled-at
+dev xdev other.io/x=1 > "${TMP}/x-base.yaml"
+"${KC[@]}" create -n devns -f "${TMP}/x-base.yaml" >/dev/null
+dev xdev "$DA=true" "$DB=admin@example.com" "$DT=2026-11-02T14:03:00Z" "$DR=lost" other.io/x=1 > "${TMP}/x-disabled.yaml"
+dverdict "editor disables a Device" deny "${EDITOR_SA}" replace "${TMP}/x-disabled.yaml"
+dverdict "backstage-api disables a Device" allow "${BACKSTAGE_API}" replace "${TMP}/x-disabled.yaml"
+dverdict "editor enables a disabled Device (removes the annotations)" deny "${EDITOR_SA}" replace "${TMP}/x-base.yaml"
+dev xdev "$DA=false" "$DB=admin@example.com" "$DT=2026-11-02T14:03:00Z" "$DR=lost" other.io/x=1 > "${TMP}/x-false.yaml"
+dverdict "editor flips teknoir.org/disabled to false" deny "${EDITOR_SA}" replace "${TMP}/x-false.yaml"
+dev xdev "$DA=true" "$DB=admin@example.com" "$DT=2026-11-02T14:03:00Z" "$DR=edited" other.io/x=1 > "${TMP}/x-reason.yaml"
+dverdict "editor edits only the disable reason" deny "${EDITOR_SA}" replace "${TMP}/x-reason.yaml"
+dev xdev "$DA=true" "$DB=admin@example.com" "$DT=2026-11-02T14:03:00Z" "$DR=lost" other.io/x=2 > "${TMP}/x-unrelated.yaml"
+dverdict "editor changes unrelated annotations of a disabled Device" allow "${EDITOR_SA}" replace "${TMP}/x-unrelated.yaml"
+dev xdev-new "$DA=true" > "${TMP}/x-create.yaml"
+dverdict "editor creates a Device that is already disabled" deny "${EDITOR_SA}" create "${TMP}/x-create.yaml"
+dverdict "backstage-api enables a Device" allow "${BACKSTAGE_API}" replace "${TMP}/x-base.yaml"
+
 # --- User org annotations (org-tree-member-*, org-tree-units-*): Backstage backend, ArgoCD, user-controller, system:masters
 "${KC[@]}" apply -f "${CHART}/../user-controller/crds/crds.yaml" >/dev/null
 "${KC[@]}" wait --for=condition=Established crd/users.teknoir.org --timeout=30s >/dev/null
