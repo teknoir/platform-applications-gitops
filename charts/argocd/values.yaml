@@ -7,6 +7,13 @@
 argo-cd:
   namespaceOverride: "teknoir-system"
 
+  # Argo CD must survive its own Application: Prune=false,Delete=false keeps the CRDs (and with them
+  # every Application) even if the Application argocd is deleted with cascade. ServerSideApply=true is
+  # the chart default for the CRDs (too large for client-side apply's last-applied annotation).
+  crds:
+    annotations:
+      argocd.argoproj.io/sync-options: ServerSideApply=true,Prune=false,Delete=false
+
   global:
     image:
       tag: "v3.3.8@sha256:5d45dc6db21db32a0638ac9128462c6d9956a90fc81760146dada5a243ff7516"
@@ -14,6 +21,10 @@ argo-cd:
     domain: argocd.teknoir.online
 
   configs:
+    # argocd-secret holds server.secretkey and admin.password (written at runtime): never delete it.
+    secret:
+      annotations:
+        argocd.argoproj.io/sync-options: Prune=false,Delete=false
     cm:
       oidc.config: |
         name: Keycloak
@@ -24,9 +35,12 @@ argo-cd:
         refreshTokenThreshold: 30s
     rbac:
       policy.default: role:readonly
+      # The deny line: nobody deletes Argo CD's own Application from the UI/CLI (a cascade delete
+      # removes Argo CD). Remove it from app-of-apps instead: no finalizer, so the resources stay.
       policy.csv: |
         g, admin, role:admin
         g, argocd-admins, role:admin
+        p, role:admin, applications, delete, teknoir-online/argocd, deny
 
   applicationSet:
     resources:
