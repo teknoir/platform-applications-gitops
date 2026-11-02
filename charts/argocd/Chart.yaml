@@ -1,0 +1,11 @@
+---
+apiVersion: v2
+name: argocd
+description: Argo CD for the Teknoir platform, managed by its own Application (argocd).
+type: application
+version: 0.0.1
+appVersion: "v3.3.8"
+dependencies:
+  - name: argo-cd
+    version: 9.5.9
+    repository: https://argoproj.github.io/argo-helm

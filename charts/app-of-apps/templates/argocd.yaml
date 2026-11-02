@@ -1,0 +1,34 @@
+---
+# Argo CD manages itself (charts/argocd). releaseName argocd is the Helm release
+# automation/argocd/bootstrap-argocd.sh (teknoir/teknoir-persona-monorepo) installs, so the
+# render keeps every name and this Application adopts the running install in place.
+#   - ServerSideApply: the ApplicationSet CRD is too large for client-side apply's
+#     last-applied annotation; ServerSideDiff keeps fields Argo CD writes at runtime
+#     (argocd-secret's server.secretkey) out of the diff.
+#   - No resources-finalizer: deleting this Application (or pruning it from app-of-apps)
+#     must leave Argo CD running, never cascade-delete it.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd
+  annotations:
+    argocd.argoproj.io/compare-options: ServerSideDiff=true
+spec:
+  destination:
+    namespace: teknoir-system
+    server: https://kubernetes.default.svc
+  source:
+    path: charts/argocd
+    repoURL: https://github.com/teknoir/platform-applications-gitops
+    targetRevision: {{ .Values.project }}
+    helm:
+      releaseName: argocd
+  sources: [ ]
+  project: {{ .Values.project }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      enabled: true
+    syncOptions:
+      - ServerSideApply=true
