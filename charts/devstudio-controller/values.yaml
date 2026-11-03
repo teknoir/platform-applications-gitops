@@ -4,7 +4,7 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/teknoir/devstudio-controller
-  tag: "teknoir-cloud@sha256:ff890f902a687dda295811676d6447d7ea8ceafbd5edadc8b390e8a27d211777"
+  tag: "sha-5de07259@sha256:acc5fa56866fe666ce4c8372b5a991dbf4016747aff21af6935240a2486be94d"
   pullPolicy: Always
 
 imagePullSecrets:
