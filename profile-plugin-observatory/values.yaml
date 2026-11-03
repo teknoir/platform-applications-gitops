@@ -22,7 +22,7 @@ wssMqtt:
     - cluster.local/ns/teknoir-system/sa/backstage-next-api
   image:
     registry: ghcr.io/teknoir/observatory-wss-mqtt
-    version: latest@sha256:6175610b71afe489d8fbd4c1e46d9100e3eaf62a1bd31909f9d8fd29bd9eeb6f
+    version: sha-71e82286@sha256:8f987ee85542c5e1ac224b2f93052c54a719cf82104fed57779cf53d1ba0d874
   resources:
     requests:
       cpu: 10m

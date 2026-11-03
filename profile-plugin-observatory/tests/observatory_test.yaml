@@ -134,3 +134,10 @@ tests:
       - equal:
           path: spec.template.spec.containers[?(@.name == "observatory-snapshot-exporter")].resources.requests.memory
           value: 128Mi
+  - it: wss-mqtt runs the build whose camera filter matches NVR frames
+    template: templates/deployments.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[?(@.name == "observatory-wss-mqtt")].image
+          value: ghcr.io/teknoir/observatory-wss-mqtt:sha-71e82286@sha256:8f987ee85542c5e1ac224b2f93052c54a719cf82104fed57779cf53d1ba0d874
