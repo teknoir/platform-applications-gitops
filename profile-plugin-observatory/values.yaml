@@ -38,7 +38,7 @@ keydb:
 snapshotExporter:
   image:
     registry: ghcr.io/teknoir/observatory-snapshot-exporter
-    version: sha-8d6d8c4a@sha256:22ed8b7bfae639f00cfe8ec7ae5b290963e58765938db2bea455fa8799490c9e
+    version: sha-e7dcf3b6@sha256:335f58924b4d44e329afd9b746d2dad11c8992a95da4963b2cfaa69a7fc4a19c
   # The exporter uses about 100 MB. The limit restarts only this container if its memory
   # ever keeps growing, instead of letting it starve the node.
   resources:
