@@ -7,7 +7,9 @@ would revoke the Keycloak user). Changes to these users go through Git; edits ma
 in the UI are reverted by self-heal.
 
 Never pruned or deleted by ArgoCD: removing an entry from values leaves the User
-(and its Keycloak user) in place. Delete it by hand if that is really wanted.
+(and its Keycloak user) in place. Delete it by hand if that is really wanted, or, to
+keep the user, remove its label (kubectl label users.teknoir.org <name>
+teknoir.org/managed-by-) so Settings > Members stops showing it as managed in GitOps.
 
 orgUnits (optional) maps a teamspace to the org-tree units the user is limited to
 there, e.g. {teknoir-demo: [se-karlstad]}: the user then sees only robots and devices
