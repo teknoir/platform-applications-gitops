@@ -53,7 +53,8 @@ config:
   # 0.0.110: EMQX dashboard audit line per write (owner email), no-cache index, guard every 60 s, port 18083 for the proxy only.
   # 0.0.111: device-controller may call the EMQX API on 18083 (emqxApi.callers), to close a disabled device's sessions.
   # 0.0.112: EMQX checks each device login with jwks-server and has a per-device topic ACL, in observe mode (logs only).
-  pluginChartVersion: "0.0.112"
+  # 0.0.112-p1: Observatory snapshot exporter without memory growth, with a memory request and limit.
+  pluginChartVersion: "0.0.112-p1"
   # Issuer and JWKS URI of the teamspace RequestAuthentication jwt-policy (env OIDC_ISSUER, OIDC_JWKS_URI).
   # Empty issuer: https://auth.<domain>/auth/realms/master, derived from `domain` above (same as the auth chart).
   # Empty jwksUri: the controller uses <issuer>/protocol/openid-connect/certs.
