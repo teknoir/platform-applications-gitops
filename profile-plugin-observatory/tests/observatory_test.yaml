@@ -124,3 +124,13 @@ tests:
           value: observatory-media-service
       - notExists:
           path: spec.template.metadata.annotations
+  - it: the snapshot exporter has a memory request and limit
+    template: templates/deployments.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[?(@.name == "observatory-snapshot-exporter")].resources.limits.memory
+          value: 384Mi
+      - equal:
+          path: spec.template.spec.containers[?(@.name == "observatory-snapshot-exporter")].resources.requests.memory
+          value: 128Mi

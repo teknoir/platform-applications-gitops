@@ -38,11 +38,15 @@ keydb:
 snapshotExporter:
   image:
     registry: ghcr.io/teknoir/observatory-snapshot-exporter
-    version: latest@sha256:e90016f38c7db769cc5663c4fcc23547ce8db99f963f2300fef48cc7a6fef9f5
+    version: sha-8d6d8c4a@sha256:22ed8b7bfae639f00cfe8ec7ae5b290963e58765938db2bea455fa8799490c9e
+  # The exporter uses about 100 MB. The limit restarts only this container if its memory
+  # ever keeps growing, instead of letting it starve the node.
   resources:
     requests:
       cpu: 10m
-      memory: 20Mi
+      memory: 128Mi
+    limits:
+      memory: 384Mi
 mediaService:
   image:
     registry: ghcr.io/teknoir/observatory-media-service
