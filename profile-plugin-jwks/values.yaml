@@ -12,10 +12,24 @@ authorization:
     - namespace: teknoir-system
       serviceAccount: device-controller-service-account
 
+# MQTT device authentication (POST /api/v1/mqtt/authn, called by EMQX's http authenticator)
+# and the authorization audit sink (POST /api/v1/mqtt/authz-audit). See the profile-plugin-emqx
+# README "MQTT authentication and authorization".
+#   authnMode: observe (failures answer "ignore" and log would_deny) or enforce (failures
+#     answer "deny"). Anything else fails the render.
+#   audience: the "aud" a device token must carry (exact match).
+#   emqxServiceAccount: the ServiceAccount of the EMQX pod in this namespace; only its mTLS
+#     principal may call /api/v1/mqtt/*.
+mqttAuth:
+  authnMode: observe
+  audience: teknoir
+  emqxServiceAccount: emqx
+
 jwks:
   image:
     registry: ghcr.io/teknoir/jwks-server
-    version: sha-3ffc34e5@sha256:b4f9e01f45de79bf48028e4056b270d5fdbf47a66a5e55ffe4755f0ead8f6301
+    # jwks-server branch mqtt-auth (MQTT authn endpoint); main has not merged it yet.
+    version: sha-de5c5ed8@sha256:403771123fa3486a10fee3ac7dcd60a9ef4d1d3d8b63b13299afd09eb5525437
   resources:
     requests:
       cpu: 25m

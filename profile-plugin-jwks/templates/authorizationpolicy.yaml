@@ -6,6 +6,9 @@
 #   - POST/PUT/DELETE (device key registration and revocation): only the
 #     workload identities in .Values.authorization.writers, matched on the
 #     caller's mTLS principal.
+#   - /api/v1/mqtt/* (EMQX's http authenticator and authorization audit sink):
+#     only the EMQX pod of this namespace (jwks.emqxPrincipal), POST only. EMQX
+#     is never a writer.
 # Other ALLOW policies in the teamspace (namespace owner, per-user policies)
 # select every workload, this one included, and ALLOW policies are OR'ed. The
 # DENY below is evaluated before any ALLOW, so it is what limits writes.
@@ -26,6 +29,7 @@ spec:
     - to:
         - operation:
             notMethods: ["GET"]
+            notPaths: ["/api/v1/mqtt/*"]
       {{- with .Values.authorization.writers }}
       from:
         - source:
@@ -34,6 +38,32 @@ spec:
               - {{ printf "%s/ns/%s/sa/%s" $.Values.authorization.trustDomain .namespace .serviceAccount | quote }}
               {{- end }}
       {{- end }}
+---
+# The MQTT endpoints are for EMQX only: anything else on /api/v1/mqtt/* (other
+# in-namespace pods, which the namespace-wide ALLOW admits, and plaintext
+# callers, which have no principal) is denied. jwks-server's handlers also
+# accept POST only and refuse percent-encoded paths.
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  labels:
+    app: jwks
+    teknoir.org/plugin: jwks
+  name: jwks-mqtt-auth
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    matchLabels:
+      app: jwks
+  action: DENY
+  rules:
+    - to:
+        - operation:
+            paths: ["/api/v1/mqtt/*"]
+      from:
+        - source:
+            notPrincipals:
+              - {{ include "jwks.emqxPrincipal" . | quote }}
 ---
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
@@ -63,3 +93,11 @@ spec:
         - operation:
             methods: ["POST", "PUT", "DELETE"]
     {{- end }}
+    - from:
+        - source:
+            principals:
+              - {{ include "jwks.emqxPrincipal" . | quote }}
+      to:
+        - operation:
+            methods: ["POST"]
+            paths: ["/api/v1/mqtt/*"]

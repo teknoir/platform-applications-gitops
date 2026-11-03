@@ -32,6 +32,10 @@ spec:
           env:
             - name: PORT
               value: "8083"
+            - name: MQTT_AUTHN_MODE
+              value: {{ include "jwks.authnMode" . | quote }}
+            - name: MQTT_AUDIENCE
+              value: {{ .Values.mqttAuth.audience | quote }}
           livenessProbe:
             httpGet:
               path: /healthz

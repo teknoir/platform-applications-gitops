@@ -88,3 +88,35 @@ gateway principals when the proxy is off, plus emqxApi.extraPrincipals.
 {{- $p = concat $p .Values.emqxApi.extraPrincipals -}}
 {{- toJson $p -}}
 {{- end -}}
+
+{{/*
+The MQTT ACL of the broker (authorization source 1, type file), keyed on the username. A literal
+that depends on no value: it is also rendered from the upstream chart's configmap.yaml (through
+teknoir.emqx.aclFile in emqxConfig), where "." is the emqx subchart's context. Rules, first match
+wins; anything unmatched falls to authorization.no_match:
+  - the platform user (emqx.username) may do anything under /devices/;
+  - nobody may subscribe to $SYS/# or to the bare wildcards # and +/#;
+  - a device (a DNS-1123 name, so ${username} never holds +, # or /) may subscribe to its own
+    config and commands/#, and publish its own state/# and events/#, never retained.
+There is deliberately no {allow, all}, no ipaddr rule (a port-forward is 127.0.0.1) and no
+dashboard rule.
+*/}}
+{{- define "teknoir.emqx.aclConf" -}}
+%% Teknoir MQTT ACL (profile-plugin-emqx). First match wins; the rest falls to authorization.no_match.
+{allow, {username, {{ include "emqx.username" . | quote }}}, all, ["/devices/#"]}.
+{deny, all, subscribe, ["$SYS/#", {eq, "#"}, {eq, "+/#"}]}.
+{allow, {username, {re, "^[a-z0-9][a-z0-9.-]*$"}}, subscribe,
+    ["/devices/${username}/config", "/devices/${username}/commands/#"]}.
+{allow, {username, {re, "^[a-z0-9][a-z0-9.-]*$"}}, {publish, [{retain, false}]},
+    ["/devices/${username}/state/#", "/devices/${username}/events/#"]}.
+{{ end -}}
+
+{{/*
+File name of the ACL, with a hash of its content. EMQX reads the file only when the source is
+created (at boot), and only a change of the upstream env ConfigMap rolls the pod
+(checksum/config). The name is in EMQX_AUTHORIZATION__SOURCES__1__PATH, so an ACL change
+changes the env ConfigMap and restarts EMQX with the new file.
+*/}}
+{{- define "teknoir.emqx.aclFile" -}}
+acl-{{ include "teknoir.emqx.aclConf" . | sha256sum | trunc 12 }}.conf
+{{- end -}}

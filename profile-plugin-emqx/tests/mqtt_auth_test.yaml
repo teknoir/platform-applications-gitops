@@ -1,0 +1,165 @@
+suite: emqx MQTT authentication and authorization
+release:
+  name: emqx
+  namespace: teknoir-demo
+set:
+  domain: teknoir.cloud
+templates:
+  - charts/emqx/templates/configmap.yaml
+  - templates/acl-configmap.yaml
+tests:
+  - it: authenticator 1 is the built-in database (user teknoir)
+    template: charts/emqx/templates/configmap.yaml
+    asserts:
+      - equal:
+          path: data.EMQX_AUTHENTICATION__1__MECHANISM
+          value: password_based
+      - equal:
+          path: data.EMQX_AUTHENTICATION__1__BACKEND
+          value: built_in_database
+
+  - it: authenticator 2 is http (jwks authn) with the exact URL and BODY
+    template: charts/emqx/templates/configmap.yaml
+    asserts:
+      - equal:
+          path: data.EMQX_AUTHENTICATION__2__ENABLE
+          value: "true"
+      - equal:
+          path: data.EMQX_AUTHENTICATION__2__MECHANISM
+          value: password_based
+      - equal:
+          path: data.EMQX_AUTHENTICATION__2__BACKEND
+          value: http
+      - equal:
+          path: data.EMQX_AUTHENTICATION__2__METHOD
+          value: post
+      - equal:
+          path: data.EMQX_AUTHENTICATION__2__URL
+          value: http://jwks:8083/api/v1/mqtt/authn
+      - equal:
+          path: data.EMQX_AUTHENTICATION__2__REQUEST_TIMEOUT
+          value: 3s
+      - equal:
+          path: data.EMQX_AUTHENTICATION__2__BODY
+          value: '{"clientid":"${clientid}","password":"${password}","username":"${username}"}'
+
+  - it: authenticator 2 has none of the old JWT settings
+    template: charts/emqx/templates/configmap.yaml
+    asserts:
+      - notExists:
+          path: data.EMQX_AUTHENTICATION__2__USE_JWKS
+      - notExists:
+          path: data.EMQX_AUTHENTICATION__2__ENDPOINT
+      - notExists:
+          path: data.EMQX_AUTHENTICATION__2__VERIFY_CLAIMS
+      - notExists:
+          path: data.EMQX_AUTHENTICATION__2__ACL_CLAIM_NAME
+      - notExists:
+          path: data.EMQX_AUTHENTICATION__2__FROM
+
+  - it: authenticator 3 is the legacy JWT fallback, its acl claim ignored
+    template: charts/emqx/templates/configmap.yaml
+    asserts:
+      - equal:
+          path: data.EMQX_AUTHENTICATION__3__MECHANISM
+          value: jwt
+      - equal:
+          path: data.EMQX_AUTHENTICATION__3__USE_JWKS
+          value: "true"
+      - equal:
+          path: data.EMQX_AUTHENTICATION__3__ENDPOINT
+          value: http://jwks:8083/api/v1/keys
+      - equal:
+          path: data.EMQX_AUTHENTICATION__3__ACL_CLAIM_NAME
+          value: x_teknoir_unused_acl
+      - equal:
+          path: data.EMQX_AUTHENTICATION__3__VERIFY_CLAIMS
+          value: '{aud= "teknoir"}'
+      - notExists:
+          path: data.EMQX_AUTHENTICATION__4__MECHANISM
+
+  - it: observe mode - no_match allow, deny_action ignore, never use_username_as_clientid
+    template: charts/emqx/templates/configmap.yaml
+    asserts:
+      - equal:
+          path: data.EMQX_AUTHORIZATION__NO_MATCH
+          value: allow
+      - equal:
+          path: data.EMQX_AUTHORIZATION__DENY_ACTION
+          value: ignore
+      - notExists:
+          path: data.EMQX_MQTT__USE_USERNAME_AS_CLIENTID
+
+  - it: source 1 is the chart's ACL file, named after its content hash
+    template: charts/emqx/templates/configmap.yaml
+    asserts:
+      - equal:
+          path: data.EMQX_AUTHORIZATION__SOURCES__1__TYPE
+          value: file
+      - equal:
+          path: data.EMQX_AUTHORIZATION__SOURCES__1__ENABLE
+          value: "true"
+      - matchRegex:
+          path: data.EMQX_AUTHORIZATION__SOURCES__1__PATH
+          pattern: '^/opt/emqx-acl/acl-[0-9a-f]{12}\.conf$'
+
+  - it: source 2 is the jwks audit sink
+    template: charts/emqx/templates/configmap.yaml
+    asserts:
+      - equal:
+          path: data.EMQX_AUTHORIZATION__SOURCES__2__TYPE
+          value: http
+      - equal:
+          path: data.EMQX_AUTHORIZATION__SOURCES__2__METHOD
+          value: post
+      - equal:
+          path: data.EMQX_AUTHORIZATION__SOURCES__2__URL
+          value: http://jwks:8083/api/v1/mqtt/authz-audit
+      - equal:
+          path: data.EMQX_AUTHORIZATION__SOURCES__2__REQUEST_TIMEOUT
+          value: 2s
+      - equal:
+          path: data.EMQX_AUTHORIZATION__SOURCES__2__BODY
+          value: '{"action":"${action}","clientid":"${clientid}","qos":"${qos}","retain":"${retain}","topic":"${topic}","username":"${username}"}'
+      - notExists:
+          path: data.EMQX_AUTHORIZATION__SOURCES__3__TYPE
+
+  - it: the ACL ConfigMap is emqx-acl
+    template: templates/acl-configmap.yaml
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: metadata.name
+          value: emqx-acl
+      - equal:
+          path: metadata.labels
+          value:
+            teknoir.org/plugin: emqx
+
+  - it: the ACL has no allow-all, no ipaddr and no dashboard rule
+    template: templates/acl-configmap.yaml
+    asserts:
+      - notMatchRegex:
+          path: data.*
+          pattern: '\{allow,\s*all'
+      - notMatchRegex:
+          path: data.*
+          pattern: 'ipaddr'
+      - notMatchRegex:
+          path: data.*
+          pattern: 'dashboard'
+
+  - it: the ACL holds exactly the platform, wildcard and device rules
+    template: templates/acl-configmap.yaml
+    asserts:
+      - equal:
+          path: data.*
+          value: |
+            %% Teknoir MQTT ACL (profile-plugin-emqx). First match wins; the rest falls to authorization.no_match.
+            {allow, {username, "teknoir"}, all, ["/devices/#"]}.
+            {deny, all, subscribe, ["$SYS/#", {eq, "#"}, {eq, "+/#"}]}.
+            {allow, {username, {re, "^[a-z0-9][a-z0-9.-]*$"}}, subscribe,
+                ["/devices/${username}/config", "/devices/${username}/commands/#"]}.
+            {allow, {username, {re, "^[a-z0-9][a-z0-9.-]*$"}}, {publish, [{retain, false}]},
+                ["/devices/${username}/state/#", "/devices/${username}/events/#"]}.

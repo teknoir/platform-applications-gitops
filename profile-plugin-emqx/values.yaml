@@ -73,25 +73,43 @@ emqx:
     EMQX_DASHBOARD__DEFAULT_USERNAME: "teknoir"
     # empty: the upstream chart default ("public") is not rendered (its configmap skips empty values)
     EMQX_DASHBOARD__DEFAULT_PASSWORD: ""
-    # --AUTHENTICATION & AUTHORIZATION ---
-    # 1. Built-in Database Authentication
-    EMQX_AUTHENTICATION__1__ENABLE: "true"
+    # --- AUTHENTICATION & AUTHORIZATION (README "MQTT authentication and authorization") ---
+    # Authenticators run in order; "ignore" moves on to the next one.
+    EMQX_AUTHENTICATION__1__ENABLE: "true"                 # built-in DB, user teknoir (unchanged)
     EMQX_AUTHENTICATION__1__MECHANISM: "password_based"
     EMQX_AUTHENTICATION__1__BACKEND: "built_in_database"
-    # 2. JWKS Authentication
-    EMQX_AUTHENTICATION__2__ENABLE: "true"
-    EMQX_AUTHENTICATION__2__MECHANISM: "jwt"
-    EMQX_AUTHENTICATION__2__USE_JWKS: "true"
-    EMQX_AUTHENTICATION__2__ENDPOINT: "http://jwks:8083/api/v1/keys"
-    EMQX_AUTHENTICATION__2__FROM: "password"
-    #refresh_interval = 60
-    EMQX_AUTHENTICATION__2__REFRESH_INTERVAL: "60"
-    #ssl = {enable = false}
-    EMQX_AUTHENTICATION__2__SSL__ENABLE: "false"
-    #acl_claim_name = "acl"
-    EMQX_AUTHENTICATION__2__ACL_CLAIM_NAME: "acl"
-    #verify_claims = {aud = "{{.projectId}}"}
-    EMQX_AUTHENTICATION__2__VERIFY_CLAIMS: '{aud= \"teknoir\"}'
+    EMQX_AUTHENTICATION__2__ENABLE: "true"                 # device key bound to username (jwks)
+    EMQX_AUTHENTICATION__2__MECHANISM: "password_based"
+    EMQX_AUTHENTICATION__2__BACKEND: "http"
+    EMQX_AUTHENTICATION__2__METHOD: "post"
+    EMQX_AUTHENTICATION__2__URL: "http://jwks:8083/api/v1/mqtt/authn"
+    EMQX_AUTHENTICATION__2__REQUEST_TIMEOUT: "3s"
+    EMQX_AUTHENTICATION__2__BODY: {username: "${username}", clientid: "${clientid}", password: "${password}"}
+    EMQX_AUTHENTICATION__3__ENABLE: "true"                 # legacy union JWKS, fallback only; removed in 0.0.115
+    EMQX_AUTHENTICATION__3__MECHANISM: "jwt"
+    EMQX_AUTHENTICATION__3__USE_JWKS: "true"
+    EMQX_AUTHENTICATION__3__ENDPOINT: "http://jwks:8083/api/v1/keys"
+    EMQX_AUTHENTICATION__3__FROM: "password"
+    EMQX_AUTHENTICATION__3__REFRESH_INTERVAL: "60"
+    EMQX_AUTHENTICATION__3__SSL__ENABLE: "false"
+    # Legacy fallback only (README "MQTT authentication and authorization"); 0.0.115 removes it.
+    EMQX_AUTHENTICATION__3__ACL_CLAIM_NAME: "x_teknoir_unused_acl"
+    EMQX_AUTHENTICATION__3__VERIFY_CLAIMS: '{aud= \"teknoir\"}'
+    # Authorization: the chart's ACL file (templates/acl-configmap.yaml), then the jwks audit sink,
+    # which only sees what the file did not allow and logs it as would_deny.
+    EMQX_AUTHORIZATION__NO_MATCH: "allow"                  # 0.0.114: "deny"
+    EMQX_AUTHORIZATION__DENY_ACTION: "ignore"
+    EMQX_AUTHORIZATION__SOURCES__1__TYPE: "file"
+    EMQX_AUTHORIZATION__SOURCES__1__ENABLE: "true"
+    EMQX_AUTHORIZATION__SOURCES__1__PATH: '/opt/emqx-acl/{{ include "teknoir.emqx.aclFile" . }}'
+    EMQX_AUTHORIZATION__SOURCES__2__TYPE: "http"           # observe only; removed in 0.0.114
+    EMQX_AUTHORIZATION__SOURCES__2__ENABLE: "true"
+    EMQX_AUTHORIZATION__SOURCES__2__METHOD: "post"
+    EMQX_AUTHORIZATION__SOURCES__2__URL: "http://jwks:8083/api/v1/mqtt/authz-audit"
+    EMQX_AUTHORIZATION__SOURCES__2__REQUEST_TIMEOUT: "2s"
+    EMQX_AUTHORIZATION__SOURCES__2__BODY: {username: "${username}", clientid: "${clientid}", topic: "${topic}", action: "${action}", qos: "${qos}", retain: "${retain}"}
+    # Do not set EMQX_MQTT__USE_USERNAME_AS_CLIENTID: platform clients share the user teknoir with
+    # distinct clientids and would take over each other's sessions.
     # EMQX 5 name of the intended 3 MB limit (the former EMQX_MAX_PACKET_SIZE is not an
     # EMQX 5 setting: the effective mqtt.max_packet_size stayed at the 1MB default)
     EMQX_MQTT__MAX_PACKET_SIZE: "3MB"
@@ -109,6 +127,9 @@ emqx:
     - name: emqx-certs
       mountPath: /certs
       readOnly: true
+    - name: emqx-acl
+      mountPath: /opt/emqx-acl
+      readOnly: true
   extraVolumes:
     - name: emqx-bootstrap-api-keys
       secret:
@@ -116,6 +137,9 @@ emqx:
     - name: emqx-certs
       secret:
         secretName: domain-wildcard-tls
+    - name: emqx-acl
+      configMap:
+        name: emqx-acl
   resources:
     requests:
       cpu: 25m

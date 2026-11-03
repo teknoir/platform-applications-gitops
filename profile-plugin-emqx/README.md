@@ -20,6 +20,71 @@ reload (about 2 minutes, no restart, no dropped clients). Do not add a
 `subPath` to the mount and do not add a restart-on-secret-change tool: either
 would break this or restart EMQX on every renewal.
 
+## MQTT authentication and authorization
+
+Set in `emqx.emqxConfig` (`EMQX_AUTHENTICATION__*`, `EMQX_AUTHORIZATION__*`), with the ACL file
+from `templates/acl-configmap.yaml`. Plan: `plans/unified-device-auth/mqtt-hardening.md`.
+
+**Authentication chain** (in order; an authenticator answering "ignore" passes the client on to
+the next one, anything else is final):
+1. Built-in database: the platform user `teknoir` (fleet-metrics, historian, Observatory,
+   device-controller, Backstage). A wrong password for `teknoir` is a hard stop.
+2. HTTP, `POST http://jwks:8083/api/v1/mqtt/authn` (profile-plugin-jwks): jwks-server verifies
+   the device's RS256 token against the one key stored for that username, checks `aud` and `exp`,
+   and requires clientid = username.
+   In `observe` mode (profile-plugin-jwks `mqttAuth.authnMode`) a failure answers "ignore" and
+   logs `mqtt_authn decision=would_deny`; in `enforce` it answers "deny". A pass is never a
+   superuser and carries no ACL.
+3. Legacy JWT (`use_jwks`, the union key set at `/api/v1/keys`, `aud` checked): a temporary
+   fallback for clients that authenticator 2 answers "ignore" (every observe failure at 0.0.112,
+   and a jwks error or timeout at 0.0.113 and 0.0.114). 0.0.115 removes it, after which the chain
+   fails closed.
+
+Only the EMQX pod's mTLS principal (`<trustDomain>/ns/<ns>/sa/emqx`) may call
+`/api/v1/mqtt/*` on jwks (profile-plugin-jwks `jwks-mqtt-auth` DENY); EMQX is not a key writer.
+
+**Authorization.** Source 1 is a file, `/opt/emqx-acl/acl-<hash>.conf` (helper
+`teknoir.emqx.aclConf`), keyed on the username. First match wins:
+- `teknoir`: everything under `/devices/#`;
+- nobody subscribes `$SYS/#`, `#` or `+/#`;
+- a device (username matching `^[a-z0-9][a-z0-9.-]*$`, so it never contains `+`, `#` or `/`):
+  subscribe `/devices/<name>/config` and `/devices/<name>/commands/#`; publish
+  `/devices/<name>/state/#` and `/devices/<name>/events/#`, never retained.
+Everything else falls to `authorization.no_match`. The file has no allow-all line, no `127.0.0.1`
+(`ipaddr`) rule and no dashboard rule. EMQX reads it only when the source is created (boot), and
+only a change of the env ConfigMap rolls the pod, so the file name carries the first 12 hex
+digits of the content's sha256: an ACL change changes `SOURCES__1__PATH` and restarts EMQX.
+
+While observing, source 2 is an HTTP audit sink, `POST http://jwks:8083/api/v1/mqtt/authz-audit`.
+It sees only requests the file did not decide, always answers "ignore", and jwks-server logs them
+as `mqtt_authz_audit decision=would_deny`. `no_match` is `allow`, so nothing is refused yet.
+Do not set `mqtt.use_username_as_clientid`: platform clients share the user `teknoir` with
+distinct clientids and would take over each other's sessions.
+
+**Modes, one chart version each** (every step is a staging release; production stays on its pin):
+
+| Version | jwks `authnMode` | `NO_MATCH` | Source 2 (audit) | Authenticator 3 (legacy JWT) | Restarts |
+|---|---|---|---|---|---|
+| 0.0.112 observe | `observe` | `allow` | yes | yes | EMQX, jwks |
+| 0.0.113 authn enforce | `enforce` | `allow` | yes | yes | jwks |
+| 0.0.114 authz enforce | `enforce` | `deny` | removed | yes | EMQX |
+| 0.0.115 fail closed | `enforce` | `deny` | removed | removed | EMQX |
+
+Who would be denied while observing:
+`kubectl -n <ns> logs deploy/jwks -c jwks | grep -E 'mqtt_(authn|authz_audit)' | grep -v decision=allow`.
+
+**Rollback.** Pin the previous plugin chart version (profile-controller `pluginChartVersion`
+through a staging release); EMQX and jwks get the old env and image back exactly. Do not change
+authentication or authorization through the EMQX API or dashboard: the env overrides it on the
+next restart, so the chart is the only rollback path. A device locked out by an older TOE build
+recovers on its next connect after the rollback (TOE mints a fresh token per connect) or after a
+TOE restart.
+
+Tests: `helm unittest` (`tests/mqtt_auth_test.yaml`), and `tests/acl-check.sh` (helm template,
+then docker `emqx/emqx:5.8.9`: the file parses, every rule compiles with EMQX's own rule compiler,
+and a username/action/topic matrix gives the expected allow, deny or no-match; `--check` skips
+docker).
+
 ## Dashboard: no EMQX login, owners only
 
 EMQX 5 Open Source cannot run its dashboard without a login, and `teknoir` / `teknoir` was
