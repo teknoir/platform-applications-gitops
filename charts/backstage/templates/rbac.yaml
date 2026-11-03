@@ -175,6 +175,15 @@ rules:
   - watch
   - create
   - patch
+# Services page: whether a Devstudio or Notebook server is up (ready endpoints of its Service). Read only.
+- apiGroups:
+  - discovery.k8s.io
+  resources:
+  - endpointslices
+  verbs:
+  - get
+  - list
+  - watch
 # The end-user checks (fleet canExec/isAdmin, teamspace admin): LocalSubjectAccessReview as the user's email.
 - apiGroups:
   - authorization.k8s.io
