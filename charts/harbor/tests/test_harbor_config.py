@@ -26,6 +26,9 @@ PROXIES = ["dockerhub", "ghcr", "quay", "k8s", "gcr", "nvcr"]
 PULL = [{"project": p, "access": ["repository:pull"]} for p in PROXIES]
 DOCKERHUB_TOKEN = "dckr_pat_Zq81kTESTTOKENdockerhub"
 GHCR_PAT = "ghp_TESTpatForGhcr0123456789abcdefghij"
+NODES_SEED = "SeedPass1234abcdXYZ"
+TEAMSPACE_SEED = "TeamspaceSeed1234Ab"
+TEAMSPACE_SECRET = ("teknoir-system", "harbor-teamspace-pull")
 
 
 def base_config():
@@ -154,15 +157,16 @@ class Base(unittest.TestCase):
         self.fake = self.h.fake
         self.h.ghcr()  # the platform's ghcr-token exists, as on staging
 
-    def assertNoSecretsInLogs(self):
-        secrets = self.h.all_secret_values() | {DOCKERHUB_TOKEN, GHCR_PAT, fake_harbor.ADMIN_PASSWORD, fake_harbor.K8S_TOKEN}
+    def assertNoSecretsInLogs(self, h=None):
+        h = h or self.h
+        secrets = h.all_secret_values() | {DOCKERHUB_TOKEN, GHCR_PAT, fake_harbor.ADMIN_PASSWORD, fake_harbor.K8S_TOKEN}
         # a robot password also appears inside the dockerconfigjson blob: compare its parts
-        for obj in self.fake.secrets.values():
+        for obj in h.fake.secrets.values():
             for k, v in (obj.get("data") or {}).items():
                 if k == ".dockerconfigjson":
                     for e in json.loads(base64.b64decode(v))["auths"].values():
                         secrets |= {e["password"], e["auth"]}
-        for out in self.h.outputs:
+        for out in h.outputs:
             for s in secrets:
                 self.assertNotIn(s, out, "a secret reached the log")
                 self.assertNotIn(base64.b64encode(s.encode()).decode(), out)
@@ -511,6 +515,24 @@ class TeamspaceRobotsTest(Base):
         self.assertNotIn("robot$ts-a", self.robot_names())
         self.assertEqual(self.fake.secret_data(*self.SEC), {})
 
+    def test_keys_without_a_profile_are_kept_until_a_robot_is_deleted(self):
+        """harbor-config can run before the Profile exists (fresh cluster, pre-seeded Secret): a
+        credential with no Profile and no managed robot must survive."""
+        seeded = {"teknoir-demo.username": "robot$ts-teknoir-demo", "teknoir-demo.password": TEAMSPACE_SEED}
+        self.fake.set_secret_data(*self.SEC, seeded)
+        out = self.h.run()
+        self.assertIsNone(self.fake.robot("robot$ts-teknoir-demo"))
+        self.assertEqual(self.fake.secret_data(*self.SEC), seeded)
+        self.assertEqual(out.count("teamspace teknoir-demo: no Profile and no managed robot; "
+                                   "credential keys kept"), 1)
+        # The Profile appears: the robot adopts the seeded password.
+        self.fake.profiles = ["teknoir-demo"]
+        out2 = self.h.run()
+        self.assertIn("robot robot$ts-teknoir-demo: created (password adopted from the Secret)", out2)
+        self.assertEqual(self.fake.robot("robot$ts-teknoir-demo")["_secret"], TEAMSPACE_SEED)
+        self.assertEqual(self.fake.secret_data(*self.SEC), seeded)
+        self.assertNoSecretsInLogs()
+
     def test_robots_not_created_by_harbor_config_are_never_deleted_or_touched(self):
         self.fake.profiles = ["a"]
         self.h.run()
@@ -642,6 +664,69 @@ class RobotSecretTest(Base):
         out = self.h.run()
         self.assertIn("robot ci: namespace teknoir-ci does not exist yet; skipped", out)
         self.assertIsNone(self.fake.robot("robot$ci"))
+
+
+class AdoptionTest(Base):
+    """A robot created while its Secret already holds a valid password adopts it (a credential carried
+    over from another Harbor keeps working); an invalid seed falls back to a new password."""
+
+    def test_nodes_robot_adopts_a_seeded_password(self):
+        self.fake.set_secret_data("teknoir-system", "harbor-nodes-pull",
+                                  {"password": NODES_SEED, "username": "robot$nodes"})
+        out = self.h.run()
+        self.assertIn("robot robot$nodes: created (password adopted from the Secret)", out)
+        self.assertEqual(self.fake.robot("robot$nodes")["_secret"], NODES_SEED)
+        data = self.fake.secret_data("teknoir-system", "harbor-nodes-pull")
+        self.assertEqual(data["username"], "robot$nodes")
+        self.assertEqual(data["password"], NODES_SEED)
+        cfg = json.loads(data[".dockerconfigjson"])
+        self.assertEqual(cfg["auths"]["harbor.test.example"]["password"], NODES_SEED)
+        out2 = self.h.run()
+        self.assertNotIn("robot robot$nodes: created", out2)
+        self.assertNotIn("robot robot$nodes: secret refreshed", out2)
+        self.assertEqual(self.h.last_writes, [], "the second run rewrote the Secret")
+        self.assertNoSecretsInLogs()
+
+    def test_teamspace_robot_adopts_a_seeded_password(self):
+        self.fake.profiles = ["a"]
+        self.fake.set_secret_data(*TEAMSPACE_SECRET, {"a.password": TEAMSPACE_SEED, "a.username": "robot$ts-a"})
+        out = self.h.run()
+        self.assertIn("robot robot$ts-a: created (password adopted from the Secret)", out)
+        self.assertEqual(self.fake.robot("robot$ts-a")["_secret"], TEAMSPACE_SEED)
+        self.assertEqual(self.fake.secret_data(*TEAMSPACE_SECRET)["a.password"], TEAMSPACE_SEED)
+        self.h.run()
+        self.assertEqual(self.h.last_writes, [], "the second run rewrote the Secret")
+        self.assertNoSecretsInLogs()
+
+    def test_invalid_seeds_fall_back_to_a_new_password(self):
+        # short, no upper, no digit, and a trailing newline (whitespace is refused)
+        for seed in ("short1A", "alllowercase123", "NoDigitsHereAtAll", "ValidPass1234\n"):
+            with self.subTest(seed=seed):
+                h = Harness(self)
+                h.ghcr()
+                h.fake.set_secret_data("teknoir-system", "harbor-nodes-pull",
+                                       {"password": seed, "username": "robot$nodes"})
+                out = h.run()
+                self.assertIn("robot robot$nodes: created (new password)", out)
+                real = h.fake.robot("robot$nodes")["_secret"]
+                self.assertNotEqual(real, seed)
+                self.assertEqual(h.fake.secret_data("teknoir-system", "harbor-nodes-pull")["password"], real)
+                self.assertNoSecretsInLogs(h)
+
+
+class NoCiRobotTest(Base):
+    def test_config_without_the_ci_robot_still_creates_nodes(self):
+        """The template drops the ci robot; the script needs no flag and never needs teknoir-ci."""
+        cfg = copy.deepcopy(base_config())
+        cfg["robots"] = [r for r in cfg["robots"] if r["name"] != "ci"]
+        h = Harness(self, cfg)
+        h.ghcr()
+        h.fake.namespaces.discard("teknoir-ci")
+        out = h.run()
+        self.assertIsNotNone(h.fake.robot("robot$nodes"))
+        self.assertIsNone(h.fake.robot("robot$ci"))
+        self.assertIn("robot robot$nodes: created", out)
+        self.assertNoSecretsInLogs(h)
 
 
 class NoSecretsInLogsTest(Base):

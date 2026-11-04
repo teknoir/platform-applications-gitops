@@ -14,9 +14,8 @@ releaseName: ""
 # templates/virtual-devices.yaml, which is teknoir-cloud only, so this flag does
 # nothing if it is cherry-picked onto another environment branch.
 virtualDevices:
-  # On for the single vpro host too (14 GB + 16 GB swap, KVM): room for KubeVirt and a small VM
-  # or two; the device-controller allowance caps what a teamspace may run.
-  enabled: true
+  # Off on r415: no KubeVirt there.
+  enabled: false
   # S1 spike VM (charts/virtual-device-spike), teknoir-cloud only. Retired: the spike is done and
   # Phase 1 virtual devices (device-controller) replace it. Chart code kept for reference.
   spike:
@@ -42,14 +41,12 @@ ztna:
 
 # CI/CD on the cluster (plans/ci-argo-workflows.md), teknoir-cloud only (allowlist in
 # templates/ci.yaml): Harbor as the registry (harbor.teknoir.cloud) and Argo Workflows +
-# BuildKit pipelines (ci.teknoir.cloud), with vpro as the k3s build node.
-# Harbor adopts the earlier Harbor objects in teknoir-system (their StatefulSets were
-# deleted by Anders on 2026-10-16) and reuses the data under /opt/teknoir/harbor.
-# charts/ci harbor.enabled pushes CI images there too.
+# BuildKit pipelines (ci.teknoir.cloud). charts/ci harbor.enabled pushes CI images there too.
 harbor:
   enabled: true
 ci:
-  enabled: true
+  # Off on r415 (staging since 2026-11): CI stays on vpro (plans/staging-on-r415.md).
+  enabled: false
 
 # Next-gen robot fleet platform (plans/nextgen-fleet-platform.md): a second Backstage instance at
 # next.teknoir.cloud (templates/backstage-next.yaml), teknoir-cloud only (allowlist in the
@@ -68,10 +65,9 @@ backstageNext:
 # Staging release guard (charts/release-guard, templates/release-guard.yaml): a
 # ValidatingAdmissionPolicy that lets only scripts/staging-release (ServiceAccount
 # teknoir-system/staging-releaser), ArgoCD and profile-controller write ArgoCD Applications.
-# teknoir-cloud only (allowlist in templates/_helpers.tpl). OFF until release step 4, then Warn
-# (staging-20261017.3 .. .16: one warning, a deliberate dry-run test), Deny since 2026-10-18
-# (plans/staging-releases.md, rollout order).
+# teknoir-cloud only (allowlist in templates/_helpers.tpl).
 releaseGuard:
-  enabled: true
+  # Off until the first release on r415; turned on again (Warn, then Deny) by the next release.
+  enabled: false
   # Warn | Deny, passed to the chart as guard.mode.
   mode: Deny

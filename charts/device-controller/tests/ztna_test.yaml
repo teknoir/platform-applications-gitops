@@ -6,6 +6,7 @@ templates:
 set:
   ztna.agentImage: "ghcr.io/teknoir/wg-agent:sha-0000000a@sha256:1111111111111111111111111111111111111111111111111111111111111111"
   ztna.terminalImage: "ghcr.io/teknoir/web-terminal:sha-0000000b@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+  virtualDevices.enabled: true
 tests:
   - it: is off by default, no ZTNA key, no Role and no TURN policy
     template: templates/configmap.yaml

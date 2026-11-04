@@ -2,6 +2,8 @@ suite: robot type RBAC and the config source cache
 templates:
   - templates/rbac.yaml
   - templates/configmap.yaml
+set:
+  virtualDevices.enabled: true
 tests:
   - it: lets the editor role manage robottypes (not robotmodels)
     documentSelector:

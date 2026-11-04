@@ -39,8 +39,8 @@ step "app-of-apps: gate (values flag AND project allowlist)"
 apps() { # apps FILE: sorted Application names
   python3 -I -c 'import sys, yaml; print(" ".join(sorted(d["metadata"]["name"] for d in yaml.safe_load_all(open(sys.argv[1])) if d and d["kind"] == "Application")))' "$1"
 }
-helm template aoa "$AOA" --set project=teknoir-cloud --set ztna.enabled=false >"$TMP/aoa-off.yaml"
-helm template aoa "$AOA" --set project=teknoir-cloud --set ztna.enabled=true >"$TMP/aoa-on.yaml"
+helm template aoa "$AOA" --set project=teknoir-cloud --set ztna.enabled=false --set virtualDevices.enabled=true >"$TMP/aoa-off.yaml"
+helm template aoa "$AOA" --set project=teknoir-cloud --set ztna.enabled=true --set virtualDevices.enabled=true >"$TMP/aoa-on.yaml"
 cp -r "$AOA" "$TMP/aoa-nokey"
 python3 -I - "$TMP/aoa-nokey/values.yaml" <<'PY'
 import re, sys
@@ -49,7 +49,7 @@ s = re.sub(r"(?m)^ztna:\n  enabled: \w+\n", "", s)
 assert "ztna:" not in re.sub(r"(?m)^#.*$", "", s)
 open(sys.argv[1], "w").write(s)
 PY
-helm template aoa "$TMP/aoa-nokey" >"$TMP/aoa-nokey.yaml"
+helm template aoa "$TMP/aoa-nokey" --set virtualDevices.enabled=true >"$TMP/aoa-nokey.yaml"
 for n in gateway-api-crds stunner ztna; do
   grep -q "^  name: $n\$" "$TMP/aoa-off.yaml" && bad "ztna.enabled=false renders Application $n" || ok "ztna.enabled=false: no Application $n"
   [[ " $(apps "$TMP/aoa-on.yaml") " == *" $n "* ]] && ok "ztna.enabled=true on teknoir-cloud: Application $n" || bad "Application $n missing"
@@ -58,15 +58,15 @@ diff -q <(grep -v '^#' "$TMP/aoa-nokey.yaml") <(grep -v '^#' "$TMP/aoa-off.yaml"
   ok "a values file without the ztna key renders the same as ztna.enabled=false" || bad "a missing ztna key renders differently from the flag off"
 grep -q 'ztna' "$TMP/aoa-off.yaml" && bad "ztna.enabled=false leaves a trace of ztna in the output" || ok "ztna.enabled=false: output has no 'ztna' at all"
 for env in teknoir-online teknoir-local airgap-redesign teknoir-dev teknoir-online-godaddy default; do
-  helm template aoa "$AOA" --set project="$env" --set ztna.enabled=true >"$TMP/aoa-$env-on.yaml"
-  helm template aoa "$AOA" --set project="$env" --set ztna.enabled=false >"$TMP/aoa-$env-off.yaml"
+  helm template aoa "$AOA" --set project="$env" --set ztna.enabled=true --set virtualDevices.enabled=true >"$TMP/aoa-$env-on.yaml"
+  helm template aoa "$AOA" --set project="$env" --set ztna.enabled=false --set virtualDevices.enabled=true >"$TMP/aoa-$env-off.yaml"
   diff -q "$TMP/aoa-$env-on.yaml" "$TMP/aoa-$env-off.yaml" >/dev/null &&
     ok "project=$env with ztna.enabled=true: output identical to flag off" || bad "project=$env with ztna.enabled=true changes the output"
 done
 # The cherry-pick case: a teknoir-online values file that took the flag.
 cp -r "$AOA" "$TMP/aoa-online"
 printf '# GitOps values\nproject: teknoir-online\n\nztna:\n  enabled: true\n' >"$TMP/aoa-online/values.yaml"
-helm template aoa "$TMP/aoa-online" >"$TMP/aoa-online.yaml"
+helm template aoa "$TMP/aoa-online" --set virtualDevices.enabled=true >"$TMP/aoa-online.yaml"
 grep -q 'ztna' "$TMP/aoa-online.yaml" && bad "teknoir-online values with ztna.enabled render ztna" || ok "teknoir-online values with ztna.enabled: true render nothing of ztna"
 
 step "app-of-apps: Applications (teknoir-cloud, enabled)"
@@ -142,8 +142,9 @@ elif grep -q "hub.image.leaderElection: true" "$TMP/ztna-values.err"; then
 else
   cat "$TMP/ztna-values.err"; bad "committed values do not render"
 fi
-helm template device-controller "${CHARTS}/device-controller" --namespace teknoir-system >"$TMP/dc-off.yaml"
-helm template device-controller "${CHARTS}/device-controller" --namespace teknoir-system "${DC_ON[@]}" >"$TMP/dc-on.yaml"
+# virtual devices on in both renders (staging on r415 ships them off), so the ztna switch is checked with the VM runtime present
+helm template device-controller "${CHARTS}/device-controller" --namespace teknoir-system --set virtualDevices.enabled=true >"$TMP/dc-off.yaml"
+helm template device-controller "${CHARTS}/device-controller" --namespace teknoir-system --set virtualDevices.enabled=true "${DC_ON[@]}" >"$TMP/dc-on.yaml"
 helm template virtual-devices "${CHARTS}/virtual-devices" --namespace kubevirt >"$TMP/vd-off.yaml"
 helm template virtual-devices "${CHARTS}/virtual-devices" --namespace kubevirt --set ztna.enabled=true >"$TMP/vd-on.yaml"
 ok "rendered"
@@ -180,7 +181,7 @@ if git -C "$REPO" rev-parse --verify -q "$BASE_REF" >/dev/null; then
       args=()
       # The switch is forced off on BOTH sides: once the base branch ships it on,
       # this still checks that the off state renders like the base's off state.
-      [[ $n == app-of-apps ]] && args=(--set project="$proj" --set ztna.enabled=false)
+      [[ $n == app-of-apps ]] && args=(--set project="$proj" --set ztna.enabled=false --set virtualDevices.enabled=true)
       helm template "$n" "$TMP/base/charts/$n" --namespace x "${args[@]}" >"$TMP/base-$n.yaml" 2>"$TMP/base-$n.err" || { echo "skip $n (base render failed: $(head -c 150 "$TMP/base-$n.err"))"; continue 2; }
       # Force the switch off on the head render (the branch may ship it on), so this compares
       # only what the off state would change.

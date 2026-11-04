@@ -28,6 +28,11 @@ spec:
     path: charts/harbor
     repoURL: https://github.com/teknoir/platform-applications-gitops
     targetRevision: {{ include "app-of-apps.revision" . }}
+    helm:
+      parameters:
+        # No CI on the cluster: the harbor chart drops the ci robot from its config.
+        - name: harborConfig.ciRobot.enabled
+          value: {{ ternary "true" "false" (default false (.Values.ci).enabled) | quote }}
   project: {{ .Values.project }}
   syncPolicy:
     automated:

@@ -6,12 +6,6 @@ K|harbor|random|40|alnum|0|base64|JXM=
 K|keycloak-config-cli|random|48|alnum|0|base64|JXM=
 K|teknoir|random|40|alnum|0|base64|JXM=
 E
-S|teknoir-ci|argo-workflows-sso|Opaque|0
-L|teknoir.org/managed-by|platform-secrets
-K|client-id|value|YXJnby13b3JrZmxvd3M=|1
-K|client-secret|copy|teknoir-auth|keycloak-client-secrets|argo-workflows
-R|teknoir-ci|ci-argo-workflows-server
-E
 S|teknoir-system|harbor-oidc-secret|Opaque|0
 L|teknoir.org/managed-by|platform-secrets
 K|client-secret|copy|teknoir-auth|keycloak-client-secrets|harbor

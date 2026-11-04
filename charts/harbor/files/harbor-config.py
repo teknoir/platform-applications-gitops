@@ -18,7 +18,9 @@ that already matches.
     kubernetes.io/dockerconfigjson Secret (extra keys username/password) in the
     namespace that consumes it. A robot whose Secret is missing or whose
     credential no longer logs in gets a new secret (refresh), so deleting the
-    Secret rotates the credential.
+    Secret rotates the credential. On create, a valid password already in the
+    Secret is adopted, so a credential carried over from another Harbor keeps
+    working.
   - teamspace robots: one pull-only system robot `robot$ts-<profile>` per Profile
     (profiles.teknoir.org), never expiring, with all credentials in ONE Opaque Secret
     (keys <profile>.username / <profile>.password). A robot that this job created
@@ -486,6 +488,14 @@ def new_secret():
             return s
 
 
+def valid_secret(s):
+    """A password Harbor accepts for a robot (mirrors Harbor's robot.IsValidSec): 8-128 characters with a
+    lowercase letter, an uppercase letter and a digit; no whitespace (a seed with a trailing newline is refused)."""
+    return (isinstance(s, str) and 8 <= len(s) <= 128 and re.search(r"[a-z]", s) is not None
+            and re.search(r"[A-Z]", s) is not None and re.search(r"[0-9]", s) is not None
+            and re.search(r"\s", s) is None)
+
+
 def robot_works(user, password):
     auth = "Basic " + base64.b64encode(f"{user}:{password}".encode()).decode()
     try:
@@ -510,19 +520,21 @@ def ensure_robot(prefix, have, name, r, description, stored):
 
     `stored` is the password currently kept in Kubernetes (or None). Returns (full name, password):
     the password is set when the robot was created or its secret refreshed (no usable stored
-    credential), else None.
+    credential), else None. On create, a valid stored password is adopted (so a credential carried
+    over from another Harbor keeps working); otherwise a new one is generated.
     """
     full = prefix + name
     cur = have.get(full)
     if cur is None:
-        password = new_secret()
+        adopted = valid_secret(stored)
+        password = stored if adopted else new_secret()
         body = {"name": name, "level": "system", "duration": -1, "disable": False,
                 "description": description, "secret": password,
                 "permissions": robot_permissions(r)}
         created = call("POST", "/robots", body)
         # Harbor ignores a requested secret on create in some versions; set it explicitly.
         call("PATCH", f"/robots/{created['id']}", {"secret": password})
-        log(f"robot {full}: created")
+        log(f"robot {full}: created ({'password adopted from the Secret' if adopted else 'new password'})")
         return full, password
     want_perm = json.dumps(sorted(robot_permissions(r), key=lambda x: x["namespace"]), sort_keys=True)
     have_perm = json.dumps(sorted([{"kind": p["kind"], "namespace": p["namespace"],
@@ -618,17 +630,27 @@ def teamspace_robots():
         if password is not None:
             data[f"{prof}.password"] = password
         data[f"{prof}.username"] = full
-    # Robots (and keys) of Profiles that are gone.
+    # Robots (and keys) of Profiles that are gone. Only a robot deleted in this run takes its keys
+    # with it: a seeded Secret may belong to a Profile that does not exist yet (fresh cluster), and
+    # harbor-config can run before the Profile does.
+    deleted_owners = set()
     for full, rob in have.items():
         short = full[len(prefix):] if full.startswith(prefix) else None
         if short and short.startswith(tprefix) and rob.get("description") == TEAMSPACE_DESCRIPTION \
                 and short[len(tprefix):] not in profiles:
+            owner = short[len(tprefix):]
             call("DELETE", f"/robots/{rob['id']}")
-            log(f"robot {full}: deleted (Profile {short[len(tprefix):]} is gone)")
+            deleted_owners.add(owner)
+            log(f"robot {full}: deleted (Profile {owner} is gone)")
+    kept = set()
     for key in list(data):
         owner, _, field = key.rpartition(".")
         if field in ("username", "password") and owner not in profiles:
-            del data[key]
+            if owner in deleted_owners:
+                del data[key]
+            elif owner not in kept:
+                kept.add(owner)
+                log(f"teamspace {owner}: no Profile and no managed robot; credential keys kept")
     if ksec is not None and data == before:
         return
     obj = {"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
