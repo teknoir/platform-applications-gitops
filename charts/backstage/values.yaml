@@ -4,6 +4,23 @@
 config:
   domain: "teknoir.online"
   logLevel: info
+  # Restrictions on the Keycloak (tnctl, client teknoir-cli) access-token principal of backend.auth.externalAccess.
+  # Without them that principal passes every plugin and permission check of backstage-api, including the
+  # kubernetes proxy, which runs with backstage-api's cluster-wide ServiceAccount.
+  # Production default: the device plugin only (fleet API, applies the same group + org-unit checks as the
+  # browser). The classic Backstage on this branch has no fleet routes yet, so tnctl commands that read the
+  # catalog (devices, ns, ssh, ...) stop until the next-gen Backstage is here.
+  # P0 alternative, if tnctl must keep working on the catalog meanwhile (read-only catalog + device; still
+  # closes the kubernetes proxy, search, techdocs, permission and catalog writes, but leaves a cross-teamspace
+  # catalog read, including device keys):
+  #   accessRestrictions:
+  #     - plugin: catalog
+  #       permission: catalog.entity.read
+  #     - plugin: device
+  # Plugin ids must be unique in the list (a duplicate stops backstage-api at start). Empty list = no restriction.
+  externalAccess:
+    accessRestrictions:
+      - plugin: device
   prometheusUrl: http://prometheus.__NAMESPACE__.svc.cluster.local:80
 
 # Backstage frontend deployment
