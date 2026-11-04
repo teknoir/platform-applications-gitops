@@ -3,7 +3,7 @@
 
   pin-image --list
   pin-image COMPONENT=REF [--write] [--pr]     REF: a tag, repo:tag, or repo:tag@sha256:<digest> to verify
-  pin-image --adopt-running [--write]          adopt the digests running on vpro (zero diff, read-only on the cluster)
+  pin-image --adopt-running [--write]          adopt the digests running on staging (--context, default vpro) (zero diff, read-only on the cluster)
 
 images.tsv names every image: component, values file, key path, style (tag: the key holds the tag and a
 sibling `repository` is the repo; ref: the key holds repo:tag), repository. For REF the script

@@ -228,6 +228,15 @@ class PinFlow(unittest.TestCase):
             if call[0] == "kubectl":
                 self.assertIn("get", call)
 
+    def test_adopt_running_accepts_r415_and_sets_its_context(self):
+        sys_ = FakeSys(running={"ghcr.io/teknoir/devstudio-controller:teknoir-cloud": "ghcr.io/teknoir/devstudio-controller@sha256:" + "c" * 64})
+        res = {r["name"]: r for r in self.pin(sys_).adopt_running(write=False, context="r415")}
+        self.assertEqual(res["devstudio-controller"]["value"], "teknoir-cloud@sha256:" + "c" * 64)
+        kube = [c for c in sys_.calls if c[0] == "kubectl"]
+        self.assertTrue(kube)
+        for c in kube:
+            self.assertEqual(c[1:3], ["--context", "r415"], c)
+
     def test_adopt_running_refuses_other_contexts(self):
         with self.assertRaises(L.Refuse):
             self.pin(FakeSys()).adopt_running(write=False, context="teknoir-poc-eks")
