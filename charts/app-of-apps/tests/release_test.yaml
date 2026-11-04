@@ -352,6 +352,9 @@ tests:
             - name: harborConfig.ciRobot.enabled
               value: "false"
         documentIndex: 0
+      - notExists:
+          path: spec.syncPolicy.syncOptions
+        documentIndex: 0
 
   - it: "ci: with CI enabled harbor keeps its CI robot"
     template: templates/ci.yaml

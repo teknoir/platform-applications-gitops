@@ -466,7 +466,7 @@ class PortalBindings(Base):
 class IdentityAndGuards(Base):
     def test_the_fake_refuses_an_unknown_serviceaccount(self):
         fake = H.FakeSys(self.root_pinned("c2"), releaser_installed=False)
-        r = fake.run(["kubectl", "--context", "vpro", "--as=" + L.RELEASER_SA, "-n", L.NAMESPACE, "patch", "application", L.ROOT_APP,
+        r = fake.run(["kubectl", "--context", "r415", "--as=" + L.RELEASER_SA, "-n", L.NAMESPACE, "patch", "application", L.ROOT_APP,
                       "--type", "merge", "-p", "{}"], check=False)
         self.assertEqual(r.rc, 1)
         self.assertIn("Forbidden", r.err)
@@ -929,6 +929,18 @@ class VerifiedAndBreakGlass(Base):
     def test_main_refuses_a_branch_override_with_yes(self):
         rc = SR.main(["--branch", "release/tooling", "--yes", SHA("a"), "--by", "s", "--reason", "r"], sys_=H.FakeSys(self.root_pinned("c2")))
         self.assertEqual(rc, 2)
+
+    def test_main_refuses_the_vpro_context(self):
+        """vpro is the CI cluster now: staging-release must not act on it."""
+        import contextlib
+        import io
+        fake = H.FakeSys(self.root_pinned("c2"))
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            rc = SR.main(["--context", "vpro", "--yes", SHA("a"), "--by", "s", "--reason", "r"], sys_=fake)
+        self.assertEqual(rc, 2)
+        self.assertIn("must be one of r415", err.getvalue())
+        self.assertEqual(fake.calls, [])
 
 
 if __name__ == "__main__":

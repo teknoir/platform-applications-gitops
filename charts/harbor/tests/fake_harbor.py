@@ -32,6 +32,8 @@ class Fake:
         self.namespaces = {"teknoir-system", "teknoir-ci"}
         self.secrets = {}        # (ns, name) -> object
         self.no_create = set()   # namespaces where the Role has no `create` on Secrets (POST -> 403)
+        self.no_access = set()   # namespaces where any Secret GET/PUT/POST answers 403 Forbidden
+        self.fail_secret_put_once = set()   # (ns, name) whose next Secret PUT fails once (500)
         self.profiles = []       # names
         self.profiles_status = 200
         self.rv = 1
@@ -295,6 +297,13 @@ class Handler(BaseHTTPRequestHandler):
         if not m:
             return self._send(404, {"message": "no route"})
         ns, name = m[1], m[2]
+        if ns in f.no_access:
+            # The shape a real API server returns for a forbidden Secret request.
+            return self._send(403, {
+                "kind": "Status", "apiVersion": "v1", "metadata": {}, "status": "Failure",
+                "message": f'secrets is forbidden: User "harbor-config" cannot access resource "secrets" '
+                           f'in API group "" in the namespace "{ns}"',
+                "reason": "Forbidden", "details": {"name": name, "kind": "secrets"}, "code": 403})
         if ns not in f.namespaces:
             return self._send(404, {"message": f'namespaces "{ns}" not found'})
         if method == "POST":
@@ -311,6 +320,9 @@ class Handler(BaseHTTPRequestHandler):
         if obj is None:
             return self._send(404, {"message": f'secrets "{name}" not found'})
         if method == "PUT":
+            if (ns, name) in f.fail_secret_put_once:
+                f.fail_secret_put_once.discard((ns, name))
+                return self._send(500, {"message": "fake: one-shot Secret PUT failure"})
             if body.get("type") != obj.get("type"):
                 return self._send(422, {"message": "Secret: field is immutable: type"})
             if body["metadata"].get("resourceVersion") != obj["metadata"]["resourceVersion"]:

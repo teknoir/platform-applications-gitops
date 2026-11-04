@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # Read-only RBAC check of the device-controller service account (plans/ssh-tunnel-removal.md, step 11).
 #
-#   rbac-can-i.sh matrix  --context vpro [--legacy] [--datavolumes]
+#   rbac-can-i.sh matrix  --context r415 [--legacy] [--datavolumes]
 #       Asks the API server "can the controller do X in namespace N?" (kubectl auth can-i, impersonating
 #       the service account) for every permission the chart grants (expected yes) and every permission
 #       that step 11 removed (expected no). Prints one line per check and the mismatches; exit 1 if any.
 #         --legacy       the cluster runs with legacyTunnelCleanup=true: the cleanup deletes are expected yes
 #         --datavolumes  the DataVolume create fallback was added to the vdev Role: expect it yes there
-#   rbac-can-i.sh logwatch --context vpro [--rounds 48] [--every 1800] [--out FILE]
-#       The 24 h "no RBAC denials" check. The controller log of vpro covers about 70 minutes, so
+#   rbac-can-i.sh logwatch --context r415 [--rounds 48] [--every 1800] [--out FILE]
+#       The 24 h "no RBAC denials" check. The controller log covers about 70 minutes (measured on vpro), so
 #       `kubectl logs --since=24h` proves nothing: this greps the last (every + 5 min) of the log
 #       every <every> seconds, <rounds> times, appends every hit to FILE and exits 1 if there was any.
-#   rbac-can-i.sh denials --context vpro [--since 70m]
+#   rbac-can-i.sh denials --context r415 [--since 70m]
 #       One-off grep of the current log for denials.
 #
 # Needs a caller that may impersonate the service account (auth can-i --as). Never writes anything.
@@ -40,7 +40,7 @@ while [ $# -gt 0 ]; do
     *) echo "unknown argument $1" >&2; exit 2;;
   esac
 done
-[ -n "$CTX" ] || { echo "--context is required (always explicit; vpro is staging)" >&2; exit 2; }
+[ -n "$CTX" ] || { echo "--context is required (always explicit; r415 is staging)" >&2; exit 2; }
 case "$CTX" in *eks*|*prod*) echo "refusing production context $CTX" >&2; exit 2;; esac
 K=(kubectl --context "$CTX")
 

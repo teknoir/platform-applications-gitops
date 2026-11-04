@@ -211,7 +211,7 @@ class PinFlow(unittest.TestCase):
         running = {"ghcr.io/teknoir/devstudio-controller:teknoir-cloud": "ghcr.io/teknoir/devstudio-controller@sha256:" + "c" * 64,
                    "ghcr.io/teknoir/backstage-app:robot": "ghcr.io/teknoir/backstage-app@sha256:" + "d" * 64}
         sys_ = FakeSys(digest="sha256:" + "e" * 64, running=running)         # the tag moved: crane says e..., the pod runs c...
-        res = {r["name"]: r for r in self.pin(sys_).adopt_running(write=True, context="vpro")}
+        res = {r["name"]: r for r in self.pin(sys_).adopt_running(write=True, context="r415")}
         self.assertEqual(res["devstudio-controller"]["value"], "teknoir-cloud@sha256:" + "c" * 64)
         self.assertTrue(res["devstudio-controller"]["moved"])
         self.assertEqual(res["backstage-app"]["value"], "ghcr.io/teknoir/backstage-app:robot@sha256:" + "d" * 64)
@@ -221,7 +221,7 @@ class PinFlow(unittest.TestCase):
     def test_adopt_running_never_writes_without_the_flag_and_never_retags(self):
         before = open(os.path.join(self.root, "charts/devstudio-controller/values.yaml")).read()
         sys_ = FakeSys(running={"ghcr.io/teknoir/devstudio-controller:teknoir-cloud": "ghcr.io/teknoir/devstudio-controller@sha256:" + "c" * 64})
-        self.pin(sys_).adopt_running(write=False, context="vpro")
+        self.pin(sys_).adopt_running(write=False, context="r415")
         self.assertEqual(open(os.path.join(self.root, "charts/devstudio-controller/values.yaml")).read(), before)
         for call in sys_.calls:
             self.assertNotIn(call[1] if call[0] == "crane" else "", ("copy", "tag", "push", "delete", "cp"))
@@ -249,7 +249,7 @@ class PinFlow(unittest.TestCase):
         self.assertIsNone(PI.current_ref("digest", "ghcr.io/teknoir/keycloak-theme", D, None))
 
     def test_adopt_skips_what_is_already_pinned(self):
-        res = {r["name"]: r for r in self.pin(FakeSys()).adopt_running(write=False, context="vpro")}
+        res = {r["name"]: r for r in self.pin(FakeSys()).adopt_running(write=False, context="r415")}
         self.assertNotIn("device-controller", res)        # file not copied into the fixture
         text = open(os.path.join(self.root, "charts/devstudio-controller/values.yaml")).read()
         self.assertNotIn("@sha256", text)

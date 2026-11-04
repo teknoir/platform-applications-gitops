@@ -3,7 +3,7 @@
 {{- $cfg := .Values.harborConfig }}
 {{- $config := $cfg.config }}
 {{- /* No CI on the cluster: drop the robots whose Secret lives in teknoir-ci (values ciRobot). */}}
-{{- if not (dig "ciRobot" "enabled" true $cfg) }}
+{{- if eq (toString (dig "ciRobot" "enabled" true $cfg)) "false" }}
 {{- $config = deepCopy $cfg.config }}
 {{- $robots := list }}
 {{- range $config.robots }}

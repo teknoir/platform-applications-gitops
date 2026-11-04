@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""staging-release: tagged releases of staging (kubectl context vpro or r415, see STAGING_CONTEXT; branch teknoir-cloud).
+"""staging-release: tagged releases of staging (kubectl context r415, the default; --context or STAGING_CONTEXT; branch teknoir-cloud).
 
 Design: plans/staging-releases.md. Merging to origin/teknoir-cloud queues a change; staging runs only the
 commit of the live `staging-YYYYMMDD.N` release, held as targetRevision of the hand-applied root
@@ -15,7 +15,7 @@ Application app-of-apps. This script is the only thing that changes it.
   staging-release --bootstrap [--yes SHA ...]           the first release, while the root still follows the branch
   staging-status [--devices]                            (separate script) where staging is and what is pending
 
-Guards: kubectl context exactly 'vpro' or 'r415' (default vpro; --context or STAGING_CONTEXT; names with online|eks|prod are refused); the candidate must be on
+Guards: kubectl context exactly 'r415' (default r415; --context or STAGING_CONTEXT; names with online|eks|prod are refused); the candidate must be on
 the first-parent history of origin/teknoir-cloud and descend from the live release (prefix releases only);
 --yes SHA must equal the dry-run candidate (plan valid 30 min, live unchanged, the dry run checked the registry
 unless --skip-registry-check is repeated on --yes); the lint code and policy are the candidate's, the rollback
@@ -592,7 +592,7 @@ class Tool:
         if rep["errors"]:
             return 1
         boot = " --bootstrap" if live["cutover"] else ""
-        self.out(f"\nto release: scripts/staging-release{boot} --yes {cand} --by <session> --reason \"<why>\""
+        self.out(f"\nto release: scripts/staging-release --context {self.kube.context}{boot} --yes {cand} --by <session> --reason \"<why>\""
                  + (" [--allow-remove ...]" if rep["removed"] else ""))
         return 0
 
@@ -882,7 +882,7 @@ class Tool:
         self.out(f"\nNOT CONVERGED after {args.timeout}s:\n  - " + "\n  - ".join(problems))
         prev = previous
         if prev:
-            cmd = f"scripts/staging-release --rollback {prev} --yes {self.git.rev(prev)} --by {args.by} --reason \"{tag} did not converge\""
+            cmd = f"scripts/staging-release --context {self.kube.context} --rollback {prev} --yes {self.git.rev(prev)} --by {args.by} --reason \"{tag} did not converge\""
             self.out(f"\nroll back with:\n  {cmd}")
             if args.auto_rollback:
                 self.out("--auto-rollback: rolling back now")
@@ -985,7 +985,7 @@ class Tool:
         L.validate_rollback_target(target, target_sha, live["sha"], self.git.is_ancestor, floor, live["tag"])
         self.out(f"live    {live['tag']} ({live['sha'][:12]})\ntarget  {target} ({target_sha})")
         if not args.yes:
-            self.out(f"\nthis is the plan only. To roll back: scripts/staging-release --rollback {target} --yes {target_sha} --by {args.by} --reason \"...\"")
+            self.out(f"\nthis is the plan only. To roll back: scripts/staging-release --context {self.kube.context} --rollback {target} --yes {target_sha} --by {args.by} --reason \"...\"")
             return 0
         if args.yes != target_sha:
             raise L.Refuse(f"--yes {args.yes[:12]} does not match the rollback target {target_sha[:12]}")

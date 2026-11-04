@@ -123,6 +123,24 @@ from cert-manager (`tokenServiceCert`, templates/token-service-cert.yaml).
   or stale Secret (or empty one, in teknoir-system) gets a fresh robot secret; delete `harbor-ci-robot` or empty the data of the other two to rotate.
 The Job only changes what differs and never prints a credential.
 
+**Carrying a robot credential over from another Harbor.** Before harbor-config first runs, create or
+patch the Secret (never client-side `kubectl apply`) with the existing keys and the annotation
+`teknoir.org/harbor-robot-seed: "true"`: `username`/`password` for a robot Secret,
+`<profile>.username`/`<profile>.password` for the teamspace Secret. harbor-config creates the robot
+with that password and removes the annotation once the seed is used: a robot Secret on the first
+run; a teamspace Secret once every teamspace seeded in it has a Profile (until then a seeded
+teamspace without a Profile keeps the annotation). If the robot already exists and does not accept
+the seeded password, harbor-config sets its secret to it. Only a Secret with the annotation is
+adopted: without it the stored password is ignored, so deleting a robot (or a teamspace key) to
+revoke a leaked credential and letting harbor-config re-create it gives a new password. While the
+annotation is on the teamspace Secret, every teamspace robot in it that is re-created, or whose
+secret no longer logs in, gets its stored password back, seeded or not: delete the keys of a seeded
+teamspace that will not get a Profile to end that.
+
+**No CI on the cluster.** `harborConfig.ciRobot.enabled: false` drops the robots whose Secret lives
+in `teknoir-ci` from the rendered config; app-of-apps sets it from `ci.enabled`. A value of `false`
+as a string (`--set-string`, or a `forceString: true` parameter) works too.
+
 ### Pull-through cache for the cluster and the robots
 Design: `plans/harbor-proxy-staging.md`. Every image the staging nodes and robots pull can go
 through `harbor.teknoir.cloud/<project>/<path>`, with the upstream as the fallback (k3s
@@ -151,7 +169,10 @@ through `harbor.teknoir.cloud/<project>/<path>`, with the upstream as the fallba
   and `harbor-nodes-pull`, no `create`; see "Secrets in teknoir-system" below). A robot with the
   description `managed by harbor-config (teamspace)` is deleted when its Profile is gone; robots
   made by hand are never touched. Delete a key (or empty the Secret's data) to rotate that
-  teamspace's credential. A failing Profile list deletes nothing.
+  teamspace's credential; without the seed annotation it gets a new password. The keys of a
+  teamspace that has neither a Profile nor a robot managed by harbor-config are kept (a seeded
+  Secret may arrive before its Profile), and the seed annotation is removed once every seeded
+  teamspace has a Profile. A failing Profile list deletes nothing.
   **A rotation (or a new secret after a missing key or a Harbor 401/403 on the robot) invalidates
   the credential on every robot of that teamspace**: their `registries.yaml` still holds the old
   password, Harbor answers 401 and containerd falls through to the upstream (public images keep
