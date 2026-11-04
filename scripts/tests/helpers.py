@@ -135,8 +135,9 @@ def merge_patch(dst, patch):
 
 
 class FakeSys(L.Sys):
-    def __init__(self, root, children=("a",), releases=None, crane_fail=(), releaser_installed=True):
+    def __init__(self, root, children=("a",), releases=None, crane_fail=(), releaser_installed=True, context="vpro"):
         self.real = L.Sys()
+        self.context = context
         self.root = root
         self.children = {n: app(n, target=L.root_live_sha(root), revision=L.root_live_sha(root)) for n in children}
         self.lease = None
@@ -175,7 +176,7 @@ class FakeSys(L.Sys):
 
     def _kube(self, argv):
         a = [x for x in argv[1:]]
-        assert a[0] == "--context" and a[1] == "vpro", argv
+        assert a[0] == "--context" and a[1] == self.context, argv
         a = a[2:]
         as_user = None
         if a and a[0].startswith("--as="):

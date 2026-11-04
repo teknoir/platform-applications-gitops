@@ -1,6 +1,7 @@
 import datetime as dt
 import json
 import os
+import subprocess
 import sys
 import unittest
 
@@ -36,11 +37,29 @@ class TagNumbering(unittest.TestCase):
 
 
 class Guards(unittest.TestCase):
-    def test_context_must_be_vpro(self):
+    def test_context_must_be_a_staging_context(self):
         self.assertEqual(L.guard_context("vpro"), "vpro")
-        for bad in ("teknoir-poc-eks", "k3d-teknoir-dev", "r415", "", "vpro2", "prod", "teknoir-online", "vpro-prod"):
+        self.assertEqual(L.guard_context("r415"), "r415")
+        for bad in ("teknoir-poc-eks", "k3d-teknoir-dev", "r415-old", "", "vpro2", "R415", "prod", "teknoir-online",
+                    "vpro-prod", "r415-prod", " r415"):
             with self.assertRaises(L.Refuse, msg=bad):
                 L.guard_context(bad)
+        with self.assertRaises(L.Refuse) as cm:
+            L.guard_context("r415-prod")
+        self.assertIn("looks like production", str(cm.exception))
+
+    def test_staging_context_sets_the_default(self):
+        code = ("import sys; sys.path.insert(0, {d!r}); import stagelib; print(stagelib.CONTEXT)"
+                .format(d=H.SCRIPTS))
+        env = {**os.environ, "STAGING_CONTEXT": "r415"}
+        out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env)
+        self.assertEqual(out.stdout.strip(), "r415", out.stderr)
+        env = {k: v for k, v in os.environ.items() if k != "STAGING_CONTEXT"}
+        out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env)
+        self.assertEqual(out.stdout.strip(), "vpro", out.stderr)
+
+    def test_kube_r415_sets_its_context(self):
+        self.assertEqual(L.Kube(L.Sys(), "r415").base()[:3], ["kubectl", "--context", "r415"])
 
     def test_kube_refuses_other_contexts_at_construction(self):
         with self.assertRaises(L.Refuse):
