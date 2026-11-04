@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Verifies the teamspace credential hardening of plans/security-findings-2026-10-23.md on STAGING (context vpro):
+# Verifies the teamspace credential hardening of plans/security-findings-2026-10-23.md on STAGING (context vpro or r415):
 #   F1  no ghcr-token (personal PAT) in teamspaces; pods still pull private ghcr.io/teknoir/* through the Harbor node mirror
 #   F2  default-editor is bound to the read-only workload role teknoir-workload; teknoir-edit is the pods/exec policy marker
 #
@@ -10,13 +10,13 @@
 #   scripts/verify-teamspace-rbac --canary                # also run the F1 canary pod (needs the new profile-controller live)
 #   scripts/verify-teamspace-rbac --canary-only
 #
-# Options: --context CTX (default vpro; production names are refused)  --namespace NS (default teknoir-demo)
+# Options: --context CTX (default $STAGING_CONTEXT or vpro; production names are refused)  --namespace NS (default teknoir-demo)
 #          --image IMG (canary image, default ghcr.io/teknoir/devstudio-cloud:latest, private, Always)
 #          --dev USER (developer user, default claude-agent@teknoir.cloud)  --owner USER (default anders.aslund@teknoir.ai)
 # Needs a kubeconfig user that may impersonate (the admin kubeconfig). `kubectl auth can-i --as` is a read.
 set -uo pipefail
 
-CTX=vpro NS=teknoir-demo MODE=check CANARY=0 CANARY_ONLY=0
+CTX=${STAGING_CONTEXT:-vpro} NS=teknoir-demo MODE=check CANARY=0 CANARY_ONLY=0
 IMAGE=ghcr.io/teknoir/devstudio-cloud:latest
 DEV=claude-agent@teknoir.cloud OWNER=anders.aslund@teknoir.ai
 # Namespaces that legitimately keep ghcr-token (platform namespaces, not developer-readable).

@@ -165,6 +165,27 @@ class Release(Base):
         self.assertIn("CONVERGED", "\n".join(self.out))
         self.assertIn("--verified " + tag, "\n".join(self.out))
 
+    def test_r415_release_uses_its_context_in_every_command_and_hint(self):
+        fake = H.FakeSys(self.root_branch(), releaser_installed=False, context="r415")
+        tool = lambda: SR.Tool(fake, self.repo.work, out=self.out.append, cache=self.cache, context="r415")
+        self.assertEqual(tool().cmd_plan(self.args(ref=self.repo.sha("c4"))), 0, "\n".join(self.out))
+        # the operator hints name the context in use
+        fake.lease = L.lease_manifest("other@host:1", fake.now())
+        fake.lease["metadata"]["resourceVersion"] = "5"
+        with self.assertRaisesRegex(L.Refuse, "lock is held") as cm:
+            tool().cmd_yes(self.args(yes=self.repo.sha("c4"), by="sess", reason="first", bootstrap=True, timeout=60))
+        self.assertIn("--context r415", str(cm.exception))
+        self.assertNotIn("--context vpro", str(cm.exception))
+        fake.lease = None
+        rc = tool().cmd_yes(self.args(yes=self.repo.sha("c4"), by="sess", reason="first", bootstrap=True, timeout=60))
+        self.assertEqual(rc, 0, "\n".join(self.out))
+        for c, _ in fake.calls:
+            if c[0] == "kubectl":
+                self.assertEqual(c[1:3], ["--context", "r415"], c)
+        text = self.out_text()
+        self.assertIn("--context r415", text)
+        self.assertNotIn("--context vpro", text)
+
     def test_normal_release_is_applied_as_the_releaser(self):
         fake = H.FakeSys(self.root_pinned("c2"))
         self.plan(fake, self.repo.sha("c4"))

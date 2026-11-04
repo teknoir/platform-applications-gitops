@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""staging-release: tagged releases of staging (kubectl context vpro, branch teknoir-cloud).
+"""staging-release: tagged releases of staging (kubectl context vpro or r415, see STAGING_CONTEXT; branch teknoir-cloud).
 
 Design: plans/staging-releases.md. Merging to origin/teknoir-cloud queues a change; staging runs only the
 commit of the live `staging-YYYYMMDD.N` release, held as targetRevision of the hand-applied root
@@ -15,7 +15,7 @@ Application app-of-apps. This script is the only thing that changes it.
   staging-release --bootstrap [--yes SHA ...]           the first release, while the root still follows the branch
   staging-status [--devices]                            (separate script) where staging is and what is pending
 
-Guards: kubectl context exactly 'vpro' (names with online|eks|prod are refused); the candidate must be on
+Guards: kubectl context exactly 'vpro' or 'r415' (default vpro; --context or STAGING_CONTEXT; names with online|eks|prod are refused); the candidate must be on
 the first-parent history of origin/teknoir-cloud and descend from the live release (prefix releases only);
 --yes SHA must equal the dry-run candidate (plan valid 30 min, live unchanged, the dry run checked the registry
 unless --skip-registry-check is repeated on --yes); the lint code and policy are the candidate's, the rollback
@@ -606,7 +606,7 @@ class Tool:
         state, who = L.lease_state(lease, self.sys.now(), holder)
         if state == "held" or (state == "stale" and not steal_stale):
             raise L.Refuse(f"the release lock is held by '{who}' ({state}); wait for it, or look at "
-                           f"kubectl --context vpro -n {L.NAMESPACE} get lease {L.LEASE_NAME} -o yaml")
+                           f"kubectl --context {self.kube.context} -n {L.NAMESPACE} get lease {L.LEASE_NAME} -o yaml")
         if state == "stale":
             self.out(f"stealing the stale release lock of '{who}' (AUDIT: rollback steals a lease not renewed for "
                      f">{L.STALE_LEASE_SECONDS}s)")
@@ -857,7 +857,7 @@ class Tool:
                 elif state == "unknown":
                     raise L.Refuse(f"{tag} is tagged and has a GitHub Release (prerelease), and the root patch FAILED "
                                    f"({str(e)[:200]}), but the root could not be classified ({seen}). It is NOT marked "
-                                   f"{L.NOT_APPLIED_MARK}. Look at it: kubectl --context vpro -n {L.NAMESPACE} get application "
+                                   f"{L.NOT_APPLIED_MARK}. Look at it: kubectl --context {self.kube.context} -n {L.NAMESPACE} get application "
                                    f"{L.ROOT_APP} -o yaml; if it is not {tag}, mark the Release by hand (title prefix "
                                    f"'{L.NOT_APPLIED_MARK} ', body line '{L.NOT_APPLIED_TRAILER}'), else run --rollback or "
                                    "wait for convergence")
@@ -877,7 +877,7 @@ class Tool:
         if ok:
             self.report_unexpected_images(plan)
             self.out(f"\nCONVERGED: {tag} ({sha[:12]}) is live.")
-            self.out(CHECKLIST.format(tag=tag) + controller_log_hints(plan))
+            self.out(CHECKLIST.format(tag=tag, context=self.kube.context) + controller_log_hints(plan, self.kube.context))
             return 0
         self.out(f"\nNOT CONVERGED after {args.timeout}s:\n  - " + "\n  - ".join(problems))
         prev = previous
@@ -890,7 +890,7 @@ class Tool:
                 return self.cmd_rollback(ra) or 3
         else:
             self.out("\nthis was the cutover: roll back with (valid only now, no guard exists yet):\n  "
-                     "kubectl --context vpro -n teknoir-system patch application app-of-apps --type merge -p "
+                     f"kubectl --context {self.kube.context} -n teknoir-system patch application app-of-apps --type merge -p "
                      "'{\"spec\":{\"source\":{\"targetRevision\":\"teknoir-cloud\",\"helm\":{\"parameters\":null}}}}'")
         return 3
 
@@ -1045,7 +1045,7 @@ class Tool:
         self.mark_rolled_back(live["tag"], target, args)
         if ok:
             self.out(f"\nROLLED BACK to {target}. CRD/schema changes, data migrations and generated secrets are not undone.")
-            self.out(CHECKLIST.format(tag=target))
+            self.out(CHECKLIST.format(tag=target, context=self.kube.context))
             return 0
         self.out("\nNOT CONVERGED:\n  - " + "\n  - ".join(problems))
         return 3
@@ -1116,11 +1116,11 @@ Next: the browser check (CLAUDE.md, 'Verifying rollouts in the browser') against
   - console has no new errors (browser_console_messages), no failed requests (browser_network_requests)
   - take a screenshot
 Then mark the release verified:  scripts/staging-release --verified {tag}
-Also: kubectl --context vpro -n teknoir-system get applications -o custom-columns=N:.metadata.name,REV:.status.sync.revision,SYNC:.status.sync.status,HEALTH:.status.health.status
+Also: kubectl --context {context} -n teknoir-system get applications -o custom-columns=N:.metadata.name,REV:.status.sync.revision,SYNC:.status.sync.status,HEALTH:.status.health.status
       scripts/staging-status"""
 
 
-def controller_log_hints(plan: dict) -> str:
+def controller_log_hints(plan: dict, context: str) -> str:
     """Documented deviation from the design (watch, step 7): the controller logs are NOT scanned by the script.
     Five Go controllers share no error format, and a regex over their logs would roll good releases back, so the
     operator gets the exact commands for the controllers whose render changed."""
@@ -1131,7 +1131,7 @@ def controller_log_hints(plan: dict) -> str:
     for app, ws in sorted(wl.items()):
         for w in ws:
             ns, kind, name = w.split("/")
-            lines.append(f"  kubectl --context vpro -n {ns or 'teknoir-system'} logs {kind.lower()}/{name} --since=15m | grep -iE 'error|panic'")
+            lines.append(f"  kubectl --context {context} -n {ns or 'teknoir-system'} logs {kind.lower()}/{name} --since=15m | grep -iE 'error|panic'")
     return "\n".join(lines)
 
 

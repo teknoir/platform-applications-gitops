@@ -50,6 +50,23 @@ class Main(unittest.TestCase):
     def test_refuses_other_contexts(self):
         self.assertEqual(ST.main(["--context", "teknoir-poc-eks"], sys_=H.FakeSys(H.root_app(target="a" * 40))), 2)
 
+    def test_reads_only_with_r415(self):
+        repo = H.Repo()
+        sha = repo.sha("c2")
+        root = H.root_app(target="teknoir-cloud", sync_rev=sha)
+        fake = H.FakeSys(root, context="r415")
+        real_root = L.repo_root_of
+        L.repo_root_of = lambda p: repo.work
+        import contextlib, io
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                ST.main(["--no-network", "--branch", "origin/teknoir-cloud", "--context", "r415"], sys_=fake)
+        finally:
+            L.repo_root_of = real_root
+        self.assertIn("context            r415", buf.getvalue())
+        self.assertTrue(all(v == "get" for v in fake.verbs()), fake.verbs())
+
     def test_reads_only(self):
         repo = H.Repo()
         sha = repo.sha("c2")

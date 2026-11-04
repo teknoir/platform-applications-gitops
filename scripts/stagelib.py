@@ -17,7 +17,8 @@ import sys
 import time
 from dataclasses import dataclass, field
 
-CONTEXT = "vpro"                      # the only kubectl context these scripts act on
+STAGING_CONTEXTS = ("vpro", "r415")   # the kubectl contexts these scripts may act on (staging moves to r415, plans/staging-on-r415.md)
+CONTEXT = os.environ.get("STAGING_CONTEXT") or "vpro"   # default context; --context overrides it
 NAMESPACE = "teknoir-system"
 ROOT_APP = "app-of-apps"
 RELEASER_NAME = "staging-releaser"
@@ -91,16 +92,16 @@ class Sys:
 # Guards
 # ---------------------------------------------------------------------------------------------
 def guard_context(ctx: str) -> str:
-    """The kubectl context must be exactly 'vpro' (staging); production names are refused outright."""
+    """The kubectl context must be one of STAGING_CONTEXTS (vpro, r415); production names are refused outright."""
     if re.search(r"online|eks|prod", ctx or "", re.I):
         raise Refuse(f"context '{ctx}' looks like production: staging releases never touch it")
-    if ctx != CONTEXT:
-        raise Refuse(f"context must be exactly '{CONTEXT}', got '{ctx}'")
+    if ctx not in STAGING_CONTEXTS:
+        raise Refuse(f"context must be one of {', '.join(STAGING_CONTEXTS)}, got '{ctx}'")
     return ctx
 
 
 class Kube:
-    """kubectl with --context vpro always set; --as only for the releaser identity."""
+    """kubectl with --context <staging context> always set; --as only for the releaser identity."""
 
     def __init__(self, sys_: Sys, context: str = CONTEXT):
         self.sys = sys_
