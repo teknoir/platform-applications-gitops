@@ -56,7 +56,8 @@ config:
   # 0.0.112-p1: Observatory snapshot exporter without memory growth, with a memory request and limit.
   # 0.0.112-p2: wss-mqtt's camera filter also matches frames from the NVR.
   # 0.0.112-p3: snapshot exporter with updated dependencies (npm audit).
-  pluginChartVersion: "0.0.112-p3"
+  # 0.0.113: jwks-server checks each device login in enforce mode (EMQX unchanged).
+  pluginChartVersion: "0.0.113"
   # Issuer and JWKS URI of the teamspace RequestAuthentication jwt-policy (env OIDC_ISSUER, OIDC_JWKS_URI).
   # Empty issuer: https://auth.<domain>/auth/realms/master, derived from `domain` above (same as the auth chart).
   # Empty jwksUri: the controller uses <issuer>/protocol/openid-connect/certs.
