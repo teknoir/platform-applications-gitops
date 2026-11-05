@@ -21,7 +21,7 @@ authorization:
 #   emqxServiceAccount: the ServiceAccount of the EMQX pod in this namespace; only its mTLS
 #     principal may call /api/v1/mqtt/*.
 mqttAuth:
-  authnMode: observe
+  authnMode: enforce
   audience: teknoir
   emqxServiceAccount: emqx
 

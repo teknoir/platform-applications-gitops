@@ -8,30 +8,30 @@ templates:
   - templates/deployment.yaml
   - templates/authorizationpolicy.yaml
 tests:
-  - it: renders MQTT_AUTHN_MODE observe and MQTT_AUDIENCE teknoir by default
+  - it: renders MQTT_AUTHN_MODE enforce and MQTT_AUDIENCE teknoir by default
     template: templates/deployment.yaml
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: MQTT_AUTHN_MODE
-            value: observe
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: MQTT_AUDIENCE
-            value: teknoir
-
-  - it: renders MQTT_AUTHN_MODE enforce
-    template: templates/deployment.yaml
-    set:
-      mqttAuth.authnMode: enforce
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
             name: MQTT_AUTHN_MODE
             value: enforce
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MQTT_AUDIENCE
+            value: teknoir
+
+  - it: renders MQTT_AUTHN_MODE observe when set
+    template: templates/deployment.yaml
+    set:
+      mqttAuth.authnMode: observe
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MQTT_AUTHN_MODE
+            value: observe
 
   # Release gate: the origin/main image (sha-3ffc34e5) has no /api/v1/mqtt/* routes, so EMQX
   # would get 404 (authn "ignore", audit "nomatch") and 0.0.112 would act like 0.0.111. This
