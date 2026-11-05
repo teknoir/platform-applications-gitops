@@ -12,7 +12,7 @@
 #   --dry-run   check the input and say what would happen, change nothing
 #
 # stdin: line 1 = username, line 2 = token/password. Example:
-#   printf '%s\n%s\n' tekn0ir "$(cat /path/to/token)" | set-upstream-credential.sh dockerhub --context vpro
+#   printf '%s\n%s\n' tekn0ir "$(cat /path/to/token)" | set-upstream-credential.sh dockerhub --context r415
 # On a terminal it prompts (the token is not echoed).
 # Idempotent: running it again with the same input leaves the Secret unchanged. To go back to
 # anonymous: kubectl --context CTX -n teknoir-system delete secret harbor-upstream-<name>.

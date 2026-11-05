@@ -1,6 +1,6 @@
 # Staging release tooling
 
-Design: `plans/staging-releases.md` (workspace). Staging (context `vpro` or `r415`, default `vpro`, override with `--context` or `STAGING_CONTEXT`; branch `teknoir-cloud`) runs only the commit of the
+Design: `plans/staging-releases.md` (workspace). Staging (context `r415`, default `r415`, override with `--context` or `STAGING_CONTEXT`; branch `teknoir-cloud`) runs only the commit of the
 live `staging-YYYYMMDD.N` release, held as `targetRevision` of the hand-applied root Application `app-of-apps`.
 Merging to `teknoir-cloud` queues a change; it is not live until a release.
 
@@ -27,7 +27,7 @@ Cutover (once): `scripts/staging-release --bootstrap` (the dry run must show no 
 
 ## Guards
 
-Context exactly `vpro` or `r415` (default `vpro`, override with `--context` or `STAGING_CONTEXT`; names with online|eks|prod are refused); the tag is `staging-YYYYMMDD.N`
+Context exactly `r415` (default `r415`, override with `--context` or `STAGING_CONTEXT`; names with online|eks|prod are refused); the tag is `staging-YYYYMMDD.N`
 (`^staging-[0-9]{8}\.[1-9][0-9]*$`, the same expression as the guard policy); the candidate is a first-parent commit of
 `origin/teknoir-cloud` that descends from the live release; `--yes` equals the dry-run SHA and the plan is fresh and
 live has not moved; the Lease `teknoir-system/staging-release-lock` is held from apply to converged; an existing tag is

@@ -103,6 +103,11 @@ tokenServiceCert:
 # Harbor schedules use 6-field cron (seconds first), in UTC.
 harborConfig:
   enabled: true
+  # The CI robot's Secret lives in teknoir-ci. false drops every robot whose Secret lives in
+  # namespace teknoir-ci from the rendered config (no CI on the cluster: no RBAC in teknoir-ci,
+  # and the robots step would fail before it reaches `nodes`).
+  ciRobot:
+    enabled: true
   image: docker.io/library/python:3.14-alpine
   imagePullPolicy: IfNotPresent
   schedule: "17 * * * *"

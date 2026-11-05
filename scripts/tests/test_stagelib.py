@@ -38,12 +38,14 @@ class TagNumbering(unittest.TestCase):
 
 class Guards(unittest.TestCase):
     def test_context_must_be_a_staging_context(self):
-        self.assertEqual(L.guard_context("vpro"), "vpro")
         self.assertEqual(L.guard_context("r415"), "r415")
-        for bad in ("teknoir-poc-eks", "k3d-teknoir-dev", "r415-old", "", "vpro2", "R415", "prod", "teknoir-online",
-                    "vpro-prod", "r415-prod", " r415"):
+        for bad in ("vpro", "teknoir-poc-eks", "k3d-teknoir-dev", "r415-old", "", "vpro2", "R415", "prod",
+                    "teknoir-online", "vpro-prod", "r415-prod", " r415"):
             with self.assertRaises(L.Refuse, msg=bad):
                 L.guard_context(bad)
+        with self.assertRaises(L.Refuse) as cm:
+            L.guard_context("vpro")
+        self.assertIn("must be one of r415", str(cm.exception))
         with self.assertRaises(L.Refuse) as cm:
             L.guard_context("r415-prod")
         self.assertIn("looks like production", str(cm.exception))
@@ -56,7 +58,7 @@ class Guards(unittest.TestCase):
         self.assertEqual(out.stdout.strip(), "r415", out.stderr)
         env = {k: v for k, v in os.environ.items() if k != "STAGING_CONTEXT"}
         out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env)
-        self.assertEqual(out.stdout.strip(), "vpro", out.stderr)
+        self.assertEqual(out.stdout.strip(), "r415", out.stderr)
 
     def test_kube_r415_sets_its_context(self):
         self.assertEqual(L.Kube(L.Sys(), "r415").base()[:3], ["kubectl", "--context", "r415"])
@@ -66,8 +68,8 @@ class Guards(unittest.TestCase):
             L.Kube(L.Sys(), "teknoir-poc-eks")
 
     def test_kube_always_sets_context_and_as_only_for_the_releaser(self):
-        k = L.Kube(L.Sys(), "vpro")
-        self.assertEqual(k.base()[:3], ["kubectl", "--context", "vpro"])
+        k = L.Kube(L.Sys(), "r415")
+        self.assertEqual(k.base()[:3], ["kubectl", "--context", "r415"])
         self.assertNotIn("--as=" + L.RELEASER_SA, k.base())
         self.assertIn("--as=" + L.RELEASER_SA, k.base(as_releaser=True))
 

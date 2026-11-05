@@ -1,6 +1,18 @@
 {{- if .Values.harborConfig.enabled }}
 {{- $namespace := .Values.namespace | default .Release.Namespace }}
 {{- $cfg := .Values.harborConfig }}
+{{- $config := $cfg.config }}
+{{- /* No CI on the cluster: drop the robots whose Secret lives in teknoir-ci (values ciRobot). */}}
+{{- if eq (toString (dig "ciRobot" "enabled" true $cfg)) "false" }}
+{{- $config = deepCopy $cfg.config }}
+{{- $robots := list }}
+{{- range $config.robots }}
+{{- if ne (dig "secret" "namespace" "" .) "teknoir-ci" }}
+{{- $robots = append $robots . }}
+{{- end }}
+{{- end }}
+{{- $_ := set $config "robots" $robots }}
+{{- end }}
 ---
 # Harbor configuration as code: files/harbor-config.py reconciles Harbor to
 # harborConfig.config. Robot Secrets in other namespaces are written with RBAC that
@@ -20,7 +32,7 @@ data:
   harbor-config.py: |
 {{ .Files.Get "files/harbor-config.py" | indent 4 }}
   config.json: |
-{{ $cfg.config | toPrettyJson | indent 4 }}
+{{ $config | toPrettyJson | indent 4 }}
 ---
 # After every sync (Harbor up), and hourly to correct drift and heal robot Secrets.
 apiVersion: batch/v1

@@ -27,6 +27,8 @@ set:
   virtualDevices: {enabled: true, spike: {enabled: true}}
   releaseGuard: {enabled: true}
   ztna: {enabled: true}
+  harbor: {enabled: true}
+  ci: {enabled: true}
 tests:
   - it: no Application has an (empty) spec.sources
     asserts:

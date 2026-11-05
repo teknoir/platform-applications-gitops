@@ -135,7 +135,7 @@ def merge_patch(dst, patch):
 
 
 class FakeSys(L.Sys):
-    def __init__(self, root, children=("a",), releases=None, crane_fail=(), releaser_installed=True, context="vpro"):
+    def __init__(self, root, children=("a",), releases=None, crane_fail=(), releaser_installed=True, context="r415"):
         self.real = L.Sys()
         self.context = context
         self.root = root

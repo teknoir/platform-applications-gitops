@@ -63,6 +63,40 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
           value: true
+  - it: config.json holds the CI robot by default
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["config.json"]
+          pattern: '"namespace": "teknoir-ci"'
+  - it: drops the CI robot from config.json when harborConfig.ciRobot.enabled is false
+    set:
+      harborConfig.ciRobot.enabled: false
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["config.json"]
+          pattern: '"name": "nodes"'
+      - notMatchRegex:
+          path: data["config.json"]
+          pattern: '"namespace": "teknoir-ci"'
+  - it: drops the CI robot from config.json when harborConfig.ciRobot.enabled is the string "false"
+    set:
+      harborConfig.ciRobot.enabled: "false"
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["config.json"]
+          pattern: '"name": "nodes"'
+      - notMatchRegex:
+          path: data["config.json"]
+          pattern: '"namespace": "teknoir-ci"'
   - it: config.json holds the six proxies, untagged retention, quotas and the teamspace block, but no credential value
     documentSelector:
       path: kind

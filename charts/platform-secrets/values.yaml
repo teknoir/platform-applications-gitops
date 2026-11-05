@@ -125,17 +125,8 @@ secrets:
       argocd:
         random: {length: 40, charset: alnum}
 
-  # argo-server's SSO client (charts/ci argo-workflows.server.sso).
-  - namespace: teknoir-ci
-    name: argo-workflows-sso
-    keys:
-      client-id:
-        value: argo-workflows
-        sync: true
-      client-secret:
-        copyFrom: teknoir-auth/keycloak-client-secrets/argo-workflows
-    restartDeployments:
-      - teknoir-ci/ci-argo-workflows-server
+  # argo-server's SSO client (charts/ci argo-workflows.server.sso) belongs here.
+  # It is removed on r415 (no CI); re-add it with charts/ci.
 
   # Harbor's OIDC client secret (charts/harbor oidcConfig.clientSecret).
   - namespace: teknoir-system

@@ -3,6 +3,8 @@ templates:
   - templates/configmap.yaml
   - templates/deployment.yaml
   - templates/rbac.yaml
+set:
+  virtualDevices.enabled: true
 tests:
   - it: puts VIRTUAL_DEVICES (without allowances) in the controller ConfigMap
     template: templates/configmap.yaml

@@ -18,7 +18,11 @@ that already matches.
     kubernetes.io/dockerconfigjson Secret (extra keys username/password) in the
     namespace that consumes it. A robot whose Secret is missing or whose
     credential no longer logs in gets a new secret (refresh), so deleting the
-    Secret rotates the credential.
+    Secret rotates the credential. On create, a valid password already in the
+    Secret is adopted only when the Secret carries the explicit seed annotation
+    teknoir.org/harbor-robot-seed: "true" (removed by the write; a teamspace Secret
+    keeps it while a seeded teamspace has no Profile yet), so a credential carried
+    over from another Harbor keeps working.
   - teamspace robots: one pull-only system robot `robot$ts-<profile>` per Profile
     (profiles.teknoir.org), never expiring, with all credentials in ONE Opaque Secret
     (keys <profile>.username / <profile>.password). A robot that this job created
@@ -33,6 +37,7 @@ host written into the docker config). Optional, for tests: UPSTREAM_DIR (default
 K8S_API (default https://kubernetes.default.svc), SA_DIR (service account directory).
 """
 import base64
+import binascii
 import hashlib
 import json
 import os
@@ -52,6 +57,7 @@ GIB = 1024 ** 3
 UPSTREAM_DIR = os.environ.get("UPSTREAM_DIR", "/upstream")
 REGISTRY_DESCRIPTION = "managed by harbor-config (platform-applications-gitops)"
 TEAMSPACE_DESCRIPTION = "managed by harbor-config (teamspace)"
+SEED_ANNOTATION = "teknoir.org/harbor-robot-seed"
 failures = []
 # Registries that carry (or are declared to carry) an upstream credential: their projects stay private.
 CREDENTIALED = {r["name"] for r in CFG.get("registries", []) if r.get("credential")}
@@ -448,12 +454,13 @@ def k8s(method, path, body=None):
     return call(method, path, body, auth="Bearer " + token, base=K8S, ctx=ctx)
 
 
-def write_secret(ns, name, ksec, obj):
+def write_secret(ns, name, ksec, obj, keep_seed=False):
     """Create the Secret (only where harbor-config may: teknoir-ci) or update the existing one.
 
     The Role in teknoir-system has no `create` (a Role that can create Secrets there can mint a
     service-account-token Secret for a cluster-admin ServiceAccount), so the chart renders the
-    Secrets and this only fills them in. An existing Secret keeps its type (immutable)."""
+    Secrets and this only fills them in. An existing Secret keeps its type (immutable). With
+    `keep_seed` the seed annotation is left in place (the seed is not used up yet)."""
     path = f"/api/v1/namespaces/{ns}/secrets/{name}"
     if ksec is None:
         try:
@@ -473,9 +480,24 @@ def write_secret(ns, name, ksec, obj):
         merged.update(obj["metadata"].get(key) or {})
         if merged:
             obj["metadata"][key] = merged
+    # The seed annotation is a one-shot marker: once the credential is written, it is no longer a seed.
+    if not keep_seed:
+        ann = obj["metadata"].get("annotations")
+        if ann is not None:
+            ann.pop(SEED_ANNOTATION, None)
+            if not ann:
+                obj["metadata"].pop("annotations", None)
     if ksec.get("type"):
         obj["type"] = ksec["type"]
     k8s("PUT", path, obj)
+
+
+def b64text(ns, sname, key, value):
+    """Decode a base64 Secret value as UTF-8; an error names the Secret and key, never the value."""
+    try:
+        return base64.b64decode(value).decode()
+    except (UnicodeDecodeError, binascii.Error, ValueError):
+        raise RuntimeError(f"Secret {ns}/{sname}: key {key} is not valid base64 UTF-8") from None
 
 
 def new_secret():
@@ -484,6 +506,14 @@ def new_secret():
         s = "".join(secrets.choice(alphabet) for _ in range(40))
         if any(c.islower() for c in s) and any(c.isupper() for c in s) and any(c.isdigit() for c in s):
             return s
+
+
+def valid_secret(s):
+    """A password Harbor accepts for a robot (mirrors Harbor's robot.IsValidSec): 8-128 characters with a
+    lowercase letter, an uppercase letter and a digit; no whitespace (a seed with a trailing newline is refused)."""
+    return (isinstance(s, str) and 8 <= len(s) <= 128 and re.search(r"[a-z]", s) is not None
+            and re.search(r"[A-Z]", s) is not None and re.search(r"[0-9]", s) is not None
+            and re.search(r"\s", s) is None)
 
 
 def robot_works(user, password):
@@ -505,24 +535,34 @@ def robot_permissions(r):
     return out
 
 
-def ensure_robot(prefix, have, name, r, description, stored):
+def ensure_robot(prefix, have, name, r, description, stored, adopt=False):
     """Create or repair system robot `prefix+name` so it has the permissions of config `r`.
 
     `stored` is the password currently kept in Kubernetes (or None). Returns (full name, password):
     the password is set when the robot was created or its secret refreshed (no usable stored
-    credential), else None.
+    credential), else None. On create, and on a refresh whose stored password does not work, a valid
+    stored password is adopted only when `adopt` is set (the Secret carries the explicit seed
+    annotation, so a credential carried over from another Harbor keeps working); otherwise a new one
+    is generated.
     """
     full = prefix + name
     cur = have.get(full)
     if cur is None:
-        password = new_secret()
+        adopted = adopt and valid_secret(stored)
+        password = stored if adopted else new_secret()
         body = {"name": name, "level": "system", "duration": -1, "disable": False,
                 "description": description, "secret": password,
                 "permissions": robot_permissions(r)}
         created = call("POST", "/robots", body)
         # Harbor ignores a requested secret on create in some versions; set it explicitly.
         call("PATCH", f"/robots/{created['id']}", {"secret": password})
-        log(f"robot {full}: created")
+        if adopted:
+            log(f"robot {full}: created (password adopted from the seeded Secret)")
+        elif adopt and stored is not None:
+            log(f"robot {full}: created (new password; the seeded password is not valid for Harbor: "
+                "8-128 characters, upper, lower, digit, no whitespace)")
+        else:
+            log(f"robot {full}: created (new password)")
         return full, password
     want_perm = json.dumps(sorted(robot_permissions(r), key=lambda x: x["namespace"]), sort_keys=True)
     have_perm = json.dumps(sorted([{"kind": p["kind"], "namespace": p["namespace"],
@@ -536,9 +576,13 @@ def ensure_robot(prefix, have, name, r, description, stored):
         call("PUT", f"/robots/{cur['id']}", full_robot)
         log(f"robot {full}: permissions updated")
     if stored is None or not robot_works(full, stored):
-        password = new_secret()
+        seeded = adopt and valid_secret(stored)
+        password = stored if seeded else new_secret()
         call("PATCH", f"/robots/{cur['id']}", {"secret": password})
-        log(f"robot {full}: secret refreshed ({'no Secret' if stored is None else 'stale Secret'})")
+        if seeded:
+            log(f"robot {full}: secret set to the seeded password")
+        else:
+            log(f"robot {full}: secret refreshed ({'no Secret' if stored is None else 'stale Secret'})")
         return full, password
     return full, None
 
@@ -567,10 +611,20 @@ def robots():
         if ksec:
             d = ksec.get("data") or {}
             if "password" in d:
-                stored = base64.b64decode(d["password"]).decode()
-        full, password = ensure_robot(prefix, have, r["name"], r, "managed by harbor-config", stored)
+                stored = b64text(ns, sname, "password", d["password"])
+        adopt = (((ksec or {}).get("metadata") or {}).get("annotations")
+                 or {}).get(SEED_ANNOTATION) == "true"
+        full, password = ensure_robot(prefix, have, r["name"], r, "managed by harbor-config", stored, adopt)
+        completed = False
         if password is None:
-            continue
+            # The robot works with the stored password, but the Secret lacks the docker config (a seed,
+            # or a write that failed after the robot was created), or it is a seed whose marker must go:
+            # write it once (completing it, and consuming the marker) with the stored credential.
+            if ksec is not None and (adopt or ".dockerconfigjson" not in (ksec.get("data") or {})):
+                password = stored
+                completed = True
+            else:
+                continue
         auth = base64.b64encode(f"{full}:{password}".encode()).decode()
         dockercfg = json.dumps({"auths": {HOST: {"username": full, "password": password, "auth": auth}}})
         data = {".dockerconfigjson": base64.b64encode(dockercfg.encode()).decode(),
@@ -582,7 +636,7 @@ def robots():
                             "annotations": {"teknoir.org/harbor-robot": full}},
                "data": data}
         write_secret(ns, sname, ksec, obj)
-        log(f"robot {full}: Secret {ns}/{sname} written")
+        log(f"robot {full}: Secret {ns}/{sname} written" + (" (completed)" if completed else ""))
 
 
 ROBOT_NAME = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
@@ -607,35 +661,48 @@ def teamspace_robots():
         if e.code != 404:
             raise
         ksec = None
-    data = {k: base64.b64decode(v).decode() for k, v in ((ksec or {}).get("data") or {}).items()}
+    adopt = (((ksec or {}).get("metadata") or {}).get("annotations")
+             or {}).get(SEED_ANNOTATION) == "true"
+    data = {k: b64text(ns, sname, k, v) for k, v in ((ksec or {}).get("data") or {}).items()}
     before = dict(data)
     for prof in profiles:
         name = tprefix + prof
         if not ROBOT_NAME.match(name):
             log(f"teamspace {prof}: not a valid robot name; skipped")
             continue
-        full, password = ensure_robot(prefix, have, name, t, TEAMSPACE_DESCRIPTION, data.get(f"{prof}.password"))
+        full, password = ensure_robot(prefix, have, name, t, TEAMSPACE_DESCRIPTION,
+                                      data.get(f"{prof}.password"), adopt)
         if password is not None:
             data[f"{prof}.password"] = password
         data[f"{prof}.username"] = full
-    # Robots (and keys) of Profiles that are gone.
+    # Robots (and keys) of Profiles that are gone. The keys go only once the Secret is written:
+    # deleting the robot first would orphan the keys if the write failed, and a re-created Profile
+    # of the same name would later adopt them. A seeded Secret may belong to a Profile that does
+    # not exist yet (fresh cluster), and harbor-config can run before the Profile does.
+    gone = {}
     for full, rob in have.items():
         short = full[len(prefix):] if full.startswith(prefix) else None
         if short and short.startswith(tprefix) and rob.get("description") == TEAMSPACE_DESCRIPTION \
                 and short[len(tprefix):] not in profiles:
-            call("DELETE", f"/robots/{rob['id']}")
-            log(f"robot {full}: deleted (Profile {short[len(tprefix):]} is gone)")
+            gone[short[len(tprefix):]] = rob
+    kept = set()
     for key in list(data):
         owner, _, field = key.rpartition(".")
         if field in ("username", "password") and owner not in profiles:
-            del data[key]
-    if ksec is not None and data == before:
-        return
-    obj = {"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
-           "metadata": {"name": sname, "namespace": ns, "labels": {"teknoir.org/managed-by": "harbor-config"}},
-           "data": {k: base64.b64encode(v.encode()).decode() for k, v in sorted(data.items())}}
-    write_secret(ns, sname, ksec, obj)
-    log(f"teamspace robots: Secret {ns}/{sname} written ({len(profiles)} teamspaces)")
+            if owner in gone:
+                del data[key]
+            elif owner not in kept:
+                kept.add(owner)
+                log(f"teamspace {owner}: no Profile and no managed robot; credential keys kept")
+    if ksec is None or data != before or (adopt and not kept):
+        obj = {"apiVersion": "v1", "kind": "Secret", "type": "Opaque",
+               "metadata": {"name": sname, "namespace": ns, "labels": {"teknoir.org/managed-by": "harbor-config"}},
+               "data": {k: base64.b64encode(v.encode()).decode() for k, v in sorted(data.items())}}
+        write_secret(ns, sname, ksec, obj, keep_seed=bool(kept))
+        log(f"teamspace robots: Secret {ns}/{sname} written ({len(profiles)} teamspaces)")
+    for owner, rob in gone.items():
+        call("DELETE", f"/robots/{rob['id']}")
+        log(f"robot {rob['name']}: deleted (Profile {owner} is gone)")
 
 
 def main():

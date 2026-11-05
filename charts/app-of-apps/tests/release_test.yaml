@@ -95,6 +95,8 @@ tests:
       virtualDevices: {enabled: true, spike: {enabled: true}}
       releaseGuard: {enabled: true}
       ztna: {enabled: true}
+      harbor: {enabled: true}
+      ci: {enabled: true}
     asserts:
       - hasDocuments: {count: 2}
       - isKind: {of: Application, documentIndex: 0}
@@ -327,11 +329,45 @@ tests:
       virtualDevices: {enabled: true, spike: {enabled: true}}
       releaseGuard: {enabled: true}
       ztna: {enabled: true}
+      harbor: {enabled: true}
+      ci: {enabled: true}
     asserts:
       - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 0}
       - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 0}
       - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 1}
       - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 1}
+
+  - it: "ci: harbor drops its CI robot while ci.enabled is false, and only the harbor Application renders"
+    template: templates/ci.yaml
+    set:
+      project: teknoir-cloud
+      harbor: {enabled: true}
+      ci: {enabled: false}
+    asserts:
+      - hasDocuments: {count: 1}
+      - equal: {path: metadata.name, value: harbor, documentIndex: 0}
+      - equal:
+          path: spec.source.helm.parameters
+          value:
+            - name: harborConfig.ciRobot.enabled
+              value: "false"
+        documentIndex: 0
+      - notExists:
+          path: spec.syncPolicy.syncOptions
+        documentIndex: 0
+
+  - it: "ci: with CI enabled harbor keeps its CI robot"
+    template: templates/ci.yaml
+    set:
+      project: teknoir-cloud
+      harbor: {enabled: true}
+      ci: {enabled: true}
+    asserts:
+      - hasDocuments: {count: 2}
+      - contains:
+          path: spec.source.helm.parameters
+          content: {name: harborConfig.ciRobot.enabled, value: "true"}
+        documentIndex: 0
 
   - it: "controllers: follows the branch and has no release annotation while release is unset"
     template: templates/controllers.yaml
@@ -750,9 +786,9 @@ tests:
       - notMatchRegexRaw: {pattern: "targetRevision: teknoir-cloud"}
       - notMatchRegexRaw: {pattern: "targetRevision: \\{\\{"}
 
-  - it: release-guard is on for teknoir-cloud by default in Deny (Warn from release 2 until 2026-10-18)
+  - it: release-guard renders in Deny when enabled on teknoir-cloud (Warn from release 2 until 2026-10-18)
     template: templates/release-guard.yaml
-    set: {project: teknoir-cloud}
+    set: {project: teknoir-cloud, releaseGuard: {enabled: true}}
     asserts:
       - hasDocuments: {count: 1}
       - contains: {path: spec.source.helm.parameters, content: {name: guard.mode, value: Deny}}

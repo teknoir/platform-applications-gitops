@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""staging-status: where staging is and what is pending (kubectl context vpro or r415, default from STAGING_CONTEXT, READ-ONLY).
+"""staging-status: where staging is and what is pending (kubectl context r415, the default from STAGING_CONTEXT, READ-ONLY).
 
   staging-status [--devices] [--no-network]
 

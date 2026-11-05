@@ -6,6 +6,8 @@ templates:
 tests:
   - it: puts the flag, presets and custom limits in the backend app-config
     template: templates/configmap-app-config.yaml
+    set:
+      virtualDevices.enabled: true
     asserts:
       - matchRegex:
           path: data["app-config.prod-env.yaml"]
@@ -22,6 +24,8 @@ tests:
 
   - it: sets the frontend env flag only when enabled
     template: templates/deployment.yaml
+    set:
+      virtualDevices.enabled: true
     documentSelector:
       path: metadata.name
       value: backstage

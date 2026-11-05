@@ -28,6 +28,11 @@ spec:
     path: charts/harbor
     repoURL: https://github.com/teknoir/platform-applications-gitops
     targetRevision: {{ include "app-of-apps.revision" . }}
+    helm:
+      parameters:
+        # No CI on the cluster: the harbor chart drops the ci robot from its config.
+        - name: harborConfig.ciRobot.enabled
+          value: {{ ternary "true" "false" (default false (.Values.ci).enabled) | quote }}
   project: {{ .Values.project }}
   syncPolicy:
     automated:
@@ -42,6 +47,7 @@ spec:
         maxDuration: 5m
   # The harbor chart renders the Secrets harbor-config writes its robot credentials into as empty
   # Opaque Secrets (harbor-config has no `create` in teknoir-system); the data is not ArgoCD's.
+  # No RespectIgnoreDifferences on purpose: it would copy .data into last-applied, passwords included.
   ignoreDifferences:
     - kind: Secret
       name: harbor-nodes-pull

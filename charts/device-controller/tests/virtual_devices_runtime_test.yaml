@@ -1,6 +1,8 @@
 suite: virtual devices runtime namespaces
 templates:
   - templates/virtual-devices-runtime.yaml
+set:
+  virtualDevices.enabled: true
 tests:
   - it: renders namespace, four network policies, quota and limit range for the default allowance
     asserts:
