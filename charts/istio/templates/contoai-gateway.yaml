@@ -1,10 +1,10 @@
 {{- if .Values.contoai.enabled -}}
-{{- $domain := .Values.contoai.domain | default "contoai.site" -}}
+{{- $domain := .Values.contoai.domain | default "delegated.site" -}}
 {{- $hosts := .Values.contoai.hosts | default (list $domain (printf "*.%s" $domain)) -}}
 {{- $credentialName := .Values.contoai.tls.credentialName | default (printf "%s-wildcard-tls" (replace "." "-" $domain)) -}}
 {{- $passthrough := eq (.Values.contoai.tls.mode | default "PASSTHROUGH") "PASSTHROUGH" -}}
 ---
-# Edge Gateway for contoai (*.contoai.site): a second server on the same 443 listener
+# Edge Gateway for contoai (*.delegated.site): a second server on the same 443 listener
 # as teknoir-gateway, selected by SNI, so the two Gateway resources coexist.
 # PASSTHROUGH (default): the TLS connection goes untouched to the contoai ingress,
 # which holds and renews its own certificate. SIMPLE: terminate here with a copied
