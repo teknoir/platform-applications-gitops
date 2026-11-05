@@ -11,16 +11,16 @@ so every hostname must be demultiplexed on this cluster's ingress gateway.
 | Domain | Gateway | TLS termination | Backend |
 | --- | --- | --- | --- |
 | `teknoir.cloud`, `*.teknoir.cloud` | `teknoir-gateway` | r415 (`teknoir-cloud-wildcard-tls`) | in-cluster services |
-| `contoai.site`, `*.contoai.site` | `contoai-gateway` | r415 (`contoai-site-wildcard-tls`) | contoai ingress `192.168.2.204:443` (re-encrypt) |
+| `delegated.site`, `*.delegated.site` | `contoai-gateway` | r415 (`delegated-site-wildcard-tls`) | contoai ingress `192.168.2.204:443` (re-encrypt) |
 
 Both 443 servers are `SIMPLE` on the same `istio: ingressgateway` workload;
 Istio selects the certificate by SNI, so the two `Gateway` resources coexist and
 neither is an edit to the other. `contoai.backend.*` in `values.yaml` controls
 the external endpoint, SNI and verification.
 
-### contoai.site certificate
+### delegated.site certificate
 
-r415 has no DNS-01 credentials for `contoai.site` (the Loopia webhook lives on
+r415 has no DNS-01 credentials for `delegated.site` (the Loopia webhook lives on
 the contoai cluster), so the wildcard secret is **copied out-of-band** and is
 **not** managed by this chart:
 
