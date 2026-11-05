@@ -66,32 +66,32 @@ istio-egressgateway:
 # Second public domain fronted by the staging edge (vpro since 2026-10-16, r415 before).
 # The single office public IP is port-forwarded here, so the hostname decision
 # happens on this cluster's ingress gateway. Default PASSTHROUGH: TLS for
-# contoai.site / *.contoai.site is forwarded by SNI to the contoai ingress, which
+# delegated.site / *.delegated.site is forwarded by SNI to the contoai ingress, which
 # terminates it with its own certificate (renewed there by its Loopia DNS-01 webhook),
 # so no certificate is copied here. tls.mode SIMPLE restores the old setup (terminate
 # here with a Secret copied by infra/scripts/copy-contoai-cert-secret.sh, re-encrypt).
 contoai:
   enabled: true
-  domain: contoai.site
+  domain: delegated.site
   # Explicit host list override (unset = [domain, *.domain]).
   hosts:
-    - contoai.site
-    - "*.contoai.site"
+    - delegated.site
+    - "*.delegated.site"
     - redbluecorner.se
     - www.redbluecorner.se
   tls:
     mode: PASSTHROUGH
     # SIMPLE only: Secret in istio-system, copied out-of-band (NOT managed by this chart).
     # Unset = "<domain-with-dashes>-wildcard-tls".
-    credentialName: contoai-site-wildcard-tls
+    credentialName: delegated-site-wildcard-tls
   backend:
     # The contoai cluster is outside this mesh (same subnet, directly routable).
     host: contoai-backend.internal
     address: 192.168.2.204
     port: 443
     # SNI for the TLS origin hop to the backend. The wildcard certificate also
-    # carries the apex (contoai.site), so the apex is a valid SNI.
-    sni: contoai.site
+    # carries the apex (delegated.site), so the apex is a valid SNI.
+    sni: delegated.site
     # Set true only if the backend certificate cannot be verified against the
     # gateway CA bundle. Prefer pinning a CA over disabling verification.
     insecureSkipVerify: false

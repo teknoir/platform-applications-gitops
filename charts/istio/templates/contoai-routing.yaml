@@ -1,5 +1,5 @@
 {{- if .Values.contoai.enabled -}}
-{{- $domain := .Values.contoai.domain | default "contoai.site" -}}
+{{- $domain := .Values.contoai.domain | default "delegated.site" -}}
 {{- $hosts := .Values.contoai.hosts | default (list $domain (printf "*.%s" $domain)) -}}
 {{- $backendHost := .Values.contoai.backend.host | default "contoai-backend.internal" -}}
 {{- $backendAddress := .Values.contoai.backend.address | default "192.168.2.204" -}}
@@ -44,7 +44,7 @@ spec:
       insecureSkipVerify: {{ $insecure }}
 {{- end }}
 ---
-# Route every *.contoai.site host to the contoai ingress. That ingress routes by
+# Route every *.delegated.site host to the contoai ingress. That ingress routes by
 # Host header, which Istio preserves on the re-encrypted hop.
 apiVersion: networking.istio.io/v1beta1
 kind: VirtualService
