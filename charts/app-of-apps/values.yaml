@@ -67,7 +67,7 @@ backstageNext:
 # teknoir-system/staging-releaser), ArgoCD and profile-controller write ArgoCD Applications.
 # teknoir-cloud only (allowlist in templates/_helpers.tpl).
 releaseGuard:
-  # Off until the first release on r415; turned on again (Warn, then Deny) by the next release.
-  enabled: false
+  # On again since the second r415 release, in Warn first; Deny in the release after that.
+  enabled: true
   # Warn | Deny, passed to the chart as guard.mode.
-  mode: Deny
+  mode: Warn

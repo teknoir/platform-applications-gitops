@@ -23,7 +23,7 @@ first_party_prefixes:
 # Hand-applied CRs (mock-* DAS, Robots, RobotTypes) are not rendered here; staging-status --devices lists them.
 cr_revisions: deny
 
-rollback_floor: "staging-20261017.3"   # first release with the release guard (.2 was rolled back)
+rollback_floor: "staging-20261105.1"   # first release on r415 (earlier tags are vpro releases)
 
 # Dated exceptions to the first-party digest rule. An expired exception fails the lint from day 1.
 #   image    exact image reference without digest, or a prefix ending in *

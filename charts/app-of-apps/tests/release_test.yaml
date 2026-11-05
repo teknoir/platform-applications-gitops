@@ -786,9 +786,15 @@ tests:
       - notMatchRegexRaw: {pattern: "targetRevision: teknoir-cloud"}
       - notMatchRegexRaw: {pattern: "targetRevision: \\{\\{"}
 
-  - it: release-guard renders in Deny when enabled on teknoir-cloud (Warn from release 2 until 2026-10-18)
+  - it: release-guard is on in Warn by default on teknoir-cloud (second r415 release; Deny in the next one)
     template: templates/release-guard.yaml
-    set: {project: teknoir-cloud, releaseGuard: {enabled: true}}
+    set: {project: teknoir-cloud}
+    asserts:
+      - hasDocuments: {count: 1}
+      - contains: {path: spec.source.helm.parameters, content: {name: guard.mode, value: Warn}}
+  - it: release-guard renders in Deny when set
+    template: templates/release-guard.yaml
+    set: {project: teknoir-cloud, releaseGuard: {enabled: true, mode: Deny}}
     asserts:
       - hasDocuments: {count: 1}
       - contains: {path: spec.source.helm.parameters, content: {name: guard.mode, value: Deny}}
