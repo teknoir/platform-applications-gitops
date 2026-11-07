@@ -31,6 +31,32 @@ kind: PodMonitor
 metadata:
   labels:
     release: teknoir
+  name: custom-teknoirbot-controller-monitor
+  namespace: {{ $namespace }}
+spec:
+  jobLabel: teknoirbot-controller-stats
+  namespaceSelector:
+    any: true
+  podMetricsEndpoints:
+    - interval: 15s
+      path: /metrics
+      relabelings:
+        - action: keep
+          regex: manager
+          sourceLabels:
+            - __meta_kubernetes_pod_container_name
+  selector:
+    matchExpressions:
+      - key: kustomize.component
+        operator: In
+        values:
+          - teknoirbot-controller
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  labels:
+    release: teknoir
   name: custom-devstudio-controller-monitor
   namespace: {{ $namespace }}
 spec:
