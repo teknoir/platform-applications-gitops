@@ -54,7 +54,11 @@ spec:
           metadata:
             type: object
           spec:
-            description: TeknoirBotSpec is the desired state of a TeknoirBot.
+            default: {}
+            description: |-
+              The default makes spec, and so spec.resources and its disk, always
+              present: a transition rule (the disk is immutable) only runs when the old
+              value exists.
             properties:
               description:
                 description: Description says what the bot is for.
@@ -79,7 +83,9 @@ spec:
                 properties:
                   cpu:
                     default: "2"
-                    description: CPU is the number of vCPUs, 1..64.
+                    description: |-
+                      CPU is the number of vCPUs, 1..64. A new value applies at the computer's
+                      next start (suspend and resume the bot).
                     pattern: ^([1-9]|[1-5][0-9]|6[0-4])$
                     type: string
                   disk:
@@ -93,7 +99,9 @@ spec:
                       rule: self == oldSelf
                   memory:
                     default: 4Gi
-                    description: Memory is the memory in whole GiB, 1Gi..256Gi.
+                    description: |-
+                      Memory is the memory in whole GiB, 1Gi..256Gi. A new value applies at the
+                      computer's next start (suspend and resume the bot).
                     pattern: ^([1-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-6])Gi$
                     type: string
                 type: object
@@ -165,7 +173,9 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               desktopURL:
-                description: DesktopURL opens the bot's remote desktop.
+                description: |-
+                  DesktopURL opens the bot's remote desktop. It is set only while the phase
+                  is Running.
                 type: string
               deviceName:
                 description: DeviceName is the bot's Device, tb-<name>.
