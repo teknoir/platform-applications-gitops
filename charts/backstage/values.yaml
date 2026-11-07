@@ -84,7 +84,7 @@ istio:
 # must stay within the controller's maxPerDevice (charts/device-controller). A teamspace
 # also needs an allowance: ResourceQuota vdev-quota in <teamspace>-vdev (device-controller chart).
 virtualDevices:
-  enabled: false               # off on r415 (staging since 2026-11): no KubeVirt
+  enabled: true                # on on r415 since 2026-11-07 (TeknoirBot)
   presets:
     - {name: small, label: Small, cpu: "2", memory: 4Gi, disk: 20Gi}
     - {name: medium, label: Medium, cpu: "4", memory: 8Gi, disk: 40Gi}

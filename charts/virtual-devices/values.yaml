@@ -15,11 +15,11 @@ kubevirt:
   # virt-controller request +775Mi/+15m; r415 has 252 GiB. KubeVirt then adds PDBs
   # with minAvailable 1, which block a drain of a single node; r415 cannot be drained
   # today anyway (keycloak, backstage and oauth2-proxy PDBs allow 0 disruptions).
-  # Staging is the single 14 GB vpro host since 2026-10-16: one replica each. At two, KubeVirt and
-  # CDI reserved 3.5 GiB of requests and CI pods no longer scheduled ("Insufficient memory").
-  infraReplicas: 1
-  # Where virt-handler runs, so where VMs can run: the dev host agent (taint teknoir.org/ci,
-  # label teknoir.org/virtual-devices=true). Empty: every node. The VMs themselves are placed
+  # Two on r415 again since 2026-11-07 (staging moved back from the 14 GB vpro host, where one
+  # replica each was needed because CI pods no longer scheduled at two).
+  infraReplicas: 2
+  # Where virt-handler runs, so where VMs can run: nodes labelled teknoir.org/virtual-devices=true
+  # (r415 since 2026-11-07; the teknoir.org/ci toleration is left from vpro). Empty: every node. The VMs themselves are placed
   # by the device-controller (virtualDevices.nodeSelector/tolerations).
   workloadsNodePlacement:
     nodeSelector: {teknoir.org/virtual-devices: "true"}
@@ -56,9 +56,9 @@ cdi:
   # cdi-apiserver replicas. It serves the aggregated APIService
   # v1beta1.upload.cdi.kubevirt.io and CDI's webhooks; two for the same reason as
   # kubevirt.infraReplicas (+150Mi requests). CDI's anti-affinity is only preferred.
-  # One on the single vpro host (see kubevirt.infraReplicas).
-  apiServerReplicas: 1
-  # CDI workload pods (importer, cloner, upload server) run next to the VM's disk: the dev host.
+  # Two on r415 (see kubevirt.infraReplicas).
+  apiServerReplicas: 2
+  # CDI workload pods (importer, cloner, upload server) run next to the VM's disk (r415).
   workloadTolerations:
     - {key: teknoir.org/ci, operator: Exists, effect: NoSchedule}
   uninstallStrategy: BlockUninstallIfWorkloadsExist
