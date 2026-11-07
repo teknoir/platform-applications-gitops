@@ -94,6 +94,12 @@ virtualDevices:
     memoryGi: {min: 4, max: 8}
     diskGi: {min: 20, max: 40}
 
+# TeknoirBots (the Bots page and the device Desktop tab in nextgen). Read by the backend (app-config
+# teknoir.teknoirBots.enabled) and the frontend (APP_CONFIG_teknoir_teknoirBots_enabled). Turn on together with
+# teknoirbot.enabled in app-of-apps.
+teknoirBots:
+  enabled: false
+
 # Next-gen fleet pages (backstage-plugin-teknoir-fleet). Both optional.
 fleet:
   # Frontend env APP_CONFIG_teknoir_fleet_classicUrl: where the "Classic" nav links point.

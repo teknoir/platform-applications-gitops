@@ -60,6 +60,10 @@ data:
           {{- toYaml . | nindent 10 }}
         {{- end }}
 {{- end }}
+{{- with .Values.teknoirBots }}
+      teknoirBots:
+        enabled: {{ .enabled | default false }}
+{{- end }}
 {{- $fleet := .Values.fleet | default dict }}
 {{- $access := $fleet.access | default dict }}
 {{- if or $fleet.prometheusUrlTemplate $access.enabled }}
