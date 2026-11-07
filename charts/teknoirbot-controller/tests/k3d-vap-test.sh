@@ -88,7 +88,9 @@ python3 -I - "$TMP/all.yaml" "$TMP/apply.yaml" <<'PY'
 import sys
 docs = open(sys.argv[1]).read().split("\n---\n")
 keep = ("kind: ServiceAccount", "kind: ClusterRole\n", "kind: ClusterRoleBinding", "kind: ValidatingAdmissionPolicy")
-out = [d for d in docs if any(("\n" + k) in ("\n" + d + "\n") for k in keep)]
+# of the policies only teknoirbot-device-guard (the fence has its own test, k3d-fence-test.sh)
+out = [d for d in docs if any(("\n" + k) in ("\n" + d + "\n") for k in keep)
+       and ("kind: ValidatingAdmissionPolicy" not in d or "\n  name: teknoirbot-device-guard\n" in d or "policyName: teknoirbot-device-guard" in d)]
 open(sys.argv[2], "w").write("\n---\n".join(out))
 PY
 "${KC[@]}" apply -f "$TMP/apply.yaml" >/dev/null || { echo "cannot apply the chart objects" >&2; exit 2; }
