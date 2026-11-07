@@ -1,0 +1,48 @@
+# The same rules as config/rbac/role.yaml of the controller repo (a closed set, checked there tuple by tuple).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: teknoirbot-controller
+  labels:
+    {{- include "teknoirbot-controller.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+  - ""
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - teknoir.org
+  resources:
+  - devices
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - teknoir.org
+  resources:
+  - teknoirbots
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - teknoir.org
+  resources:
+  - teknoirbots/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - teknoir.org
+  resources:
+  - teknoirbots/status
+  verbs:
+  - get
+  - patch
+  - update

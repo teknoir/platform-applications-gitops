@@ -1,0 +1,76 @@
+{{- /*
+ValidatingAdmissionPolicy teknoirbot-device-guard (defence in depth). The ClusterRole of the controller may
+create and patch every Device in the cluster (RBAC cannot narrow by label); this policy narrows what ITS service
+account can do to Devices, keyed on who writes (like charts/ztna admission.yaml). Nobody else is affected: the
+matchCondition selects the controller's username only.
+
+The controller (internal/controller/device.go) creates a Device with the labels teknoir.org/teknoirbot=<bot> and
+teknoir.org/part-of=teknoirbot, device_type virtual and no ztna/disabled/org-tree annotation, and afterwards patches
+(ownedPatch) only labels, the preset annotation, spec.virtual.cpu/memory/disabled and spec.desktop. It never patches
+spec.keys. So the policy requires:
+  1. the labels on every write;
+  2. UPDATE: the old Device was already a bot's (no takeover of another Device);
+  3. CREATE: spec.device_type virtual;
+  4. UPDATE: spec.keys unchanged (keys are written at create only);
+  5. platform annotations (ztna.teknoir.org/*, teknoir.org/disabled*, teknoir.org/org-tree-*): none at create, and
+     unchanged (none added, changed or removed) on update.
+
+Break-glass: a cluster-admin deletes the ValidatingAdmissionPolicyBinding (pause the Application's auto-sync first).
+*/ -}}
+{{- $sa := printf "system:serviceaccount:%s:%s" .Release.Namespace .Values.serviceAccount.name }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: teknoirbot-device-guard
+  labels:
+    {{- include "teknoirbot-controller.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["teknoir.org"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["devices"]
+  matchConditions:
+    - name: only-the-teknoirbot-controller
+      expression: "request.userInfo.username == '{{ $sa }}'"
+  variables:
+    - name: labels
+      expression: "object.metadata.?labels.orValue({})"
+    - name: oldLabels
+      expression: "request.operation == 'UPDATE' ? oldObject.metadata.?labels.orValue({}) : {}"
+    - name: newAnn
+      expression: "object.metadata.?annotations.orValue({})"
+    - name: oldAnn
+      expression: "request.operation == 'UPDATE' ? oldObject.metadata.?annotations.orValue({}) : {}"
+    # Annotation keys a platform component writes: matched by prefix.
+    - name: newPlatform
+      expression: "variables.newAnn.filter(k, k.startsWith('ztna.teknoir.org/') || k.startsWith('teknoir.org/disabled') || k.startsWith('teknoir.org/org-tree-'))"
+    - name: oldPlatform
+      expression: "variables.oldAnn.filter(k, k.startsWith('ztna.teknoir.org/') || k.startsWith('teknoir.org/disabled') || k.startsWith('teknoir.org/org-tree-'))"
+  validations:
+    - expression: "variables.labels[?'teknoir.org/teknoirbot'].orValue('') != '' && variables.labels[?'teknoir.org/part-of'].orValue('') == 'teknoirbot'"
+      message: "teknoirbot-controller may only write Devices that carry a non-empty label teknoir.org/teknoirbot and teknoir.org/part-of=teknoirbot"
+    - expression: "request.operation != 'UPDATE' || variables.oldLabels[?'teknoir.org/teknoirbot'].orValue('') != ''"
+      message: "teknoirbot-controller may not update a Device that is not a TeknoirBot's (the old object has no teknoir.org/teknoirbot label)"
+    - expression: "request.operation != 'CREATE' || object.spec.?device_type.orValue('') == 'virtual'"
+      message: "teknoirbot-controller may only create virtual Devices (spec.device_type must be virtual)"
+    - expression: "request.operation != 'UPDATE' || object.spec.?keys == oldObject.spec.?keys"
+      message: "teknoirbot-controller writes spec.keys at create only and may not change it"
+    - expression: >-
+        request.operation == 'CREATE' ? size(variables.newPlatform) == 0 :
+        (variables.newPlatform.all(k, k in variables.oldAnn && variables.oldAnn[k] == variables.newAnn[k]) &&
+         variables.oldPlatform.all(k, k in variables.newAnn && variables.newAnn[k] == variables.oldAnn[k]))
+      message: "teknoirbot-controller may not set, change or remove platform annotations (ztna.teknoir.org/*, teknoir.org/disabled*, teknoir.org/org-tree-*)"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: teknoirbot-device-guard
+  labels:
+    {{- include "teknoirbot-controller.labels" . | nindent 4 }}
+spec:
+  policyName: teknoirbot-device-guard
+  validationActions: [Deny]
