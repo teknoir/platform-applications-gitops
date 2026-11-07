@@ -27,7 +27,7 @@ tests:
           path: rules[0]
           value:
             apiGroups: [teknoir.org]
-            resources: [devices, robots, robottypes, deviceapplicationsets, devstudios, notebooks, claimsets]
+            resources: [devices, robots, robottypes, deviceapplicationsets, devstudios, notebooks, claimsets, teknoirbots]
             verbs: [get, list, watch, create, update, patch, delete]
       - equal:
           path: rules[1]
@@ -41,6 +41,7 @@ tests:
               - devstudios/status
               - notebooks/status
               - claimsets/status
+              - teknoirbots/status
             verbs: [get]
 
   - it: reads secrets by name only and writes only the peripheral ConfigMap
