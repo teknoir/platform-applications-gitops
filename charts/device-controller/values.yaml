@@ -146,7 +146,7 @@ virtualDevices:
 # "desktop". Rendered as the DESKTOP config only together with ztna (the desktop is reached through Tunneling).
 desktop:
   enabled: true
-  image: "ghcr.io/teknoir/teknoir-desktop:sha-eea2b2ca@sha256:02eabf3467cd08a073662a94d3d05d53b9199a4396b1c2c168426a2af25a276a"  # required when enabled: ghcr.io/teknoir/teknoir-desktop:<tag>@sha256:<digest> (scripts/pin-image teknoir-desktop ...)
+  image: "ghcr.io/teknoir/teknoir-desktop:sha-096d8df8@sha256:d9b3e748351de468bf44493ede64fd4243392be5a4404a3b43a5054cc4e0765d"  # required when enabled: ghcr.io/teknoir/teknoir-desktop:<tag>@sha256:<digest> (scripts/pin-image teknoir-desktop ...)
   hostGroupID: 64080 # gid of group teknoir-desktop on devices (host mode; the ansible desktop playbook creates it)
 
 # WireGuard (ZTNA) tunnels, an alternative to the SSH reverse tunnels (plan:

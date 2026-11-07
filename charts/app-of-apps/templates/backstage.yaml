@@ -37,6 +37,13 @@ spec:
           value: "true"
         - name: fleet.access.writes
           value: "true"
+{{- if (.Values.teknoirbot).enabled }}
+        # TeknoirBots: the Bots page and the device Desktop tab (charts/backstage teknoirBots). Only in this release:
+        # it runs as SA backstage-api, the bot fence's portal identity (charts/teknoirbot-controller
+        # fence.backstageServiceAccount). Bots need Tunneling, so it sits inside the ZTNA switch.
+        - name: teknoirBots.enabled
+          value: "true"
+{{- end }}
 {{- end }}
 {{- end }}
   project: {{ .Values.project }}
