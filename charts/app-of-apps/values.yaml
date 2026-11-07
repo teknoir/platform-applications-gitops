@@ -29,7 +29,7 @@ virtualDevices:
 # desktop, (b) desktop.enabled and desktop.image are set and pinned there, and (c) charts/teknoirbot-controller image.tag
 # is pinned.
 teknoirbot:
-  enabled: false
+  enabled: true
 
 # ZTNA: WireGuard over STUNner as an alternative to the SSH reverse tunnels (plan:
 # plans/wireguard-ztna-tunnel.md). One switch for the whole feature:

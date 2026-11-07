@@ -258,10 +258,11 @@ tests:
       - equal: {path: spec.source.targetRevision, value: "0123456789abcdef0123456789abcdef01234567", documentIndex: 0}
       - equal: {path: 'metadata.annotations["teknoir.org/release"]', value: staging-20261017.1, documentIndex: 0}
 
-  - it: "teknoirbot: renders nothing while teknoirbot.enabled is false (the default)"
+  - it: "teknoirbot: renders nothing while teknoirbot.enabled is false"
     template: templates/teknoirbot.yaml
     set:
       project: teknoir-cloud
+      teknoirbot: {enabled: false}
     asserts:
       - hasDocuments: {count: 0}
 
