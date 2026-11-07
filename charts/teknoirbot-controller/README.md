@@ -8,7 +8,8 @@ Deploys the TeknoirBot controller (`ghcr.io/teknoir/teknoirbot-controller`, priv
 - a leader-election Role and RoleBinding (when `leaderElection`, default on; create on Leases plus get/update/patch only on
   the controller's own Lease `teknoirbot-controller.teknoir.org`, which must match `LeaderElectionID` in the controller);
 - the Deployment (1 replica, metrics on 8080, probes on 8081; the label `kustomize.component` is what the monitoring PodMonitor selects);
-- the ValidatingAdmissionPolicy `teknoirbot-device-guard` and its binding (below).
+- the ValidatingAdmissionPolicy `teknoirbot-device-guard` and its binding (below);
+- the bot fence: the policies `teknoirbot-device-fence` and `teknoirbot-created-by` and their bindings ("Bot fence").
 
 A TeknoirBot gets one virtual Device `tb-<name>` in its teamspace; the controller creates it and corrects the fields it owns.
 
@@ -38,6 +39,21 @@ leaves `spec.manifest`, `spec.applications`, `spec.overrides`, `spec.plugins`, `
 `metadata.finalizers` as they were (8). `failurePolicy: Fail`, action `Deny`. Test: `tests/k3d-vap-test.sh` (context `k3d-teknoir-dev` only).
 Break-glass: pause the Application's auto-sync, delete the binding, act, restore.
 
+## Bot fence
+
+`templates/fence.yaml` holds two ValidatingAdmissionPolicies (`failurePolicy: Fail`, binding action `Deny`), the reverse of
+`teknoirbot-device-guard`: they narrow what everybody else may do. Test: `tests/k3d-fence-test.sh` (context `k3d-teknoir-dev` only).
+The identities are chart values (`fence.deviceControllerServiceAccount`, `fence.backstageServiceAccount`,
+`fence.argocdServiceAccount`); the Kubernetes ones are fixed.
+
+| Policy | Applies to | Who may write |
+|---|---|---|
+| `teknoirbot-device-fence` | Devices (CREATE, UPDATE, DELETE) that carry, or carried, the label `teknoir.org/teknoirbot`, or whose name starts with `tb-` | teknoirbot-controller (narrowed by `teknoirbot-device-guard`), device-controller, the garbage collector, the namespace controller, `system:kube-controller-manager` and `system:masters` are exempt. backstage-api may only UPDATE and only change the `teknoir.org/disabled*` annotations (spec, labels, other annotations, ownerReferences, finalizers and `subresources` stay equal). Nobody else may write them (default-editor included). |
+| `teknoirbot-created-by` | TeknoirBots (the main resource; `teknoirbots/status` is not matched), `system:masters` exempt | CREATE and UPDATE only by backstage-api or ArgoCD; backstage-api sets a non-empty `teknoir.org/created-by` at create, and nobody changes it afterwards. DELETE only by backstage-api, ArgoCD, the garbage collector, the namespace controller or `system:kube-controller-manager`. |
+
+Break-glass: a cluster-admin (`system:masters` is exempt from both) pauses the Application's auto-sync, deletes the
+ValidatingAdmissionPolicyBinding of the policy in the way, acts, and restores it (re-enable auto-sync).
+
 ## Refreshing the CRD
 
 After `make manifests` in the controller repo: `charts/teknoirbot-controller/hack/sync-crd.sh <controller-repo-dir>`
@@ -54,3 +70,4 @@ A bot gets its browser desktop only when device-controller has the `DESKTOP` con
     helm unittest charts/teknoirbot-controller
     bash charts/teknoirbot-controller/tests/crd_guard_test.sh
     bash charts/teknoirbot-controller/tests/k3d-vap-test.sh
+    bash charts/teknoirbot-controller/tests/k3d-fence-test.sh

@@ -6,6 +6,7 @@ templates:
   - templates/leader-election-role.yaml
   - templates/deployment.yaml
   - templates/admission.yaml
+  - templates/fence.yaml
 release:
   name: teknoirbot-controller
   namespace: teknoir-system
@@ -148,4 +149,80 @@ tests:
     asserts:
       - isKind: {of: ValidatingAdmissionPolicyBinding}
       - equal: {path: spec.policyName, value: teknoirbot-device-guard}
+      - equal: {path: spec.validationActions, value: [Deny]}
+
+  - it: the device fence matches bot Devices and exempts the writers, with the default identities
+    template: templates/fence.yaml
+    documentIndex: 0
+    asserts:
+      - isKind: {of: ValidatingAdmissionPolicy}
+      - equal: {path: metadata.name, value: teknoirbot-device-fence}
+      - equal: {path: spec.failurePolicy, value: Fail}
+      - equal: {path: 'spec.matchConstraints.resourceRules[0].apiVersions', value: ["*"]}
+      - equal: {path: 'spec.matchConstraints.resourceRules[0].operations', value: [CREATE, UPDATE, DELETE]}
+      - equal: {path: 'spec.matchConstraints.resourceRules[0].resources', value: [devices]}
+      - lengthEqual: {path: spec.matchConditions, count: 2}
+      - equal: {path: 'spec.matchConditions[0].name', value: is-bot-device}
+      - equal: {path: 'spec.matchConditions[1].name', value: not-a-fence-writer}
+      - matchRegex: {path: 'spec.matchConditions[1].expression', pattern: "'system:serviceaccount:teknoir-system:teknoirbot-controller'"}
+      - matchRegex: {path: 'spec.matchConditions[1].expression', pattern: "'system:serviceaccount:teknoir-system:device-controller-service-account'"}
+      - matchRegex: {path: 'spec.matchConditions[1].expression', pattern: "'system:serviceaccount:kube-system:generic-garbage-collector'"}
+      - matchRegex: {path: 'spec.matchConditions[1].expression', pattern: "'system:serviceaccount:kube-system:namespace-controller'"}
+      - matchRegex: {path: 'spec.matchConditions[1].expression', pattern: "'system:kube-controller-manager'"}
+      - matchRegex: {path: 'spec.matchConditions[1].expression', pattern: "'system:masters' in request.userInfo.groups"}
+      - matchRegex: {path: 'spec.variables[0].expression', pattern: "'system:serviceaccount:teknoir-system:backstage-api'"}
+      - lengthEqual: {path: spec.validations, count: 2}
+
+  - it: the device fence follows the overridable service accounts and the release namespace
+    template: templates/fence.yaml
+    documentIndex: 0
+    release:
+      namespace: other-ns
+    set:
+      serviceAccount.name: custom-sa
+      fence.deviceControllerServiceAccount: "system:serviceaccount:x:dc"
+      fence.backstageServiceAccount: "system:serviceaccount:x:bs"
+    asserts:
+      - matchRegex: {path: 'spec.matchConditions[1].expression', pattern: "'system:serviceaccount:other-ns:custom-sa'"}
+      - matchRegex: {path: 'spec.matchConditions[1].expression', pattern: "'system:serviceaccount:x:dc'"}
+      - matchRegex: {path: 'spec.variables[0].expression', pattern: "'system:serviceaccount:x:bs'"}
+
+  - it: the device fence binding denies
+    template: templates/fence.yaml
+    documentIndex: 1
+    asserts:
+      - isKind: {of: ValidatingAdmissionPolicyBinding}
+      - equal: {path: spec.policyName, value: teknoirbot-device-fence}
+      - equal: {path: spec.validationActions, value: [Deny]}
+
+  - it: the created-by policy matches teknoirbots only (not teknoirbots/status) and exempts masters
+    template: templates/fence.yaml
+    documentIndex: 2
+    asserts:
+      - isKind: {of: ValidatingAdmissionPolicy}
+      - equal: {path: metadata.name, value: teknoirbot-created-by}
+      - equal: {path: spec.failurePolicy, value: Fail}
+      - equal: {path: 'spec.matchConstraints.resourceRules[0].apiVersions', value: ["*"]}
+      - equal: {path: 'spec.matchConstraints.resourceRules[0].operations', value: [CREATE, UPDATE, DELETE]}
+      - equal: {path: 'spec.matchConstraints.resourceRules[0].resources', value: [teknoirbots]}
+      - equal: {path: 'spec.matchConditions[0].expression', value: "!('system:masters' in request.userInfo.groups)"}
+      - lengthEqual: {path: spec.validations, count: 4}
+      - matchRegex: {path: 'spec.variables[1].expression', pattern: "'system:serviceaccount:teknoir-system:backstage-api', 'system:serviceaccount:teknoir-system:argocd-application-controller'"}
+
+  - it: the created-by policy follows the overridable service accounts
+    template: templates/fence.yaml
+    documentIndex: 2
+    set:
+      fence.backstageServiceAccount: "system:serviceaccount:x:bs"
+      fence.argocdServiceAccount: "system:serviceaccount:x:argo"
+    asserts:
+      - matchRegex: {path: 'spec.variables[1].expression', pattern: "'system:serviceaccount:x:bs', 'system:serviceaccount:x:argo'"}
+      - matchRegex: {path: 'spec.validations[3].expression', pattern: "'system:serviceaccount:x:bs', 'system:serviceaccount:x:argo', 'system:serviceaccount:kube-system:generic-garbage-collector'"}
+
+  - it: the created-by binding denies
+    template: templates/fence.yaml
+    documentIndex: 3
+    asserts:
+      - isKind: {of: ValidatingAdmissionPolicyBinding}
+      - equal: {path: spec.policyName, value: teknoirbot-created-by}
       - equal: {path: spec.validationActions, value: [Deny]}

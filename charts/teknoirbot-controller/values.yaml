@@ -12,3 +12,9 @@ securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true,
 nodeSelector: {}
 tolerations: []
 affinity: {}
+# Bot fence (templates/fence.yaml): the identities that may write a TeknoirBot's Device and the TeknoirBot itself.
+# The names are the same on every k3s install of the platform.
+fence:
+  deviceControllerServiceAccount: system:serviceaccount:teknoir-system:device-controller-service-account
+  backstageServiceAccount: system:serviceaccount:teknoir-system:backstage-api
+  argocdServiceAccount: system:serviceaccount:teknoir-system:argocd-application-controller
