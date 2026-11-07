@@ -87,6 +87,8 @@ spec:
           value: "true"
         # Connect (open the web terminal and device apps over Tunneling), read-only here: the ztna VAP admits writes
         # only from the SA backstage-api, so enabling waits for the UI cut-over.
+        # Do not add `teknoirBots.enabled` here: the bot fence (charts/teknoirbot-controller `fence.backstageServiceAccount`)
+        # admits only backstage-api.
         - name: fleet.access.enabled
           value: "true"
 {{- end }}

@@ -96,7 +96,10 @@ virtualDevices:
 
 # TeknoirBots (the Bots page and the device Desktop tab in nextgen). Read by the backend (app-config
 # teknoir.teknoirBots.enabled) and the frontend (APP_CONFIG_teknoir_teknoirBots_enabled). Turn on together with
-# teknoirbot.enabled in app-of-apps.
+# teknoirbot.enabled in app-of-apps. Turn it on only in a release whose ServiceAccount `<name>-api` is the fence's portal
+# identity (charts/teknoirbot-controller `fence.backstageServiceAccount`, default
+# `system:serviceaccount:teknoir-system:backstage-api`). The fence denies every bot write from any other account, including
+# backstage-next-api, so the Bots page would fail there.
 teknoirBots:
   enabled: false
 

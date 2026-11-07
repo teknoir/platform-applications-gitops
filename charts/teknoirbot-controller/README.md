@@ -49,9 +49,13 @@ The identities are chart values (`fence.deviceControllerServiceAccount`, `fence.
 | Policy | Applies to | Who may write |
 |---|---|---|
 | `teknoirbot-device-fence` | Devices (CREATE, UPDATE, DELETE) that carry, or carried, the label `teknoir.org/teknoirbot`, or whose name starts with `tb-` | teknoirbot-controller (narrowed by `teknoirbot-device-guard`), device-controller, the garbage collector, the namespace controller, `system:kube-controller-manager` and `system:masters` are exempt. backstage-api may only UPDATE and only change the `teknoir.org/disabled*` annotations (spec, labels, other annotations, ownerReferences, finalizers and `subresources` stay equal). Nobody else may write them (default-editor included). |
-| `teknoirbot-created-by` | TeknoirBots (the main resource; `teknoirbots/status` is not matched), `system:masters` exempt | CREATE and UPDATE only by backstage-api or ArgoCD; backstage-api sets a non-empty `teknoir.org/created-by` at create, and nobody changes it afterwards. DELETE only by backstage-api, ArgoCD, the garbage collector, the namespace controller or `system:kube-controller-manager`. |
+| `teknoirbot-created-by` | TeknoirBots (the main resource; `teknoirbots/status` is not matched), `system:masters` exempt | CREATE and UPDATE only by backstage-api or ArgoCD (the garbage collector and `system:kube-controller-manager` may UPDATE only to drop finalizers: spec, labels and annotations unchanged); backstage-api sets a non-empty `teknoir.org/created-by` at create, and nobody changes it afterwards. DELETE only by backstage-api, ArgoCD, the garbage collector, the namespace controller or `system:kube-controller-manager`. |
 
-Break-glass: a cluster-admin (`system:masters` is exempt from both) pauses the Application's auto-sync, deletes the
+All four fence objects carry `argocd.argoproj.io/sync-options: Delete=false`: turning `teknoirbot.enabled` off deletes the controller but not the bots or their Devices, so the fence stays with them; remove it by hand only after the bots are gone.
+
+`fence.backstageServiceAccount` is the only portal identity. A second Backstage release (backstage-next, SA backstage-next-api) cannot create, change or delete TeknoirBots, or Disable/Enable a bot computer. Do not set `teknoirBots.enabled` there.
+
+Break-glass: a cluster-admin (`system:masters` is exempt from both) pauses the Application's auto-sync (or, once the Application is gone, just deletes the binding), deletes the
 ValidatingAdmissionPolicyBinding of the policy in the way, acts, and restores it (re-enable auto-sync).
 
 ## Refreshing the CRD

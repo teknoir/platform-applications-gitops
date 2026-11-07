@@ -15,12 +15,16 @@ value) or whose name starts with tb- (the old object counts too: removing the la
 
 teknoirbot-created-by (TeknoirBots, the main resource only: the controller writes teknoirbots/status).
   - CREATE and UPDATE only by backstage-api or ArgoCD; the portal sets the annotation teknoir.org/created-by at create
-    and it never changes afterwards.
+    and it never changes afterwards. The garbage collector and system:kube-controller-manager may UPDATE only to drop
+    finalizers (spec, labels and annotations unchanged): they remove foregroundDeletion/orphan at the end of a foreground
+    or orphan delete (ArgoCD prunes with foreground propagation).
   - DELETE only by backstage-api, ArgoCD, the garbage collector, the namespace controller or
     system:kube-controller-manager.
   - system:masters is exempt.
 
-Break-glass: a cluster-admin deletes the ValidatingAdmissionPolicyBinding (pause the Application's auto-sync first).
+Delete=false on all four objects: when the Application is deleted (teknoirbot.enabled off, or a rollback that prunes it) the TeknoirBots (CRD Delete=false) and their tb-* Devices stay and device-controller keeps running their VMs, so their fence stays too. Remove it by hand only together with the bots.
+
+Break-glass: a cluster-admin deletes the ValidatingAdmissionPolicyBinding (pause the Application's auto-sync first; with the Application gone, just delete it).
 */ -}}
 {{- $controller := printf "system:serviceaccount:%s:%s" .Release.Namespace .Values.serviceAccount.name }}
 {{- $dc := .Values.fence.deviceControllerServiceAccount }}
@@ -36,6 +40,8 @@ metadata:
   name: teknoirbot-device-fence
   labels:
     {{- include "teknoirbot-controller.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-options: Delete=false
 spec:
   failurePolicy: Fail
   matchConstraints:
@@ -87,6 +93,8 @@ metadata:
   name: teknoirbot-device-fence
   labels:
     {{- include "teknoirbot-controller.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-options: Delete=false
 spec:
   policyName: teknoirbot-device-fence
   validationActions: [Deny]
@@ -97,6 +105,8 @@ metadata:
   name: teknoirbot-created-by
   labels:
     {{- include "teknoirbot-controller.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-options: Delete=false
 spec:
   failurePolicy: Fail
   matchConstraints:
@@ -114,7 +124,13 @@ spec:
     - name: portalOrGitops
       expression: "request.userInfo.username in ['{{ $backstage }}', '{{ $argocd }}']"
   validations:
-    - expression: "request.operation == 'DELETE' || variables.portalOrGitops"
+    # The garbage collector UPDATEs a TeknoirBot to remove the foregroundDeletion/orphan finalizer at the end of a
+    # foreground or orphan delete (ArgoCD prunes with foreground propagation); it may change nothing else.
+    - expression: >-
+        request.operation == 'DELETE' || variables.portalOrGitops ||
+        (request.operation == 'UPDATE' && request.userInfo.username in ['{{ $gc }}', '{{ $kcm }}'] &&
+         object.?spec == oldObject.?spec && object.metadata.?labels == oldObject.metadata.?labels &&
+         object.metadata.?annotations == oldObject.metadata.?annotations)
       message: "TeknoirBots are created and changed only through the Teknoir portal or GitOps"
     - expression: >-
         request.operation != 'CREATE' || !variables.backstage ||
@@ -135,6 +151,8 @@ metadata:
   name: teknoirbot-created-by
   labels:
     {{- include "teknoirbot-controller.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-options: Delete=false
 spec:
   policyName: teknoirbot-created-by
   validationActions: [Deny]

@@ -52,6 +52,9 @@ ok()  { printf 'PASS %s\n' "$*"; pass=$((pass+1)); }
 bad() { printf 'FAIL %s\n' "$*"; failn=$((failn+1)); }
 
 cleanup() {
+  for b in $("${KC[@]}" get teknoirbots.teknoir.org -n "$NS" -o name 2>/dev/null); do
+    "${KC[@]}" -n "$NS" patch "$b" --type=merge -p '{"metadata":{"finalizers":null}}' >/dev/null 2>&1 || true
+  done
   for d in $("${KC[@]}" get devices.teknoir.org -n "$NS" -o name 2>/dev/null); do
     "${KC[@]}" -n "$NS" patch "$d" --type=merge -p '{"metadata":{"finalizers":null}}' >/dev/null 2>&1 || true
   done
@@ -156,6 +159,11 @@ expect() {
   esac
 }
 
+# The garbage collector needs a while to watch a freshly installed CRD; the cascade cases below depend on it.
+if [[ $installed_crd == 1 || $installed_tb == 1 ]]; then
+  echo "waiting 40 s for the garbage collector to watch the new CRD(s)"; sleep 40
+fi
+
 # ---- wait for the policies: a known-denied request, up to 30 s each -----------------------------------------------
 for probe in "device:$(plain tb-probe | jq -c .)" "bot:$(bot probe | jq -c .)"; do
   active=0
@@ -248,6 +256,47 @@ expect allow "argocd deletes a bot"                                      argo  -
 expect allow "garbage collector deletes a bot"                           gc    -- -n "$NS" delete teknoirbots.teknoir.org b6
 expect allow "namespace controller deletes a bot"                        nsc   -- -n "$NS" delete teknoirbots.teknoir.org b7
 expect allow "kube-controller-manager deletes a bot"                     kcm   -- -n "$NS" delete teknoirbots.teknoir.org b8
+
+# ---- the end of a cascade: the garbage collector removes foregroundDeletion/orphan from the bot ----------------------
+# owned <bot>: the desired() body of tb-<bot>, owned by that bot (its real uid)
+owned() {
+  local uid; uid=$("${KC[@]}" -n "$NS" get teknoirbots.teknoir.org "$1" -o jsonpath='{.metadata.uid}')
+  desired "tb-$1" | jq --arg b "$1" --arg uid "$uid" '.metadata.labels["teknoir.org/teknoirbot"]=$b | .metadata.ownerReferences[0].name=$b | .metadata.ownerReferences[0].uid=$uid'
+}
+# gone_within <seconds> <kubectl get args...>
+gone_within() { local t=$1; shift; for _ in $(seq 1 "$t"); do "${KC[@]}" -n "$NS" get "$@" >/dev/null 2>&1 || return 0; sleep 1; done; return 1; }
+
+"${KC[@]}" create -f <(bot fin) >/dev/null 2>&1 || bad "admin cannot create bot fin"
+"${KC[@]}" -n "$NS" patch teknoirbots.teknoir.org fin "${MERGE[@]}" '{"metadata":{"finalizers":["foregroundDeletion"]}}' >/dev/null 2>&1 || bad "admin cannot add a finalizer to bot fin"
+expect allow "garbage collector removes the foregroundDeletion finalizer" gc -- -n "$NS" patch teknoirbots.teknoir.org fin --type=json -p '[{"op":"remove","path":"/metadata/finalizers/0"}]'
+expect deny  "garbage collector patches spec.suspended"                  gc    "$CB" -- -n "$NS" patch teknoirbots.teknoir.org fin "${MERGE[@]}" '{"spec":{"suspended":true}}'
+expect deny  "garbage collector adds a label"                            gc    "$CB" -- -n "$NS" patch teknoirbots.teknoir.org fin "${MERGE[@]}" '{"metadata":{"labels":{"x":"y"}}}'
+# validation 1 fails first for the garbage collector, so its message (not "created-by cannot be changed") is the one shown
+expect deny  "garbage collector changes created-by"                      gc    "$CB" -- -n "$NS" patch teknoirbots.teknoir.org fin "${MERGE[@]}" '{"metadata":{"annotations":{"teknoir.org/created-by":"evil@teknoir.ai"}}}'
+expect deny  "garbage collector creates a bot"                           gc    "$CB" -- create -f <(bot g2)
+
+# ArgoCD deletes a bot that owns its Device with foreground propagation (its prune default): both must go within 60 s
+expect allow "argocd creates bot fg"                                     argo  -- create -f <(bot fg)
+expect allow "teknoirbot-controller creates tb-fg owned by fg"           ctrl  -- create -f <(owned fg)
+expect allow "argocd deletes fg with --cascade=foreground"               argo  -- -n "$NS" delete teknoirbots.teknoir.org fg --cascade=foreground --wait=false
+if gone_within 60 devices.teknoir.org/tb-fg && gone_within 60 teknoirbots.teknoir.org/fg; then
+  ok "foreground delete of fg completes (Device and bot gone)"
+else
+  bad "foreground delete of fg hangs: $("${KC[@]}" -n "$NS" get teknoirbots.teknoir.org fg -o jsonpath='{.metadata.finalizers}' 2>&1)"
+fi
+
+# --cascade=orphan by backstage-api and by masters: the bot goes, its Device stays without an owner
+for who in bs master; do
+  b="or-$who"
+  expect allow "argocd creates bot $b"                                   argo  -- create -f <(bot "$b")
+  expect allow "teknoirbot-controller creates tb-$b owned by $b"         ctrl  -- create -f <(owned "$b")
+  expect allow "$who deletes $b with --cascade=orphan"                   "$who" -- -n "$NS" delete teknoirbots.teknoir.org "$b" --cascade=orphan --wait=false
+  if gone_within 60 teknoirbots.teknoir.org/"$b" && [[ -z $("${KC[@]}" -n "$NS" get devices.teknoir.org "tb-$b" -o jsonpath='{.metadata.ownerReferences}' 2>&1) ]]; then
+    ok "orphan delete of $b completes (bot gone, Device has no owner)"
+  else
+    bad "orphan delete of $b hangs: $("${KC[@]}" -n "$NS" get teknoirbots.teknoir.org "$b" -o jsonpath='{.metadata.finalizers}' 2>&1)"
+  fi
+done
 
 echo "----"
 echo "$pass passed, $failn failed"

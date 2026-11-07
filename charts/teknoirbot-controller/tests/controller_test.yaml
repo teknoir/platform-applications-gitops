@@ -20,7 +20,7 @@ tests:
       - equal:
           path: rules
           value:
-            - apiGroups: ["", events.k8s.io]
+            - apiGroups: [""]
               resources: [events]
               verbs: [create, patch]
             - apiGroups: [teknoir.org]
@@ -34,7 +34,7 @@ tests:
               verbs: [update]
             - apiGroups: [teknoir.org]
               resources: [teknoirbots/status]
-              verbs: [get, patch, update]
+              verbs: [patch]
 
   - it: binds the ClusterRole to the service account in the release namespace
     template: templates/clusterrolebinding.yaml
@@ -208,6 +208,7 @@ tests:
       - equal: {path: 'spec.matchConditions[0].expression', value: "!('system:masters' in request.userInfo.groups)"}
       - lengthEqual: {path: spec.validations, count: 4}
       - matchRegex: {path: 'spec.variables[1].expression', pattern: "'system:serviceaccount:teknoir-system:backstage-api', 'system:serviceaccount:teknoir-system:argocd-application-controller'"}
+      - matchRegex: {path: 'spec.validations[0].expression', pattern: "'system:serviceaccount:kube-system:generic-garbage-collector'"}
 
   - it: the created-by policy follows the overridable service accounts
     template: templates/fence.yaml
@@ -218,6 +219,15 @@ tests:
     asserts:
       - matchRegex: {path: 'spec.variables[1].expression', pattern: "'system:serviceaccount:x:bs', 'system:serviceaccount:x:argo'"}
       - matchRegex: {path: 'spec.validations[3].expression', pattern: "'system:serviceaccount:x:bs', 'system:serviceaccount:x:argo', 'system:serviceaccount:kube-system:generic-garbage-collector'"}
+
+  - it: the fence policies and bindings survive the deletion of the Application (Delete=false)
+    template: templates/fence.yaml
+    asserts:
+      - hasDocuments: {count: 4}
+      - equal: {path: 'metadata.annotations["argocd.argoproj.io/sync-options"]', value: Delete=false, documentIndex: 0}
+      - equal: {path: 'metadata.annotations["argocd.argoproj.io/sync-options"]', value: Delete=false, documentIndex: 1}
+      - equal: {path: 'metadata.annotations["argocd.argoproj.io/sync-options"]', value: Delete=false, documentIndex: 2}
+      - equal: {path: 'metadata.annotations["argocd.argoproj.io/sync-options"]', value: Delete=false, documentIndex: 3}
 
   - it: the created-by binding denies
     template: templates/fence.yaml
