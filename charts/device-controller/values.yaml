@@ -141,6 +141,14 @@ virtualDevices:
   allowances:
     teknoir-demo: {devices: 2, cpu: "4", memory: 8Gi, disk: 60Gi}
 
+# Remote desktop for Devices with spec.desktop (plans/teknoirbot/mvp-spec.md 3.1): device-controller injects a
+# teknoir-desktop Deployment into the device's config and the WireGuard plugin publishes it as the web service
+# "desktop". Rendered as the DESKTOP config only together with ztna (the desktop is reached through Tunneling).
+desktop:
+  enabled: false
+  image: ""          # required when enabled: ghcr.io/teknoir/teknoir-desktop:<tag>@sha256:<digest> (scripts/pin-image teknoir-desktop ...)
+  hostGroupID: 64080 # gid of group teknoir-desktop on devices (host mode; the ansible desktop playbook creates it)
+
 # WireGuard (ZTNA) tunnels, an alternative to the SSH reverse tunnels (plan:
 # plans/wireguard-ztna-tunnel.md). Everything in this block is inert while enabled is false:
 # the ZTNA key is left out of the controller ConfigMap (the controller treats a missing key as
