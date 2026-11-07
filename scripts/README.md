@@ -58,7 +58,7 @@ exempt); removing Applications needs `--allow-remove`; the lint, `helm unittest 
   again. At the cutover the convergence guard runs too (the candidate then equals the synced revision).
 - **Watching.** Only pods of workloads in the render, or pods (re)started after the patch, count; Argo Workflow pods do
   not; Pending beyond 3 minutes is a failure. Deviation from the design (watch, step 7): the logs of the changed
-  controllers are NOT scanned by the script (five Go controllers share no error format; a regex would roll good
+  controllers are NOT scanned by the script (the six Go controllers in CONTROLLER_APPS share no error format; a regex would roll good
   releases back). The success output prints the `kubectl logs` commands for the controllers whose render changed.
 - **Release markers** (contract with `teknoir/infra` `staging-root.sh`, matched EXACTLY, nothing is trimmed): a GitHub
   Release is `[rolled back] <tag>` (title starts with `[rolled back] `) and its body has the line `Rolled-Back: true`

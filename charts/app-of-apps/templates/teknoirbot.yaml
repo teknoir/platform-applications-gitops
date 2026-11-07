@@ -14,8 +14,8 @@ listed renders nothing rather than failing: a failed render of the root app-of-a
 stop every Application of that environment from syncing. Add an environment only in its
 own reviewed commit.
 
-The CRD is in the chart's crds/ with Prune=false,Delete=false, so turning the flag off
-removes the controller but keeps the CRD and every bot.
+Resources-finalizer: turning the flag off deletes the controller, its RBAC and the VAP; the CRD in crds/ has
+Prune=false,Delete=false, so it and every bot stay.
 */ -}}
 {{- $allowedProjects := list "teknoir-cloud" }}
 {{- if and (.Values.teknoirbot).enabled (has .Values.project $allowedProjects) }}
@@ -24,6 +24,10 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: teknoirbot-controller
+  # Turning teknoirbot.enabled off (or a rollback with --allow-remove teknoirbot-controller) also deletes the controller,
+  # its RBAC and the teknoirbot-device-guard policy; the CRD stays (Delete=false), so every TeknoirBot stays.
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
 {{- if .Values.releaseName }}
   annotations:
     teknoir.org/release: {{ .Values.releaseName | quote }}

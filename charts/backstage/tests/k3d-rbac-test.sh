@@ -62,7 +62,8 @@ trap cleanup EXIT
 echo "== context ${CONTEXT}"
 # ---- setup: CRDs (so resource names resolve), namespaces, the rendered RBAC, a hand-made teknoir-portal -----------
 for f in "${CHARTS}"/device-controller/crds/*.yaml "${CHARTS}"/devstudio-controller/crds/*.yaml \
-         "${CHARTS}"/notebook-controller/crds/*.yaml "${CHARTS}"/profile-controller/crds/*.yaml "${CHARTS}"/user-controller/crds/*.yaml; do
+         "${CHARTS}"/notebook-controller/crds/*.yaml "${CHARTS}"/profile-controller/crds/*.yaml "${CHARTS}"/user-controller/crds/*.yaml \
+         "${CHARTS}"/teknoirbot-controller/crds/*.yaml; do
   for name in $(grep -h -E '^  name: [a-z]+\.teknoir\.org$' "$f" | sed 's/^  name: //'); do
     "${KC[@]}" get crd "$name" >/dev/null 2>&1 || CRDS+=("$name")
   done
@@ -126,6 +127,9 @@ can yes update deviceapplicationsets.teknoir.org -n "$TS"
 can yes delete devstudios.teknoir.org -n "$TS"
 can yes create notebooks.teknoir.org -n "$TS"
 can yes create claimsets.teknoir.org -n "$TS"
+can yes create teknoirbots.teknoir.org -n "$TS"
+can yes delete teknoirbots.teknoir.org -n "$TS"
+can yes get teknoirbots.teknoir.org/some-bot --subresource=status -n "$TS"
 can yes get devices.teknoir.org/some-device --subresource=status -n "$TS"
 can yes list virtualservices.networking.istio.io -n "$TS"
 can no create virtualservices.networking.istio.io -n "$TS"
@@ -202,6 +206,9 @@ echo "== no: outside a teamspace with the RoleBinding the teamspace role gives n
 can no get devices.teknoir.org -n "$TS_OTHER" --subresource=status
 can no create devices.teknoir.org -n "$TS_OTHER"
 can no create robots.teknoir.org -n "$TS_OTHER"
+can no create teknoirbots.teknoir.org -n "$TS_OTHER"
+can no list teknoirbots.teknoir.org -A
+can no update teknoirbots.teknoir.org/some-bot --subresource=status -n "$TS"
 can no patch devices.teknoir.org -n "$TS_OTHER"
 can no create persistentvolumeclaims -n "$TS_OTHER"
 can no get secrets/mongodb-credentials -n "$TS_OTHER"

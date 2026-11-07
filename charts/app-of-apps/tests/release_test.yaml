@@ -252,6 +252,7 @@ tests:
       - isKind: {of: Application, documentIndex: 0}
       - equal: {path: metadata.name, value: teknoirbot-controller, documentIndex: 0}
       - equal: {path: spec.source.path, value: charts/teknoirbot-controller, documentIndex: 0}
+      - equal: {path: metadata.finalizers, value: [resources-finalizer.argocd.argoproj.io], documentIndex: 0}
       - equal: {path: spec.destination.namespace, value: teknoir-system, documentIndex: 0}
       - equal: {path: spec.source.repoURL, value: https://github.com/teknoir/platform-applications-gitops, documentIndex: 0}
       - equal: {path: spec.source.targetRevision, value: "0123456789abcdef0123456789abcdef01234567", documentIndex: 0}

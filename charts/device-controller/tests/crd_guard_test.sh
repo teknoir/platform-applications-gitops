@@ -11,5 +11,10 @@ for f in "$dir"/*.yaml; do
     echo "FAIL: $f lacks argocd.argoproj.io/sync-options: Prune=false,Delete=false" >&2; fail=1
   fi
 done
+chart="$(cd "$(dirname "$0")/.." && pwd)"
+if python3 -I -c 'import sys,yaml; sys.exit(0 if ((yaml.safe_load(open(sys.argv[1])) or {}).get("desktop") or {}).get("enabled") else 1)' "$chart/values.yaml"; then
+  python3 -I -c 'import sys,yaml; d=yaml.safe_load(open(sys.argv[1])); sys.exit(0 if all("desktop" in v["schema"]["openAPIV3Schema"]["properties"]["spec"]["properties"] for v in d["spec"]["versions"]) else 1)' "$chart/crds/devices.yaml" \
+    || { echo "FAIL: desktop.enabled is true but crds/devices.yaml has no spec.desktop (copy the Device CRD of a desktop-capable device-controller)" >&2; fail=1; }
+fi
 [ "$fail" = 0 ] && echo "ok: all $(ls "$dir"/*.yaml | wc -l) CRDs are protected from prune/delete"
 exit "$fail"

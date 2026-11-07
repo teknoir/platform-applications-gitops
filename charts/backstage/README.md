@@ -9,7 +9,7 @@ own rights are kept to what the code calls (plans/ztna-later.md, "backstage-sa")
 | Object | Where | Rights |
 |---|---|---|
 | ClusterRole `<name>-api-resources-role` + ClusterRoleBinding | cluster-wide | `profiles`, `users`: CRUD; their `/status`: get; `devices`, `deviceapplicationsets`, `claims`, `claimsets`: get, list, watch; `resourcequotas`: get, list |
-| ClusterRole `<name>-api-teamspace`, **no binding in this chart** | each teamspace | `devices`, `robots`, `robottypes`, `deviceapplicationsets`, `devstudios`, `notebooks`, `claimsets`: CRUD (+ `/status` get); VirtualServices: read; PVCs: get, list, watch, create, delete; ConfigMaps: create, get/update `peripheral-config`; Secrets: get `mongodb-credentials`, `emqx-bootstrap-user`; Events: read, create, patch; LocalSubjectAccessReviews: create |
+| ClusterRole `<name>-api-teamspace`, **no binding in this chart** | each teamspace | `devices`, `robots`, `robottypes`, `deviceapplicationsets`, `devstudios`, `notebooks`, `claimsets`, `teknoirbots`: CRUD (+ `/status` get); VirtualServices: read; PVCs: get, list, watch, create, delete; ConfigMaps: create, get/update `peripheral-config`; Secrets: get `mongodb-credentials`, `emqx-bootstrap-user`; Events: read, create, patch; LocalSubjectAccessReviews: create |
 | Role `backstage-api-hub-workloads` (charts/ztna) | `teknoir-ztna` | `deployments`: get |
 
 profile-controller binds the teamspace ClusterRole with a RoleBinding `teknoir-portal` in every teamspace it owns

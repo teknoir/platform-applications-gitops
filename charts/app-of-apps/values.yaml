@@ -24,8 +24,10 @@ virtualDevices:
 
 # TeknoirBot controller (charts/teknoirbot-controller, templates/teknoirbot.yaml): the TeknoirBot CRD and its
 # controller, which gives each bot a virtual Device with a browser remote desktop. teknoir-cloud only (allowlist in
-# the template). Turned on once charts/teknoirbot-controller image.tag and the device-controller desktop config
-# (charts/device-controller desktop.enabled and desktop.image) are pinned.
+# the template). Turned on only after (a) charts/device-controller crds/devices.yaml carries spec.desktop (copied from
+# device-controller with its Prune=false,Delete=false annotation) and image.tag is a device-controller build with the
+# desktop, (b) desktop.enabled and desktop.image are set and pinned there, and (c) charts/teknoirbot-controller image.tag
+# is pinned.
 teknoirbot:
   enabled: false
 
