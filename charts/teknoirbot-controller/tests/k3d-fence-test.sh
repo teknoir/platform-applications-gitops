@@ -112,7 +112,7 @@ bot() { # <name> [annotations-json]
     '{apiVersion: "teknoir.org/v1alpha1", kind: "TeknoirBot", metadata: ({name: $name, namespace: $ns} + (if ($ann|length) > 0 then {annotations: $ann} else {} end)), spec: {}}'
 }
 bot a | "${KC[@]}" create -f - >/dev/null || { echo "cannot create TeknoirBot a" >&2; exit 2; }
-BOTUID=$("${KC[@]}" -n "$NS" get teknoirbot a -o jsonpath='{.metadata.uid}')
+BOTUID=$("${KC[@]}" -n "$NS" get teknoirbots.teknoir.org a -o jsonpath='{.metadata.uid}')
 
 # desired <name>: the desiredDevice() body of the controller (internal/controller/device.go), owned by TeknoirBot a
 desired() {

@@ -112,8 +112,8 @@ metadata: {name: $b}
 spec: {}
 EOF
 done
-BOTUID=$("${KC[@]}" -n "$NS" get teknoirbot bot -o jsonpath='{.metadata.uid}')
-SCOUTUID=$("${KC[@]}" -n "$NS" get teknoirbot scout -o jsonpath='{.metadata.uid}')
+BOTUID=$("${KC[@]}" -n "$NS" get teknoirbots.teknoir.org bot -o jsonpath='{.metadata.uid}')
+SCOUTUID=$("${KC[@]}" -n "$NS" get teknoirbots.teknoir.org scout -o jsonpath='{.metadata.uid}')
 
 # device <name> <labelled 0|1> <device_type> <annotations-json> [owned 0|1 (default: owned when labelled)] -> Device JSON
 # A labelled body carries a controller ownerReference to the TeknoirBot "bot".

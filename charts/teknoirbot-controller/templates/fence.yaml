@@ -15,9 +15,10 @@ value) or whose name starts with tb- (the old object counts too: removing the la
 
 teknoirbot-created-by (TeknoirBots, the main resource only: the controller writes teknoirbots/status).
   - CREATE and UPDATE only by backstage-api or ArgoCD; the portal sets the annotation teknoir.org/created-by at create
-    and it never changes afterwards. The garbage collector and system:kube-controller-manager may UPDATE only to drop
-    finalizers (spec, labels and annotations unchanged): they remove foregroundDeletion/orphan at the end of a foreground
-    or orphan delete (ArgoCD prunes with foreground propagation).
+    and it never changes afterwards. The garbage collector and system:kube-controller-manager may UPDATE only while
+    spec, labels and annotations stay equal (finalizers and ownerReferences may change): they remove
+    foregroundDeletion/orphan, and dangling ownerReferences, at the end of a foreground or orphan delete (ArgoCD prunes
+    with foreground propagation).
   - DELETE only by backstage-api, ArgoCD, the garbage collector, the namespace controller or
     system:kube-controller-manager.
   - system:masters is exempt.
@@ -125,7 +126,8 @@ spec:
       expression: "request.userInfo.username in ['{{ $backstage }}', '{{ $argocd }}']"
   validations:
     # The garbage collector UPDATEs a TeknoirBot to remove the foregroundDeletion/orphan finalizer at the end of a
-    # foreground or orphan delete (ArgoCD prunes with foreground propagation); it may change nothing else.
+    # foreground or orphan delete (ArgoCD prunes with foreground propagation) and to strip dangling ownerReferences;
+    # spec, labels and annotations must stay equal (finalizers and ownerReferences may change).
     - expression: >-
         request.operation == 'DELETE' || variables.portalOrGitops ||
         (request.operation == 'UPDATE' && request.userInfo.username in ['{{ $gc }}', '{{ $kcm }}'] &&
