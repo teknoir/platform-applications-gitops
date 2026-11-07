@@ -108,7 +108,7 @@ def main():
         check(kv["metadata"]["annotations"].get("argocd.argoproj.io/sync-wave") == "1", "KubeVirt CR in sync wave 1")
         check("SkipDryRunOnMissingResource=true" in kv["metadata"]["annotations"].get("argocd.argoproj.io/sync-options", ""), "KubeVirt CR skips dry-run until its CRD exists")
         check(kv["metadata"]["namespace"] == "kubevirt", "KubeVirt CR in namespace kubevirt")
-        check(kv["spec"].get("infra", {}).get("replicas") == 1, "KubeVirt: one virt-api/virt-controller replica (single 14 GB staging host vpro)")
+        check(kv["spec"].get("infra", {}).get("replicas") == 2, "KubeVirt: two virt-api/virt-controller replicas (r415, staging since 2026-11-05)")
         empties = [p for p in empty_structs(kv["spec"], "spec") if p not in ALLOWED_EMPTY["KubeVirt"]]
         check(not empties, f"KubeVirt: no empty structs besides disableSerialConsoleLog ({empties or 'none'})")
 
@@ -122,7 +122,7 @@ def main():
         check(bool(res["requests"]) and bool(res["limits"]), "CDI: explicit worker pod requests and limits (quota budgeting)")
         check(cdi["spec"].get("uninstallStrategy") == "BlockUninstallIfWorkloadsExist", "CDI: uninstall blocked while workloads exist")
         check(cdi["metadata"]["annotations"].get("argocd.argoproj.io/sync-wave") == "1", "CDI CR in sync wave 1")
-        check(cdi["spec"].get("infra", {}).get("apiServerReplicas") == 1, "CDI: one cdi-apiserver replica (single 14 GB staging host vpro)")
+        check(cdi["spec"].get("infra", {}).get("apiServerReplicas") == 2, "CDI: two cdi-apiserver replicas (r415, staging since 2026-11-05)")
         empties = [p for p in empty_structs(cdi["spec"], "spec") if p not in ALLOWED_EMPTY["CDI"]]
         check(not empties, f"CDI: no empty structs ({empties or 'none'})")
 

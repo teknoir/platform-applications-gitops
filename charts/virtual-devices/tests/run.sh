@@ -172,9 +172,16 @@ printf '# GitOps values\nproject: teknoir-online\n\nvirtualDevices:\n  enabled: 
   ok "teknoir-online values with virtualDevices.enabled: true: no Application" || bad "teknoir-online values with the flag render the Application"
 
 step "app-of-apps: defaults"
-printf 'project: teknoir-cloud\n' >"$TMP/no-key.yaml"
+# The real values (ZTNA pinned) with only the virtualDevices key removed: a values file with
+# nothing but project also dropped every other setting (ci, harbor) and compared unrelated output.
 cp -r "$AOA" "$TMP/aoa-nokey"
-cp "$TMP/no-key.yaml" "$TMP/aoa-nokey/values.yaml"
+python3 -I - "$AOA/values.yaml" "$TMP/aoa-nokey/values.yaml" <<'PY'
+import sys, yaml
+v = yaml.safe_load(open(sys.argv[1]))
+v.pop("virtualDevices", None)
+v["project"] = "teknoir-cloud"
+yaml.safe_dump(v, open(sys.argv[2], "w"), sort_keys=False)
+PY
 helm template app-of-apps "$TMP/aoa-nokey" >"$TMP/aoa-nokey.yaml"
 grep -q 'name: virtual-devices' "$TMP/aoa-nokey.yaml" && bad "a values file without virtualDevices renders the Application" || ok "default (no virtualDevices key) is off"
 diff <(grep -v '^#' "$TMP/aoa-nokey.yaml") <(grep -v '^#' "$TMP/aoa-off.yaml") >/dev/null &&

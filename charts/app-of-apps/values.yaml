@@ -14,8 +14,9 @@ releaseName: ""
 # templates/virtual-devices.yaml, which is teknoir-cloud only, so this flag does
 # nothing if it is cherry-picked onto another environment branch.
 virtualDevices:
-  # Off on r415: no KubeVirt there.
-  enabled: false
+  # On on r415 since 2026-11-07 (Anders: "You are allowed to enable KubeVirt and Virtual devices
+  # on r415"; TeknoirBot VMs are virtual devices, plans/teknoirbot/README.md).
+  enabled: true
   # S1 spike VM (charts/virtual-device-spike), teknoir-cloud only. Retired: the spike is done and
   # Phase 1 virtual devices (device-controller) replace it. Chart code kept for reference.
   spike:
