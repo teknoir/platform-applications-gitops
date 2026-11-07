@@ -18,3 +18,6 @@ data:
   {{- if (.Values.ztna).enabled }}
   ZTNA: {{ include "device-controller.ztna.configJSON" . | quote }}
   {{- end }}
+  {{- if and (.Values.desktop).enabled (.Values.ztna).enabled }}
+  DESKTOP: {{ include "device-controller.desktop.configJSON" . | quote }}
+  {{- end }}

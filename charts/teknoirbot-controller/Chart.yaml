@@ -1,0 +1,6 @@
+apiVersion: v2
+name: teknoirbot-controller
+description: TeknoirBot CRD and controller (a bot's computer is a virtual Device with a browser remote desktop)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

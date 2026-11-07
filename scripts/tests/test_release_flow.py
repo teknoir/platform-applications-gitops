@@ -83,6 +83,17 @@ class DryRun(Base):
         self.assertEqual(self.remote_tags(), [])
         self.assertTrue(os.path.isfile(L.plan_path(self.cache, self.repo.sha("c4"))))
 
+    def test_teknoirbot_controller_gets_a_log_hint(self):
+        fake = H.FakeSys(self.root_pinned("c2"))
+        fake.extra_docs[self.repo.sha("c4")] = {"teknoirbot-controller.yaml": {
+            "kind": "Deployment", "metadata": {"name": "teknoirbot-controller", "namespace": "teknoir-system"},
+            "spec": {"template": {"spec": {"containers": [{"name": "manager", "image": "ghcr.io/teknoir/x:t@sha256:" + "a" * 64}]}}}}}
+        self.plan(fake, self.repo.sha("c4"))
+        plan = json.load(open(L.plan_path(self.cache, self.repo.sha("c4"))))
+        self.assertIn("teknoirbot-controller", plan["controllers_changed"])
+        self.assertEqual(plan["controller_workloads"]["teknoirbot-controller"], ["teknoir-system/Deployment/teknoirbot-controller"])
+        self.assertIn("deployment/teknoirbot-controller", SR.controller_log_hints(plan, "r415"))
+
     def test_cutover_is_announced(self):
         fake = H.FakeSys(self.root_branch(), releaser_installed=False)
         self.plan(fake, self.repo.sha("c4"))

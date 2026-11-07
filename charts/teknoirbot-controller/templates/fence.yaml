@@ -1,0 +1,160 @@
+{{- /*
+The bot fence (plans/teknoirbot/permissions.md 5.8 item 1 and section 6, MVP item M1). Two ValidatingAdmissionPolicies,
+the reverse of teknoirbot-device-guard (admission.yaml): that one narrows what the controller may do, these narrow what
+everybody else may do.
+
+teknoirbot-device-fence (Devices). Applies to a Device that carries, or carried, the label teknoir.org/teknoirbot (any
+value) or whose name starts with tb- (the old object counts too: removing the label does not escape the fence).
+  - Exempt writers: the teknoirbot-controller (narrowed by teknoirbot-device-guard), device-controller (writes status,
+    finalizers, keys and the manifest of every Device), the garbage collector, the namespace controller,
+    system:kube-controller-manager and system:masters.
+  - backstage-api may only UPDATE, and only the annotations teknoir.org/disabled* (spec, labels, every other annotation,
+    ownerReferences, finalizers and the top-level subresources field stay equal).
+  - Nobody else may create, update or delete such a Device (default-editor of a teamspace included).
+  Not in the MVP: the teknoir.org/teknoirbot-uid label (the controller does not set it yet).
+
+teknoirbot-created-by (TeknoirBots, the main resource only: the controller writes teknoirbots/status).
+  - CREATE and UPDATE only by backstage-api or ArgoCD; the portal sets the annotation teknoir.org/created-by at create
+    and it never changes afterwards. The garbage collector and system:kube-controller-manager may UPDATE only while
+    spec, labels and annotations stay equal (finalizers and ownerReferences may change): they remove
+    foregroundDeletion/orphan, and dangling ownerReferences, at the end of a foreground or orphan delete (ArgoCD prunes
+    with foreground propagation).
+  - DELETE only by backstage-api, ArgoCD, the garbage collector, the namespace controller or
+    system:kube-controller-manager.
+  - system:masters is exempt.
+
+Delete=false on all four objects: when the Application is deleted (teknoirbot.enabled off, or a rollback that prunes it) the TeknoirBots (CRD Delete=false) and their tb-* Devices stay and device-controller keeps running their VMs, so their fence stays too. Remove it by hand only together with the bots.
+
+Break-glass: a cluster-admin deletes the ValidatingAdmissionPolicyBinding (pause the Application's auto-sync first; with the Application gone, just delete it).
+*/ -}}
+{{- $controller := printf "system:serviceaccount:%s:%s" .Release.Namespace .Values.serviceAccount.name }}
+{{- $dc := .Values.fence.deviceControllerServiceAccount }}
+{{- $backstage := .Values.fence.backstageServiceAccount }}
+{{- $argocd := .Values.fence.argocdServiceAccount }}
+{{- $gc := "system:serviceaccount:kube-system:generic-garbage-collector" }}
+{{- $ns := "system:serviceaccount:kube-system:namespace-controller" }}
+{{- $kcm := "system:kube-controller-manager" }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: teknoirbot-device-fence
+  labels:
+    {{- include "teknoirbot-controller.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-options: Delete=false
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["teknoir.org"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["devices"]
+  matchConditions:
+    - name: is-bot-device
+      expression: >-
+        (request.operation != 'DELETE' &&
+          ('teknoir.org/teknoirbot' in object.metadata.?labels.orValue({}) || object.metadata.name.startsWith('tb-'))) ||
+        (request.operation != 'CREATE' &&
+          ('teknoir.org/teknoirbot' in oldObject.metadata.?labels.orValue({}) || oldObject.metadata.name.startsWith('tb-')))
+    - name: not-a-fence-writer
+      expression: >-
+        !(request.userInfo.username in ['{{ $controller }}', '{{ $dc }}', '{{ $gc }}', '{{ $ns }}', '{{ $kcm }}']) &&
+        !('system:masters' in request.userInfo.groups)
+  variables:
+    - name: backstage
+      expression: "request.userInfo.username == '{{ $backstage }}'"
+    - name: newAnn
+      expression: "request.operation == 'UPDATE' ? object.metadata.?annotations.orValue({}) : {}"
+    - name: oldAnn
+      expression: "request.operation == 'UPDATE' ? oldObject.metadata.?annotations.orValue({}) : {}"
+    # Annotation keys that backstage may change: teknoir.org/disabled, -at, -by, -reason (by prefix).
+    - name: newOther
+      expression: "variables.newAnn.filter(k, !k.startsWith('teknoir.org/disabled'))"
+    - name: oldOther
+      expression: "variables.oldAnn.filter(k, !k.startsWith('teknoir.org/disabled'))"
+  validations:
+    - expression: >-
+        !variables.backstage || (request.operation == 'UPDATE' &&
+          object.?spec == oldObject.?spec &&
+          object.metadata.?labels == oldObject.metadata.?labels &&
+          object.metadata.?ownerReferences == oldObject.metadata.?ownerReferences &&
+          object.metadata.?finalizers == oldObject.metadata.?finalizers &&
+          object.?subresources == oldObject.?subresources &&
+          variables.newOther.all(k, k in variables.oldAnn && variables.oldAnn[k] == variables.newAnn[k]) &&
+          variables.oldOther.all(k, k in variables.newAnn))
+      message: "backstage may only change the teknoir.org/disabled* annotations of a TeknoirBot's computer"
+    - expression: "variables.backstage"
+      message: "Devices of a TeknoirBot (label teknoir.org/teknoirbot or a name starting with tb-) are written only by teknoirbot-controller and device-controller"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: teknoirbot-device-fence
+  labels:
+    {{- include "teknoirbot-controller.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-options: Delete=false
+spec:
+  policyName: teknoirbot-device-fence
+  validationActions: [Deny]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: teknoirbot-created-by
+  labels:
+    {{- include "teknoirbot-controller.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-options: Delete=false
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["teknoir.org"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["teknoirbots"]
+  matchConditions:
+    - name: not-masters
+      expression: "!('system:masters' in request.userInfo.groups)"
+  variables:
+    - name: backstage
+      expression: "request.userInfo.username == '{{ $backstage }}'"
+    - name: portalOrGitops
+      expression: "request.userInfo.username in ['{{ $backstage }}', '{{ $argocd }}']"
+  validations:
+    # The garbage collector UPDATEs a TeknoirBot to remove the foregroundDeletion/orphan finalizer at the end of a
+    # foreground or orphan delete (ArgoCD prunes with foreground propagation) and to strip dangling ownerReferences;
+    # spec, labels and annotations must stay equal (finalizers and ownerReferences may change).
+    - expression: >-
+        request.operation == 'DELETE' || variables.portalOrGitops ||
+        (request.operation == 'UPDATE' && request.userInfo.username in ['{{ $gc }}', '{{ $kcm }}'] &&
+         object.?spec == oldObject.?spec && object.metadata.?labels == oldObject.metadata.?labels &&
+         object.metadata.?annotations == oldObject.metadata.?annotations)
+      message: "TeknoirBots are created and changed only through the Teknoir portal or GitOps"
+    - expression: >-
+        request.operation != 'CREATE' || !variables.backstage ||
+        object.metadata.?annotations.orValue({})[?'teknoir.org/created-by'].orValue('') != ''
+      message: "the portal must set teknoir.org/created-by when it creates a TeknoirBot"
+    - expression: >-
+        request.operation != 'UPDATE' ||
+        object.metadata.?annotations.orValue({})[?'teknoir.org/created-by'] == oldObject.metadata.?annotations.orValue({})[?'teknoir.org/created-by']
+      message: "teknoir.org/created-by cannot be changed"
+    - expression: >-
+        request.operation != 'DELETE' ||
+        request.userInfo.username in ['{{ $backstage }}', '{{ $argocd }}', '{{ $gc }}', '{{ $ns }}', '{{ $kcm }}']
+      message: "TeknoirBots are deleted only through the Teknoir portal or GitOps"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: teknoirbot-created-by
+  labels:
+    {{- include "teknoirbot-controller.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-options: Delete=false
+spec:
+  policyName: teknoirbot-created-by
+  validationActions: [Deny]

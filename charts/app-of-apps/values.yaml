@@ -22,6 +22,15 @@ virtualDevices:
   spike:
     enabled: false
 
+# TeknoirBot controller (charts/teknoirbot-controller, templates/teknoirbot.yaml): the TeknoirBot CRD and its
+# controller, which gives each bot a virtual Device with a browser remote desktop. teknoir-cloud only (allowlist in
+# the template). Turned on only after (a) charts/device-controller crds/devices.yaml carries spec.desktop (copied from
+# device-controller with its Prune=false,Delete=false annotation) and image.tag is a device-controller build with the
+# desktop, (b) desktop.enabled and desktop.image are set and pinned there, and (c) charts/teknoirbot-controller image.tag
+# is pinned.
+teknoirbot:
+  enabled: true
+
 # ZTNA: WireGuard over STUNner as an alternative to the SSH reverse tunnels (plan:
 # plans/wireguard-ztna-tunnel.md). One switch for the whole feature:
 #   - Applications gateway-api-crds, stunner and ztna (no sync waves: a failing

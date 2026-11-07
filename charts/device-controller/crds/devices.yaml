@@ -79,6 +79,35 @@ spec:
                   - repo_url
                   type: object
                 type: array
+              desktop:
+                description: |-
+                  Desktop turns on the browser remote desktop of the device. It needs Tunneling
+                  (annotation ztna.teknoir.org/wireguard: enabled) and the platform's desktop
+                  config (device-controller env DESKTOP). Removing it removes the desktop from
+                  the device, in virtual mode also its home volume. While it is set but the
+                  desktop cannot run (no Tunneling, a disabled device, no DESKTOP config, a
+                  conflicting object in spec.manifest.apps), only the Deployment, Service and
+                  NetworkPolicy are removed; the namespace and the home volume stay.
+                properties:
+                  geometry:
+                    description: |-
+                      Geometry is the screen size of a virtual session, WIDTHxHEIGHT, from
+                      640x480 to 3840x2160 (default 1280x800). Ignored in host mode.
+                    pattern: ^[0-9]{3,4}x[0-9]{3,4}$
+                    type: string
+                  mode:
+                    description: |-
+                      Mode is "virtual" (a desktop session in a container on the device: the
+                      computer of a TeknoirBot, or a browser on a headless device) or "host" (the
+                      device's own desktop environment, through the teknoir-desktop.service unit
+                      that the ansible desktop playbook installs on the device).
+                    enum:
+                    - virtual
+                    - host
+                    type: string
+                required:
+                - mode
+                type: object
               device_type:
                 description: |-
                   INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
@@ -548,6 +577,35 @@ spec:
                     description: |-
                       OverridesRevision is spec.overrides.revision of the spec the plugin last
                       evaluated and published (empty without overrides).
+                    type: string
+                type: object
+              desktop:
+                description: Desktop is set by the Desktop plugin while spec.desktop
+                  is set.
+                properties:
+                  message:
+                    description: Message explains the state.
+                    type: string
+                  mode:
+                    description: Mode is the mode of spec.desktop.
+                    type: string
+                  state:
+                    description: |-
+                      State is Published (the desktop objects are in the device config and the
+                      desktop service is declared), NeedsTunneling (Tunneling is off or the
+                      device is disabled), Unavailable (the platform has no desktop configured)
+                      or Conflict (spec.manifest.apps holds an object of the desktop's set that
+                      the controller did not create).
+                    enum:
+                    - Published
+                    - NeedsTunneling
+                    - Unavailable
+                    - Conflict
+                    type: string
+                  url:
+                    description: |-
+                      URL opens the desktop in a browser, set while Published and the desktop
+                      service is `ready` in status.wireguard.services.
                     type: string
                 type: object
               encryption_key_gen_info:

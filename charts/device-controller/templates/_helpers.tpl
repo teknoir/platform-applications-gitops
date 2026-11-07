@@ -175,3 +175,13 @@ emitted when set, so an older controller image never sees the keys. */ -}}
 {{- if $z.deviceKeyWindowMinutes }}{{- $_ := set $c "deviceKeyWindowMinutes" (int $z.deviceKeyWindowMinutes) -}}{{- end -}}
 {{- toJson $c -}}
 {{- end }}
+
+{{/*
+Desktop: the DESKTOP JSON for the controller (key DESKTOP of the parameters ConfigMap). Only included
+in the ConfigMap when desktop.enabled and ztna.enabled. The image is required.
+*/}}
+{{- define "device-controller.desktop.configJSON" -}}
+{{- $d := .Values.desktop -}}
+{{- $c := dict "enabled" true "image" (required "desktop.image is required when desktop.enabled (the teknoir-desktop image, '<tag>@sha256:<digest>'; pin it with scripts/pin-image teknoir-desktop ...)" $d.image) "hostGroupID" (int $d.hostGroupID) -}}
+{{- toJson $c -}}
+{{- end }}

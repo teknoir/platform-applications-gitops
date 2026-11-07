@@ -18,6 +18,7 @@ templates:
   - templates/platform-secrets.yaml
   - templates/virtual-device-spike.yaml
   - templates/virtual-devices.yaml
+  - templates/teknoirbot.yaml
   - templates/ztna.yaml
   - templates/release-guard.yaml
 set:
@@ -29,6 +30,7 @@ set:
   ztna: {enabled: true}
   harbor: {enabled: true}
   ci: {enabled: true}
+  teknoirbot: {enabled: true}
 tests:
   - it: no Application has an (empty) spec.sources
     asserts:

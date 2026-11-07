@@ -1,0 +1,20 @@
+# GitOps values for teknoirbot-controller.
+image:
+  repository: ghcr.io/teknoir/teknoirbot-controller
+  tag: "sha-223603ff@sha256:056086c3c23bbdf40615ac341086936ec15cd6bd705daa61e50825a8ef8c37cf"  # required: '<tag>@sha256:<digest>' (scripts/pin-image teknoirbot-controller ...)
+  pullPolicy: IfNotPresent
+imagePullSecrets: [{name: ghcr-token}]   # private repo; the secret exists in teknoir-system
+serviceAccount: {name: teknoirbot-controller}
+leaderElection: true
+resources: {requests: {cpu: 10m, memory: 64Mi}, limits: {cpu: 500m, memory: 256Mi}}
+podSecurityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+# Bot fence (templates/fence.yaml): the identities that may write a TeknoirBot's Device and the TeknoirBot itself.
+# The names are the same on every k3s install of the platform.
+fence:
+  deviceControllerServiceAccount: system:serviceaccount:teknoir-system:device-controller-service-account
+  backstageServiceAccount: system:serviceaccount:teknoir-system:backstage-api
+  argocdServiceAccount: system:serviceaccount:teknoir-system:argocd-application-controller

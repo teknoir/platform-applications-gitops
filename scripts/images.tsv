@@ -13,3 +13,5 @@ web-terminal	charts/device-controller/values.yaml	ztna.terminalImage	ref	ghcr.io
 wg-gateway	charts/device-controller/values.yaml	ztna.gatewayImage	ref	ghcr.io/teknoir/wg-gateway	already tag@digest
 postgres	charts/backstage/values.yaml	postgres.image	ref	postgres	third party; the design pins the running digest (17-alpine)
 httpbin	charts/auth/values.yaml	httpbin.image.tag	tag	docker.io/kennethreitz/httpbin	third party :latest; remove if unused, else pin
+teknoirbot-controller	charts/teknoirbot-controller/values.yaml	image.tag	tag	ghcr.io/teknoir/teknoirbot-controller	TeknoirBot controller (private repo, local-ci builds)
+teknoir-desktop	charts/device-controller/values.yaml	desktop.image	ref	ghcr.io/teknoir/teknoir-desktop	browser remote desktop, injected into devices by device-controller (public repo)

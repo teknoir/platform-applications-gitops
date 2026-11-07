@@ -97,6 +97,7 @@ rules:
   - devstudios
   - notebooks
   - claimsets
+  - teknoirbots
   verbs:
   - get
   - list
@@ -115,6 +116,7 @@ rules:
   - devstudios/status
   - notebooks/status
   - claimsets/status
+  - teknoirbots/status
   verbs:
   - get
 # ProfileEntityProvider lists the teamspace's VirtualServices.

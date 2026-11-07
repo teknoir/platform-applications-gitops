@@ -1,0 +1,55 @@
+suite: backstage teknoirBots flag
+templates:
+  - templates/configmap-app-config.yaml
+  - templates/deployment.yaml
+tests:
+  - it: writes enabled true to the backend app-config
+    template: templates/configmap-app-config.yaml
+    set:
+      teknoirBots.enabled: true
+    asserts:
+      - matchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: "teknoirBots:\\s+enabled: true"
+
+  - it: writes enabled false to the backend app-config by default
+    template: templates/configmap-app-config.yaml
+    asserts:
+      - matchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: "teknoirBots:\\s+enabled: false"
+
+  - it: renders no teknoirBots config when the block is absent
+    template: templates/configmap-app-config.yaml
+    set:
+      teknoirBots: null
+    asserts:
+      - notMatchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: "teknoirBots"
+
+  - it: sets the frontend env flag when enabled
+    template: templates/deployment.yaml
+    set:
+      teknoirBots.enabled: true
+    documentSelector:
+      path: metadata.name
+      value: backstage
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: APP_CONFIG_teknoir_teknoirBots_enabled
+            value: "true"
+
+  - it: leaves the frontend env flag out when disabled (the default)
+    template: templates/deployment.yaml
+    documentSelector:
+      path: metadata.name
+      value: backstage
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: APP_CONFIG_teknoir_teknoirBots_enabled
+            value: "true"

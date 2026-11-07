@@ -73,7 +73,7 @@ PLATFORM_NAMESPACES = ["teknoir-system", "teknoir-auth", "istio-system", "cert-m
 BAD_WAITING = {"CrashLoopBackOff", "ImagePullBackOff", "ErrImagePull", "CreateContainerConfigError",
                "CreateContainerError", "InvalidImageName"}
 CONTROLLER_APPS = ["device-controller", "profile-controller", "user-controller", "devstudio-controller",
-                   "notebook-controller"]
+                   "notebook-controller", "teknoirbot-controller"]
 WORKLOAD_KINDS = {"Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob"}
 PENDING_GRACE_SECONDS = 180          # a counted pod that is still Pending after this long is a problem
 SKEW_SECONDS = 10                    # tolerated clock skew between this host and the apiserver
@@ -1122,7 +1122,7 @@ Also: kubectl --context {context} -n teknoir-system get applications -o custom-c
 
 def controller_log_hints(plan: dict, context: str) -> str:
     """Documented deviation from the design (watch, step 7): the controller logs are NOT scanned by the script.
-    Five Go controllers share no error format, and a regex over their logs would roll good releases back, so the
+    The six Go controllers (CONTROLLER_APPS) share no error format, and a regex over their logs would roll good releases back, so the
     operator gets the exact commands for the controllers whose render changed."""
     wl = plan.get("controller_workloads") or {}
     if not wl:

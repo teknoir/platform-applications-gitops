@@ -1,0 +1,57 @@
+suite: desktop (remote desktop) config
+templates:
+  - templates/configmap.yaml
+set:
+  ztna.agentImage: "ghcr.io/teknoir/wg-agent:sha-0000000a@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  ztna.terminalImage: "ghcr.io/teknoir/web-terminal:sha-0000000b@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+tests:
+  - it: has no DESKTOP key by default
+    asserts:
+      - notExists:
+          path: data.DESKTOP
+
+  - it: has no DESKTOP key when desktop is on and ztna is off
+    set:
+      desktop.enabled: true
+      desktop.image: "ghcr.io/teknoir/teknoir-desktop:v1@sha256:3333333333333333333333333333333333333333333333333333333333333333"
+      ztna.enabled: false
+    asserts:
+      - notExists:
+          path: data.DESKTOP
+
+  - it: has no DESKTOP key when ztna is on and desktop is off
+    set:
+      ztna.enabled: true
+    asserts:
+      - notExists:
+          path: data.DESKTOP
+
+  - it: puts DESKTOP in the ConfigMap when desktop and ztna are on
+    set:
+      desktop.enabled: true
+      desktop.image: "ghcr.io/teknoir/teknoir-desktop:v1@sha256:3333333333333333333333333333333333333333333333333333333333333333"
+      ztna.enabled: true
+    asserts:
+      - equal:
+          path: data.DESKTOP
+          value: '{"enabled":true,"hostGroupID":64080,"image":"ghcr.io/teknoir/teknoir-desktop:v1@sha256:3333333333333333333333333333333333333333333333333333333333333333"}'
+
+  - it: passes a custom hostGroupID
+    set:
+      desktop.enabled: true
+      desktop.image: "img:v1@sha256:3333333333333333333333333333333333333333333333333333333333333333"
+      desktop.hostGroupID: 70001
+      ztna.enabled: true
+    asserts:
+      - matchRegex:
+          path: data.DESKTOP
+          pattern: '"hostGroupID":70001'
+
+  - it: fails with an empty image when enabled
+    set:
+      desktop.enabled: true
+      desktop.image: ""
+      ztna.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "desktop.image is required when desktop.enabled.*scripts/pin-image"

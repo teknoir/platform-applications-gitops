@@ -35,6 +35,10 @@ spec:
             - name: APP_CONFIG_teknoir_virtualDevices_enabled
               value: "true"
             {{- end }}
+            {{- if (.Values.teknoirBots).enabled }}
+            - name: APP_CONFIG_teknoir_teknoirBots_enabled
+              value: "true"
+            {{- end }}
             {{- if (.Values.ztna).enabled }}
             - name: APP_CONFIG_teknoir_ztna_enabled
               value: "true"
