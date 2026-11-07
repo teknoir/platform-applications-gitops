@@ -16,6 +16,7 @@ templates:
   - templates/platform-secrets.yaml
   - templates/virtual-device-spike.yaml
   - templates/virtual-devices.yaml
+  - templates/teknoirbot.yaml
   - templates/ztna.yaml
   - templates/release-guard.yaml
 tests:
@@ -236,6 +237,49 @@ tests:
       - equal: {path: spec.source.targetRevision, value: "0123456789abcdef0123456789abcdef01234567", documentIndex: 0}
       - equal: {path: 'metadata.annotations["teknoir.org/release"]', value: staging-20261017.1, documentIndex: 0}
 
+  - it: "teknoirbot: 1 Application(s), all on the release SHA with the release annotation"
+    template: templates/teknoirbot.yaml
+    set:
+      project: teknoir-cloud
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+      teknoirbot: {enabled: true}
+      virtualDevices: {enabled: true, spike: {enabled: true}}
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+    asserts:
+      - hasDocuments: {count: 1}
+      - isKind: {of: Application, documentIndex: 0}
+      - equal: {path: metadata.name, value: teknoirbot-controller, documentIndex: 0}
+      - equal: {path: spec.source.path, value: charts/teknoirbot-controller, documentIndex: 0}
+      - equal: {path: spec.destination.namespace, value: teknoir-system, documentIndex: 0}
+      - equal: {path: spec.source.repoURL, value: https://github.com/teknoir/platform-applications-gitops, documentIndex: 0}
+      - equal: {path: spec.source.targetRevision, value: "0123456789abcdef0123456789abcdef01234567", documentIndex: 0}
+      - equal: {path: 'metadata.annotations["teknoir.org/release"]', value: staging-20261017.1, documentIndex: 0}
+
+  - it: "teknoirbot: renders nothing while teknoirbot.enabled is false (the default)"
+    template: templates/teknoirbot.yaml
+    set:
+      project: teknoir-cloud
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: "teknoirbot: renders nothing on teknoir-online even with teknoirbot.enabled"
+    template: templates/teknoirbot.yaml
+    set:
+      project: teknoir-online
+      teknoirbot: {enabled: true}
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: "teknoirbot: renders nothing on teknoir-local even with teknoirbot.enabled"
+    template: templates/teknoirbot.yaml
+    set:
+      project: teknoir-local
+      teknoirbot: {enabled: true}
+    asserts:
+      - hasDocuments: {count: 0}
+
   - it: "ztna: 3 Application(s), all on the release SHA with the release annotation"
     template: templates/ztna.yaml
     set:
@@ -304,6 +348,18 @@ tests:
       project: teknoir-cloud
       # Off by default since the UI cut-over; the template must still follow the release when turned on.
       backstageNext: {enabled: true}
+      virtualDevices: {enabled: true, spike: {enabled: true}}
+      releaseGuard: {enabled: true}
+      ztna: {enabled: true}
+    asserts:
+      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 0}
+      - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 0}
+
+  - it: "teknoirbot: follows the branch and has no release annotation while release is unset"
+    template: templates/teknoirbot.yaml
+    set:
+      project: teknoir-cloud
+      teknoirbot: {enabled: true}
       virtualDevices: {enabled: true, spike: {enabled: true}}
       releaseGuard: {enabled: true}
       ztna: {enabled: true}

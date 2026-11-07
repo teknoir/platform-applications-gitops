@@ -1,0 +1,45 @@
+{{- /*
+TeknoirBot controller (charts/teknoirbot-controller: the TeknoirBot CRD, the controller, a
+ValidatingAdmissionPolicy that narrows what it may do to Devices).
+
+Two gates, both required:
+  1. teknoirbot.enabled: true in this environment's values (a missing key is off);
+  2. the environment (.Values.project) is in the allowlist below.
+
+The allowlist lives in this template, not in values, for the same reason as in
+virtual-devices.yaml: the environment branches are kept in step by cherry-pick, and a
+cherry-pick that brings this file and an enabled flag onto teknoir-online (production)
+or teknoir-local (airgapped) must still render nothing there. An environment that is not
+listed renders nothing rather than failing: a failed render of the root app-of-apps would
+stop every Application of that environment from syncing. Add an environment only in its
+own reviewed commit.
+
+The CRD is in the chart's crds/ with Prune=false,Delete=false, so turning the flag off
+removes the controller but keeps the CRD and every bot.
+*/ -}}
+{{- $allowedProjects := list "teknoir-cloud" }}
+{{- if and (.Values.teknoirbot).enabled (has .Values.project $allowedProjects) }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: teknoirbot-controller
+{{- if .Values.releaseName }}
+  annotations:
+    teknoir.org/release: {{ .Values.releaseName | quote }}
+{{- end }}
+spec:
+  destination:
+    namespace: teknoir-system
+    server: https://kubernetes.default.svc
+  source:
+    path: charts/teknoirbot-controller
+    repoURL: https://github.com/teknoir/platform-applications-gitops
+    targetRevision: {{ include "app-of-apps.revision" . }}
+  project: {{ .Values.project }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      enabled: true
+{{- end }}
