@@ -9,11 +9,17 @@ teknoir.org/part-of=teknoirbot, device_type virtual and no ztna/disabled/org-tre
 (ownedPatch) only labels, the preset annotation, spec.virtual.cpu/memory/disabled and spec.desktop. It never patches
 spec.keys. So the policy requires:
   1. the labels on every write;
-  2. UPDATE: the old Device was already a bot's (no takeover of another Device);
+  2. UPDATE: the old Device was already a bot's (label teknoir.org/teknoirbot, or a controller ownerReference to a
+     teknoir.org/v1alpha1 TeknoirBot); no takeover of another Device;
   3. CREATE: spec.device_type virtual;
   4. UPDATE: spec.keys unchanged (keys are written at create only);
   5. platform annotations (ztna.teknoir.org/*, teknoir.org/disabled*, teknoir.org/org-tree-*): none at create, and
-     unchanged (none added, changed or removed) on update.
+     unchanged (none added, changed or removed) on update;
+  6. CREATE: a controller ownerReference to the TeknoirBot named in the teknoir.org/teknoirbot label;
+  7. CREATE: an empty spec.manifest (no apps) and no spec.applications, spec.overrides or spec.plugins: those fields
+     make device-controller run workloads, and the controller never writes them;
+  8. UPDATE: spec.manifest, spec.applications, spec.overrides, spec.plugins, metadata.ownerReferences and
+     metadata.finalizers unchanged.
 
 Break-glass: a cluster-admin deletes the ValidatingAdmissionPolicyBinding (pause the Application's auto-sync first).
 */ -}}
@@ -53,8 +59,10 @@ spec:
   validations:
     - expression: "variables.labels[?'teknoir.org/teknoirbot'].orValue('') != '' && variables.labels[?'teknoir.org/part-of'].orValue('') == 'teknoirbot'"
       message: "teknoirbot-controller may only write Devices that carry a non-empty label teknoir.org/teknoirbot and teknoir.org/part-of=teknoirbot"
-    - expression: "request.operation != 'UPDATE' || variables.oldLabels[?'teknoir.org/teknoirbot'].orValue('') != ''"
-      message: "teknoirbot-controller may not update a Device that is not a TeknoirBot's (the old object has no teknoir.org/teknoirbot label)"
+    - expression: >-
+        request.operation != 'UPDATE' || variables.oldLabels[?'teknoir.org/teknoirbot'].orValue('') != '' ||
+        oldObject.metadata.?ownerReferences.orValue([]).exists(r, r.apiVersion == 'teknoir.org/v1alpha1' && r.kind == 'TeknoirBot' && r.?controller.orValue(false))
+      message: "teknoirbot-controller may not update a Device that is not a TeknoirBot's (the old object has neither a teknoir.org/teknoirbot label nor a TeknoirBot controller reference)"
     - expression: "request.operation != 'CREATE' || object.spec.?device_type.orValue('') == 'virtual'"
       message: "teknoirbot-controller may only create virtual Devices (spec.device_type must be virtual)"
     - expression: "request.operation != 'UPDATE' || object.spec.?keys == oldObject.spec.?keys"
@@ -64,6 +72,23 @@ spec:
         (variables.newPlatform.all(k, k in variables.oldAnn && variables.oldAnn[k] == variables.newAnn[k]) &&
          variables.oldPlatform.all(k, k in variables.newAnn && variables.newAnn[k] == variables.oldAnn[k]))
       message: "teknoirbot-controller may not set, change or remove platform annotations (ztna.teknoir.org/*, teknoir.org/disabled*, teknoir.org/org-tree-*)"
+    - expression: >-
+        request.operation != 'CREATE' ||
+        object.metadata.?ownerReferences.orValue([]).exists(r, r.apiVersion == 'teknoir.org/v1alpha1' && r.kind == 'TeknoirBot' &&
+          r.?controller.orValue(false) && r.name == variables.labels[?'teknoir.org/teknoirbot'].orValue(''))
+      message: "teknoirbot-controller creates a Device only with a controller reference to the TeknoirBot named in its teknoir.org/teknoirbot label"
+    - expression: >-
+        request.operation != 'CREATE' ||
+        (size(object.spec.?manifest.?apps.orValue({})) == 0 && !has(object.spec.applications) &&
+         !has(object.spec.overrides) && !has(object.spec.plugins))
+      message: "teknoirbot-controller creates a Device with an empty spec.manifest and no spec.applications, spec.overrides or spec.plugins"
+    - expression: >-
+        request.operation != 'UPDATE' ||
+        (object.spec.?manifest == oldObject.spec.?manifest && object.spec.?applications == oldObject.spec.?applications &&
+         object.spec.?overrides == oldObject.spec.?overrides && object.spec.?plugins == oldObject.spec.?plugins &&
+         object.metadata.?ownerReferences == oldObject.metadata.?ownerReferences &&
+         object.metadata.?finalizers == oldObject.metadata.?finalizers)
+      message: "teknoirbot-controller may not change spec.manifest, spec.applications, spec.overrides, spec.plugins, ownerReferences or finalizers of a Device"
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding

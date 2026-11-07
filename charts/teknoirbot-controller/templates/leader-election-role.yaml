@@ -7,18 +7,25 @@ metadata:
   labels:
     {{- include "teknoirbot-controller.labels" . | nindent 4 }}
 rules:
+# Leader election (controller-runtime, Lease lock): client-go's leaselock calls only Get, Create and
+# Update. create cannot be limited by name; everything else only on the controller's own Lease.
+# The name must match LeaderElectionID in the controller's cmd/main.go.
 - apiGroups:
   - coordination.k8s.io
   resources:
   - leases
   verbs:
-  - get
-  - list
-  - watch
   - create
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  resourceNames:
+  - teknoirbot-controller.teknoir.org
+  verbs:
+  - get
   - update
   - patch
-  - delete
 - apiGroups:
   - ""
   resources:

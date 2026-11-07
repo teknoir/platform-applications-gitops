@@ -50,10 +50,16 @@ tests:
           value:
             - apiGroups: [coordination.k8s.io]
               resources: [leases]
-              verbs: [get, list, watch, create, update, patch, delete]
+              verbs: [create]
+            - apiGroups: [coordination.k8s.io]
+              resources: [leases]
+              resourceNames: [teknoirbot-controller.teknoir.org]
+              verbs: [get, update, patch]
             - apiGroups: [""]
               resources: [events]
               verbs: [create, patch]
+        documentIndex: 0
+      - equal: {path: 'rules[1].resourceNames', value: [teknoirbot-controller.teknoir.org]}
         documentIndex: 0
 
   - it: renders no leader-election Role when leaderElection is false
@@ -124,7 +130,7 @@ tests:
       - equal: {path: 'spec.matchConditions[0].expression', value: "request.userInfo.username == 'system:serviceaccount:teknoir-system:teknoirbot-controller'"}
       - equal: {path: 'spec.matchConstraints.resourceRules[0].operations', value: [CREATE, UPDATE]}
       - equal: {path: 'spec.matchConstraints.resourceRules[0].resources', value: [devices]}
-      - lengthEqual: {path: spec.validations, count: 5}
+      - lengthEqual: {path: spec.validations, count: 8}
 
   - it: the admission policy follows a custom service account name and namespace
     template: templates/admission.yaml
