@@ -265,6 +265,20 @@ expect deny  "backstage removes created-by"                              bs    "
 expect allow "argocd creates a bot without created-by"                   argo  -- create -f <(bot b3)
 expect deny  "argocd adds created-by afterwards"                         argo  "created-by cannot be changed" -- -n "$NS" patch teknoirbots.teknoir.org b3 "${MERGE[@]}" '{"metadata":{"annotations":{"teknoir.org/created-by":"x@teknoir.ai"}}}'
 expect allow "argocd patches spec.suspended"                             argo  -- -n "$NS" patch teknoirbots.teknoir.org b3 "${MERGE[@]}" '{"spec":{"suspended":true}}'
+# the bot's org unit is set at create and then fixed (for the portal, ArgoCD and the controller's Device fence alike)
+UNIT='{"teknoir.org/created-by":"someone@teknoir.ai","teknoir.org/org-tree-path":"se/karlstad","teknoir.org/org-tree-node-id":"karlstad"}'
+FIXED="org unit of a TeknoirBot"
+expect allow "backstage creates a bot in an org unit"                    bs    -- create -f <(bot bu "$UNIT")
+expect allow "backstage patches spec.suspended of the placed bot"        bs    -- -n "$NS" patch teknoirbots.teknoir.org bu "${MERGE[@]}" '{"spec":{"suspended":true}}'
+expect allow "backstage patches another annotation of the placed bot"    bs    -- -n "$NS" patch teknoirbots.teknoir.org bu "${MERGE[@]}" '{"metadata":{"annotations":{"x":"y"}}}'
+expect deny  "backstage moves the bot to another unit (node id)"         bs    "$FIXED" -- -n "$NS" patch teknoirbots.teknoir.org bu "${MERGE[@]}" '{"metadata":{"annotations":{"teknoir.org/org-tree-node-id":"north"}}}'
+expect deny  "backstage changes the bot's path"                          bs    "$FIXED" -- -n "$NS" patch teknoirbots.teknoir.org bu "${MERGE[@]}" '{"metadata":{"annotations":{"teknoir.org/org-tree-path":"se"}}}'
+expect deny  "backstage unplaces the bot"                                bs    "$FIXED" -- -n "$NS" patch teknoirbots.teknoir.org bu "${MERGE[@]}" '{"metadata":{"annotations":{"teknoir.org/org-tree-path":null,"teknoir.org/org-tree-node-id":null}}}'
+expect deny  "backstage places an unplaced bot afterwards"               bs    "$FIXED" -- -n "$NS" patch teknoirbots.teknoir.org b1 "${MERGE[@]}" '{"metadata":{"annotations":{"teknoir.org/org-tree-node-id":"karlstad"}}}'
+expect deny  "argocd moves the bot to another unit"                      argo  "$FIXED" -- -n "$NS" patch teknoirbots.teknoir.org bu "${MERGE[@]}" '{"metadata":{"annotations":{"teknoir.org/org-tree-path":"no/oslo","teknoir.org/org-tree-node-id":"oslo"}}}'
+expect allow "masters move the bot (break-glass)"                        master -- -n "$NS" annotate --overwrite teknoirbots.teknoir.org bu teknoir.org/org-tree-node-id=north
+expect deny  "backstage adds the placement keys to a bot Device"         bs    "$BSMSG" -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"annotations":{"teknoir.org/org-tree-path":"se","teknoir.org/org-tree-node-id":"se"}}}'
+expect allow "backstage deletes the placed bot"                          bs    -- -n "$NS" delete teknoirbots.teknoir.org bu
 expect deny  "default-editor creates a bot"                              edit  "$CB" -- create -f <(bot b4)
 expect deny  "default-editor patches a bot"                              edit  "$CB" -- -n "$NS" patch teknoirbots.teknoir.org b1 "${MERGE[@]}" '{"spec":{"suspended":false}}'
 expect deny  "default-editor deletes a bot"                              edit  "deleted only through the Teknoir portal or GitOps" -- -n "$NS" delete teknoirbots.teknoir.org b1

@@ -5,8 +5,9 @@ account can do to Devices, keyed on who writes (like charts/ztna admission.yaml)
 matchCondition selects the controller's username only.
 
 The controller (internal/controller/device.go) creates a Device with the labels teknoir.org/teknoirbot=<bot> and
-teknoir.org/part-of=teknoirbot, device_type virtual and no ztna/disabled/org-tree annotation, and afterwards patches
-(ownedPatch) only labels, the preset annotation, spec.virtual.cpu/memory/disabled and spec.desktop. It never patches
+teknoir.org/part-of=teknoirbot, device_type virtual, no ztna/disabled annotation and only the bot's two placement
+annotations, and afterwards patches (ownedPatch) only labels, the preset and placement annotations,
+spec.virtual.cpu/memory/disabled and spec.desktop. It never patches
 spec.keys. So the policy requires:
   1. the labels on every write;
   2. UPDATE: the old Device was already a bot's (label teknoir.org/teknoirbot, or a controller ownerReference to a
@@ -14,7 +15,10 @@ spec.keys. So the policy requires:
   3. CREATE: spec.device_type virtual;
   4. UPDATE: spec.keys unchanged (keys are written at create only);
   5. platform annotations (ztna.teknoir.org/*, teknoir.org/disabled*, teknoir.org/org-tree-*): none at create, and
-     unchanged (none added, changed or removed) on update;
+     unchanged (none added, changed or removed) on update. The two placement keys teknoir.org/org-tree-path and
+     teknoir.org/org-tree-node-id are the exception: the controller copies them from the TeknoirBot, which carries
+     the bot's org unit (set by the portal at create and frozen by teknoirbot-created-by in fence.yaml). A policy
+     cannot compare them with the TeknoirBot, so the controller is trusted with their values;
   6. CREATE: a controller ownerReference to the TeknoirBot named in the teknoir.org/teknoirbot label;
   7. CREATE: an empty spec.manifest (no apps) and no spec.applications, spec.overrides or spec.plugins: those fields
      make device-controller run workloads, and the controller never writes them;
@@ -53,11 +57,14 @@ spec:
       expression: "object.metadata.?annotations.orValue({})"
     - name: oldAnn
       expression: "request.operation == 'UPDATE' ? oldObject.metadata.?annotations.orValue({}) : {}"
-    # Annotation keys a platform component writes: matched by prefix.
+    # The bot's org unit, copied from the TeknoirBot: the only org-tree keys the controller may write.
+    - name: placementKeys
+      expression: "['teknoir.org/org-tree-path', 'teknoir.org/org-tree-node-id']"
+    # Annotation keys a platform component writes: matched by prefix, without the two placement keys.
     - name: newPlatform
-      expression: "variables.newAnn.filter(k, k.startsWith('ztna.teknoir.org/') || k.startsWith('teknoir.org/disabled') || k.startsWith('teknoir.org/org-tree-'))"
+      expression: "variables.newAnn.filter(k, k.startsWith('ztna.teknoir.org/') || k.startsWith('teknoir.org/disabled') || (k.startsWith('teknoir.org/org-tree-') && !(k in variables.placementKeys)))"
     - name: oldPlatform
-      expression: "variables.oldAnn.filter(k, k.startsWith('ztna.teknoir.org/') || k.startsWith('teknoir.org/disabled') || k.startsWith('teknoir.org/org-tree-'))"
+      expression: "variables.oldAnn.filter(k, k.startsWith('ztna.teknoir.org/') || k.startsWith('teknoir.org/disabled') || (k.startsWith('teknoir.org/org-tree-') && !(k in variables.placementKeys)))"
   validations:
     - expression: "variables.labels[?'teknoir.org/teknoirbot'].orValue('') != '' && variables.labels[?'teknoir.org/part-of'].orValue('') == 'teknoirbot'"
       message: "teknoirbot-controller may only write Devices that carry a non-empty label teknoir.org/teknoirbot and teknoir.org/part-of=teknoirbot"
@@ -73,7 +80,7 @@ spec:
         request.operation == 'CREATE' ? size(variables.newPlatform) == 0 :
         (variables.newPlatform.all(k, k in variables.oldAnn && variables.oldAnn[k] == variables.newAnn[k]) &&
          variables.oldPlatform.all(k, k in variables.newAnn && variables.newAnn[k] == variables.oldAnn[k]))
-      message: "teknoirbot-controller may not set, change or remove platform annotations (ztna.teknoir.org/*, teknoir.org/disabled*, teknoir.org/org-tree-*)"
+      message: "teknoirbot-controller may not set, change or remove platform annotations (ztna.teknoir.org/*, teknoir.org/disabled*, teknoir.org/org-tree-* other than teknoir.org/org-tree-path and teknoir.org/org-tree-node-id)"
     - expression: >-
         request.operation != 'CREATE' ||
         object.metadata.?ownerReferences.orValue([]).exists(r, r.apiVersion == 'teknoir.org/v1alpha1' && r.kind == 'TeknoirBot' &&
