@@ -87,7 +87,9 @@ spec:
                   the device, in virtual mode also its home volume. While it is set but the
                   desktop cannot run (no Tunneling, a disabled device, no DESKTOP config, a
                   conflicting object in spec.manifest.apps), only the Deployment, Service and
-                  NetworkPolicy are removed; the namespace and the home volume stay.
+                  NetworkPolicy are removed (on a conflict also the controller's own copy of
+                  each conflicting object); the namespace and the home volume stay. A switch
+                  to host mode removes the home volume.
                 properties:
                   geometry:
                     description: |-
@@ -895,8 +897,11 @@ spec:
                           VerifiedBy says how the current identity was activated: approval (an
                           admin approved its fingerprint), device-key (its attestation was made by
                           the trusted device key) or host-key (the same for an SSH host key, only
-                          on entries activated before device keys). Empty while it is not
-                          activated.
+                          on entries activated before device keys). The hub records it once, when
+                          the identity first becomes usable, and keeps it when the identity is
+                          voided later (a compromised or health-check-failed flag), so it does not
+                          say whether sessions are allowed now. Empty until the current identity
+                          is activated; a new identity (re-enrollment) starts empty.
                         type: string
                     type: object
                   agentCapabilities:
