@@ -60,11 +60,12 @@ spec:
     # The bot's org unit, copied from the TeknoirBot: the only org-tree keys the controller may write.
     - name: placementKeys
       expression: "['teknoir.org/org-tree-path', 'teknoir.org/org-tree-node-id']"
-    # Annotation keys a platform component writes: matched by prefix, without the two placement keys.
+    # Annotation keys a platform component writes: matched by prefix, without the two placement keys, plus
+    # the bot key's verifier copy, which only device-controller derives (from the cloud-init Secret).
     - name: newPlatform
-      expression: "variables.newAnn.filter(k, k.startsWith('ztna.teknoir.org/') || k.startsWith('teknoir.org/disabled') || (k.startsWith('teknoir.org/org-tree-') && !(k in variables.placementKeys)))"
+      expression: "variables.newAnn.filter(k, k.startsWith('ztna.teknoir.org/') || k.startsWith('teknoir.org/disabled') || (k.startsWith('teknoir.org/org-tree-') && !(k in variables.placementKeys)) || k == 'teknoir.org/teknoirbot-key-sha256')"
     - name: oldPlatform
-      expression: "variables.oldAnn.filter(k, k.startsWith('ztna.teknoir.org/') || k.startsWith('teknoir.org/disabled') || (k.startsWith('teknoir.org/org-tree-') && !(k in variables.placementKeys)))"
+      expression: "variables.oldAnn.filter(k, k.startsWith('ztna.teknoir.org/') || k.startsWith('teknoir.org/disabled') || (k.startsWith('teknoir.org/org-tree-') && !(k in variables.placementKeys)) || k == 'teknoir.org/teknoirbot-key-sha256')"
   validations:
     - expression: "variables.labels[?'teknoir.org/teknoirbot'].orValue('') != '' && variables.labels[?'teknoir.org/part-of'].orValue('') == 'teknoirbot'"
       message: "teknoirbot-controller may only write Devices that carry a non-empty label teknoir.org/teknoirbot and teknoir.org/part-of=teknoirbot"
@@ -80,7 +81,7 @@ spec:
         request.operation == 'CREATE' ? size(variables.newPlatform) == 0 :
         (variables.newPlatform.all(k, k in variables.oldAnn && variables.oldAnn[k] == variables.newAnn[k]) &&
          variables.oldPlatform.all(k, k in variables.newAnn && variables.newAnn[k] == variables.oldAnn[k]))
-      message: "teknoirbot-controller may not set, change or remove platform annotations (ztna.teknoir.org/*, teknoir.org/disabled*, teknoir.org/org-tree-* other than teknoir.org/org-tree-path and teknoir.org/org-tree-node-id)"
+      message: "teknoirbot-controller may not set, change or remove platform annotations (ztna.teknoir.org/*, teknoir.org/disabled*, teknoir.org/teknoirbot-key-sha256, teknoir.org/org-tree-* other than teknoir.org/org-tree-path and teknoir.org/org-tree-node-id)"
     - expression: >-
         request.operation != 'CREATE' ||
         object.metadata.?ownerReferences.orValue([]).exists(r, r.apiVersion == 'teknoir.org/v1alpha1' && r.kind == 'TeknoirBot' &&

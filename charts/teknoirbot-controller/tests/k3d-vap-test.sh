@@ -227,6 +227,9 @@ expect deny  "bot adds teknoir.org/disabled"                             bot   "
 expect deny  "bot adds a ztna annotation"                                bot   "platform annotations" -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"annotations":{"ztna.teknoir.org/wireguard":"enabled"}}}'
 expect deny  "bot adds teknoir.org/disabled-by"                          bot   "platform annotations" -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"annotations":{"teknoir.org/disabled-by":"me"}}}'
 expect deny  "bot adds another org-tree annotation (teknoir.org/org-tree-x)" bot "platform annotations" -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"annotations":{"teknoir.org/org-tree-x":"n"}}}'
+expect deny  "bot adds the bot key's verifier annotation"                 bot   "platform annotations" -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"annotations":{"teknoir.org/teknoirbot-key-sha256":"00"}}}'
+expect deny  "bot creates a Device with the bot key's verifier annotation" bot "platform annotations" -- create -f <(device tb-key 1 virtual '{"teknoir.org/teknoirbot-key-sha256":"00"}')
+expect allow "bot writes the creator and access annotations of its Device" bot  -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"annotations":{"teknoir.org/teknoirbot-created-by":"a@example.com","teknoir.org/teknoirbot-access":"read"}}}'
 expect deny  "bot creates with the placement keys and teknoir.org/org-tree-x" bot "platform annotations" -- create -f <(device tb-org2 1 virtual '{"teknoir.org/org-tree-path":"a","teknoir.org/org-tree-x":"y"}')
 expect deny  "bot removes the teknoir.org/part-of label"                 bot   "non-empty label" -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"labels":{"teknoir.org/part-of":null}}}'
 expect deny  "bot removes the teknoirbot label"                          bot   "non-empty label" -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"labels":{"teknoir.org/teknoirbot":null}}}'
@@ -248,6 +251,9 @@ expect deny  "bot adds a finalizer"                                      bot   "
 # a platform annotation that an admin set stays untouchable (change and removal), while the rest stays patchable
 expect allow "admin sets ztna and disabled annotations on tb-a"          admin -- -n "$NS" annotate devices.teknoir.org tb-a ztna.teknoir.org/wireguard=enabled teknoir.org/disabled=true
 expect deny  "bot changes an existing ztna annotation"                   bot   "platform annotations" -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"annotations":{"ztna.teknoir.org/wireguard":"other"}}}'
+expect allow "admin sets the bot key's verifier annotation on tb-a"        admin -- -n "$NS" annotate devices.teknoir.org tb-a teknoir.org/teknoirbot-key-sha256=abc
+expect deny  "bot changes the bot key's verifier annotation"              bot   "platform annotations" -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"annotations":{"teknoir.org/teknoirbot-key-sha256":"def"}}}'
+expect deny  "bot removes the bot key's verifier annotation"              bot   "platform annotations" -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"annotations":{"teknoir.org/teknoirbot-key-sha256":null}}}'
 expect deny  "bot removes an existing platform annotation"               bot   "platform annotations" -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"annotations":{"teknoir.org/disabled":null}}}'
 expect deny  "bot drops all annotations (annotations: null)"             bot   "platform annotations" -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"annotations":null}}'
 expect deny  "bot replaces all annotations with only the preset (json patch)" bot "platform annotations" -- "${P[@]}" tb-a --type=json -p '[{"op":"replace","path":"/metadata/annotations","value":{"teknoir.org/virtual-preset":"teknoirbot"}}]'

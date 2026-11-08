@@ -60,6 +60,21 @@ spec:
               present: a transition rule (the disk is immutable) only runs when the old
               value exists.
             properties:
+              agent:
+                description: Agent configures the AI agent in the bot's computer.
+                properties:
+                  access:
+                    description: |-
+                      Access is what the agent may do on the platform, always within what the
+                      bot's creator may do in the bot's org unit: "none" (only the model),
+                      "read" (read), "creator" (also write; never delete). A missing value
+                      means "none".
+                    enum:
+                    - none
+                    - read
+                    - creator
+                    type: string
+                type: object
               description:
                 description: Description says what the bot is for.
                 maxLength: 500

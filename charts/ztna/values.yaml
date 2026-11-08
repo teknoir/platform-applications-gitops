@@ -24,7 +24,7 @@ hub:
     # sets ztna.teknoir.org/hub-role, so the Service wg-hub (selector hub-role=leader) would have no endpoints
     # (full ZTNA outage). The chart enforces it: the render fails until leaderElection below is true.
     # wg-tunnel #8 (b563d89): leader election and planned handover; live as leader since staging-20261022.6.
-    tag: "sha-a2478da@sha256:2239908245b1e17301a6484a1f6fcce0ea5a5a2d973e108dd552c8c756cc3019"
+    tag: "sha-82cf91a@sha256:fc8e40e8785b856684c1f12a396f737ada817e373b13c59d8c1a7d8422b27472"
     # Set to true TOGETHER WITH the repin above, and only when the image is built from wg-tunnel with leader
     # election (it sets ztna.teknoir.org/hub-role). The render fails while hub.leaderElection.enabled is on and
     # this is false, so an image that never labels a pod cannot leave wg-hub without endpoints.
