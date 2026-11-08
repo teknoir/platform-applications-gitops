@@ -59,6 +59,7 @@ BACKSTAGE=system:serviceaccount:teknoir-system:backstage
 # Backstage's real service account (cluster-wide teknoir-admin): the one a compromised UI uses.
 BACKSTAGE_API=system:serviceaccount:teknoir-system:backstage-api
 ARGO=system:serviceaccount:teknoir-system:argocd-application-controller
+BOTCTRL=system:serviceaccount:teknoir-system:teknoirbot-controller
 STUNNER_OP=system:serviceaccount:stunner-system:stunner-gateway-operator-controller-manager
 RS_CTRL=system:serviceaccount:kube-system:replicaset-controller
 JOB_CTRL=system:serviceaccount:kube-system:job-controller
@@ -436,6 +437,28 @@ dverdict "device-controller moves a Device in the org tree" allow "${DC}" replac
 dev odev "$OT=se/b" "$ON=a" other.io/x=2 other.io/y=3 > "${TMP}/o-unrelated.yaml"
 dverdict "editor changes unrelated annotations, org-tree kept" allow "${EDITOR_SA}" replace "${TMP}/o-unrelated.yaml"
 if "${KC[@]}" replace -n devns -f "${TMP}/o-removed.yaml" >/dev/null 2>&1; then ok "allowed: system:masters removes the org-tree placement"; else bad "system:masters org-tree removal denied"; fi
+
+# teknoirbot-controller: the two org-tree keys of a bot's computer only (tb-<label> with the label), nothing else
+bdev() { # name label [annotations as key=value ...] -> manifest
+  local name=$1 label=$2; shift 2
+  printf 'apiVersion: teknoir.org/v1\nkind: Device\nmetadata:\n  name: %s\n  labels:\n    teknoir.org/teknoirbot: "%s"\n' "$name" "$label"
+  if [[ $# -gt 0 ]]; then printf '  annotations:\n'; for kv in "$@"; do printf '    %s: "%s"\n' "${kv%%=*}" "${kv#*=}"; done; fi
+  printf 'spec:\n  keys: {}\n  manifest: {}\n'
+}
+bdev tb-scout scout "$OT=se/a" "$ON=a" > "${TMP}/b-create.yaml"
+dverdict "teknoirbot-controller creates a bot's computer with its org unit" allow "${BOTCTRL}" create "${TMP}/b-create.yaml"
+bdev tb-scout scout "$OT=se/b" "$ON=b" > "${TMP}/b-moved.yaml"
+dverdict "teknoirbot-controller changes the org unit of a bot's computer" allow "${BOTCTRL}" replace "${TMP}/b-moved.yaml"
+bdev tb-scout scout > "${TMP}/b-removed.yaml"
+dverdict "teknoirbot-controller removes the org unit of a bot's computer" allow "${BOTCTRL}" replace "${TMP}/b-removed.yaml"
+bdev tb-scout scout "$Z/wireguard=enabled" > "${TMP}/b-ztna.yaml"
+dverdict "teknoirbot-controller adds a ztna annotation to a bot's computer" deny "${BOTCTRL}" replace "${TMP}/b-ztna.yaml"
+bdev tb-scout scout "teknoir.org/disabled=true" > "${TMP}/b-dis.yaml"
+dverdict "teknoirbot-controller disables a bot's computer" deny "${BOTCTRL}" replace "${TMP}/b-dis.yaml"
+bdev tb-other scout "$OT=se/a" "$ON=a" > "${TMP}/b-wrongname.yaml"
+dverdict "teknoirbot-controller places a Device whose name is not tb-<label>" deny "${BOTCTRL}" create "${TMP}/b-wrongname.yaml"
+dverdict "teknoirbot-controller places an ordinary Device" deny "${BOTCTRL}" replace "${TMP}/o-moved.yaml"
+dverdict "editor places a bot's computer" deny "${EDITOR_SA}" replace "${TMP}/b-create.yaml"
 
 # --- Device Disable switch (teknoir.org/disabled*, plans/device-disable-remove.md): Backstage backend only
 DA=teknoir.org/disabled; DR=teknoir.org/disabled-reason; DB=teknoir.org/disabled-by; DT=teknoir.org/disabled-at

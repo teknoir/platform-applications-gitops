@@ -63,6 +63,14 @@ tests:
       - failedTemplate:
           errorPattern: "virtualDevices.registryMirror.host is required"
 
+  - it: fails the render for a registryMirror host with a scheme
+    template: templates/deployment.yaml
+    set:
+      virtualDevices.registryMirror.host: https://harbor.teknoir.cloud
+    asserts:
+      - failedTemplate:
+          errorPattern: "virtualDevices.registryMirror.host must be a host name"
+
   - it: fails the render for a registryMirror without a Secret name
     template: templates/deployment.yaml
     set:

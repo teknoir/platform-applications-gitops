@@ -421,8 +421,11 @@ change or remove such an annotation; any other Device edit is unaffected, and DE
 here (ztna-device-disabled-delete below guards the delete of a disabled Device).
 The same holds for the exact keys teknoir.org/org-tree-path and teknoir.org/org-tree-node-id: they
 place a Device in the org tree and so feed the hub org gate. Their writers (checked 2026-10-17):
-device-controller (copy from a Robot), the Backstage backend (Settings > Org tree) and
-`kubectl annotate` by a cluster admin (system:masters).
+device-controller (copy from a Robot), the Backstage backend (Settings > Org tree),
+`kubectl annotate` by a cluster admin (system:masters), and teknoirbot-controller, for these two keys
+only and only on a bot's computer (a Device named tb-<label> with the label teknoir.org/teknoirbot=<label>):
+it copies the bot's org unit, which the portal sets on the TeknoirBot at create and admission freezes
+(charts/teknoirbot-controller fence.yaml; its own guard there narrows the rest of its writes).
 Robot org annotations are not guarded: device-controller copies a Robot's placement only onto an
 unplaced Device, so an editor of Robots can narrow but not widen access. Guarding Robots is a follow-up.
 The same holds for the Disable switch teknoir.org/disabled and its record teknoir.org/disabled-reason,
@@ -463,12 +466,21 @@ spec:
         'system:masters' in request.userInfo.groups
     - name: disableKeys
       expression: "['teknoir.org/disabled', 'teknoir.org/disabled-reason', 'teknoir.org/disabled-by', 'teknoir.org/disabled-at']"
+    # teknoirbot-controller writing a bot's computer (tb-<label>, labelled teknoir.org/teknoirbot=<label>):
+    # it may set, change and remove the two org-tree keys there, nothing else guarded here.
+    - name: botPlacement
+      expression: >-
+        request.userInfo.username == '{{ .Values.teknoirbotController.serviceAccount }}' &&
+        object.metadata.?labels[?'teknoir.org/teknoirbot'].orValue('') != '' &&
+        object.metadata.name == 'tb-' + object.metadata.?labels[?'teknoir.org/teknoirbot'].orValue('')
+    - name: guardedOrgKeys
+      expression: "variables.botPlacement ? ['-'] : variables.orgKeys"
   validations:
     - expression: >-
         variables.privileged ||
-        (variables.newA.all(k, !(k.startsWith(variables.prefix) || k in variables.orgKeys || k in variables.disableKeys) || (k in variables.oldA && variables.oldA[k] == variables.newA[k])) &&
-         variables.oldA.all(k, !(k.startsWith(variables.prefix) || k in variables.orgKeys || k in variables.disableKeys) || k in variables.newA))
-      message: "ztna.teknoir.org/*, teknoir.org/org-tree-path|node-id and teknoir.org/disabled* annotations on a Device are changed only by the Backstage backend, device-controller or system:masters"
+        (variables.newA.all(k, !(k.startsWith(variables.prefix) || k in variables.guardedOrgKeys || k in variables.disableKeys) || (k in variables.oldA && variables.oldA[k] == variables.newA[k])) &&
+         variables.oldA.all(k, !(k.startsWith(variables.prefix) || k in variables.guardedOrgKeys || k in variables.disableKeys) || k in variables.newA))
+      message: "ztna.teknoir.org/*, teknoir.org/org-tree-path|node-id and teknoir.org/disabled* annotations on a Device are changed only by the Backstage backend, device-controller or system:masters (and the org-tree keys of a bot's computer by teknoirbot-controller)"
       reason: Forbidden
 ---
 apiVersion: admissionregistration.k8s.io/v1

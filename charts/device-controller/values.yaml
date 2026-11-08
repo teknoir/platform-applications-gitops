@@ -125,7 +125,10 @@ virtualDevices:
   # New VMs pull every image through Harbor's proxy cache (k3s registries.yaml written by the bootstrap),
   # with their teamspace's pull-only robot robot$ts-<teamspace> from the Secret charts/harbor keeps
   # (keys <teamspace>.username/.password). Private ghcr.io/teknoir images (the remote desktop) need it.
-  # A VM created before this keeps pulling directly until it is re-created. Remove the block to turn it off.
+  # A VM created before this keeps pulling directly until it is re-created (a bot: delete the bot and add it
+  # again). Remove the block to turn it off. The VM reaches Harbor by its public name through the router's
+  # hairpin NAT (harbor.teknoir.cloud -> 155.4.167.210), so it needs egress: internet below; unlike the
+  # other platform names it is not rewritten to an in-cluster address.
   registryMirror:
     host: harbor.teknoir.cloud
     secret: {namespace: teknoir-system, name: harbor-teamspace-pull}

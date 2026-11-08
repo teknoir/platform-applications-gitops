@@ -1319,7 +1319,14 @@ tests:
           pattern: "teknoir.org/org-tree-path.*teknoir.org/org-tree-node-id"
       - matchRegex:
           path: spec.validations[0].expression
-          pattern: "k in variables.orgKeys"
+          pattern: "k in variables.guardedOrgKeys"
+      # teknoirbot-controller is exempt from the two org-tree keys only on a bot's computer tb-<label>
+      - matchRegex:
+          path: spec.variables[6].expression
+          pattern: "request.userInfo.username == 'system:serviceaccount:teknoir-system:teknoirbot-controller' && object.metadata.\\?labels\\[\\?'teknoir.org/teknoirbot'\\].orValue\\(''\\) != '' &&\\s+object.metadata.name == 'tb-' \\+"
+      - equal:
+          path: spec.variables[7].expression
+          value: "variables.botPlacement ? ['-'] : variables.orgKeys"
 
   - it: guards the Disable annotations on Devices (teknoir.org/disabled*)
     template: templates/admission.yaml
