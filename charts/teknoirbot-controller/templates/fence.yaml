@@ -8,8 +8,12 @@ value) or whose name starts with tb- (the old object counts too: removing the la
   - Exempt writers: the teknoirbot-controller (narrowed by teknoirbot-device-guard), device-controller (writes status,
     finalizers, keys and the manifest of every Device), the garbage collector, the namespace controller,
     system:kube-controller-manager and system:masters.
-  - backstage-api may only UPDATE, and only the annotations teknoir.org/disabled* (spec, labels, every other annotation,
-    ownerReferences, finalizers and the top-level subresources field stay equal).
+  - backstage-api may only UPDATE, and only the annotations teknoir.org/disabled* and the Tunneling recovery and
+    kill-switch keys ztna.teknoir.org/wireguard, approved-identity, compromised, health-check-failed, reason and
+    reenroll (the admin actions of the Tunneling console: turn Tunneling on or off, approve an identity, mark
+    compromised, reset the enrollment; a tombstone of a deleted bot would otherwise keep the name unusable). Every
+    other ztna.teknoir.org/* key (services, web-terminal, p2p, activation, device-key*, rotate-device-key), spec,
+    labels, every other annotation, ownerReferences, finalizers and the top-level subresources field stay equal.
   - Nobody else may create, update or delete such a Device (default-editor of a teamspace included).
   Not in the MVP: the teknoir.org/teknoirbot-uid label (the controller does not set it yet).
 
@@ -69,11 +73,15 @@ spec:
       expression: "request.operation == 'UPDATE' ? object.metadata.?annotations.orValue({}) : {}"
     - name: oldAnn
       expression: "request.operation == 'UPDATE' ? oldObject.metadata.?annotations.orValue({}) : {}"
-    # Annotation keys that backstage may change: teknoir.org/disabled, -at, -by, -reason (by prefix).
+    # Annotation keys that backstage may change: teknoir.org/disabled, -at, -by, -reason (by prefix), and the exact
+    # Tunneling keys of the console's admin actions (the ztna-device-annotations policy of charts/ztna already limits
+    # every ztna.teknoir.org/* write to backstage-api, device-controller and system:masters).
+    - name: tunnelingKeys
+      expression: "['ztna.teknoir.org/wireguard', 'ztna.teknoir.org/approved-identity', 'ztna.teknoir.org/compromised', 'ztna.teknoir.org/health-check-failed', 'ztna.teknoir.org/reason', 'ztna.teknoir.org/reenroll']"
     - name: newOther
-      expression: "variables.newAnn.filter(k, !k.startsWith('teknoir.org/disabled'))"
+      expression: "variables.newAnn.filter(k, !k.startsWith('teknoir.org/disabled') && !(k in variables.tunnelingKeys))"
     - name: oldOther
-      expression: "variables.oldAnn.filter(k, !k.startsWith('teknoir.org/disabled'))"
+      expression: "variables.oldAnn.filter(k, !k.startsWith('teknoir.org/disabled') && !(k in variables.tunnelingKeys))"
   validations:
     - expression: >-
         !variables.backstage || (request.operation == 'UPDATE' &&
@@ -84,7 +92,7 @@ spec:
           object.?subresources == oldObject.?subresources &&
           variables.newOther.all(k, k in variables.oldAnn && variables.oldAnn[k] == variables.newAnn[k]) &&
           variables.oldOther.all(k, k in variables.newAnn))
-      message: "backstage may only change the teknoir.org/disabled* annotations of a TeknoirBot's computer"
+      message: "backstage may only change the teknoir.org/disabled* annotations and the Tunneling annotations ztna.teknoir.org/wireguard, approved-identity, compromised, health-check-failed, reason and reenroll of a TeknoirBot's computer"
     - expression: "variables.backstage"
       message: "Devices of a TeknoirBot (label teknoir.org/teknoirbot or a name starting with tb-) are written only by teknoirbot-controller and device-controller"
 ---

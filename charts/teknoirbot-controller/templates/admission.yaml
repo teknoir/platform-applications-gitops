@@ -19,7 +19,9 @@ spec.keys. So the policy requires:
   7. CREATE: an empty spec.manifest (no apps) and no spec.applications, spec.overrides or spec.plugins: those fields
      make device-controller run workloads, and the controller never writes them;
   8. UPDATE: spec.manifest, spec.applications, spec.overrides, spec.plugins, metadata.ownerReferences and
-     metadata.finalizers unchanged.
+     metadata.finalizers unchanged;
+  9. every write: metadata.name == 'tb-' + the teknoir.org/teknoirbot label (the name is immutable, so this also freezes
+     the label: a removed label may be restored, never set to another bot).
 
 Break-glass: a cluster-admin deletes the ValidatingAdmissionPolicyBinding (pause the Application's auto-sync first).
 */ -}}
@@ -89,6 +91,8 @@ spec:
          object.metadata.?ownerReferences == oldObject.metadata.?ownerReferences &&
          object.metadata.?finalizers == oldObject.metadata.?finalizers)
       message: "teknoirbot-controller may not change spec.manifest, spec.applications, spec.overrides, spec.plugins, ownerReferences or finalizers of a Device"
+    - expression: "object.metadata.name == 'tb-' + variables.labels[?'teknoir.org/teknoirbot'].orValue('')"
+      message: "teknoirbot-controller writes a Device only as tb-<bot>, the bot named in its teknoir.org/teknoirbot label (the name never changes, so neither does the label)"
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding

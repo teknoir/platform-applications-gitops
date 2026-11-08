@@ -36,7 +36,7 @@ a create is `device_type: virtual`; `spec.keys` never changes; platform annotati
 running workloads through device-controller: a create carries a controller ownerReference to the TeknoirBot named in the
 label (6) and an empty `spec.manifest` with no `spec.applications`, `spec.overrides` or `spec.plugins` (7); an update
 leaves `spec.manifest`, `spec.applications`, `spec.overrides`, `spec.plugins`, `metadata.ownerReferences` and
-`metadata.finalizers` as they were (8). `failurePolicy: Fail`, action `Deny`. Test: `tests/k3d-vap-test.sh` (context `k3d-teknoir-dev` only).
+`metadata.finalizers` as they were (8); every write keeps `metadata.name == tb-<label>` (9). `failurePolicy: Fail`, action `Deny`. Test: `tests/k3d-vap-test.sh` (context `k3d-teknoir-dev` only).
 Break-glass: pause the Application's auto-sync, delete the binding, act, restore.
 
 ## Bot fence
@@ -48,7 +48,7 @@ The identities are chart values (`fence.deviceControllerServiceAccount`, `fence.
 
 | Policy | Applies to | Who may write |
 |---|---|---|
-| `teknoirbot-device-fence` | Devices (CREATE, UPDATE, DELETE) that carry, or carried, the label `teknoir.org/teknoirbot`, or whose name starts with `tb-` | teknoirbot-controller (narrowed by `teknoirbot-device-guard`), device-controller, the garbage collector, the namespace controller, `system:kube-controller-manager` and `system:masters` are exempt. backstage-api may only UPDATE and only change the `teknoir.org/disabled*` annotations (spec, labels, other annotations, ownerReferences, finalizers and `subresources` stay equal). Nobody else may write them (default-editor included). |
+| `teknoirbot-device-fence` | Devices (CREATE, UPDATE, DELETE) that carry, or carried, the label `teknoir.org/teknoirbot`, or whose name starts with `tb-` | teknoirbot-controller (narrowed by `teknoirbot-device-guard`), device-controller, the garbage collector, the namespace controller, `system:kube-controller-manager` and `system:masters` are exempt. backstage-api may only UPDATE and only change the `teknoir.org/disabled*` annotations and the Tunneling admin keys `ztna.teknoir.org/wireguard`, `approved-identity`, `compromised`, `health-check-failed`, `reason` and `reenroll` (every other `ztna.teknoir.org/*` key stays denied; spec, labels, other annotations, ownerReferences, finalizers and `subresources` stay equal). Nobody else may write them (default-editor included). |
 | `teknoirbot-created-by` | TeknoirBots (the main resource; `teknoirbots/status` is not matched), `system:masters` exempt | CREATE and UPDATE only by backstage-api or ArgoCD (the garbage collector and `system:kube-controller-manager` may UPDATE only while spec, labels and annotations stay equal (they remove foregroundDeletion/orphan and dangling ownerReferences)); backstage-api sets a non-empty `teknoir.org/created-by` at create, and nobody changes it afterwards. DELETE only by backstage-api, ArgoCD, the garbage collector, the namespace controller or `system:kube-controller-manager`. |
 
 All four fence objects carry `argocd.argoproj.io/sync-options: Delete=false`: turning `teknoirbot.enabled` off deletes the controller but not the bots or their Devices, so the fence stays with them; remove it by hand only after the bots are gone.

@@ -5,7 +5,7 @@ set:
   ztna.agentImage: "ghcr.io/teknoir/wg-agent:sha-0000000a@sha256:1111111111111111111111111111111111111111111111111111111111111111"
   ztna.terminalImage: "ghcr.io/teknoir/web-terminal:sha-0000000b@sha256:2222222222222222222222222222222222222222222222222222222222222222"
 tests:
-  - it: has no DESKTOP key by default
+  - it: has no DESKTOP key while ztna is off (the default)
     asserts:
       - notExists:
           path: data.DESKTOP
@@ -21,6 +21,7 @@ tests:
 
   - it: has no DESKTOP key when ztna is on and desktop is off
     set:
+      desktop.enabled: false
       ztna.enabled: true
     asserts:
       - notExists:
