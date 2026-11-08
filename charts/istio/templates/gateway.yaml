@@ -64,3 +64,46 @@ spec:
       tls:
         mode: SIMPLE
         credentialName: {{ $credentialName | quote }}
+{{- if (.Values.teknoirbotApi).enabled }}
+
+---
+# TeknoirBot API (plans/teknoirbot/design/agent-mvp-design.md D3): the agent in a bot's VM calls
+# https://tb-api.<domain>:8085/api/device/bot/v1. The public gateway pods serve 8085, but 8085 is NOT a port of
+# the public LoadBalancer Service: only the ClusterIP Service below reaches it, and CoreDNS (charts/virtual-devices)
+# answers tb-api.<domain> with that Service inside the cluster. So the bot key is unusable from outside the cluster.
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: teknoirbot-api
+  namespace: istio-system
+spec:
+  selector:
+    istio: ingressgateway-public
+  servers:
+    - port:
+        name: https-teknoirbot-api
+        number: 8085
+        protocol: HTTPS
+      hosts:
+        - {{ printf "tb-api.%s" $domain | quote }}
+      tls:
+        mode: SIMPLE
+        credentialName: {{ $credentialName | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: teknoirbot-api
+  namespace: istio-system
+  labels:
+    app.kubernetes.io/part-of: teknoirbot
+spec:
+  type: ClusterIP
+  selector:
+    istio: ingressgateway-public
+  ports:
+    - name: https-teknoirbot-api
+      port: 8085
+      targetPort: 8085
+      protocol: TCP
+{{- end }}

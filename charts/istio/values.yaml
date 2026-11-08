@@ -3,6 +3,11 @@
 global:
   domain: teknoir.cloud
 
+# TeknoirBot API (gateway.yaml): Gateway server tb-api.<domain>:8085 on the public gateway pods plus the
+# ClusterIP-only Service teknoirbot-api. Passed by charts/app-of-apps (teknoirbot.agent.enabled).
+teknoirbotApi:
+  enabled: false
+
 # Dependency configurations
 # Only keeping values that change defaults or are required by the dependencies
 

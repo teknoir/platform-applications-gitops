@@ -63,6 +63,13 @@ data:
 {{- with .Values.teknoirBots }}
       teknoirBots:
         enabled: {{ .enabled | default false }}
+{{- with .agent }}
+        # The agent in a bot's computer (plans/teknoirbot/design/agent-mvp-design.md): the bot API
+        # /api/device/bot/v1 (fleet, whoami, model proxy) on tb-api.<domain>:8085, in-cluster only.
+        agent:
+          enabled: {{ .enabled | default false }}
+          host: {{ printf "tb-api.%s" $.Values.config.domain | quote }}
+{{- end }}
 {{- end }}
 {{- $fleet := .Values.fleet | default dict }}
 {{- $access := $fleet.access | default dict }}

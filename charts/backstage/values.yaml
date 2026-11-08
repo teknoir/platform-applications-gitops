@@ -72,6 +72,8 @@ istio:
   gateway: istio-system/teknoir-gateway
   ingressNamespace: istio-system
   ingressServiceAccount: istio-ingressgateway
+  # The public gateway (MQTT, WireGuard, the in-cluster TeknoirBot API on 8085).
+  publicIngressServiceAccount: istio-ingressgateway-public
   metricsNamespace: monitoring-system
   jwt:
     fromHeaders:
@@ -102,6 +104,13 @@ virtualDevices:
 # backstage-next-api, so the Bots page would fail there.
 teknoirBots:
   enabled: false
+  # The agent in a bot's computer: app-config teknoir.teknoirBots.agent.{enabled,host}, the VirtualService
+  # teknoirbot-api (Gateway istio-system/teknoirbot-api, port 8085, prefix /api/device/bot/ only, identity headers
+  # removed) and the AuthorizationPolicy rules that admit the public gateway for /api/device/bot/* only and refuse
+  # /api/device/bot/* from the main gateway. Needs charts/istio teknoirbotApi (one switch: app-of-apps
+  # teknoirbot.agent.enabled).
+  agent:
+    enabled: false
 
 # Next-gen fleet pages (backstage-plugin-teknoir-fleet). Both optional.
 fleet:

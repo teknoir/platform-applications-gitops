@@ -117,6 +117,11 @@ spec:
           port: 8883
         - protocol: TCP
           port: 8084
+{{- if ($.Values.teknoirbotApi).enabled }}
+        # TeknoirBot API (tb-api.<domain>:8085, charts/istio teknoirbotApi): only on the public gateway pods.
+        - protocol: TCP
+          port: 8085
+{{- end }}
 {{- if ($.Values.ztna).enabled }}
 ---
 # WireGuard (ZTNA) tunnels: the device's wg-agent reaches the TURN server exactly as an external

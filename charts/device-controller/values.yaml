@@ -159,6 +159,11 @@ desktop:
   image: "ghcr.io/teknoir/teknoir-desktop:sha-096d8df8@sha256:d9b3e748351de468bf44493ede64fd4243392be5a4404a3b43a5054cc4e0765d"  # required when enabled: ghcr.io/teknoir/teknoir-desktop:<tag>@sha256:<digest> (scripts/pin-image teknoir-desktop ...)
   hostGroupID: 64080 # gid of group teknoir-desktop on devices (host mode; the ansible desktop playbook creates it)
 
+# TeknoirBot API (charts/istio teknoirbotApi): virtual devices may reach tb-api.<domain>:8085 on the public gateway pods
+# (vdev-egress-gateway). Passed by charts/app-of-apps (teknoirbot.agent.enabled).
+teknoirbotApi:
+  enabled: false
+
 # WireGuard (ZTNA) tunnels, an alternative to the SSH reverse tunnels (plan:
 # plans/wireguard-ztna-tunnel.md). Everything in this block is inert while enabled is false:
 # the ZTNA key is left out of the controller ConfigMap (the controller treats a missing key as

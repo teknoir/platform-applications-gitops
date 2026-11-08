@@ -1,0 +1,130 @@
+suite: backstage TeknoirBot agent API (tb-api, port 8085)
+templates:
+  - templates/configmap-app-config.yaml
+  - templates/istio-virtualservice.yaml
+  - templates/istio-authpolicy.yaml
+tests:
+  - it: renders no bot route or policy by default
+    template: templates/istio-virtualservice.yaml
+    set:
+      teknoirBots.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 1
+
+  - it: renders no bot policy by default
+    template: templates/istio-authpolicy.yaml
+    set:
+      teknoirBots.enabled: true
+    asserts:
+      - notMatchRegex:
+          path: metadata.name
+          pattern: bot-deny
+      - notContains:
+          path: spec.rules
+          content:
+            from:
+              - source:
+                  principals: ["cluster.local/ns/istio-system/sa/istio-ingressgateway-public"]
+            to:
+              - operation:
+                  paths: ["/api/device/bot/*"]
+        documentSelector:
+          path: metadata.name
+          value: backstage-api-auth-policy
+
+  - it: needs teknoirBots.enabled as well
+    template: templates/istio-virtualservice.yaml
+    set:
+      teknoirBots.enabled: false
+      teknoirBots.agent.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 1
+
+  - it: writes the agent config
+    template: templates/configmap-app-config.yaml
+    set:
+      teknoirBots.enabled: true
+      teknoirBots.agent.enabled: true
+    asserts:
+      - matchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: "agent:\\s+enabled: true\\s+host: \"tb-api.teknoir.cloud\""
+
+  - it: routes only /api/device/bot/ on port 8085 of the bot gateway, with identity headers removed
+    template: templates/istio-virtualservice.yaml
+    set:
+      teknoirBots.enabled: true
+      teknoirBots.agent.enabled: true
+    documentSelector:
+      path: metadata.name
+      value: teknoirbot-api
+    asserts:
+      - equal:
+          path: spec.gateways
+          value: ["istio-system/teknoirbot-api"]
+      - equal:
+          path: spec.hosts
+          value: ["tb-api.teknoir.cloud"]
+      - lengthEqual:
+          path: spec.http
+          count: 1
+      - equal:
+          path: spec.http[0].match
+          value:
+            - uri: {prefix: /api/device/bot/}
+              port: 8085
+      - contains:
+          path: spec.http[0].headers.request.remove
+          content: x-auth-request-email
+      - contains:
+          path: spec.http[0].headers.request.remove
+          content: verified-jwt
+      - contains:
+          path: spec.http[0].headers.request.remove
+          content: x-forwarded-access-token
+      - equal:
+          path: spec.http[0].route[0].destination.host
+          value: backstage-api.NAMESPACE.svc.cluster.local
+
+  - it: admits the public gateway for the bot paths only
+    template: templates/istio-authpolicy.yaml
+    set:
+      teknoirBots.enabled: true
+      teknoirBots.agent.enabled: true
+    documentSelector:
+      path: metadata.name
+      value: backstage-api-auth-policy
+    asserts:
+      - contains:
+          path: spec.rules
+          content:
+            from:
+              - source:
+                  principals: ["cluster.local/ns/istio-system/sa/istio-ingressgateway-public"]
+            to:
+              - operation:
+                  paths: ["/api/device/bot/*"]
+
+  - it: refuses the bot paths from everyone but the public gateway
+    template: templates/istio-authpolicy.yaml
+    set:
+      teknoirBots.enabled: true
+      teknoirBots.agent.enabled: true
+    documentSelector:
+      path: metadata.name
+      value: backstage-api-bot-deny
+    asserts:
+      - equal:
+          path: spec.action
+          value: DENY
+      - equal:
+          path: spec.selector.matchLabels.app
+          value: backstage-api
+      - equal:
+          path: spec.rules[0].from[0].source.notPrincipals
+          value: ["cluster.local/ns/istio-system/sa/istio-ingressgateway-public"]
+      - equal:
+          path: spec.rules[0].to[0].operation.paths
+          value: ["/api/device/bot", "/api/device/bot/*"]

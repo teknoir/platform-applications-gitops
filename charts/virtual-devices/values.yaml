@@ -83,6 +83,12 @@ coreDNS:
     - mqtt
   target: istio-ingressgateway-public.istio-system.svc.cluster.local
 
+# TeknoirBot API: a CoreDNS rewrite of tb-api.<domain> to the ClusterIP Service charts/istio creates
+# (teknoirbotApi). enabled is passed by charts/app-of-apps (teknoirbot.agent.enabled).
+teknoirbotApi:
+  enabled: false
+  target: teknoirbot-api.istio-system.svc.cluster.local
+
 # WireGuard (ZTNA) tunnels: two more CoreDNS rewrites (wg-device.<domain> to the public ingress
 # gateway above, turn.<domain> to the STUNner gateway Service). enabled is passed by
 # charts/app-of-apps (ztna.enabled) to this Application; off renders nothing extra.
