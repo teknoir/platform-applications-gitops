@@ -1,7 +1,7 @@
 # GitOps values for teknoirbot-controller.
 image:
   repository: ghcr.io/teknoir/teknoirbot-controller
-  tag: "sha-ebf37007@sha256:200204fae77b38dbd9a557700d8a30a48872becc4b2daad496540bd69edde984"  # required: '<tag>@sha256:<digest>' (scripts/pin-image teknoirbot-controller ...)
+  tag: "sha-611c806c@sha256:ff345624d7aeddea306ae1c98b7d07b2cf0a1502d144722d15bac1d2271c4409"  # required: '<tag>@sha256:<digest>' (scripts/pin-image teknoirbot-controller ...)
   pullPolicy: IfNotPresent
 imagePullSecrets: [{name: ghcr-token}]   # private repo; the secret exists in teknoir-system
 serviceAccount: {name: teknoirbot-controller}
