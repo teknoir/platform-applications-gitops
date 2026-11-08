@@ -37,7 +37,7 @@ exceptions: []
 # tag not listed here (fail closed: old main builds, branch builds and unknown tags all count as unchecked). Add a tag only after confirming the image was built from the ztna-audience merge commit or a descendant
 # of it (git merge-base --is-ancestor <merge> <sha> in wg-tunnel; the tag is sha-<first 7 of the commit>). Empty until
 # the ztna-audience PR is merged and its image is built and pinned.
-audience_hub_tags: [sha-a2478da]
+audience_hub_tags: [sha-a2478da, sha-82cf91a]  # sha-82cf91a: wg-tunnel#10 (TeknoirBot cover rule), a2478da is its parent
 
 # profile-controller image tags (exact, without the digest) that contain the portal code: the RoleBinding teknoir-portal
 # per teamspace (profile-controller branch backstage-sa-teamspace-binding, commits 1c951a6 'Bind the portal service
