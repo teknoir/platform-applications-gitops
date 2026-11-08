@@ -180,11 +180,18 @@ MERGE=(--type=merge -p)
 FENCE="are written only by teknoirbot-controller and device-controller"
 BSMSG="backstage may only change the teknoir.org/disabled"
 
+# owned <bot>: the desired() body of tb-<bot>, owned by that bot (its real uid)
+owned() {
+  local uid; uid=$("${KC[@]}" -n "$NS" get teknoirbots.teknoir.org "$1" -o jsonpath='{.metadata.uid}')
+  desired "tb-$1" | jq --arg b "$1" --arg uid "$uid" '.metadata.labels["teknoir.org/teknoirbot"]=$b | .metadata.ownerReferences[0].name=$b | .metadata.ownerReferences[0].uid=$uid'
+}
+for b in del del2 del3; do bot "$b" | "${KC[@]}" create -f - >/dev/null || { echo "cannot create TeknoirBot $b" >&2; exit 2; }; done
+
 # ---- Devices: the allowed writers ---------------------------------------------------------------------------------
 expect allow "teknoirbot-controller creates tb-a (desiredDevice body, owner reference)" ctrl -- create -f <(desired tb-a)
-expect allow "teknoirbot-controller creates tb-del"                      ctrl  -- create -f <(desired tb-del)
-expect allow "teknoirbot-controller creates tb-del2"                     ctrl  -- create -f <(desired tb-del2)
-expect allow "teknoirbot-controller creates tb-del3"                     ctrl  -- create -f <(desired tb-del3)
+expect allow "teknoirbot-controller creates tb-del"                      ctrl  -- create -f <(owned del)
+expect allow "teknoirbot-controller creates tb-del2"                     ctrl  -- create -f <(owned del2)
+expect allow "teknoirbot-controller creates tb-del3"                     ctrl  -- create -f <(owned del3)
 expect allow "device-controller patches subresources.status"             dc    -- "${P[@]}" tb-a "${MERGE[@]}" '{"subresources":{"status":{"state":"ok"}}}'
 expect allow "device-controller patches spec.manifest"                   dc    -- "${P[@]}" tb-a "${MERGE[@]}" '{"spec":{"manifest":{"apps":{"k":{"apiVersion":"v1","kind":"ConfigMap","metadata":{"name":"k"}}}}}}'
 expect allow "device-controller adds a finalizer"                        dc    -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"finalizers":["teknoir.org/test"]}}'
@@ -219,7 +226,23 @@ expect deny  "backstage patches spec.virtual.cpu"                        bs    "
 expect deny  "backstage patches a label"                                 bs    "$BSMSG" -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"labels":{"x":"z"}}}'
 expect deny  "backstage removes a label"                                 bs    "$BSMSG" -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"labels":{"x":null}}}'
 expect deny  "backstage patches another annotation"                      bs    "$BSMSG" -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"annotations":{"x":"z"}}}'
-expect deny  "backstage patches a ztna annotation"                       bs    "$BSMSG" -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"annotations":{"ztna.teknoir.org/wireguard":"other"}}}'
+# Real changes of the two keys a tombstone recovery needs: tb-a starts in the tombstone state with a stored approval.
+FP1="SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+FP2="SHA256:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+expect allow "setup: tb-a has the tombstone state (wireguard=disabled) and a stored approved identity (device-controller, exempt)" dc -- "${P[@]}" tb-a "${MERGE[@]}" "{\"metadata\":{\"annotations\":{\"ztna.teknoir.org/wireguard\":\"disabled\",\"ztna.teknoir.org/approved-identity\":\"$FP1\"}}}"
+expect allow "backstage turns Tunneling on for tb-a (disabled -> enabled)" bs -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"annotations":{"ztna.teknoir.org/wireguard":"enabled"}}}'
+expect allow "backstage turns Tunneling off as the console does (wireguard=disabled, approved-identity removed)" bs -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"annotations":{"ztna.teknoir.org/wireguard":"disabled","ztna.teknoir.org/approved-identity":null}}}'
+expect allow "backstage approves an identity of tb-a"                    bs    -- "${P[@]}" tb-a "${MERGE[@]}" "{\"metadata\":{\"annotations\":{\"ztna.teknoir.org/approved-identity\":\"$FP2\"}}}"
+expect deny  "backstage sets ztna.teknoir.org/wireguard-foo (no prefix match)" bs "$BSMSG" -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"annotations":{"ztna.teknoir.org/wireguard-foo":"enabled"}}}'
+expect deny  "backstage sets services together with wireguard in one patch" bs "$BSMSG" -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"annotations":{"ztna.teknoir.org/wireguard":"enabled","ztna.teknoir.org/services":"[]"}}}'
+expect deny  "backstage removes the teknoir.org/teknoirbot label"        bs    "$BSMSG" -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"labels":{"teknoir.org/teknoirbot":null}}}'
+expect allow "backstage marks tb-a compromised, with a reason"           bs    -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"annotations":{"ztna.teknoir.org/compromised":"true","ztna.teknoir.org/reason":"test"}}}'
+expect allow "backstage resets the enrollment of tb-a"                   bs    -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"annotations":{"ztna.teknoir.org/approved-identity":null,"ztna.teknoir.org/reenroll":"2026-11-08T10:00:00Z","ztna.teknoir.org/health-check-failed":"true"}}}'
+expect allow "backstage clears the Tunneling flags of tb-a"               bs    -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"annotations":{"ztna.teknoir.org/compromised":null,"ztna.teknoir.org/health-check-failed":null,"ztna.teknoir.org/reason":null,"ztna.teknoir.org/reenroll":null}}}'
+for k in services web-terminal activation p2p rotate-device-key device-key; do
+  expect deny  "backstage patches the ztna annotation $k"                bs    "$BSMSG" -- "${P[@]}" tb-a "${MERGE[@]}" "{\"metadata\":{\"annotations\":{\"ztna.teknoir.org/$k\":\"x\"}}}"
+done
+expect deny  "backstage patches a Tunneling key together with a spec change" bs "$BSMSG" -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"annotations":{"ztna.teknoir.org/wireguard":"enabled"}},"spec":{"virtual":{"cpu":"4"}}}'
 expect deny  "backstage removes another annotation"                      bs    "$BSMSG" -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"annotations":{"teknoir.org/virtual-preset":null}}}'
 expect deny  "backstage adds a disabled* annotation together with a spec change" bs "$BSMSG" -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"annotations":{"teknoir.org/disabled":"true"}},"spec":{"virtual":{"cpu":"4"}}}'
 expect deny  "backstage patches metadata.finalizers"                     bs    "$BSMSG" -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"finalizers":["x.example/y"]}}'
@@ -258,11 +281,6 @@ expect allow "namespace controller deletes a bot"                        nsc   -
 expect allow "kube-controller-manager deletes a bot"                     kcm   -- -n "$NS" delete teknoirbots.teknoir.org b8
 
 # ---- the end of a cascade: the garbage collector removes foregroundDeletion/orphan from the bot ----------------------
-# owned <bot>: the desired() body of tb-<bot>, owned by that bot (its real uid)
-owned() {
-  local uid; uid=$("${KC[@]}" -n "$NS" get teknoirbots.teknoir.org "$1" -o jsonpath='{.metadata.uid}')
-  desired "tb-$1" | jq --arg b "$1" --arg uid "$uid" '.metadata.labels["teknoir.org/teknoirbot"]=$b | .metadata.ownerReferences[0].name=$b | .metadata.ownerReferences[0].uid=$uid'
-}
 # gone_within <seconds> <kubectl get args...>
 gone_within() { local t=$1; shift; for _ in $(seq 1 "$t"); do "${KC[@]}" -n "$NS" get "$@" >/dev/null 2>&1 || return 0; sleep 1; done; return 1; }
 

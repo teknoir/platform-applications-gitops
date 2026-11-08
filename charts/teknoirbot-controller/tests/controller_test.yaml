@@ -131,7 +131,7 @@ tests:
       - equal: {path: 'spec.matchConditions[0].expression', value: "request.userInfo.username == 'system:serviceaccount:teknoir-system:teknoirbot-controller'"}
       - equal: {path: 'spec.matchConstraints.resourceRules[0].operations', value: [CREATE, UPDATE]}
       - equal: {path: 'spec.matchConstraints.resourceRules[0].resources', value: [devices]}
-      - lengthEqual: {path: spec.validations, count: 8}
+      - lengthEqual: {path: spec.validations, count: 9}
 
   - it: the admission policy follows a custom service account name and namespace
     template: templates/admission.yaml

@@ -104,7 +104,7 @@ OTHER=(--as="system:serviceaccount:${SYS}:tb-other")
 
 # the TeknoirBots the Devices are owned by, created by the admin (real uids: the garbage collector deletes Devices whose
 # owner does not resolve)
-for b in bot scout; do
+for b in bot scout a preset own; do
   "${KC[@]}" -n "$NS" apply -f - >/dev/null <<EOF || { echo "cannot create TeknoirBot $b" >&2; exit 2; }
 apiVersion: teknoir.org/v1alpha1
 kind: TeknoirBot
@@ -114,15 +114,18 @@ EOF
 done
 BOTUID=$("${KC[@]}" -n "$NS" get teknoirbots.teknoir.org bot -o jsonpath='{.metadata.uid}')
 SCOUTUID=$("${KC[@]}" -n "$NS" get teknoirbots.teknoir.org scout -o jsonpath='{.metadata.uid}')
+declare -A UIDS
+for b in bot scout a preset own; do UIDS[$b]=$("${KC[@]}" -n "$NS" get teknoirbots.teknoir.org "$b" -o jsonpath='{.metadata.uid}'); done
 
 # device <name> <labelled 0|1> <device_type> <annotations-json> [owned 0|1 (default: owned when labelled)] -> Device JSON
-# A labelled body carries a controller ownerReference to the TeknoirBot "bot".
+# A labelled body carries a controller ownerReference to the TeknoirBot it is named after (tb-<bot>, one of UIDS; else "bot").
 device() {
-  jq -n --arg name "$1" --arg ns "$NS" --argjson lab "$2" --arg dt "$3" --argjson ann "$4" --arg uid "$BOTUID" --argjson own "${5:-$2}" '
+  local b=${1#tb-}; [[ -n ${UIDS[$b]:-} ]] || b=bot
+  jq -n --arg name "$1" --arg ns "$NS" --argjson lab "$2" --arg dt "$3" --argjson ann "$4" --arg bot "$b" --arg uid "${UIDS[$b]}" --argjson own "${5:-$2}" '
     {apiVersion: "teknoir.org/v1", kind: "Device",
      metadata: ({name: $name, namespace: $ns}
-       + (if $lab == 1 then {labels: {"teknoir.org/teknoirbot": "bot", "teknoir.org/part-of": "teknoirbot", hardware: "virtual"}} else {} end)
-       + (if $own == 1 then {ownerReferences: [{apiVersion: "teknoir.org/v1alpha1", kind: "TeknoirBot", name: "bot", uid: $uid, controller: true, blockOwnerDeletion: true}]} else {} end)
+       + (if $lab == 1 then {labels: {"teknoir.org/teknoirbot": $bot, "teknoir.org/part-of": "teknoirbot", hardware: "virtual"}} else {} end)
+       + (if $own == 1 then {ownerReferences: [{apiVersion: "teknoir.org/v1alpha1", kind: "TeknoirBot", name: $bot, uid: $uid, controller: true, blockOwnerDeletion: true}]} else {} end)
        + (if ($ann | length) > 0 then {annotations: $ann} else {} end)),
      spec: ({device_type: $dt, keys: {data: {board: "dmlydHVhbA=="}}, manifest: {}}
        + (if $dt == "virtual" then {virtual: {cpu: "2", memory: "4Gi", disk: {size: "20Gi"}}} else {} end))}'
@@ -252,7 +255,14 @@ expect deny  "bot takes over plain: labels plus an ownerReference in one patch" 
 expect allow "bot creates tb-own (labelled, owner-referenced)"           bot   -- create -f <(device tb-own 1 virtual '{}')
 expect allow "admin removes the teknoirbot label from tb-own"            admin -- -n "$NS" label devices.teknoir.org tb-own teknoir.org/teknoirbot-
 expect deny  "bot patches tb-own without restoring the label"            bot   "non-empty label" -- "${P[@]}" tb-own "${MERGE[@]}" '{"spec":{"virtual":{"cpu":"3"}}}'
-expect allow "bot restores the label of its owner-referenced Device"     bot   -- "${P[@]}" tb-own "${MERGE[@]}" '{"metadata":{"labels":{"teknoir.org/teknoirbot":"bot"}}}'
+expect allow "bot restores the label of its owner-referenced Device"     bot   -- "${P[@]}" tb-own "${MERGE[@]}" '{"metadata":{"labels":{"teknoir.org/teknoirbot":"own"}}}'
+
+# the name is tied to the label on every write (rule 9): no Device named after one bot with the label of another
+D9="only as tb-<bot>"
+expect deny  "bot creates cam-07 labelled and owned for TeknoirBot scout" bot  "$D9" -- create -f <(desired cam-07)
+expect deny  "bot relabels tb-scout to another bot"                      bot   "$D9" -- "${P[@]}" tb-scout "${MERGE[@]}" '{"metadata":{"labels":{"teknoir.org/teknoirbot":"bot"}}}'
+expect allow "admin removes the teknoirbot label from tb-own again"      admin -- -n "$NS" label devices.teknoir.org tb-own teknoir.org/teknoirbot-
+expect deny  "bot restores tb-own's label with another bot's name"       bot   "$D9" -- "${P[@]}" tb-own "${MERGE[@]}" '{"metadata":{"labels":{"teknoir.org/teknoirbot":"scout"}}}'
 
 # ---- a second ServiceAccount with the same ClusterRole is not evaluated ------------------------------------------------
 expect allow "other SA creates an unlabelled non-virtual Device with a ztna annotation" other -- create -f <(device o1 0 jetson '{"ztna.teknoir.org/wireguard":"enabled"}')
