@@ -104,7 +104,7 @@ OTHER=(--as="system:serviceaccount:${SYS}:tb-other")
 
 # the TeknoirBots the Devices are owned by, created by the admin (real uids: the garbage collector deletes Devices whose
 # owner does not resolve)
-for b in bot scout a preset own; do
+for b in bot scout a preset own unit; do
   "${KC[@]}" -n "$NS" apply -f - >/dev/null <<EOF || { echo "cannot create TeknoirBot $b" >&2; exit 2; }
 apiVersion: teknoir.org/v1alpha1
 kind: TeknoirBot
@@ -115,7 +115,7 @@ done
 BOTUID=$("${KC[@]}" -n "$NS" get teknoirbots.teknoir.org bot -o jsonpath='{.metadata.uid}')
 SCOUTUID=$("${KC[@]}" -n "$NS" get teknoirbots.teknoir.org scout -o jsonpath='{.metadata.uid}')
 declare -A UIDS
-for b in bot scout a preset own; do UIDS[$b]=$("${KC[@]}" -n "$NS" get teknoirbots.teknoir.org "$b" -o jsonpath='{.metadata.uid}'); done
+for b in bot scout a preset own unit; do UIDS[$b]=$("${KC[@]}" -n "$NS" get teknoirbots.teknoir.org "$b" -o jsonpath='{.metadata.uid}'); done
 
 # device <name> <labelled 0|1> <device_type> <annotations-json> [owned 0|1 (default: owned when labelled)] -> Device JSON
 # A labelled body carries a controller ownerReference to the TeknoirBot it is named after (tb-<bot>, one of UIDS; else "bot").
@@ -198,6 +198,13 @@ expect allow "bot patches spec.desktop.geometry of its Device"           bot   -
 geometry 1920x1080 "spec.desktop.geometry of tb-a"
 expect allow "bot patches the preset annotation and a label"             bot   -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"labels":{"hardware":"virtual"},"annotations":{"teknoir.org/virtual-preset":"teknoirbot"}}}'
 
+# the bot's org unit: the two placement keys, copied from the TeknoirBot, at create and afterwards
+ORG='{"teknoir.org/org-tree-path":"se/karlstad","teknoir.org/org-tree-node-id":"karlstad"}'
+expect allow "bot creates a Device with the two placement annotations"   bot   -- create -f <(device tb-unit 1 virtual "$ORG")
+expect allow "bot changes the placement annotations of its Device"       bot   -- "${P[@]}" tb-unit "${MERGE[@]}" '{"metadata":{"annotations":{"teknoir.org/org-tree-path":"se/north/karlstad"}}}'
+expect allow "bot removes the placement annotations of its Device"       bot   -- "${P[@]}" tb-unit "${MERGE[@]}" '{"metadata":{"annotations":{"teknoir.org/org-tree-path":null,"teknoir.org/org-tree-node-id":null}}}'
+expect allow "bot adds teknoir.org/org-tree-node-id to its Device"       bot   -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"annotations":{"teknoir.org/org-tree-node-id":"n"}}}'
+
 # device-controller (stood in for by the admin) writes spec.keys, spec.manifest and finalizers; the bot stays able to patch
 expect allow "admin (as device-controller) changes spec.keys"            admin -- "${P[@]}" tb-scout "${MERGE[@]}" '{"spec":{"keys":{"data":{"rsa_private":"eHh4"}}}}'
 expect allow "admin (as device-controller) writes spec.manifest.apps and a finalizer" admin -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"finalizers":["x.example/y"]},"spec":{"manifest":{"apps":{"k":{"apiVersion":"v1","kind":"ConfigMap","metadata":{"name":"k"}}}}}}'
@@ -219,7 +226,8 @@ expect deny  "bot removes a key from spec.keys.data"                     bot   "
 expect deny  "bot adds teknoir.org/disabled"                             bot   "platform annotations" -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"annotations":{"teknoir.org/disabled":"true"}}}'
 expect deny  "bot adds a ztna annotation"                                bot   "platform annotations" -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"annotations":{"ztna.teknoir.org/wireguard":"enabled"}}}'
 expect deny  "bot adds teknoir.org/disabled-by"                          bot   "platform annotations" -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"annotations":{"teknoir.org/disabled-by":"me"}}}'
-expect deny  "bot adds teknoir.org/org-tree-node-id"                     bot   "platform annotations" -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"annotations":{"teknoir.org/org-tree-node-id":"n"}}}'
+expect deny  "bot adds another org-tree annotation (teknoir.org/org-tree-x)" bot "platform annotations" -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"annotations":{"teknoir.org/org-tree-x":"n"}}}'
+expect deny  "bot creates with the placement keys and teknoir.org/org-tree-x" bot "platform annotations" -- create -f <(device tb-org2 1 virtual '{"teknoir.org/org-tree-path":"a","teknoir.org/org-tree-x":"y"}')
 expect deny  "bot removes the teknoir.org/part-of label"                 bot   "non-empty label" -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"labels":{"teknoir.org/part-of":null}}}'
 expect deny  "bot removes the teknoirbot label"                          bot   "non-empty label" -- "${P[@]}" tb-a "${MERGE[@]}" '{"metadata":{"labels":{"teknoir.org/teknoirbot":null}}}'
 

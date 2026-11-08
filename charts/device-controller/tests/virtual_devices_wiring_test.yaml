@@ -11,7 +11,7 @@ tests:
     asserts:
       - equal:
           path: data.VIRTUAL_DEVICES
-          value: '{"cpuOvercommit":2,"enabled":true,"innerCIDRs":{"cluster":"10.52.0.0/16","dns":"10.53.0.10","service":"10.53.0.0/16"},"k3sVersion":"v1.34.11+k3s1","maxPerDevice":{"cpu":"4","disk":"40Gi","memory":"8Gi"},"nodeSelector":{"teknoir.org/virtual-devices":"true"},"osImage":"docker://quay.io/containerdisks/debian@sha256:6b992c4a8a62ca57858cbbf60110e673928d27b2885ea2a106660bc26b112b5b","priorityClassName":"teknoir-virtual-device","storageClassName":"local-path","tolerations":[{"effect":"NoSchedule","key":"teknoir.org/ci","operator":"Exists"}]}'
+          value: '{"cpuOvercommit":2,"enabled":true,"innerCIDRs":{"cluster":"10.52.0.0/16","dns":"10.53.0.10","service":"10.53.0.0/16"},"k3sVersion":"v1.34.11+k3s1","maxPerDevice":{"cpu":"4","disk":"40Gi","memory":"8Gi"},"nodeSelector":{"teknoir.org/virtual-devices":"true"},"osImage":"docker://quay.io/containerdisks/debian@sha256:6b992c4a8a62ca57858cbbf60110e673928d27b2885ea2a106660bc26b112b5b","priorityClassName":"teknoir-virtual-device","registryMirror":{"host":"harbor.teknoir.cloud","secret":{"name":"harbor-teamspace-pull","namespace":"teknoir-system"}},"storageClassName":"local-path","tolerations":[{"effect":"NoSchedule","key":"teknoir.org/ci","operator":"Exists"}]}'
       - notMatchRegex:
           path: data.VIRTUAL_DEVICES
           pattern: "allowance|teknoir-demo"
@@ -45,6 +45,39 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "virtualDevices.maxPerDevice.disk"
+
+  - it: leaves registryMirror out of VIRTUAL_DEVICES when the block is absent
+    template: templates/configmap.yaml
+    set:
+      virtualDevices.registryMirror: null
+    asserts:
+      - notMatchRegex:
+          path: data.VIRTUAL_DEVICES
+          pattern: registryMirror
+
+  - it: fails the render for a registryMirror without a host
+    template: templates/deployment.yaml
+    set:
+      virtualDevices.registryMirror.host: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "virtualDevices.registryMirror.host is required"
+
+  - it: fails the render for a registryMirror host with a scheme
+    template: templates/deployment.yaml
+    set:
+      virtualDevices.registryMirror.host: https://harbor.teknoir.cloud
+    asserts:
+      - failedTemplate:
+          errorPattern: "virtualDevices.registryMirror.host must be a host name"
+
+  - it: fails the render for a registryMirror without a Secret name
+    template: templates/deployment.yaml
+    set:
+      virtualDevices.registryMirror.secret.name: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "virtualDevices.registryMirror.secret.name is required"
 
   - it: leaves VIRTUAL_DEVICES out when virtualDevices.enabled is false
     template: templates/configmap.yaml

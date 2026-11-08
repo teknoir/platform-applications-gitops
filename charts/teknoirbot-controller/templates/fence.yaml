@@ -19,7 +19,8 @@ value) or whose name starts with tb- (the old object counts too: removing the la
 
 teknoirbot-created-by (TeknoirBots, the main resource only: the controller writes teknoirbots/status).
   - CREATE and UPDATE only by backstage-api or ArgoCD; the portal sets the annotation teknoir.org/created-by at create
-    and it never changes afterwards. The garbage collector and system:kube-controller-manager may UPDATE only while
+    and it never changes afterwards. The bot's org unit (teknoir.org/org-tree-path and teknoir.org/org-tree-node-id)
+    is set at create, or not at all, and never changes afterwards either. The garbage collector and system:kube-controller-manager may UPDATE only while
     spec, labels and annotations stay equal (finalizers and ownerReferences may change): they remove
     foregroundDeletion/orphan, and dangling ownerReferences, at the end of a foreground or orphan delete (ArgoCD prunes
     with foreground propagation).
@@ -154,6 +155,13 @@ spec:
         request.operation != 'DELETE' ||
         request.userInfo.username in ['{{ $backstage }}', '{{ $argocd }}', '{{ $gc }}', '{{ $ns }}', '{{ $kcm }}']
       message: "TeknoirBots are deleted only through the Teknoir portal or GitOps"
+    # The bot's org unit is chosen when it is created and then fixed: nobody (the portal included) moves a bot to
+    # another unit, which would also move its computer. teknoirbot-controller copies these two keys to the Device.
+    - expression: >-
+        request.operation != 'UPDATE' ||
+        ['teknoir.org/org-tree-path', 'teknoir.org/org-tree-node-id'].all(k,
+          object.metadata.?annotations.orValue({})[?k] == oldObject.metadata.?annotations.orValue({})[?k])
+      message: "the org unit of a TeknoirBot (teknoir.org/org-tree-path, teknoir.org/org-tree-node-id) is set when it is created and cannot be changed"
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding

@@ -152,6 +152,15 @@ on the quota annotation). Only included in the ConfigMap when virtualDevices.ena
 {{- $c := dict "enabled" true "osImage" $v.osImage "k3sVersion" $v.k3sVersion "innerCIDRs" $v.innerCIDRs "cpuOvercommit" $o "maxPerDevice" $max "storageClassName" $v.storageClassName "priorityClassName" $v.priorityClassName -}}
 {{- with $v.nodeSelector }}{{- $_ := set $c "nodeSelector" . -}}{{- end -}}
 {{- with $v.tolerations }}{{- $_ := set $c "tolerations" . -}}{{- end -}}
+{{- /* Harbor pull-through cache for new VMs (device-controller vm-registry-mirror): only emitted when
+set, and an older controller image ignores the key. */ -}}
+{{- with $v.registryMirror }}
+{{- $sec := .secret | default dict -}}
+{{- if and .host (not (regexMatch "^[a-z0-9]([a-z0-9-]*[a-z0-9])?([.][a-z0-9]([a-z0-9-]*[a-z0-9])?)*(:[0-9]{1,5})?$" .host)) -}}
+{{- fail (printf "virtualDevices.registryMirror.host must be a host name such as harbor.teknoir.cloud (no scheme or path), not %q" .host) -}}
+{{- end -}}
+{{- $_ := set $c "registryMirror" (dict "host" (required "virtualDevices.registryMirror.host is required (the Harbor host, e.g. harbor.teknoir.cloud)" .host) "secret" (dict "namespace" (required "virtualDevices.registryMirror.secret.namespace is required" $sec.namespace) "name" (required "virtualDevices.registryMirror.secret.name is required" $sec.name))) -}}
+{{- end -}}
 {{- toJson $c -}}
 {{- end }}
 

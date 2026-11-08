@@ -206,7 +206,9 @@ tests:
       - equal: {path: 'spec.matchConstraints.resourceRules[0].operations', value: [CREATE, UPDATE, DELETE]}
       - equal: {path: 'spec.matchConstraints.resourceRules[0].resources', value: [teknoirbots]}
       - equal: {path: 'spec.matchConditions[0].expression', value: "!('system:masters' in request.userInfo.groups)"}
-      - lengthEqual: {path: spec.validations, count: 4}
+      - lengthEqual: {path: spec.validations, count: 5}
+      - matchRegex: {path: 'spec.validations[4].expression', pattern: "'teknoir.org/org-tree-path', 'teknoir.org/org-tree-node-id'"}
+      - matchRegex: {path: 'spec.validations[4].message', pattern: 'cannot be changed'}
       - matchRegex: {path: 'spec.variables[1].expression', pattern: "'system:serviceaccount:teknoir-system:backstage-api', 'system:serviceaccount:teknoir-system:argocd-application-controller'"}
       - matchRegex: {path: 'spec.validations[0].expression', pattern: "'system:serviceaccount:kube-system:generic-garbage-collector'"}
 

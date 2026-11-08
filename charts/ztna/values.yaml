@@ -120,6 +120,11 @@ deviceController:
 backstage:
   serviceAccount: system:serviceaccount:teknoir-system:backstage-api
 
+# teknoirbot-controller (charts/teknoirbot-controller serviceAccount.name): may write only the two org-tree
+# keys teknoir.org/org-tree-path and -node-id, and only on a bot's computer tb-<bot> (ztna-device-annotations).
+teknoirbotController:
+  serviceAccount: system:serviceaccount:teknoir-system:teknoirbot-controller
+
 # Who may add, change or remove the org-tree annotations on Users (teknoir.org/org-tree-member-* and
 # org-tree-units-*), the inputs of the hub org gate (admission policy ztna-user-org-annotations),
 # besides system:masters. Backstage backend (Settings > Members), ArgoCD (platformUsers/orgUnits in
