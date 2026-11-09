@@ -43,6 +43,11 @@ spec:
         # fence.backstageServiceAccount). Bots need Tunneling, so it sits inside the ZTNA switch.
         - name: teknoirBots.enabled
           value: "true"
+{{- if include "app-of-apps.botAgentEnabled" . }}
+        # The agent in a bot's computer: the bot API on tb-api.<domain>:8085 (in-cluster only).
+        - name: teknoirBots.agent.enabled
+          value: "true"
+{{- end }}
 {{- end }}
 {{- end }}
 {{- end }}

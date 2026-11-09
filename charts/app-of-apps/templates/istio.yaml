@@ -15,6 +15,13 @@ spec:
     path: charts/istio
     repoURL: https://github.com/teknoir/platform-applications-gitops
     targetRevision: {{ include "app-of-apps.revision" . }}
+{{- if include "app-of-apps.botAgentEnabled" . }}
+    helm:
+      parameters:
+        # TeknoirBot API: Gateway tb-api.<domain>:8085 on the public gateway pods + ClusterIP Service (in-cluster only).
+        - name: teknoirbotApi.enabled
+          value: "true"
+{{- end }}
   project: {{ .Values.project }}
   syncPolicy:
     automated:

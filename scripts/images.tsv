@@ -15,3 +15,6 @@ postgres	charts/backstage/values.yaml	postgres.image	ref	postgres	third party; t
 httpbin	charts/auth/values.yaml	httpbin.image.tag	tag	docker.io/kennethreitz/httpbin	third party :latest; remove if unused, else pin
 teknoirbot-controller	charts/teknoirbot-controller/values.yaml	image.tag	tag	ghcr.io/teknoir/teknoirbot-controller	TeknoirBot controller (private repo, local-ci builds)
 teknoir-desktop	charts/device-controller/values.yaml	desktop.image	ref	ghcr.io/teknoir/teknoir-desktop	browser remote desktop, injected into devices by device-controller (public repo)
+teknoir-desktop-agent	charts/device-controller/values.yaml	desktop.agent.image	ref	ghcr.io/teknoir/teknoir-desktop	the TeknoirBot agent image (target agent, linux/amd64, sha-<8>-agent; local-ci teknoir-desktop.sh with TNCTL_REF)
+buildkit	charts/device-controller/values.yaml	desktop.agent.buildkitImage	ref	moby/buildkit	third party; rootful buildkitd on a bot computer, same version as the agent image buildctl
+bot-registry	charts/device-controller/values.yaml	desktop.agent.registryImage	ref	registry	third party; the bot computer own registry

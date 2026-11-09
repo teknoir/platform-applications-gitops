@@ -31,4 +31,9 @@ data:
     rewrite stop name exact wg-device.{{ .Values.coreDNS.domain }}. {{ .Values.coreDNS.target }}. answer auto
     rewrite stop name exact turn.{{ .Values.coreDNS.domain }}. {{ .Values.ztna.turnTarget }}. answer auto
 {{- end }}
+{{- if (.Values.teknoirbotApi).enabled }}
+    # TeknoirBot API (charts/istio teknoirbotApi): tb-api.{{ .Values.coreDNS.domain }} exists only inside the
+    # cluster, as the ClusterIP Service in front of port 8085 of the public gateway pods. No public DNS record.
+    rewrite stop name exact tb-api.{{ .Values.coreDNS.domain }}. {{ .Values.teknoirbotApi.target }}. answer auto
+{{- end }}
 {{- end }}

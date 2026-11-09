@@ -50,6 +50,11 @@ spec:
         # CoreDNS rewrites for wg-device.<domain> and turn.<domain> (ZTNA).
         - name: ztna.enabled
           value: "true"
+{{- if include "app-of-apps.botAgentEnabled" . }}
+        # CoreDNS rewrite of tb-api.<domain> to the TeknoirBot API Service (inside the ZTNA gate).
+        - name: teknoirbotApi.enabled
+          value: "true"
+{{- end }}
 {{- end }}
   project: {{ .Values.project }}
   syncPolicy:

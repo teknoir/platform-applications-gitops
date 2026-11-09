@@ -23,3 +23,44 @@ spec:
             host: {{ .Values.name }}.{{ .Release.Namespace }}.svc.cluster.local
             port:
               number: 80
+{{- if and (.Values.teknoirBots).enabled ((.Values.teknoirBots).agent).enabled }}
+---
+# TeknoirBot API (agent-mvp-design D3): only /api/device/bot/ on tb-api.<domain>:8085 (charts/istio teknoirbotApi,
+# in-cluster only). The public gateway runs no ext_authz, so every identity header a client could forge is removed
+# here; Backstage authenticates the bot key itself and never reads these headers on the bot path.
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: teknoirbot-api
+  namespace: {{ .Release.Namespace }}
+spec:
+  gateways:
+    - istio-system/teknoirbot-api
+  hosts:
+    - {{ printf "tb-api.%s" .Values.config.domain | quote }}
+  http:
+    - match:
+        - uri:
+            prefix: /api/device/bot/
+          port: 8085
+      headers:
+        request:
+          remove:
+            - x-auth-request-email
+            - x-auth-request-user
+            - x-auth-request-preferred-username
+            - x-auth-request-groups
+            - x-auth-request-access-token
+            - x-forwarded-access-token
+            - x-forwarded-email
+            - x-forwarded-user
+            - x-forwarded-preferred-username
+            - x-forwarded-groups
+            - verified-jwt
+            - cookie
+      route:
+        - destination:
+            host: {{ .Values.name }}-api.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: 80
+{{- end }}

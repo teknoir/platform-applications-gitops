@@ -30,7 +30,7 @@ config:
 # Backstage frontend deployment
 backstage:
   replicas: 1
-  image: "ghcr.io/teknoir/backstage-app:sha-290accc5@sha256:6257a9c6a0c5bacf5272f5f08a69777b9aeefa4a99289670aa440d57e03f5f60"
+  image: "ghcr.io/teknoir/backstage-app:sha-87a1a31a@sha256:1fa2d58c79489564be1ed7ae8b8a2a7b46c14000503d8b70a30b1f1ba3dedf72"
   imagePullPolicy: Always
   imagePullSecrets:
     - name: ghcr-token
@@ -39,7 +39,7 @@ backstage:
 # Backstage API deployment
 backstageApi:
   replicas: 1
-  image: "ghcr.io/teknoir/backstage:sha-290accc5@sha256:746438694280c4dafe0e4897df5b8132f4b318c3939869ce5052de966050354a"
+  image: "ghcr.io/teknoir/backstage:sha-87a1a31a@sha256:f0538551430ce2ce8cfe3aadb4cd91b2f4f2986d129a088eebd47da3de6d5c3d"
   imagePullPolicy: Always
   imagePullSecrets:
     - name: ghcr-token
@@ -72,6 +72,8 @@ istio:
   gateway: istio-system/teknoir-gateway
   ingressNamespace: istio-system
   ingressServiceAccount: istio-ingressgateway
+  # The public gateway (MQTT, WireGuard, the in-cluster TeknoirBot API on 8085).
+  publicIngressServiceAccount: istio-ingressgateway-public
   metricsNamespace: monitoring-system
   jwt:
     fromHeaders:
@@ -102,6 +104,13 @@ virtualDevices:
 # backstage-next-api, so the Bots page would fail there.
 teknoirBots:
   enabled: false
+  # The agent in a bot's computer: app-config teknoir.teknoirBots.agent.{enabled,host}, the VirtualService
+  # teknoirbot-api (Gateway istio-system/teknoirbot-api, port 8085, prefix /api/device/bot/ only, identity headers
+  # removed) and the AuthorizationPolicy rules that admit the public gateway for /api/device/bot/* only and refuse
+  # /api/device/bot/* from the main gateway. Needs charts/istio teknoirbotApi (one switch: app-of-apps
+  # teknoirbot.agent.enabled).
+  agent:
+    enabled: false
 
 # Next-gen fleet pages (backstage-plugin-teknoir-fleet). Both optional.
 fleet:

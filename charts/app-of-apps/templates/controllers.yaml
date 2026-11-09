@@ -138,6 +138,11 @@ spec:
         # "disabled" and revocation tombstones are respected (plans/ssh-tunnel-removal.md).
         - name: ztna.defaultOn
           value: "true"
+{{- if include "app-of-apps.botAgentEnabled" . }}
+        # Virtual devices may reach the TeknoirBot API (tb-api.<domain>:8085) on the public gateway pods.
+        - name: teknoirbotApi.enabled
+          value: "true"
+{{- end }}
 {{- end }}
   project: {{ .Values.project }}
   syncPolicy:

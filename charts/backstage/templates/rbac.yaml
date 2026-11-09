@@ -193,3 +193,38 @@ rules:
   - localsubjectaccessreviews
   verbs:
   - create
+{{- if and (.Values.teknoirBots).enabled ((.Values.teknoirBots).agent).enabled }}
+
+---
+# TeknoirBot model proxy (plans/teknoirbot/design/agent-mvp-design.md D5): the API reads the per-teamspace model
+# keys from one Secret in its own namespace, by name only. Members' workloads cannot read it (it is not in a
+# teamspace), and the bot's computer never sees a key.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Values.name }}-api-teknoirbot-model-keys
+  namespace: {{ .Release.Namespace }}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  resourceNames:
+  - teknoirbot-model-keys
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Values.name }}-api-teknoirbot-model-keys
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Values.name }}-api-teknoirbot-model-keys
+subjects:
+- kind: ServiceAccount
+  name: {{ .Values.name }}-api
+  namespace: {{ .Release.Namespace }}
+{{- end }}

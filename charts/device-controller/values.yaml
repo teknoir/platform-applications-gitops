@@ -29,7 +29,7 @@ image:
   # Previous pin: sha-1c98c648@sha256:f9281e6bb3f95e29e0b0b3d0d9370346039dbee8faef9921cdb560c9657b5c6e
   # device-controller b946c7e (applicationset #60, Nextgen: copy org-tree placement from a Robot to its Device on
   # initial placement). Previous pin: sha-41a360fd@sha256:b54bf4d8f1f94e016bd0163ef0de25934c27dbfcbb73617733d6800bc40d3ae1
-  tag: "sha-94158ade@sha256:26d632dc3a288122f56926ed15095e5994a2bad9c663352c62f7d3df1a9476d4"
+  tag: "sha-12e08c2c@sha256:47a8ac4654a6b06f82d0bd023bf430cabe956636f000ed252fecebc5220ba1a4"
   pullPolicy: IfNotPresent
 
 imagePullSecrets:
@@ -149,7 +149,7 @@ virtualDevices:
   # entry instead only stops managing the objects, and the old allowance stays in force.
 
   allowances:
-    teknoir-demo: {devices: 2, cpu: "4", memory: 8Gi, disk: 60Gi}
+    teknoir-demo: {devices: 2, cpu: "6", memory: 12Gi, disk: 80Gi}
 
 # Remote desktop for Devices with spec.desktop (plans/teknoirbot/mvp-spec.md 3.1): device-controller injects a
 # teknoir-desktop Deployment into the device's config and the WireGuard plugin publishes it as the web service
@@ -158,6 +158,18 @@ desktop:
   enabled: true
   image: "ghcr.io/teknoir/teknoir-desktop:sha-096d8df8@sha256:d9b3e748351de468bf44493ede64fd4243392be5a4404a3b43a5054cc4e0765d"  # required when enabled: ghcr.io/teknoir/teknoir-desktop:<tag>@sha256:<digest> (scripts/pin-image teknoir-desktop ...)
   hostGroupID: 64080 # gid of group teknoir-desktop on devices (host mode; the ansible desktop playbook creates it)
+  # The TeknoirBot agent on a bot's computer (DESKTOP.agent): rendered only with the agent switch (teknoirbotApi.enabled,
+  # app-of-apps teknoirbot.agent.enabled) and an image. Every image pinned as <tag>@sha256:<digest> (scripts/pin-image).
+  agent:
+    image: "ghcr.io/teknoir/teknoir-desktop:sha-dec806c1-agent@sha256:508d7ef703b17caa16a23bbbf49d437bd10e0326e5a797123c0e13ca4121586e"  # the teknoir-desktop agent image (make image-agent, with the released tnctl)
+    buildkitImage: "moby/buildkit:v0.25.1@sha256:79cc6476ab1a3371c9afd8b44e7c55610057c43e18d9b39b68e2b0c2475cc1b6"  # moby/buildkit, rootful buildkitd for the bot's image builds
+    registryImage: "registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373"  # registry, the bot computer's own registry its builds push to
+    desktopMemoryLimit: ""  # optional; the controller's default is 6Gi (at least 3Gi)
+
+# TeknoirBot API (charts/istio teknoirbotApi): virtual devices may reach tb-api.<domain>:8085 on the public gateway pods
+# (vdev-egress-gateway). Passed by charts/app-of-apps (teknoirbot.agent.enabled).
+teknoirbotApi:
+  enabled: false
 
 # WireGuard (ZTNA) tunnels, an alternative to the SSH reverse tunnels (plan:
 # plans/wireguard-ztna-tunnel.md). Everything in this block is inert while enabled is false:

@@ -53,3 +53,16 @@ commit.
 {{- $allowedProjects := list "teknoir-cloud" -}}
 {{- if and (.Values.releaseGuard).enabled (has .Values.project $allowedProjects) -}}true{{- end -}}
 {{- end -}}
+
+{{/*
+TeknoirBot agent API gate (plans/teknoirbot/design/agent-mvp-design.md D3, WP13). Renders "true" or "".
+All required: teknoirbot.enabled, teknoirbot.agent.enabled, the ZTNA gate (bots are reached over Tunneling and their
+VMs use the public gateway's egress rules) and the teknoir-cloud allowlist. One switch passes:
+  - teknoirbotApi.enabled to istio (Gateway tb-api.<domain>:8085 + ClusterIP Service), virtual-devices (CoreDNS
+    rewrite) and device-controller (VM egress to 8085);
+  - teknoirBots.agent.enabled to backstage (bot routes, VirtualService, AuthorizationPolicy rules).
+*/}}
+{{- define "app-of-apps.botAgentEnabled" -}}
+{{- $allowedProjects := list "teknoir-cloud" -}}
+{{- if and (.Values.teknoirbot).enabled ((.Values.teknoirbot).agent).enabled (include "app-of-apps.ztnaEnabled" .) (has .Values.project $allowedProjects) -}}true{{- end -}}
+{{- end -}}

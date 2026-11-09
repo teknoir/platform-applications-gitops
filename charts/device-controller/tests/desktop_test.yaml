@@ -56,3 +56,81 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "desktop.image is required when desktop.enabled.*scripts/pin-image"
+
+  - it: has no agent while the agent switch is off, even with an agent image
+    set:
+      desktop.enabled: true
+      desktop.image: "img:v1@sha256:3333333333333333333333333333333333333333333333333333333333333333"
+      desktop.agent.image: "agent:v1@sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      ztna.enabled: true
+    asserts:
+      - notMatchRegex:
+          path: data.DESKTOP
+          pattern: '"agent"'
+
+  - it: has no agent with the switch on and no agent image
+    set:
+      desktop.enabled: true
+      desktop.image: "img:v1@sha256:3333333333333333333333333333333333333333333333333333333333333333"
+      desktop.agent.image: ""
+      teknoirbotApi.enabled: true
+      ztna.enabled: true
+    asserts:
+      - notMatchRegex:
+          path: data.DESKTOP
+          pattern: '"agent"'
+
+  - it: renders the agent with the switch on and its images
+    set:
+      desktop.enabled: true
+      desktop.image: "img:v1@sha256:3333333333333333333333333333333333333333333333333333333333333333"
+      desktop.agent.image: "agent:v1@sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      desktop.agent.buildkitImage: "buildkit:v1@sha256:5555555555555555555555555555555555555555555555555555555555555555"
+      desktop.agent.registryImage: "registry:v1@sha256:6666666666666666666666666666666666666666666666666666666666666666"
+      teknoirbotApi.enabled: true
+      ztna.enabled: true
+    asserts:
+      - equal:
+          path: data.DESKTOP
+          value: '{"agent":{"buildkitImage":"buildkit:v1@sha256:5555555555555555555555555555555555555555555555555555555555555555","image":"agent:v1@sha256:4444444444444444444444444444444444444444444444444444444444444444","registryImage":"registry:v1@sha256:6666666666666666666666666666666666666666666666666666666666666666"},"enabled":true,"hostGroupID":64080,"image":"img:v1@sha256:3333333333333333333333333333333333333333333333333333333333333333"}'
+
+  - it: passes the agent's memory limit when set
+    set:
+      desktop.enabled: true
+      desktop.image: "img:v1@sha256:3333333333333333333333333333333333333333333333333333333333333333"
+      desktop.agent.image: "agent:v1@sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      desktop.agent.buildkitImage: "buildkit:v1@sha256:5555555555555555555555555555555555555555555555555555555555555555"
+      desktop.agent.registryImage: "registry:v1@sha256:6666666666666666666666666666666666666666666666666666666666666666"
+      desktop.agent.desktopMemoryLimit: 8Gi
+      teknoirbotApi.enabled: true
+      ztna.enabled: true
+    asserts:
+      - matchRegex:
+          path: data.DESKTOP
+          pattern: '"desktopMemoryLimit":"8Gi"'
+
+  - it: fails when the agent image is set without the buildkit image
+    set:
+      desktop.enabled: true
+      desktop.image: "img:v1@sha256:3333333333333333333333333333333333333333333333333333333333333333"
+      desktop.agent.image: "agent:v1@sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      desktop.agent.registryImage: "registry:v1@sha256:6666666666666666666666666666666666666666666666666666666666666666"
+      desktop.agent.buildkitImage: ""
+      teknoirbotApi.enabled: true
+      ztna.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "desktop.agent.buildkitImage is required"
+
+  - it: fails when the agent image is set without the registry image
+    set:
+      desktop.enabled: true
+      desktop.image: "img:v1@sha256:3333333333333333333333333333333333333333333333333333333333333333"
+      desktop.agent.image: "agent:v1@sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      desktop.agent.buildkitImage: "buildkit:v1@sha256:5555555555555555555555555555555555555555555555555555555555555555"
+      desktop.agent.registryImage: ""
+      teknoirbotApi.enabled: true
+      ztna.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "desktop.agent.registryImage is required"

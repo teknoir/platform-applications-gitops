@@ -705,10 +705,20 @@ spec:
                           type: number
                         cpu_usage_pct:
                           type: number
+                        managed_by:
+                          description: |-
+                            ManagedBy is the pod's teknoir.org/managed-by label (devstudio,
+                            backstage, device-controller), empty when the pod carries none.
+                          type: string
                         memory_usage:
                           type: number
                         memory_usage_pct:
                           type: number
+                        namespace:
+                          description: |-
+                            Namespace is the namespace the pod runs in on the device; empty when pods
+                            of this name run in two namespaces (the entry then stands for both).
+                          type: string
                         ready_containers:
                           type: integer
                         restarts:
