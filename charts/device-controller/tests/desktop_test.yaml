@@ -72,6 +72,7 @@ tests:
     set:
       desktop.enabled: true
       desktop.image: "img:v1@sha256:3333333333333333333333333333333333333333333333333333333333333333"
+      desktop.agent.image: ""
       teknoirbotApi.enabled: true
       ztna.enabled: true
     asserts:
