@@ -114,6 +114,7 @@ tests:
       desktop.image: "img:v1@sha256:3333333333333333333333333333333333333333333333333333333333333333"
       desktop.agent.image: "agent:v1@sha256:4444444444444444444444444444444444444444444444444444444444444444"
       desktop.agent.registryImage: "registry:v1@sha256:6666666666666666666666666666666666666666666666666666666666666666"
+      desktop.agent.buildkitImage: ""
       teknoirbotApi.enabled: true
       ztna.enabled: true
     asserts:
@@ -126,6 +127,7 @@ tests:
       desktop.image: "img:v1@sha256:3333333333333333333333333333333333333333333333333333333333333333"
       desktop.agent.image: "agent:v1@sha256:4444444444444444444444444444444444444444444444444444444444444444"
       desktop.agent.buildkitImage: "buildkit:v1@sha256:5555555555555555555555555555555555555555555555555555555555555555"
+      desktop.agent.registryImage: ""
       teknoirbotApi.enabled: true
       ztna.enabled: true
     asserts:
