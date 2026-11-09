@@ -715,8 +715,9 @@ spec:
                         memory_usage_pct:
                           type: number
                         namespace:
-                          description: Namespace is the namespace the pod runs in
-                            on the device.
+                          description: |-
+                            Namespace is the namespace the pod runs in on the device; empty when pods
+                            of this name run in two namespaces (the entry then stands for both).
                           type: string
                         ready_containers:
                           type: integer
