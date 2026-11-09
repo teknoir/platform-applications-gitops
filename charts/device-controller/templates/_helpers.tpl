@@ -192,5 +192,16 @@ in the ConfigMap when desktop.enabled and ztna.enabled. The image is required.
 {{- define "device-controller.desktop.configJSON" -}}
 {{- $d := .Values.desktop -}}
 {{- $c := dict "enabled" true "image" (required "desktop.image is required when desktop.enabled (the teknoir-desktop image, '<tag>@sha256:<digest>'; pin it with scripts/pin-image teknoir-desktop ...)" $d.image) "hostGroupID" (int $d.hostGroupID) -}}
+{{- /* The TeknoirBot agent on a bot's computer: only with the agent switch (teknoirbotApi.enabled, from
+app-of-apps teknoirbot.agent.enabled) and an agent image. Then the buildkit and registry images are
+required too; desktopMemoryLimit is optional (the controller's default is 6Gi, at least 3Gi). */ -}}
+{{- $a := $d.agent | default dict -}}
+{{- if and (.Values.teknoirbotApi).enabled $a.image -}}
+{{- $agent := dict "image" $a.image "buildkitImage" (required "desktop.agent.buildkitImage is required when desktop.agent.image is set (moby/buildkit '<tag>@sha256:<digest>'; scripts/pin-image)" $a.buildkitImage) "registryImage" (required "desktop.agent.registryImage is required when desktop.agent.image is set (registry '<tag>@sha256:<digest>'; scripts/pin-image)" $a.registryImage) -}}
+{{- if $a.desktopMemoryLimit -}}
+{{- $_ := set $agent "desktopMemoryLimit" $a.desktopMemoryLimit -}}
+{{- end -}}
+{{- $_ := set $c "agent" $agent -}}
+{{- end -}}
 {{- toJson $c -}}
 {{- end }}

@@ -158,6 +158,13 @@ desktop:
   enabled: true
   image: "ghcr.io/teknoir/teknoir-desktop:sha-096d8df8@sha256:d9b3e748351de468bf44493ede64fd4243392be5a4404a3b43a5054cc4e0765d"  # required when enabled: ghcr.io/teknoir/teknoir-desktop:<tag>@sha256:<digest> (scripts/pin-image teknoir-desktop ...)
   hostGroupID: 64080 # gid of group teknoir-desktop on devices (host mode; the ansible desktop playbook creates it)
+  # The TeknoirBot agent on a bot's computer (DESKTOP.agent): rendered only with the agent switch (teknoirbotApi.enabled,
+  # app-of-apps teknoirbot.agent.enabled) and an image. Every image pinned as <tag>@sha256:<digest> (scripts/pin-image).
+  agent:
+    image: ""          # the teknoir-desktop agent image (make image-agent, with the released tnctl)
+    buildkitImage: ""  # moby/buildkit, rootful buildkitd for the bot's image builds
+    registryImage: ""  # registry, the bot computer's own registry its builds push to
+    desktopMemoryLimit: ""  # optional; the controller's default is 6Gi (at least 3Gi)
 
 # TeknoirBot API (charts/istio teknoirbotApi): virtual devices may reach tb-api.<domain>:8085 on the public gateway pods
 # (vdev-egress-gateway). Passed by charts/app-of-apps (teknoirbot.agent.enabled).
