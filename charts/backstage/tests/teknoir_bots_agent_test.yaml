@@ -106,6 +106,9 @@ tests:
             to:
               - operation:
                   paths: ["/api/device/bot/*"]
+      - equal:
+          path: spec.rules[1].from[0].source.notPrincipals
+          value: ["cluster.local/ns/istio-system/sa/istio-ingressgateway-public"]
 
   - it: refuses the bot paths from everyone but the public gateway
     template: templates/istio-authpolicy.yaml

@@ -85,7 +85,8 @@ spec:
         number: 8085
         protocol: HTTPS
       hosts:
-        - {{ printf "tb-api.%s" $domain | quote }}
+        # Only Backstage's VirtualService (teknoir-system) may bind this host: the route carries bot keys.
+        - {{ printf "teknoir-system/tb-api.%s" $domain | quote }}
       tls:
         mode: SIMPLE
         credentialName: {{ $credentialName | quote }}

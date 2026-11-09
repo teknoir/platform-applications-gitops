@@ -102,25 +102,25 @@ tests:
         documentIndex: 4
       - equal:
           path: metadata.annotations["teknoir.org/allowance"]
-          value: '{"devices":2,"cpu":"4","memory":"8Gi","disk":"60Gi"}'
+          value: '{"devices":2,"cpu":"6","memory":"12Gi","disk":"80Gi"}'
         documentIndex: 5
 
-  - it: sets the allowance annotation and the exact teknoir-demo quota (devices 2, 4 vCPU, 8Gi, 60Gi, overcommit 2)
+  - it: sets the allowance annotation and the exact teknoir-demo quota (devices 2, 6 vCPU, 12Gi, 80Gi, overcommit 2)
     documentSelector:
       path: kind
       value: ResourceQuota
     asserts:
       - equal:
           path: metadata.annotations["teknoir.org/allowance"]
-          value: '{"devices":2,"cpu":"4","memory":"8Gi","disk":"60Gi"}'
+          value: '{"devices":2,"cpu":"6","memory":"12Gi","disk":"80Gi"}'
       - equal:
           path: spec.hard
           value:
-            requests.cpu: 3000m
-            limits.cpu: "5"
-            requests.memory: 10Gi
-            limits.memory: 11Gi
-            requests.storage: 132Gi
+            requests.cpu: 4000m
+            limits.cpu: "7"
+            requests.memory: 14Gi
+            limits.memory: 15Gi
+            requests.storage: 176Gi
             persistentvolumeclaims: "6"
             pods: "6"
             count/secrets: "6"
@@ -219,7 +219,7 @@ tests:
         documentIndex: 5
       - equal:
           path: spec.hard["requests.cpu"]
-          value: 3000m
+          value: 4000m
         documentIndex: 12
 
   - it: gives the network policies the spike's rules
@@ -395,7 +395,7 @@ tests:
         documentIndex: 1
       - equal:
           path: metadata.annotations["teknoir.org/allowance"]
-          value: '{"devices":0,"cpu":"4","memory":"8Gi","disk":"60Gi"}'
+          value: '{"devices":0,"cpu":"6","memory":"12Gi","disk":"80Gi"}'
         documentSelector:
           path: metadata.name
           value: vdev-quota
@@ -446,7 +446,7 @@ tests:
         documentIndex: 5   # other-ts-vdev sorts first: Namespace, 4 NetworkPolicies, then the quota
       - equal:
           path: metadata.annotations["teknoir.org/allowance"]
-          value: '{"devices":0,"cpu":"4","memory":"8Gi","disk":"60Gi"}'
+          value: '{"devices":0,"cpu":"6","memory":"12Gi","disk":"80Gi"}'
         documentIndex: 12
 
   - it: fails the render for a missing disk allowance
@@ -477,3 +477,25 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "virtualDevices.cpuOvercommit must be a whole number"
+
+  - it: lets virtual devices reach the TeknoirBot API (8085 on the public gateway pods) only with teknoirbotApi.enabled
+    set:
+      teknoirbotApi.enabled: true
+    documentIndex: 3
+    asserts:
+      - equal:
+          path: metadata.name
+          value: vdev-egress-gateway
+      - equal:
+          path: spec.egress[0].to[0].podSelector.matchLabels
+          value:
+            istio: ingressgateway-public
+      - equal:
+          path: spec.egress[0].ports
+          value:
+            - protocol: TCP
+              port: 8883
+            - protocol: TCP
+              port: 8084
+            - protocol: TCP
+              port: 8085

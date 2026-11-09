@@ -36,6 +36,8 @@ spec:
     - from:
         - source:
             namespaces: [ '*' ]
+            # The public gateway (MQTT, WireGuard, the TeknoirBot API) reaches no Backstage path but the bot routes.
+            notPrincipals: [ "cluster.local/ns/{{ .Values.istio.ingressNamespace }}/sa/{{ .Values.istio.publicIngressServiceAccount }}" ]
       to:
         - operation:
             methods: ["GET", "POST"]

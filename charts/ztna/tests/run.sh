@@ -39,8 +39,8 @@ step "app-of-apps: gate (values flag AND project allowlist)"
 apps() { # apps FILE: sorted Application names
   python3 -I -c 'import sys, yaml; print(" ".join(sorted(d["metadata"]["name"] for d in yaml.safe_load_all(open(sys.argv[1])) if d and d["kind"] == "Application")))' "$1"
 }
-helm template aoa "$AOA" --set project=teknoir-cloud --set ztna.enabled=false --set virtualDevices.enabled=true >"$TMP/aoa-off.yaml"
-helm template aoa "$AOA" --set project=teknoir-cloud --set ztna.enabled=true --set virtualDevices.enabled=true >"$TMP/aoa-on.yaml"
+helm template aoa "$AOA" --set project=teknoir-cloud --set ztna.enabled=false --set virtualDevices.enabled=true --set teknoirbot.enabled=false >"$TMP/aoa-off.yaml"
+helm template aoa "$AOA" --set project=teknoir-cloud --set ztna.enabled=true --set virtualDevices.enabled=true --set teknoirbot.enabled=false >"$TMP/aoa-on.yaml"
 cp -r "$AOA" "$TMP/aoa-nokey"
 python3 -I - "$TMP/aoa-nokey/values.yaml" <<'PY'
 import re, sys
@@ -49,7 +49,7 @@ s = re.sub(r"(?m)^ztna:\n  enabled: \w+\n", "", s)
 assert "ztna:" not in re.sub(r"(?m)^#.*$", "", s)
 open(sys.argv[1], "w").write(s)
 PY
-helm template aoa "$TMP/aoa-nokey" --set virtualDevices.enabled=true >"$TMP/aoa-nokey.yaml"
+helm template aoa "$TMP/aoa-nokey" --set virtualDevices.enabled=true --set teknoirbot.enabled=false >"$TMP/aoa-nokey.yaml"
 for n in gateway-api-crds stunner ztna; do
   grep -q "^  name: $n\$" "$TMP/aoa-off.yaml" && bad "ztna.enabled=false renders Application $n" || ok "ztna.enabled=false: no Application $n"
   [[ " $(apps "$TMP/aoa-on.yaml") " == *" $n "* ]] && ok "ztna.enabled=true on teknoir-cloud: Application $n" || bad "Application $n missing"

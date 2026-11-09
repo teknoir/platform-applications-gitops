@@ -1,0 +1,43 @@
+suite: istio TeknoirBot API listener (tb-api.<domain>:8085, in-cluster only)
+templates:
+  - templates/gateway.yaml
+tests:
+  - it: renders no bot Gateway or Service by default
+    asserts:
+      - hasDocuments:
+          count: 2
+      - notEqual:
+          path: metadata.name
+          value: teknoirbot-api
+  - it: serves tb-api.<domain>:8085 on the public gateway pods with the wildcard certificate
+    set:
+      teknoirbotApi.enabled: true
+    documentIndex: 2
+    asserts:
+      - isKind:
+          of: Gateway
+      - equal:
+          path: metadata
+          value: {name: teknoirbot-api, namespace: istio-system}
+      - equal:
+          path: spec.selector
+          value: {istio: ingressgateway-public}
+      - equal:
+          path: spec.servers
+          value:
+            - port: {name: https-teknoirbot-api, number: 8085, protocol: HTTPS}
+              hosts: ["teknoir-system/tb-api.teknoir.cloud"]
+              tls: {mode: SIMPLE, credentialName: "teknoir-cloud-wildcard-tls"}
+  - it: reaches 8085 only through a ClusterIP Service
+    set:
+      teknoirbotApi.enabled: true
+    documentIndex: 3
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: spec
+          value:
+            type: ClusterIP
+            selector: {istio: ingressgateway-public}
+            ports: [{name: https-teknoirbot-api, port: 8085, targetPort: 8085, protocol: TCP}]

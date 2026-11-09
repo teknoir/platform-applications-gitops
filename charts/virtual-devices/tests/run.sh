@@ -90,6 +90,16 @@ python3 -I -c 'import sys, yaml; d = yaml.safe_load(open(sys.argv[1])); assert d
   ok "kubevirt.featureGates renders developerConfiguration.featureGates only when set" || bad "kubevirt.featureGates not rendered"
 helm template virtual-devices "$CHART" --set coreDNS.domain=teknoir.airgapped >"$TMP/airgapped.yaml"
 grep -q 'teknoir\\.airgapped\\.\$ ' "$TMP/airgapped.yaml" && ok "coreDNS.domain is escaped into the regex" || bad "coreDNS.domain not applied"
+helm template virtual-devices "$CHART" --show-only templates/coredns-custom.yaml >"$TMP/dns-off.yaml"
+helm template virtual-devices "$CHART" --set teknoirbotApi.enabled=true --show-only templates/coredns-custom.yaml >"$TMP/dns-on.yaml"
+! grep -q 'tb-api' "$TMP/dns-off.yaml" && grep -qx '    rewrite stop name exact tb-api.teknoir.cloud. teknoirbot-api.istio-system.svc.cluster.local. answer auto' "$TMP/dns-on.yaml" &&
+  ok "teknoirbotApi.enabled adds the exact tb-api rewrite, off renders none" || bad "tb-api CoreDNS rewrite missing, inexact or rendered while off"
+python3 -I - "${REPO}/charts/istio/values.yaml" <<'PY2' && ok "8085 (TeknoirBot API) is not a port of the public LoadBalancer Service" || bad "8085 is a port of the public LoadBalancer Service"
+import sys, yaml
+svc = yaml.safe_load(open(sys.argv[1]))["istio-ingressgateway-public"]["service"]
+assert svc["type"] == "LoadBalancer", svc["type"]
+assert all(p["port"] != 8085 and p.get("targetPort") != 8085 for p in svc["ports"]), svc["ports"]
+PY2
 
 step "assertions catch a re-added empty struct (mutation test)"
 python3 -I - "$TMP/render.yaml" "$TMP/empty-struct.yaml" <<'PY'

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs every test of the staging release tooling:
 #   - python unittest of scripts/ (pure logic, throwaway git repos, a fake cluster/GitHub/registry; no network), incl. test_ci_lfs.py (charts/ci plan.py lfs modes, clone.sh LFS pull/guard)
-#   - helm unittest of charts/app-of-apps (release helper, 19 replacements), charts/release-guard, charts/monitoring (mesh scrape), charts/profile-controller, charts/user-controller, charts/device-controller, charts/backstage and charts/teknoirbot-controller
+#   - helm unittest of charts/app-of-apps (release helper, 19 replacements), charts/istio, charts/release-guard, charts/monitoring (mesh scrape), charts/profile-controller, charts/user-controller, charts/device-controller, charts/backstage and charts/teknoirbot-controller
 #   - the root render against a base ref (BASE=origin/teknoir-cloud, default): identical except for the removal of the
 #     fields ArgoCD's Go types drop (`sources: [ ]` on every child, monitoring's `group: ""`), see EXPECTED below; ROOT_RENDER_EXPECTED="project ..." accepts an intended difference of a project (a mismatch fails the run)
 #   - K3D=1: charts/release-guard/tests/k3d-guard-test.sh (impersonated identities) and k3d-argocd-real-test.sh (a real
@@ -23,7 +23,7 @@ python3 -W ignore -m unittest discover -s scripts/tests -p 'test_*.py' 2>&1 | gr
 echo "== helm unittest"
 # charts/monitoring renders its kube-prometheus-stack dependency (git-ignored charts/; ArgoCD builds it itself): build it once
 compgen -G "charts/monitoring/charts/kube-prometheus-stack-*.tgz" >/dev/null || helm dependency build charts/monitoring >/dev/null 2>&1 || echo "WARN: helm dependency build charts/monitoring failed (offline?)"
-helm unittest charts/app-of-apps charts/release-guard charts/monitoring charts/profile-controller charts/user-controller charts/device-controller charts/backstage charts/teknoirbot-controller 2>&1 | grep -E "^(Charts|Test Suites|Tests):"
+helm unittest charts/app-of-apps charts/istio charts/release-guard charts/monitoring charts/profile-controller charts/user-controller charts/device-controller charts/backstage charts/teknoirbot-controller 2>&1 | grep -E "^(Charts|Test Suites|Tests):"
 echo "== CRD guards (Prune=false,Delete=false; spec.desktop when desktop.enabled)"
 bash charts/device-controller/tests/crd_guard_test.sh
 bash charts/teknoirbot-controller/tests/crd_guard_test.sh

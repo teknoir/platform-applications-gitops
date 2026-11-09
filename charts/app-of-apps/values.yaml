@@ -34,7 +34,7 @@ teknoirbot:
   # tb-api.<domain>:8085 (istio, virtual-devices, device-controller, backstage; app-of-apps.botAgentEnabled).
   # Turn on only with a backstage-api image that serves /api/device/bot/v1 and checks the Host header.
   agent:
-    enabled: false
+    enabled: true
 
 # ZTNA: WireGuard over STUNner as an alternative to the SSH reverse tunnels (plan:
 # plans/wireguard-ztna-tunnel.md). One switch for the whole feature:

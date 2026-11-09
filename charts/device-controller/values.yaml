@@ -149,7 +149,7 @@ virtualDevices:
   # entry instead only stops managing the objects, and the old allowance stays in force.
 
   allowances:
-    teknoir-demo: {devices: 2, cpu: "4", memory: 8Gi, disk: 60Gi}
+    teknoir-demo: {devices: 2, cpu: "6", memory: 12Gi, disk: 80Gi}
 
 # Remote desktop for Devices with spec.desktop (plans/teknoirbot/mvp-spec.md 3.1): device-controller injects a
 # teknoir-desktop Deployment into the device's config and the WireGuard plugin publishes it as the web service
