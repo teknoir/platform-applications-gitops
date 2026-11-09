@@ -1,0 +1,59 @@
+suite: backstage TeknoirBot model keys (RBAC)
+templates:
+  - templates/rbac.yaml
+tests:
+  - it: grants nothing on the model keys by default
+    set:
+      teknoirBots.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 3
+
+  - it: grants nothing with the agent on but TeknoirBots off
+    set:
+      teknoirBots.enabled: false
+      teknoirBots.agent.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 3
+
+  - it: lets the API get the one Secret, by name, in its own namespace
+    set:
+      teknoirBots.enabled: true
+      teknoirBots.agent.enabled: true
+    release:
+      namespace: teknoir-system
+    documentIndex: 3
+    asserts:
+      - isKind:
+          of: Role
+      - equal:
+          path: metadata.namespace
+          value: teknoir-system
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [""]
+              resources: ["secrets"]
+              resourceNames: ["teknoirbot-model-keys"]
+              verbs: ["get"]
+
+  - it: binds the role to the API's service account only
+    set:
+      teknoirBots.enabled: true
+      teknoirBots.agent.enabled: true
+    release:
+      namespace: teknoir-system
+    documentIndex: 4
+    asserts:
+      - isKind:
+          of: RoleBinding
+      - equal:
+          path: roleRef.name
+          value: backstage-api-teknoirbot-model-keys
+      - equal:
+          path: subjects
+          value:
+            - kind: ServiceAccount
+              name: backstage-api
+              namespace: teknoir-system
