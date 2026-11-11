@@ -131,3 +131,22 @@ tests:
       - equal:
           path: spec.rules[0].to[0].operation.paths
           value: ["/api/device/bot", "/api/device/bot/*"]
+
+  - it: gives the bot model proxy Sonnet and Haiku only, with the agent on
+    template: templates/configmap-app-config.yaml
+    set:
+      teknoirBots.enabled: true
+      teknoirBots.agent.enabled: true
+    asserts:
+      - matchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: 'model:\n\s+defaultModel: claude-sonnet-5-5\n\s+modelPrefixes:\n\s+- claude-sonnet-5-5\n\s+- claude-haiku-5-5\n'
+
+  - it: renders no model block with the agent off
+    template: templates/configmap-app-config.yaml
+    set:
+      teknoirBots.enabled: true
+    asserts:
+      - notMatchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: 'modelPrefixes'

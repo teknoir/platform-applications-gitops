@@ -111,6 +111,11 @@ teknoirBots:
   # teknoirbot.agent.enabled).
   agent:
     enabled: false
+    # The bot model proxy (app-config teknoir.teknoirBots.agent.model, rendered only with the agent on): TeknoirBots
+    # use Sonnet and Haiku only (Anders, 2026-11-11). The effort cap (at most high) is in the proxy code.
+    model:
+      defaultModel: claude-sonnet-5-5
+      modelPrefixes: [claude-sonnet-5-5, claude-haiku-5-5]
 
 # Next-gen fleet pages (backstage-plugin-teknoir-fleet). Both optional.
 fleet:
