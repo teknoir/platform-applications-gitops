@@ -47,6 +47,11 @@ spec:
         # The agent in a bot's computer: the bot API on tb-api.<domain>:8085 (in-cluster only).
         - name: teknoirBots.agent.enabled
           value: "true"
+{{- if (.Values.teknoirbot.council).enabled }}
+        # The TeknoirBot council chat (plans/teknoirbot/council-mvp.md).
+        - name: teknoirBots.council.enabled
+          value: "true"
+{{- end }}
 {{- end }}
 {{- end }}
 {{- end }}

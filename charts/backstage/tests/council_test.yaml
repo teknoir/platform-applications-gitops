@@ -1,0 +1,91 @@
+suite: backstage TeknoirBot council (app-config and frontend env)
+templates:
+  - templates/configmap-app-config.yaml
+  - templates/deployment.yaml
+tests:
+  - it: renders no council config and no env var by default
+    set:
+      teknoirBots.enabled: true
+      teknoirBots.agent.enabled: true
+    asserts:
+      - notMatchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: 'council:'
+        template: templates/configmap-app-config.yaml
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: {name: APP_CONFIG_teknoir_teknoirBots_council_enabled, value: "true"}
+        template: templates/deployment.yaml
+        documentIndex: 0
+
+  - it: renders the council config and the frontend env var with all three switches on
+    set:
+      teknoirBots.enabled: true
+      teknoirBots.agent.enabled: true
+      teknoirBots.council.enabled: true
+    asserts:
+      - matchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: 'council:\n\s+enabled: true\n\s+retentionDays: 30\n'
+        template: templates/configmap-app-config.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: APP_CONFIG_teknoir_teknoirBots_council_enabled, value: "true"}
+        template: templates/deployment.yaml
+        documentIndex: 0
+
+  - it: renders the configured retentionDays
+    template: templates/configmap-app-config.yaml
+    set:
+      teknoirBots.enabled: true
+      teknoirBots.agent.enabled: true
+      teknoirBots.council.enabled: true
+      teknoirBots.council.retentionDays: 90
+    asserts:
+      - matchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: 'retentionDays: 90\n'
+
+  - it: renders neither with the agent off
+    set:
+      teknoirBots.enabled: true
+      teknoirBots.council.enabled: true
+    asserts:
+      - notMatchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: 'council:'
+        template: templates/configmap-app-config.yaml
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: {name: APP_CONFIG_teknoir_teknoirBots_council_enabled, value: "true"}
+        template: templates/deployment.yaml
+        documentIndex: 0
+
+  - it: renders neither with teknoirBots off
+    set:
+      teknoirBots.enabled: false
+      teknoirBots.agent.enabled: true
+      teknoirBots.council.enabled: true
+    asserts:
+      - notMatchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: 'council:'
+        template: templates/configmap-app-config.yaml
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: {name: APP_CONFIG_teknoir_teknoirBots_council_enabled, value: "true"}
+        template: templates/deployment.yaml
+        documentIndex: 0
+
+  - it: renders the model block with models, not modelPrefixes
+    template: templates/configmap-app-config.yaml
+    set:
+      teknoirBots.enabled: true
+      teknoirBots.agent.enabled: true
+    asserts:
+      - matchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: '\n\s+models:\n\s+- claude-sonnet-5-5\n\s+- claude-haiku-5-5\n'
+      - notMatchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: 'modelPrefixes'

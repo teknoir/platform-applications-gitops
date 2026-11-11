@@ -23,3 +23,21 @@ tests:
     set: {project: teknoir-online, ztna.enabled: true}
     asserts:
       - notExists: {path: spec.source.helm}
+
+  - it: passes the council switch with the agent and teknoirbot.council.enabled on
+    set: {project: teknoir-cloud, ztna.enabled: true, teknoirbot: {enabled: true, agent: {enabled: true}, council: {enabled: true}}}
+    asserts:
+      - contains: {path: spec.source.helm.parameters, content: {name: teknoirBots.agent.enabled, value: "true"}}
+      - contains: {path: spec.source.helm.parameters, content: {name: teknoirBots.council.enabled, value: "true"}}
+
+  - it: does not pass the council switch with teknoirbot.council.enabled false
+    set: {project: teknoir-cloud, ztna.enabled: true, teknoirbot: {enabled: true, agent: {enabled: true}, council: {enabled: false}}}
+    asserts:
+      - contains: {path: spec.source.helm.parameters, content: {name: teknoirBots.agent.enabled, value: "true"}}
+      - notContains: {path: spec.source.helm.parameters, content: {name: teknoirBots.council.enabled, value: "true"}}
+
+  - it: does not pass the council switch with the agent off
+    set: {project: teknoir-cloud, ztna.enabled: true, teknoirbot: {enabled: true, agent: {enabled: false}, council: {enabled: true}}}
+    asserts:
+      - notContains: {path: spec.source.helm.parameters, content: {name: teknoirBots.agent.enabled, value: "true"}}
+      - notContains: {path: spec.source.helm.parameters, content: {name: teknoirBots.council.enabled, value: "true"}}

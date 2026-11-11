@@ -30,7 +30,10 @@ config:
 # Backstage frontend deployment
 backstage:
   replicas: 1
-  image: "ghcr.io/teknoir/backstage-app:sha-87a1a31a@sha256:1fa2d58c79489564be1ed7ae8b8a2a7b46c14000503d8b70a30b1f1ba3dedf72"
+  # backstage a7f1d662 (branch teknoirbot-council, descends from 87a1a31a: the TeknoirBot council chat hub, bot routes
+  # K1-K3 and person routes P1-P8 with SSE, the web chat page on the Bots page, the model proxy caps: Sonnet 5.5 and
+  # Haiku 5.5 only, effort at most high). Previous pin: ghcr.io/teknoir/backstage-app:sha-87a1a31a@sha256:1fa2d58c79489564be1ed7ae8b8a2a7b46c14000503d8b70a30b1f1ba3dedf72
+  image: "ghcr.io/teknoir/backstage-app:sha-a7f1d662@sha256:826e50866e6dd2855dd0c771b9a86585f0b514f696adbafb2af308dd39afa200"
   imagePullPolicy: Always
   imagePullSecrets:
     - name: ghcr-token
@@ -39,7 +42,8 @@ backstage:
 # Backstage API deployment
 backstageApi:
   replicas: 1
-  image: "ghcr.io/teknoir/backstage:sha-87a1a31a@sha256:f0538551430ce2ce8cfe3aadb4cd91b2f4f2986d129a088eebd47da3de6d5c3d"
+  # backstage a7f1d662 (the council API; see backstage.image). Previous pin: ghcr.io/teknoir/backstage:sha-87a1a31a@sha256:f0538551430ce2ce8cfe3aadb4cd91b2f4f2986d129a088eebd47da3de6d5c3d
+  image: "ghcr.io/teknoir/backstage:sha-a7f1d662@sha256:d9c2bba45bd9bf0a6144870b962ca1101ab97204f043fb756100d08db1ad0e65"
   imagePullPolicy: Always
   imagePullSecrets:
     - name: ghcr-token
@@ -115,7 +119,17 @@ teknoirBots:
     # use Sonnet and Haiku only (Anders, 2026-11-11). The effort cap (at most high) is in the proxy code.
     model:
       defaultModel: claude-sonnet-5-5
-      modelPrefixes: [claude-sonnet-5-5, claude-haiku-5-5]
+      # An exact allowlist (modelPrefixes is its deprecated alias in the backend).
+      models: [claude-sonnet-5-5, claude-haiku-5-5]
+  # The TeknoirBot council chat (plans/teknoirbot/council-mvp.md): app-config
+  # teknoir.teknoirBots.council.{enabled,retentionDays} (backend) and the frontend env
+  # APP_CONFIG_teknoir_teknoirBots_council_enabled. Rendered only when teknoirBots.enabled, teknoirBots.agent.enabled
+  # and council.enabled are all true (the council talks to the bot API on tb-api, which only the agent switch serves).
+  # retentionDays: days a chat thread is kept after its last activity; a whole number from 1 to 365 (the backend
+  # falls back to 30 for anything else).
+  council:
+    enabled: false
+    retentionDays: 30
 
 # Next-gen fleet pages (backstage-plugin-teknoir-fleet). Both optional.
 fleet:

@@ -74,6 +74,12 @@ data:
             {{- toYaml .model | nindent 12 }}
 {{- end }}
 {{- end }}
+{{- if and .enabled (.agent).enabled (.council).enabled }}
+        # The TeknoirBot council chat (plans/teknoirbot/council-mvp.md); needs the bot API above.
+        council:
+          enabled: true
+          retentionDays: {{ .council.retentionDays | default 30 | int }}
+{{- end }}
 {{- end }}
 {{- $fleet := .Values.fleet | default dict }}
 {{- $access := $fleet.access | default dict }}

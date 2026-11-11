@@ -94,7 +94,22 @@ tests:
           path: data.DESKTOP
           value: '{"agent":{"buildkitImage":"buildkit:v1@sha256:5555555555555555555555555555555555555555555555555555555555555555","image":"agent:v1@sha256:4444444444444444444444444444444444444444444444444444444444444444","registryImage":"registry:v1@sha256:6666666666666666666666666666666666666666666666666666666666666666"},"enabled":true,"hostGroupID":64080,"image":"img:v1@sha256:3333333333333333333333333333333333333333333333333333333333333333"}'
 
-  - it: passes the agent's memory limit when set
+  - it: passes the council's memory limit when set
+    set:
+      desktop.enabled: true
+      desktop.image: "img:v1@sha256:3333333333333333333333333333333333333333333333333333333333333333"
+      desktop.agent.image: "agent:v1@sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      desktop.agent.buildkitImage: "buildkit:v1@sha256:5555555555555555555555555555555555555555555555555555555555555555"
+      desktop.agent.registryImage: "registry:v1@sha256:6666666666666666666666666666666666666666666666666666666666666666"
+      desktop.agent.councilMemoryLimit: 8Gi
+      teknoirbotApi.enabled: true
+      ztna.enabled: true
+    asserts:
+      - matchRegex:
+          path: data.DESKTOP
+          pattern: '"agent":\{[^}]*"councilMemoryLimit":"8Gi"'
+
+  - it: leaves councilMemoryLimit out of the agent when unset and never renders desktopMemoryLimit
     set:
       desktop.enabled: true
       desktop.image: "img:v1@sha256:3333333333333333333333333333333333333333333333333333333333333333"
@@ -105,9 +120,12 @@ tests:
       teknoirbotApi.enabled: true
       ztna.enabled: true
     asserts:
-      - matchRegex:
+      - notMatchRegex:
           path: data.DESKTOP
-          pattern: '"desktopMemoryLimit":"8Gi"'
+          pattern: 'councilMemoryLimit'
+      - notMatchRegex:
+          path: data.DESKTOP
+          pattern: 'desktopMemoryLimit'
 
   - it: fails when the agent image is set without the buildkit image
     set:
