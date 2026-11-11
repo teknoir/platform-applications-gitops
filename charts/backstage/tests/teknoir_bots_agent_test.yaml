@@ -140,7 +140,7 @@ tests:
     asserts:
       - matchRegex:
           path: data["app-config.prod-env.yaml"]
-          pattern: 'model:\n\s+defaultModel: claude-sonnet-5-5\n\s+modelPrefixes:\n\s+- claude-sonnet-5-5\n\s+- claude-haiku-5-5\n'
+          pattern: 'model:\n\s+defaultModel: claude-sonnet-5-5\n\s+models:\n\s+- claude-sonnet-5-5\n\s+- claude-haiku-5-5\n'
 
   - it: renders no model block with the agent off
     template: templates/configmap-app-config.yaml
@@ -149,4 +149,4 @@ tests:
     asserts:
       - notMatchRegex:
           path: data["app-config.prod-env.yaml"]
-          pattern: 'modelPrefixes'
+          pattern: 'models:'

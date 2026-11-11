@@ -38,6 +38,10 @@ spec:
             {{- if (.Values.teknoirBots).enabled }}
             - name: APP_CONFIG_teknoir_teknoirBots_enabled
               value: "true"
+            {{- if and (.Values.teknoirBots.agent).enabled (.Values.teknoirBots.council).enabled }}
+            - name: APP_CONFIG_teknoir_teknoirBots_council_enabled
+              value: "true"
+            {{- end }}
             {{- end }}
             {{- if (.Values.ztna).enabled }}
             - name: APP_CONFIG_teknoir_ztna_enabled

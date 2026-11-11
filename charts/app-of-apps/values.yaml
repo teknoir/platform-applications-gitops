@@ -35,6 +35,10 @@ teknoirbot:
   # Turn on only with a backstage-api image that serves /api/device/bot/v1 and checks the Host header.
   agent:
     enabled: true
+  # The TeknoirBot council chat (plans/teknoirbot/council-mvp.md). Needs teknoirbot.agent.enabled; turns on the
+  # Backstage council config (teknoirBots.council.enabled).
+  council:
+    enabled: true
 
 # ZTNA: WireGuard over STUNner as an alternative to the SSH reverse tunnels (plan:
 # plans/wireguard-ztna-tunnel.md). One switch for the whole feature:
