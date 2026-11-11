@@ -161,7 +161,10 @@ desktop:
   # The TeknoirBot agent on a bot's computer (DESKTOP.agent): rendered only with the agent switch (teknoirbotApi.enabled,
   # app-of-apps teknoirbot.agent.enabled) and an image. Every image pinned as <tag>@sha256:<digest> (scripts/pin-image).
   agent:
-    image: "ghcr.io/teknoir/teknoir-desktop:sha-dec806c1-agent@sha256:508d7ef703b17caa16a23bbbf49d437bd10e0326e5a797123c0e13ca4121586e"  # the teknoir-desktop agent image (make image-agent, with the released tnctl)
+    # Empty since 2026-11-11: the agent image ran Claude Code, and the teamspace's Claude key may not be used in Claude
+    # Code (Anders). Bot computers run the plain desktop until the TeknoirBot council image replaces it
+    # (plans/teknoirbot/design/council-mvp-design.md). Was ghcr.io/teknoir/teknoir-desktop:sha-dec806c1-agent.
+    image: ""  # the teknoir-desktop agent image (make image-agent, with the released tnctl)
     buildkitImage: "moby/buildkit:v0.25.1@sha256:79cc6476ab1a3371c9afd8b44e7c55610057c43e18d9b39b68e2b0c2475cc1b6"  # moby/buildkit, rootful buildkitd for the bot's image builds
     registryImage: "registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373"  # registry, the bot computer's own registry its builds push to
     desktopMemoryLimit: ""  # optional; the controller's default is 6Gi (at least 3Gi)

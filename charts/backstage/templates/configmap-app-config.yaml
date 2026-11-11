@@ -69,6 +69,10 @@ data:
         agent:
           enabled: {{ .enabled | default false }}
           host: {{ printf "tb-api.%s" $.Values.config.domain | quote }}
+{{- if and .enabled .model }}
+          model:
+            {{- toYaml .model | nindent 12 }}
+{{- end }}
 {{- end }}
 {{- end }}
 {{- $fleet := .Values.fleet | default dict }}
