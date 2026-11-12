@@ -364,3 +364,37 @@ tests:
           path: spec.configPatches[0].patch.value.typed_config.http_service.authorization_response.allowed_upstream_headers.patterns
           content:
             exact: x-auth-request-email
+
+  - it: restarts a failed login callback for a browser, once, and never for an IdP error
+    documentIndex: 0
+    asserts:
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'if cpath == "/oauth2/callback" and h:get\(":authority"\) == "teknoir\.cloud" then'
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: '\(status == "403" or status == "500"\) and cb\["client"\] == "browser" and cb\["callback_idp_error"\] ~= "true"'
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'string\.find\(text, "valid CSRF token", 1, true\) == nil'
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: '"_teknoir_auth_cb_retry=; Path=/oauth2/callback; Max-Age=0; HttpOnly; Secure; SameSite=Lax"'
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: '"_teknoir_auth_cb_retry=1; Path=/oauth2/callback; Max-Age=60; HttpOnly; Secure; SameSite=Lax"'
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: '"https://teknoir\.cloud/oauth2/start\?rd=" \.\. urlencode\(rd\)'
+      - notMatchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: '_teknoir_auth_cb_retry=1;[^"]*Domain='
+
+  - it: recovers only the callback on the oauth2-proxy redirect-url host
+    documentIndex: 0
+    set:
+      oauth2Proxy.redirectUrl: https://login.example.test/oauth2/callback
+    asserts:
+      - matchRegex:
+          path: spec.configPatches[1].patch.value.typed_config.inlineCode
+          pattern: 'h:get\(":authority"\) == "login\.example\.test"'

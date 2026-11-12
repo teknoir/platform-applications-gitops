@@ -73,7 +73,7 @@ tab) is still redirected. A second tab on the *same* host opened within 30 s on 
 - **Backend `401`/`403`.** If ext_authz let the request through (or is switched off for the vhost/route, e.g. `argocd.`), a
   `401`/`403` is the backend's own answer: Backstage's "not allowed", a Grafana login page, Argo CD's challenge. Clients see the
   backend's status, headers and body. `403` means "you are logged in but not allowed"; logging in again does not fix it.
-- Requests under `/oauth2*` (the login flow itself).
+- Requests under `/oauth2*` (the login flow itself), except a failed login callback (section 3a).
 - **A `403` that carries the session cookie** (oauth2-proxy `force-json-errors`: the session is valid but not authorized; or the
   authorizer itself failed): logging in again does not help, so it is not redirected. A browser navigation whose `403` body is empty
   or the bare `{}` gets a small `403` HTML page ("Access not permitted": not allowed, or the sign-in service is temporarily
@@ -81,6 +81,27 @@ tab) is still redirected. A second tab on the *same* host opened within 30 s on 
   HTML) passes through; if it has no `Content-Type` one is added (`text/plain` when there is no body or no `Content-Length`, as in
   an authorizer outage; else `application/json`); nothing else changes.
 - Everything that is not a `401`/`403`.
+
+### 3a. Failed login callback
+
+oauth2-proxy's `/oauth2/callback` (on the `oauth2Proxy.redirectUrl` host, ext_authz off) fails when the browser comes back from
+Keycloak without a usable CSRF cookie (`403` "Unable to find a valid CSRF token": the sign-in page sat in a tab longer than
+`oauth2Proxy.cookie.csrfExpire`, or the callback URL was reloaded or reached with the back button) or with a code it cannot
+redeem (`500`: for example another tab's login replaced the shared CSRF cookie and with it the PKCE verifier). Keycloak has
+usually signed the user in by then, so before this rule the user saw an error page and found themselves signed in on the next
+visit. The gateway now answers such a failure as follows (exact path `/oauth2/callback`, redirect-URL host only):
+
+| Request | Answer |
+|---|---|
+| Browser navigation (section 1), no `error` query parameter, and a `500` or a `403` whose body says "valid CSRF token" (oauth2-proxy v7.6.0's text for both CSRF failures) | `302`, `Location: https://<shared host>/oauth2/start?rd=<url-encoded rd>`, `Content-Length: 0`, `Cache-Control: no-store`, loop guard `Set-Cookie: _teknoir_auth_cb_retry=1; Path=/oauth2/callback; Max-Age=60; HttpOnly; Secure; SameSite=Lax` (host-only). With a live Keycloak SSO session the new login is silent and ends on `rd`. |
+| The same, carrying `_teknoir_auth_cb_retry` | The callback's own status (`403`/`500`), the "Sign-in did not complete" page with retry and sign-out links (as in section 2); no redirect, no new guard |
+| A successful callback (`302`) carrying `_teknoir_auth_cb_retry` | Unchanged, plus `Set-Cookie: _teknoir_auth_cb_retry=; Path=/oauth2/callback; Max-Age=0; ...` so a failure in another tab right after is recovered again |
+| An `error` parameter (the IdP refused: `access_denied`, `invalid_scope`, ...), any other `403` (session invalid, not in `allowedGroups`/`allowedRoles`: a retry would fail the same way), any non-browser, any other status, any other path or host (a backend's own `/oauth2/callback`, e.g. Argo's SSO) | Unchanged |
+
+`rd` is what `/oauth2/start` wrote into the OAuth `state` (`<nonce>:<rd>`); without one, or when the decoded value contains a byte
+outside printable ASCII (space, control characters), it is `/`. It is passed on percent-encoded and oauth2-proxy validates it
+against `whitelistDomains` at `/oauth2/start` (an invalid `rd` becomes `/`), so the rule is no open redirect. It never reuses the
+failed code or state: the retry is a new login with a new CSRF cookie.
 
 ### 4. Client guidance
 
@@ -106,8 +127,9 @@ tab) is still redirected. A second tab on the *same* host opened within 30 s on 
 
 - The ext_authz patch (`INSERT_FIRST`, no `failure_mode_allow`, `allowed_headers`) and every oauth2-proxy flag and per-route `disabled`
   entry are unchanged. The rendered diff of this change contains no line of either.
-- The Lua filter only runs its rewrite in the response phase, only for `401`/`403`, and its outputs are `302`, `401` (JSON or the
-  sign-in-failed page) or the unchanged response. No branch produces a `2xx` and none sends a request upstream.
+- The Lua filter only runs its rewrite in the response phase, only for `401`/`403` (and a `500` from `/oauth2/callback`), and its
+  outputs are `302`, `401` (JSON or the sign-in-failed page), the callback's own `403`/`500` with that page, or the unchanged
+  response. No branch produces a `2xx` and none sends a request upstream.
 - "The backend answered" is known from dynamic metadata (`oauth2_proxy_authz.passed`) set by a second tiny Lua filter placed
   **after** ext_authz (`envoy.filters.http.lua.authz_passed`), which only runs for requests ext_authz let through. Clients cannot
   write dynamic metadata. If that patch is ever lost, the code falls back to rewriting (the old behaviour), never to exposing a denial
@@ -175,12 +197,14 @@ charts/auth/tests/gateway/run.sh          # offline Envoy harness, needs docker 
 python stub that mimics oauth2-proxy with `--force-json-errors` (allow a known bearer or cookie; `401 {}` for no or bad credentials, a
 dead session cookie `stale` and an undecodable one `garbage`; `403 {}` for a logged-in-but-not-allowed `forbidden` cookie; the old
 `403` + 8492-byte HTML page for a `legacy` cookie and the `/legacy403`, `/oauth2x` paths, i.e. new Lua against an old oauth2-proxy
-during a rolling deploy) and a backend stub.
+during a rolling deploy) and a backend stub (which also answers `/oauth2/callback` like oauth2-proxy: missing CSRF cookie `403`, unredeemable code `500`,
+IdP `error=` `403`, a non-CSRF `403`, success `302`).
 It runs a curl matrix over HTTP/1.1 and HTTP/2 (`Sec-Fetch-Mode` x `Accept` x `Authorization` x cookie x path, plus HEAD, POST and
 `X-Requested-With`; OPTIONS preflights and HEAD with a dead cookie; iframe/prefetch navigations), every client kind with a dead or garbage session cookie on the apex, `next.`, `wgt-` and `wgs-` hosts, the loop
 guard (marker with and without a session cookie, with a good cookie, on API requests, lookalike names, a hostile path), the `403`
 pass-through, backend `401`/`403` with a session cookie, raw keep-alive sockets for HTTP/1.1 framing, spoofed forwarding headers, backend `401`/`403` pass-through, a
 listener without the marker filter, a listener whose authorizer is down (empty `403`), a streaming response, real WebSocket upgrades (allowed: `101` and echo both ways; denied: the `401`
 JSON with consistent framing) and bodies far above the harness's 32 KiB per-connection buffer limit (20 MiB allowed download and a
-5 MiB backend `403`, over HTTP/1.1 and HTTP/2), then prints a summary table and exits non-zero on any failure.
+5 MiB backend `403`, over HTTP/1.1 and HTTP/2) and the failed-callback recovery (section 3a: restart, loop guard and its clearing, hostile `state`,
+other hosts, pass-through cases), then prints a summary table and exits non-zero on any failure.
 `RENDERED=<file>` runs it against any already rendered EnvoyFilter (for example the old template, to see what it catches).

@@ -16,6 +16,9 @@ authz  (oauth2-proxy lookalike): called by ext_authz as GET /oauth2/auth<origina
   Like the real ext_authz client response, the gateway keeps only set-cookie and location of these answers; the
   content-type below is dropped by Envoy.
 backend: 200 everywhere, except /forbidden (403), /backend401 (401 + own challenge), /oauth2/unauth (401, 13 bytes),
+  /oauth2/callback* (oauth2-proxy v7.6.0's callback: error=... -> 403 "idp-error", code=good -> 302 to /, code=redeemfail
+    -> 500 "Internal Error", code=unauthorized -> 403 "Invalid session: unauthorized", anything else -> 403 with v7.6.0's
+    missing-CSRF-cookie message CSRF_403),
   /stream (chunked, slow), /ws (WebSocket upgrade, then echo), /whoami (JSON of the identity headers received), /big (BIG bytes, 200), /big403 (BIG_403 bytes, 403).
 """
 import sys
@@ -25,6 +28,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 COOKIE = "_teknoir_oauth2_proxy_v2"
+CSRF_403 = b"<p>Login Failed: Unable to find a valid CSRF token. Please try again.</p>"
 SIGNIN = ("<html><head><title>Sign In</title></head><body>" + "x" * 8400).encode()
 SIGNIN += b"</body></html>" + b"\n" * (8492 - len(SIGNIN) - len(b"</body></html>"))
 assert len(SIGNIN) == 8492
@@ -93,6 +97,18 @@ class Backend(Quiet):
             return self.reply(401, b"backend-unauthorized", [("content-type", "text/plain"), ("www-authenticate", 'Basic realm="backend"')], head)
         if p == "/oauth2/unauth":
             return self.reply(401, b"Unauthorized", [], head)
+        if p.startswith("/oauth2/callback"):
+            q = self.path.partition("?")[2]
+            html = [("content-type", "text/html; charset=utf-8")]
+            if "error=" in q:
+                return self.reply(403, b"idp-error", html, head)
+            if "code=good" in q:
+                return self.reply(302, b"", [("location", "/")], head)
+            if "code=redeemfail" in q:
+                return self.reply(500, b"Internal Error", html, head)
+            if "code=unauthorized" in q:
+                return self.reply(403, b"Invalid session: unauthorized", html, head)
+            return self.reply(403, CSRF_403, html, head)
         if p == "/whoami":  # the identity headers the backend received, as the mesh policies would see them
             seen = {k: self.headers.get(k) for k in IDENTITY_HEADERS if self.headers.get(k) is not None}
             return self.reply(200, json.dumps(seen).encode(), [("content-type", "application/json")], head)
