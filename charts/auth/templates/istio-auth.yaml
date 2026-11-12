@@ -12,6 +12,10 @@ short-lived loop-guard marker; see README "Denied requests". */ -}}
 {{- $cookiePath := .Values.oauth2Proxy.cookie.path | default "/" -}}
 {{- $cookieSameSite := .Values.oauth2Proxy.cookie.sameSite | default "lax" | title -}}
 {{- $retryCookie := "_teknoir_auth_retry" -}}
+{{- /* Loop guard of the failed-callback recovery (README "Failed login callback"); sent only to the callback path. */ -}}
+{{- $callbackRetryCookie := "_teknoir_auth_cb_retry" -}}
+{{- /* Only oauth2-proxy's own callback (the --redirect-url host) is recovered, never a backend's /oauth2/callback. */ -}}
+{{- $callbackHost := (urlParse (.Values.oauth2Proxy.redirectUrl | default (printf "https://%s/oauth2/callback" $domain))).host -}}
 apiVersion: networking.istio.io/v1alpha3
 kind: EnvoyFilter
 metadata:
@@ -99,6 +103,27 @@ spec:
                 end))
               end
 
+              local function urldecode(str)
+                str = string.gsub(str, "%+", " ")
+                return (string.gsub(str, "%%(%x%x)", function(x)
+                  return string.char(tonumber(x, 16))
+                end))
+              end
+
+              -- Raw (still percent-encoded) value of a query parameter, "" when it has no value, nil when absent.
+              local function query_param(path, name)
+                local q = string.match(path, "%?(.*)$")
+                if q == nil then
+                  return nil
+                end
+                for k, v in string.gmatch("&" .. q, "&([^&=]*)=?([^&]*)") do
+                  if k == name then
+                    return v
+                  end
+                end
+                return nil
+              end
+
               -- Cookie lookup by exact name (not a substring of another cookie's name).
               local function cookie_has(h, name)
                 local cookie = h:get("cookie") or ""
@@ -172,6 +197,24 @@ spec:
                 md:set("oauth2_proxy", "has_session", cookie_has(h, "{{ $cookieName }}") and "true" or "false")
                 md:set("oauth2_proxy", "has_retry", cookie_has(h, "{{ $retryCookie }}") and "true" or "false")
                 md:set("oauth2_proxy", "has_auth", h:get("authorization") ~= nil and "true" or "false")
+                -- The login callback: remember where the login was going (rd, from the OAuth state that /oauth2/start
+                -- wrote as "<nonce>:<rd>") so a failed callback can start the login again. See envoy_on_response.
+                local cpath = string.match(path, "^([^?]*)")
+                if cpath == "/oauth2/callback" and h:get(":authority") == "{{ $callbackHost }}" then
+                  local state = query_param(path, "state")
+                  local cb_rd = nil
+                  if state ~= nil then
+                    cb_rd = string.match(urldecode(state), "^[^:]*:(.+)$")
+                  end
+                  -- A real rd is a URL: printable ASCII without spaces. Anything else (control bytes, NUL) becomes /.
+                  if cb_rd ~= nil and string.find(cb_rd, "[^\33-\126]") ~= nil then
+                    cb_rd = nil
+                  end
+                  md:set("oauth2_proxy", "callback", "true")
+                  md:set("oauth2_proxy", "callback_rd", cb_rd or "/")
+                  md:set("oauth2_proxy", "callback_idp_error", query_param(path, "error") ~= nil and "true" or "false")
+                  md:set("oauth2_proxy", "has_cb_retry", cookie_has(h, "{{ $callbackRetryCookie }}") and "true" or "false")
+                end
               end
 
               -- A passed-through denial must carry a content-type. ext_authz forwards only set-cookie and location
@@ -228,9 +271,58 @@ spec:
                 return rh
               end
 
+              -- A login callback that oauth2-proxy rejected (403 "Unable to find a valid CSRF token": the CSRF cookie
+              -- expired while the sign-in page sat in a tab, or the callback URL was reloaded; 500: the code could not
+              -- be redeemed, e.g. another tab's login replaced the PKCE verifier). Keycloak has usually signed the user
+              -- in by then, so a browser is sent through /oauth2/start again (oauth2-proxy validates rd there): a
+              -- silent round trip instead of an error page. Not retried: an error the IdP reported (error=...) and any
+              -- other 403 (session invalid or not allowed: it would fail again). Loop guard: a second failure within
+              -- 60 s gets the sign-in-failed page; a successful callback clears the guard. Contract: README
+              -- "Failed login callback".
+              local function recover_callback(handle, info, status)
+                local body = handle:body(true)
+                if status == "403" then
+                  local text = ""
+                  if body ~= nil and body:length() > 0 then
+                    text = body:getBytes(0, body:length())
+                  end
+                  if string.find(text, "valid CSRF token", 1, true) == nil then
+                    return
+                  end
+                end
+                local rd = info["callback_rd"] or "/"
+                if info["has_cb_retry"] == "true" then
+                  send_page(handle, status, html_page("Sign-in did not complete",
+                    "The sign-in could not be completed in this browser, or the sign-in service is temporarily unavailable.",
+                    rd))
+                  return
+                end
+                if body ~= nil then
+                  body:setBytes("")
+                end
+                local rh = handle:headers()
+                rh:replace(":status", "302")
+                rh:replace("location", "https://{{ $oauth2SharedHost }}/oauth2/start?rd=" .. urlencode(rd))
+                rh:replace("content-length", "0")
+                rh:replace("cache-control", "no-store")
+                rh:remove("content-type")
+                rh:add("set-cookie", "{{ $callbackRetryCookie }}=1; Path=/oauth2/callback; Max-Age=60; HttpOnly; Secure; SameSite=Lax")
+              end
+
               function envoy_on_response(handle)
                 local rh = handle:headers()
                 local status = rh:get(":status")
+                local cb = handle:streamInfo():dynamicMetadata():get("oauth2_proxy") or {}
+                if cb["callback"] == "true" then
+                  if status == "302" and cb["has_cb_retry"] == "true" then
+                    rh:add("set-cookie", "{{ $callbackRetryCookie }}=; Path=/oauth2/callback; Max-Age=0; HttpOnly; Secure; SameSite=Lax")
+                    return
+                  end
+                  if (status == "403" or status == "500") and cb["client"] == "browser" and cb["callback_idp_error"] ~= "true" then
+                    recover_callback(handle, cb, status)
+                    return
+                  end
+                end
                 if status ~= "401" and status ~= "403" then
                   return
                 end

@@ -27,6 +27,8 @@ HOST = "app.teknoir.test"
 SHARED = "teknoir.test"
 COOKIE = "_teknoir_oauth2_proxy_v2"
 RETRY = "_teknoir_auth_retry"
+CB_RETRY = "_teknoir_auth_cb_retry"
+CSRF_403 = b"<p>Login Failed: Unable to find a valid CSRF token. Please try again.</p>"  # same as stubs.py
 EPOCH = "Thu, 01 Jan 1970 00:00:00 GMT"
 PAYLOAD = '{"error":"unauthorized","message":"Authentication required: run tnctl login or sign in in the browser."}'
 BLOCK = bytes(range(256)) * 4  # same as stubs.py
@@ -731,11 +733,100 @@ def run_identity_headers():
             expect(g, f"{proto} bad bearer with forged headers is still 401", st == 401, f"{st}")
 
 
+def run_callback():
+    """Failed login callback (README "Failed login callback"): a browser gets a fresh login, once."""
+    g = "failed login callback"
+    nav = ["Sec-Fetch-Mode: navigate", "Sec-Fetch-Dest: document", "Accept: text/html,application/xhtml+xml"]
+    target = "https://next.teknoir.test/devices?a=b&c=d"
+    state = urlenc("Zm9vYmFy-_nonce:" + target)
+    restart = f"https://{SHARED}/oauth2/start?rd={urlenc(target)}"
+    guard = f"{CB_RETRY}=1; Path=/oauth2/callback; Max-Age=60; HttpOnly; Secure; SameSite=Lax"
+    for proto in ("h1", "h2"):
+        def get(path, hdrs=nav, host=SHARED):
+            return curl(proto, path, hdrs, host=host)
+        # missing/expired CSRF cookie (403) and an unredeemable code (500): restart the login at rd, set the guard
+        for code, tag in (("x", "403 csrf"), ("redeemfail", "500 redeem")):
+            st, ver, h, body, rc, err, _ = get(f"/oauth2/callback?code={code}&state={state}")
+            expect(g, f"{proto} {tag} navigate -> 302 to /oauth2/start?rd=<rd from state>, empty, no-store, guard set",
+                   st == 302 and one(h, "location") == restart and body == b"" and one(h, "cache-control") == "no-store"
+                   and "content-type" not in h and h.get("set-cookie", []) == [guard], f"{st} {one(h, 'location')} {h.get('set-cookie')}")
+            # second failure inside the guard window: the sign-in-failed page, no redirect
+            st, ver, h, body, rc, err, _ = get(f"/oauth2/callback?code={code}&state={state}", nav + [f"Cookie: {CB_RETRY}=1"])
+            text = body.decode(errors="replace")
+            expect(g, f"{proto} {tag} with the guard -> page with the original status, links to rd, no redirect",
+                   st == int(tag[:3]) and "Sign-in did not complete" in text and "location" not in h
+                   and one(h, "content-type") == "text/html; charset=utf-8" and one(h, "cache-control") == "no-store"
+                   and f'href="{restart}"' in text and "set-cookie" not in h, f"{st} {h} {text[-200:]}")
+        # the real sequence: the 302 sets the guard, a second failure carrying it gets the page
+        st, ver, h, body, rc, err, _ = get(f"/oauth2/callback?code=x&state={state}")
+        sent = [x.split(";")[0] for x in h.get("set-cookie", [])]
+        st2, ver, h2, body2, rc, err, _ = get(f"/oauth2/callback?code=x&state={state}", nav + ["Cookie: " + "; ".join(sent)])
+        expect(g, f"{proto} 302 then a second failure with the guard -> page", st == 302 and st2 == 403
+               and b"Sign-in did not complete" in body2, f"{st} {sent} {st2}")
+        # the login-redirect marker of the other loop guard does not stop this one, nor does a lookalike name
+        for ck in (f"{RETRY}=1", f"x{CB_RETRY}=1"):
+            st, ver, h, body, rc, err, _ = get(f"/oauth2/callback?code=x&state={state}", nav + [f"Cookie: {ck}"])
+            expect(g, f"{proto} cookie {ck.split('=')[0]} is not the guard -> 302", st == 302 and one(h, "location") == restart, f"{st}")
+        # no state, or a state without rd: restart with rd=/ (oauth2-proxy's own default)
+        for q, tag in (("code=x", "no state"), ("code=x&state=onlynonce", "state without rd"), ("", "no query")):
+            path = "/oauth2/callback" + (f"?{q}" if q else "")
+            st, ver, h, body, rc, err, _ = get(path)
+            expect(g, f"{proto} {tag} -> 302 to /oauth2/start?rd=%2F", st == 302 and one(h, "location") == f"https://{SHARED}/oauth2/start?rd=%2F",
+                   f"{st} {one(h, 'location')}")
+        # control bytes or spaces in the decoded rd: replaced by /
+        for raw, tag in (("n:https://evil.example/\r\nSet-Cookie: x=1", "CRLF"), ("n:https://a.teknoir.test/\x00x", "NUL"),
+                         ("n:https://a.teknoir.test/a b", "space")):
+            st, ver, h, body, rc, err, _ = get(f"/oauth2/callback?code=x&state={urlenc(raw)}")
+            expect(g, f"{proto} {tag} in rd -> 302 to /oauth2/start?rd=%2F, no injected header",
+                   st == 302 and one(h, "location") == f"https://{SHARED}/oauth2/start?rd=%2F" and h.get("set-cookie", []) == [guard],
+                   f"{st} {one(h, 'location')} {h.get('set-cookie')}")
+        # rd is passed on percent-encoded (oauth2-proxy validates it at /oauth2/start); nothing raw reaches the header or page
+        evil = urlenc('n:https://evil.example/"><script>alert(1)</script>')
+        st, ver, h, body, rc, err, _ = get(f"/oauth2/callback?code=x&state={evil}")
+        loc = one(h, "location") or ""
+        expect(g, f"{proto} hostile rd stays percent-encoded in Location, no injected header",
+               st == 302 and loc.startswith(f"https://{SHARED}/oauth2/start?rd=https%3A%2F%2Fevil.example%2F%22%3E%3Cscript%3E")
+               and all(c not in loc for c in '"<> ') and h.get("set-cookie", []) == [guard], f"{st} {loc} {h.get('set-cookie')}")
+        st, ver, h, body, rc, err, _ = get(f"/oauth2/callback?code=x&state={evil}", nav + [f"Cookie: {CB_RETRY}=1"])
+        text = body.decode(errors="replace")
+        expect(g, f"{proto} hostile rd is escaped in the page", st == 403 and "<script>" not in text, f"{st} {text[-200:]}")
+        # passed through unchanged: an IdP error, a non-browser, a success, a lookalike path, another host's /oauth2 path
+        for path, hdrs, want_st, want_body, tag in (
+            (f"/oauth2/callback?error=access_denied&state={state}", nav, 403, b"idp-error", "IdP error= navigate"),
+            (f"/oauth2/callback?code=x&error&state={state}", nav, 403, CSRF_403, "bare error param navigate (not retried)"),
+            (f"/oauth2/callback?code=x&state={state}", ["Sec-Fetch-Mode: cors"], 403, CSRF_403, "fetch"),
+            (f"/oauth2/callback?code=x&state={state}", ["Sec-Fetch-Mode: navigate", "Sec-Fetch-Dest: iframe"], 403, CSRF_403, "iframe"),
+            (f"/oauth2/callback?code=x&state={state}", [], 403, CSRF_403, "curl"),
+            (f"/oauth2/callback?code=redeemfail&state={state}", [], 500, b"Internal Error", "curl 500"),
+            (f"/oauth2/callback?code=good&state={state}", nav, 302, b"", "successful callback"),
+            (f"/oauth2/callback?code=unauthorized&state={state}", nav, 403, b"Invalid session: unauthorized", "a 403 that is not about CSRF"),
+            (f"/oauth2/callbackx?code=x&state={state}", nav, 403, CSRF_403, "lookalike path /oauth2/callbackx"),
+            (f"/oauth2/callback/x?code=x&state={state}", nav, 403, CSRF_403, "sub path /oauth2/callback/x"),
+        ):
+            st, ver, h, body, rc, err, _ = get(path, hdrs)
+            ok = st == want_st and body == want_body and CB_RETRY not in " ".join(h.get("set-cookie", []))
+            if want_st == 302:
+                ok = ok and one(h, "location") == "/"
+            expect(g, f"{proto} {tag} -> untouched {want_st}", ok, f"{st} {body[:40]!r} {h.get('location')}")
+        # /oauth2/callback on any other host is a backend's own callback (e.g. argo-server SSO): never touched
+        for host in (HOST, "next." + SHARED):
+            st, ver, h, body, rc, err, _ = get(f"/oauth2/callback?code=x&state={state}", host=host)
+            expect(g, f"{proto} /oauth2/callback on {host} -> untouched 403", st == 403 and body == CSRF_403 and "location" not in h, f"{st}")
+        # a successful callback that carries the guard clears it (a later failure in another tab is recovered again)
+        st, ver, h, body, rc, err, _ = get(f"/oauth2/callback?code=good&state={state}", nav + [f"Cookie: {CB_RETRY}=1"])
+        expect(g, f"{proto} successful callback with the guard -> untouched 302, guard cleared",
+               st == 302 and one(h, "location") == "/" and h.get("set-cookie", []) == [f"{CB_RETRY}=; Path=/oauth2/callback; Max-Age=0; HttpOnly; Secure; SameSite=Lax"],
+               f"{st} {h.get('set-cookie')}")
+        st, ver, h, body, rc, err, _ = get(f"/oauth2/callback?code=good&state={state}")
+        expect(g, f"{proto} successful callback without the guard -> no set-cookie added", st == 302 and "set-cookie" not in h, f"{h.get('set-cookie')}")
+
+
 def main():
     run_matrix()
     run_targeted()
     run_identity_headers()
     run_session_expiry()
+    run_callback()
     run_large()
     run_raw()
     run_websocket()
