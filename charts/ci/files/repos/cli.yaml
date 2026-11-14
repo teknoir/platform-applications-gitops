@@ -7,7 +7,9 @@ branches: ['**']
 tests:
   - name: unit
     image: "docker.io/library/golang:1.26"
-    memory: 2Gi
+    # cmd links the council (pkg/council) since Stage 0: with a cold cache at 500m CPU the build is
+    # OOMKilled at 2Gi (every cli run since 2026-11-13) and passes at 3G on the dev host.
+    memory: 4Gi
     run: >-
       apt-get update -qq && apt-get install -y -qq --no-install-recommends openssl shellcheck >/dev/null &&
       shellcheck -s sh -S warning pkg/templates/scripts/tn-k3s-ca.sh &&
