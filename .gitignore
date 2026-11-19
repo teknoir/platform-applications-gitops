@@ -9,3 +9,4 @@ Chart.lock
 !/charts/stunner/charts/stunner-1.2.1.tgz
 __pycache__/
 *.pyc
+.test-logs/

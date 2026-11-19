@@ -7,10 +7,30 @@
 #   - K3D=1: charts/release-guard/tests/k3d-guard-test.sh (impersonated identities) and k3d-argocd-real-test.sh (a real
 #     ArgoCD v3.5.1, real CLI and REST calls) and charts/backstage/tests/k3d-rbac-test.sh (can-i matrix and the identity admission policy of the Backstage
 #     API service account) and charts/teknoirbot-controller/tests/k3d-vap-test.sh and k3d-fence-test.sh (the device guard and the bot fence) against the throwaway cluster k3d-teknoir-dev
+#   Output: verbose for humans and CI. Under a coding agent (CLAUDECODE, AI_AGENT, Codex) it prints only the section
+#   totals, plus the end of the log on failure; the full log is always written to .test-logs/ (git-ignored).
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "${HERE}/../.." && pwd)"
 cd "$REPO"
+
+is_agent() { case "${AI_AGENT:-}" in 0|false|no|off) return 1;; "") ;; *) return 0;; esac
+  [ -n "${CLAUDECODE:-}${CODEX_THREAD_ID:-}${CODEX_SANDBOX:-}${GEMINI_CLI:-}${CURSOR_AGENT:-}${OPENCODE:-}" ]; }
+if [ -z "${GITOPS_TESTS_INNER:-}" ]; then
+  mkdir -p .test-logs; log=".test-logs/run-$(date +%Y%m%d-%H%M%S)-$$.log"; export NO_COLOR=1
+  set +e
+  if is_agent; then
+    GITOPS_TESTS_INNER=1 bash "${BASH_SOURCE[0]}" "$@" >"$log" 2>&1; rc=$?
+    grep -E "^(== |Ran [0-9]|OK|FAILED|Charts:|Test Suites:|Tests:|ok: |as expected|differs from|FAIL|WARN)" "$log"
+    # on failure: the sections that failed (and the last one), without helm unittest PASS lines and progress dots
+    [ "$rc" -eq 0 ] || awk 'function flush() { if (sec != "" && (bad || last)) printf "%s", sec; sec = ""; bad = 0 }
+      /^== / { flush() } /^ PASS / || /^\.+$/ { next } /^(FAIL|ERROR:|Traceback|Error:)/ || / FAIL / { bad = 1 }
+      { sec = sec $0 "\n" } END { last = 1; flush() }' "$log" | tail -n 200
+  else
+    GITOPS_TESTS_INNER=1 bash "${BASH_SOURCE[0]}" "$@" 2>&1 | tee "$log"; rc=${PIPESTATUS[0]}
+  fi
+  echo "exit=$rc full log: $log"; exit "$rc"
+fi
 
 # Every temp dir the tests create (throwaway git repos, renders, fake registries) lives in one per-run TMPDIR that is
 # removed on exit; the Python tests use tempfile.mkdtemp() and never clean up themselves.
@@ -18,12 +38,12 @@ RUN_TMP=$(mktemp -d -t gitops-tests.XXXXXX); trap 'rm -rf "$RUN_TMP"' EXIT
 export TMPDIR="$RUN_TMP"
 
 echo "== python unittest (scripts/tests)"
-python3 -W ignore -m unittest discover -s scripts/tests -p 'test_*.py' 2>&1 | grep -E "^(Ran|OK|FAILED|FAIL|ERROR)" 
+python3 -W ignore -m unittest discover -s scripts/tests -p 'test_*.py' 2>&1
 
 echo "== helm unittest"
 # charts/monitoring renders its kube-prometheus-stack dependency (git-ignored charts/; ArgoCD builds it itself): build it once
 compgen -G "charts/monitoring/charts/kube-prometheus-stack-*.tgz" >/dev/null || helm dependency build charts/monitoring >/dev/null 2>&1 || echo "WARN: helm dependency build charts/monitoring failed (offline?)"
-helm unittest charts/app-of-apps charts/istio charts/release-guard charts/monitoring charts/profile-controller charts/user-controller charts/device-controller charts/backstage charts/teknoirbot-controller 2>&1 | grep -E "^(Charts|Test Suites|Tests):"
+helm unittest charts/app-of-apps charts/istio charts/release-guard charts/monitoring charts/profile-controller charts/user-controller charts/device-controller charts/backstage charts/teknoirbot-controller 2>&1
 echo "== CRD guards (Prune=false,Delete=false; spec.desktop when desktop.enabled)"
 bash charts/device-controller/tests/crd_guard_test.sh
 bash charts/teknoirbot-controller/tests/crd_guard_test.sh
