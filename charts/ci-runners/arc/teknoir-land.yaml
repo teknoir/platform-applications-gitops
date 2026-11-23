@@ -41,23 +41,32 @@ template:
         env:
           - name: GOMODCACHE
             value: /cache/go-mod
+          # Land jobs run PR code (with a read-only token since ci-workflows splits test from merge). Anything a job
+          # could plant and a later job would execute stays per pod: the Go build cache and the tool cache (setup-go,
+          # setup-node, setup-envtest) live on the pod's emptyDir. The shared module and package caches are
+          # content-addressed and checked (go mod verify / lockfile integrity) by land.yml.
           - name: GOCACHE
-            value: /cache/go-build
+            value: /scratch/go-build
           - name: YARN_CACHE_FOLDER
             value: /cache/yarn
           - name: npm_config_cache
             value: /cache/npm
           - name: RUNNER_TOOL_CACHE
-            value: /cache/tool-cache
+            value: /scratch/tool-cache
           - name: AGENT_TOOLSDIRECTORY
-            value: /cache/tool-cache
+            value: /scratch/tool-cache
         resources:
           requests: {cpu: "1", memory: 2Gi}
           limits: {cpu: "6", memory: 8Gi}
         volumeMounts:
           - name: ci-cache
             mountPath: /cache
+          - name: scratch
+            mountPath: /scratch
     volumes:
+      - name: scratch
+        emptyDir:
+          sizeLimit: 20Gi
       # baseline PSA forbids hostPath: the PVC is bound by claimRef to the ci-cache-teknoir-land PV over the host dir
       # /var/lib/ci-cache/teknoir-land (owned by 1001:1001, created by infra clusters/devhost-ci/install.sh). All
       # runner pods are on the one node, so several may mount this ReadWriteOnce claim.
