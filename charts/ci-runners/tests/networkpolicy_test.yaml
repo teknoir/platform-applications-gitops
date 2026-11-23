@@ -1,0 +1,221 @@
+suite: ci-runners NetworkPolicies (deny by exception, proposal-v4 5.5)
+templates:
+  - templates/networkpolicies.yaml
+release:
+  name: ci-runners
+  namespace: arc-systems
+tests:
+  # 0 arc-runners default-deny, 1 runners-egress, 2 push-egress, 3 buildkit default-deny, 4 buildkitd
+  - it: renders five policies (nothing for arc-systems, which needs the API)
+    asserts:
+      - hasDocuments:
+          count: 5
+
+  - it: denies all ingress and egress in arc-runners by default
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: metadata.name
+          value: default-deny
+      - equal:
+          path: metadata.namespace
+          value: arc-runners
+      - equal:
+          path: spec.podSelector
+          value: {}
+      - equal:
+          path: spec.policyTypes
+          value: [Ingress, Egress]
+      - notExists:
+          path: spec.ingress
+      - notExists:
+          path: spec.egress
+
+  - it: lets every runner reach DNS and the internet minus the denied ranges, and nothing more
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: metadata.name
+          value: runners-egress
+      - equal:
+          path: spec.podSelector
+          value: {}
+      - equal:
+          path: spec.policyTypes
+          value: [Egress]
+      - notExists:
+          path: spec.ingress
+      - equal:
+          path: spec.egress[0].to
+          value:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: kube-system
+              podSelector:
+                matchLabels:
+                  k8s-app: kube-dns
+      - equal:
+          path: spec.egress[0].ports
+          value:
+            - {protocol: UDP, port: 53}
+            - {protocol: TCP, port: 53}
+      - equal:
+          path: spec.egress[1].to
+          value:
+            - ipBlock:
+                cidr: 0.0.0.0/0
+                except:
+                  - 10.0.0.0/8
+                  - 172.16.0.0/12
+                  - 192.168.0.0/16
+                  - 169.254.0.0/16
+                  - 155.4.167.210/32
+
+  - it: takes the denied ranges from values
+    documentIndex: 1
+    set:
+      deniedCidrs: [10.9.9.0/24, 192.168.5.5/32]
+    asserts:
+      - equal:
+          path: spec.egress[1].to
+          value:
+            - ipBlock:
+                cidr: 0.0.0.0/0
+                except:
+                  - 10.9.9.0/24
+                  - 192.168.5.5/32
+
+  - it: gives only the teknoir-push runners Harbor and buildkitd
+    documentIndex: 2
+    asserts:
+      - equal:
+          path: metadata.name
+          value: push-egress
+      - equal:
+          path: spec.podSelector
+          value:
+            matchLabels:
+              actions.github.com/scale-set-name: teknoir-push
+      - equal:
+          path: spec.policyTypes
+          value: [Egress]
+      - equal:
+          path: spec.egress[0]
+          value:
+            to:
+              - ipBlock:
+                  cidr: 192.168.2.166/32
+            ports:
+              - {protocol: TCP, port: 443}
+      - equal:
+          path: spec.egress[1]
+          value:
+            to:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: buildkit
+                podSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: buildkitd
+            ports:
+              - {protocol: TCP, port: 1234}
+
+  - it: takes the push scale set, Harbor IP and buildkit port from values
+    documentIndex: 2
+    set:
+      scaleSets.push: other-push
+      harbor.ip: 10.9.8.7
+      buildkit.port: 9999
+    asserts:
+      - equal:
+          path: spec.podSelector
+          value:
+            matchLabels:
+              actions.github.com/scale-set-name: other-push
+      - equal:
+          path: spec.egress[0].to[0].ipBlock.cidr
+          value: 10.9.8.7/32
+      - equal:
+          path: spec.egress[1].ports[0].port
+          value: 9999
+
+  - it: denies all ingress and egress in buildkit by default
+    documentIndex: 3
+    asserts:
+      - equal:
+          path: metadata.name
+          value: default-deny
+      - equal:
+          path: metadata.namespace
+          value: buildkit
+      - equal:
+          path: spec.policyTypes
+          value: [Ingress, Egress]
+      - notExists:
+          path: spec.ingress
+      - notExists:
+          path: spec.egress
+
+  - it: lets buildkitd take ingress from teknoir-push only
+    documentIndex: 4
+    asserts:
+      - equal:
+          path: metadata.name
+          value: buildkitd
+      - equal:
+          path: metadata.namespace
+          value: buildkit
+      - equal:
+          path: spec.podSelector
+          value:
+            matchLabels:
+              app.kubernetes.io/name: buildkitd
+      - equal:
+          path: spec.ingress
+          value:
+            - from:
+                - namespaceSelector:
+                    matchLabels:
+                      kubernetes.io/metadata.name: arc-runners
+                  podSelector:
+                    matchLabels:
+                      actions.github.com/scale-set-name: teknoir-push
+              ports:
+                - {protocol: TCP, port: 1234}
+
+  - it: moves the buildkitd ingress port with buildkit.port
+    documentIndex: 4
+    set:
+      buildkit.port: 9999
+    asserts:
+      - equal:
+          path: spec.ingress[0].ports[0].port
+          value: 9999
+
+  - it: lets buildkitd egress to DNS, the internet minus the denied ranges, and Harbor
+    documentIndex: 4
+    asserts:
+      - equal:
+          path: spec.egress[0].to[0].podSelector
+          value:
+            matchLabels:
+              k8s-app: kube-dns
+      - equal:
+          path: spec.egress[1].to
+          value:
+            - ipBlock:
+                cidr: 0.0.0.0/0
+                except:
+                  - 10.0.0.0/8
+                  - 172.16.0.0/12
+                  - 192.168.0.0/16
+                  - 169.254.0.0/16
+                  - 155.4.167.210/32
+      - equal:
+          path: spec.egress[2]
+          value:
+            to:
+              - ipBlock:
+                  cidr: 192.168.2.166/32
+            ports:
+              - {protocol: TCP, port: 443}

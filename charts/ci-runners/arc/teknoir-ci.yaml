@@ -1,0 +1,66 @@
+# Values for the gha-runner-scale-set chart (ARC 0.15.1), release name = scale-set name.
+#   helm upgrade --install teknoir-ci --namespace arc-runners --kube-context devhost-ci \
+#     oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set \
+#     --version 0.15.1 -f charts/ci-runners/arc/teknoir-ci.yaml
+#
+# The Helm release MUST be named teknoir-ci: charts/ci-runners NetworkPolicies select
+# actions.github.com/scale-set-name=teknoir-ci, which ARC sets from the release name.
+#
+# runs-on: teknoir-ci - PR jobs from test.yml (scripts/test, make test, lint). No secrets; PR code is untrusted.
+# Egress and quotas come from the ci-runners chart (namespace arc-runners).
+githubConfigUrl: https://github.com/teknoir
+githubConfigSecret: arc-github
+controllerServiceAccount:
+  namespace: arc-systems
+  name: arc-gha-rs-controller
+runnerScaleSetName: teknoir-ci
+minRunners: 1
+maxRunners: 3
+template:
+  spec:
+    automountServiceAccountToken: false
+    priorityClassName: ci-runner-low
+    securityContext:
+      fsGroup: 1001
+    containers:
+      # ARC requires the runner container to be named "runner"
+      - name: runner
+        image: ghcr.io/actions/actions-runner:2.338.2@sha256:6d0b2d80d80f143f77dcb676e50920100bbb547e39e883454d57f45ab8c31300
+        imagePullPolicy: IfNotPresent
+        # No sudo or root inside jobs: the runner image ships passwordless sudo, which this turns off.
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1001
+          runAsGroup: 1001
+          capabilities:
+            drop: [ALL]
+          seccompProfile:
+            type: RuntimeDefault
+        command: ["/home/runner/run.sh"]
+        env:
+          - name: GOMODCACHE
+            value: /cache/go-mod
+          - name: GOCACHE
+            value: /cache/go-build
+          - name: YARN_CACHE_FOLDER
+            value: /cache/yarn
+          - name: npm_config_cache
+            value: /cache/npm
+          - name: RUNNER_TOOL_CACHE
+            value: /cache/tool-cache
+          - name: AGENT_TOOLSDIRECTORY
+            value: /cache/tool-cache
+        resources:
+          requests: {cpu: "1", memory: 2Gi}
+          limits: {cpu: "6", memory: 8Gi}
+        volumeMounts:
+          - name: ci-cache
+            mountPath: /cache
+    volumes:
+      # baseline PSA forbids hostPath: the PVC is bound by claimRef to the ci-cache-teknoir-ci PV over the host dir
+      # /var/lib/ci-cache/teknoir-ci (owned by 1001:1001, created by infra clusters/devhost-ci/install.sh). All
+      # runner pods are on the one node, so several may mount this ReadWriteOnce claim.
+      - name: ci-cache
+        persistentVolumeClaim:
+          claimName: ci-cache-teknoir-ci

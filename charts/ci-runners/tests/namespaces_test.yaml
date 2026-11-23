@@ -1,0 +1,83 @@
+suite: ci-runners namespaces
+templates:
+  - templates/namespaces.yaml
+release:
+  name: ci-runners
+  namespace: arc-systems
+tests:
+  - it: creates three namespaces
+    asserts:
+      - hasDocuments:
+          count: 3
+
+  - it: names the controller namespace arc-systems
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: metadata.name
+          value: arc-systems
+
+  - it: names the runner namespace arc-runners
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: metadata.name
+          value: arc-runners
+
+  - it: names the buildkit namespace buildkit
+    documentIndex: 2
+    asserts:
+      - equal:
+          path: metadata.name
+          value: buildkit
+
+  - it: never deletes a namespace on uninstall (keep on all three)
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            helm.sh/resource-policy: keep
+
+  - it: lets runners enforce baseline and warn on restricted
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: metadata.labels["pod-security.kubernetes.io/enforce"]
+          value: baseline
+      - equal:
+          path: metadata.labels["pod-security.kubernetes.io/warn"]
+          value: restricted
+
+  - it: leaves arc-systems without a Pod Security label (the controller is ordinary)
+    documentIndex: 0
+    asserts:
+      - notExists:
+          path: metadata.labels["pod-security.kubernetes.io/enforce"]
+      - notExists:
+          path: metadata.labels["pod-security.kubernetes.io/warn"]
+
+  - it: lets buildkit run privileged (rootless BuildKit needs Unconfined seccomp and AppArmor)
+    documentIndex: 2
+    asserts:
+      - equal:
+          path: metadata.labels["pod-security.kubernetes.io/enforce"]
+          value: privileged
+      - notExists:
+          path: metadata.labels["pod-security.kubernetes.io/warn"]
+
+  - it: takes the names from values
+    set:
+      namespaces.runners: runners-custom
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: metadata.name
+          value: runners-custom
+
+  - it: carries the common labels on every namespace
+    asserts:
+      - isSubset:
+          path: metadata.labels
+          content:
+            app.kubernetes.io/name: ci-runners
+            app.kubernetes.io/managed-by: Helm

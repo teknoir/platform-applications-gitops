@@ -1,0 +1,102 @@
+suite: ci-runners quota and limit range
+templates:
+  - templates/quota.yaml
+release:
+  name: ci-runners
+  namespace: arc-systems
+tests:
+  - it: quotas each namespace on requests.memory only
+    asserts:
+      - hasDocuments:
+          count: 3
+
+  - it: caps runners at 12Gi of requests (values)
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: ResourceQuota
+      - equal:
+          path: metadata.name
+          value: ci-quota
+      - equal:
+          path: metadata.namespace
+          value: arc-runners
+      - equal:
+          path: spec.hard
+          value:
+            requests.memory: 12Gi
+
+  - it: caps buildkit at 5Gi of requests (values)
+    documentIndex: 1
+    asserts:
+      - isKind:
+          of: ResourceQuota
+      - equal:
+          path: metadata.namespace
+          value: buildkit
+      - equal:
+          path: spec.hard
+          value:
+            requests.memory: 5Gi
+
+  - it: takes the runner quota from values
+    set:
+      quota.runners.requestsMemory: 3Gi
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.hard
+          value:
+            requests.memory: 3Gi
+
+  - it: takes the buildkit quota from values
+    set:
+      quota.buildkit.requestsMemory: 2Gi
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: spec.hard
+          value:
+            requests.memory: 2Gi
+
+  - it: gives resource-less containers in arc-runners a Burstable default
+    documentIndex: 2
+    asserts:
+      - isKind:
+          of: LimitRange
+      - equal:
+          path: metadata.name
+          value: ci-defaults
+      - equal:
+          path: metadata.namespace
+          value: arc-runners
+      - equal:
+          path: spec.limits[0].type
+          value: Container
+      - equal:
+          path: spec.limits[0].defaultRequest
+          value:
+            cpu: 500m
+            memory: 1Gi
+      - equal:
+          path: spec.limits[0].default
+          value:
+            cpu: "2"
+            memory: 4Gi
+
+  - it: takes the LimitRange defaults from values
+    set:
+      limitRange.defaultRequest: {cpu: 250m, memory: 256Mi}
+      limitRange.default: {cpu: "1", memory: 2Gi}
+    documentIndex: 2
+    asserts:
+      - equal:
+          path: spec.limits[0].defaultRequest
+          value:
+            cpu: 250m
+            memory: 256Mi
+      - equal:
+          path: spec.limits[0].default
+          value:
+            cpu: "1"
+            memory: 2Gi

@@ -1,0 +1,36 @@
+---
+# Namespaces are created here so the ARC charts and BuildKit have a home before either is installed.
+# resource-policy: keep - uninstalling this chart must never delete a namespace with objects still in it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespaces.controller }}
+  labels:
+    {{- include "ci-runners.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespaces.runners }}
+  labels:
+    {{- include "ci-runners.labels" . | nindent 4 }}
+    # Pod Security Admission: the ARC runner pod runs as the image's user (1001); it never needs privileges, so
+    # restricted is only a warning until the workflows stop writing outside /cache and the work dir.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/warn: restricted
+  annotations:
+    helm.sh/resource-policy: keep
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespaces.buildkit }}
+  labels:
+    {{- include "ci-runners.labels" . | nindent 4 }}
+    # rootless BuildKit needs Unconfined seccomp and AppArmor, which baseline forbids: the namespace is the
+    # boundary here, and the only pod in it is buildkitd.
+    pod-security.kubernetes.io/enforce: privileged
+  annotations:
+    helm.sh/resource-policy: keep

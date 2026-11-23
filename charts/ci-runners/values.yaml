@@ -1,0 +1,62 @@
+---
+# ci-runners: the cluster-side half of CI on devhost-ci (plans/cicd/proposal-v4.md 5.2-5.5).
+# The upstream ARC charts are installed separately with the values in arc/; nothing here depends on them.
+
+namespaces:
+  controller: arc-systems
+  runners: arc-runners
+  buildkit: buildkit
+
+harbor:
+  host: harbor.teknoir.cloud
+  ip: 192.168.2.166 # r415 on the LAN; reached directly, never via the public IP
+
+# Addresses CI pods must never reach (LAN, cluster, link-local, the public IP of the office line)
+deniedCidrs:
+  - 10.0.0.0/8
+  - 172.16.0.0/12
+  - 192.168.0.0/16
+  - 169.254.0.0/16
+  - 155.4.167.210/32
+
+priorityClass:
+  name: ci-runner-low
+  value: -10
+
+quota:
+  runners:
+    requestsMemory: 12Gi
+  buildkit:
+    requestsMemory: 5Gi
+
+# defaults for containers in arc-runners that set no resources
+limitRange:
+  defaultRequest: {cpu: 500m, memory: 1Gi}
+  default: {cpu: "2", memory: 4Gi}
+
+pushGuard:
+  configMapName: push-guard
+
+# Runner caches. arc-runners enforces baseline PSA, which forbids hostPath volumes, so each host cache dir becomes a
+# static PV bound by claimRef to a PVC the runner pod mounts. install.sh owns the dirs on the host.
+cacheVolumes:
+  scaleSets: [teknoir-ci, teknoir-land, teknoir-push]
+  hostPathRoot: /var/lib/ci-cache
+  size: 200Gi
+
+# names used for pod selectors in NetworkPolicies
+scaleSets:
+  push: teknoir-push
+
+buildkit:
+  image: docker.io/moby/buildkit:v0.35.1-rootless@sha256:7d02292556e66feea6d2d89b7ec143503b57e4f59a4efc6b7ece8547e4d3e5be
+  port: 1234
+  stateHostPath: /var/lib/buildkit
+  gc:
+    reservedSpace: 20GB
+    maxUsedSpace: 200GB
+    minFreeSpace: 10%
+  maxParallelism: 4
+  resources:
+    requests: {cpu: "2", memory: 4Gi}
+    limits: {cpu: "12", memory: 10Gi}

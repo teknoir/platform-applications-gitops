@@ -1,0 +1,87 @@
+suite: ci-runners push guard (job-started hook for teknoir-push)
+templates:
+  - templates/push-guard.yaml
+release:
+  name: ci-runners
+  namespace: arc-systems
+tests:
+  - it: is one ConfigMap in arc-runners
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: metadata.name
+          value: push-guard
+      - equal:
+          path: metadata.namespace
+          value: arc-runners
+
+  - it: takes the ConfigMap name from values
+    set:
+      pushGuard.configMapName: guard-custom
+    asserts:
+      - equal:
+          path: metadata.name
+          value: guard-custom
+
+  - it: admits push to refs/heads/main
+    asserts:
+      - matchRegex:
+          path: data["push-guard.sh"]
+          pattern: 'push:refs/heads/main'
+
+  - it: admits workflow_dispatch on refs/heads/main
+    asserts:
+      - matchRegex:
+          path: data["push-guard.sh"]
+          pattern: 'workflow_dispatch:refs/heads/main'
+
+  - it: admits schedule on refs/heads/main
+    asserts:
+      - matchRegex:
+          path: data["push-guard.sh"]
+          pattern: 'schedule:refs/heads/main'
+
+  - it: never admits a tag (private repos cannot protect tags, so a tag may point at unmerged code)
+    asserts:
+      - notMatchRegex:
+          path: data["push-guard.sh"]
+          pattern: 'refs/tags'
+
+  - it: "kills the runner worker on refusal, so no later step or pre: step can read the Harbor credential"
+    asserts:
+      - matchRegex:
+          path: data["push-guard.sh"]
+          pattern: 'kill -KILL "\$PPID"'
+
+  - it: kills before it exits non-zero
+    asserts:
+      - matchRegex:
+          path: data["push-guard.sh"]
+          pattern: '(?m)^    kill -KILL "\$PPID"\n    exit 1$'
+
+  - it: lets the three admitted forms exit 0 and everything else be refused
+    asserts:
+      - matchRegex:
+          path: data["push-guard.sh"]
+          pattern: '(?m)^  push:refs/heads/main\|workflow_dispatch:refs/heads/main\|schedule:refs/heads/main\) exit 0 ;;$'
+      - matchRegex:
+          path: data["push-guard.sh"]
+          pattern: '(?m)^  \*\)$'
+      - matchRegex:
+          path: data["push-guard.sh"]
+          pattern: '(?m)^    echo "teknoir-push only runs jobs for refs/heads/main \(push, workflow_dispatch, schedule\); got \$\{GITHUB_EVENT_NAME\}:\$\{GITHUB_REF\}" >&2$'
+
+  - it: fires before any job step (both ref variables are read from the job environment)
+    asserts:
+      - matchRegex:
+          path: data["push-guard.sh"]
+          pattern: '(?m)^#!/bin/sh$'
+      - matchRegex:
+          path: data["push-guard.sh"]
+          pattern: 'case "\$\{GITHUB_EVENT_NAME\}:\$\{GITHUB_REF\}" in'
+      - matchRegex:
+          path: data["push-guard.sh"]
+          pattern: '(?m)^esac$'

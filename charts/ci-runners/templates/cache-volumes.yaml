@@ -1,0 +1,55 @@
+{{- range $set := .Values.cacheVolumes.scaleSets }}
+---
+# Runner cache for the {{ $set }} scale set (proposal-v4 5.2). arc-runners enforces baseline PSA, which forbids
+# hostPath volumes, so the host dir install.sh creates becomes a static PV bound by claimRef to a PVC of the same
+# name; the runner pod mounts the PVC at /cache. resource-policy: keep - a chart uninstall or rollback must never
+# drop the host data. All runner pods are on devhost-ci's single node, so several may mount the ReadWriteOnce claim.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ci-cache-{{ $set }}
+  labels:
+    {{- include "ci-runners.labels" $ | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  capacity:
+    storage: {{ $.Values.cacheVolumes.size }}
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  volumeMode: Filesystem
+  hostPath:
+    path: {{ $.Values.cacheVolumes.hostPathRoot }}/{{ $set }}
+    type: Directory
+  claimRef:
+    namespace: {{ $.Values.namespaces.runners }}
+    name: ci-cache-{{ $set }}
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - devhost-ci
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ci-cache-{{ $set }}
+  namespace: {{ $.Values.namespaces.runners }}
+  labels:
+    {{- include "ci-runners.labels" $ | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ""
+  volumeName: ci-cache-{{ $set }}
+  resources:
+    requests:
+      storage: {{ $.Values.cacheVolumes.size }}
+{{- end }}
