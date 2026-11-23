@@ -37,7 +37,7 @@ template:
         # actions-runner 2.338.2 + make, gcc, gh, yq, xz, zstd (teknoir/ci-workflows runner-image/Dockerfile).
         # The ghcr package is private until it is made public; until then the image is imported into the node's
         # containerd (infra clusters/devhost-ci) and IfNotPresent keeps kubelet from pulling.
-        image: ghcr.io/teknoir/ci-runner:2.338.2-2@sha256:8d62610be7844184991ae07741d981b6bf3b65d328852f14a48de40207514c64
+        image: ghcr.io/teknoir/ci-runner:2.338.2-3@sha256:9248ca3c6947c4666847603672d6c02b09527ccf8d04aabd1bcee99c6b2718eb
         imagePullPolicy: IfNotPresent
         # No sudo or root inside jobs: the runner image ships passwordless sudo, which this turns off.
         securityContext:
