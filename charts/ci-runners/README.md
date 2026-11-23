@@ -91,11 +91,33 @@ never build on the tag itself.
 
 The Harbor credential and the Harbor/buildkitd egress exist only on `teknoir-push`; every other runner pod can
 reach the internet but not `10/8`, `172.16/12`, `192.168/16`, `169.254/16` or the public IP of the office line
-(`values.yaml: deniedCidrs`).
+(`values.yaml: deniedCidrs`). The test database below runs inside each runner pod on its own localhost, so it adds
+no hole in that fence.
 
 **Release names.** The `ci-runners` NetworkPolicies select `actions.github.com/scale-set-name=<set>`, which ARC sets
 to the AutoscalingRunnerSet name, i.e. the Helm release name. Each scale-set release MUST therefore keep its own
 name (`teknoir-ci`, `teknoir-land`, `teknoir-push`), or the policy selects no pods.
+
+## Test database
+
+Every `teknoir-ci` and `teknoir-land` runner pod carries a Postgres 16 **sidecar** (a native sidecar: an
+`initContainer` with `restartPolicy: Always`, in `arc/teknoir-ci.yaml` and `arc/teknoir-land.yaml`), so repo test
+suites get a real database. `teknoir-push` has none.
+
+Per pod, not one shared server, on purpose. A shared long-lived server lets one PR job tamper with the next - a
+dropped or replaced `template1`, an `ALTER SYSTEM`, a superuser left behind - and databases from cancelled jobs
+stay until the disk fills. A sidecar lives and dies with the ephemeral runner pod: each job gets a fresh, empty
+server, and nothing a job writes can be read by a later job.
+
+The server listens on `127.0.0.1` only, so no other pod or workload can reach it, and its data is a per-pod
+`emptyDir` (`pgdata`, 10Gi). The password (`ci-test-only`) is in the values file: there is no data to protect and
+nothing outside the pod to reach it. Speed matters more than durability, so `fsync`, `synchronous_commit` and
+`full_page_writes` are off and `max_connections` is 500. A `startupProbe` (`pg_isready`) holds the runner container
+until the database is ready.
+
+Repos use the env var both scale sets carry,
+`BACKSTAGE_TEST_DATABASE_POSTGRES16_CONNECTION_STRING=postgresql://postgres:ci-test-only@127.0.0.1:5432`,
+the name Backstage's TestDatabases looks for (`..._POSTGRES16_...`).
 
 ## Known limits
 
