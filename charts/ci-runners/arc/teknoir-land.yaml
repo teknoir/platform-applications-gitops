@@ -39,18 +39,16 @@ template:
             type: RuntimeDefault
         command: ["/home/runner/run.sh"]
         env:
+          # Land jobs run PR code. Nothing a job writes may be read by a later job (possibly another repo's), so every
+          # cache lives on the pod's emptyDir and dies with the pod. Land is serial; a cold cache costs only time.
           - name: GOMODCACHE
-            value: /cache/go-mod
-          # Land jobs run PR code (with a read-only token since ci-workflows splits test from merge). Anything a job
-          # could plant and a later job would execute stays per pod: the Go build cache and the tool cache (setup-go,
-          # setup-node, setup-envtest) live on the pod's emptyDir. The shared module and package caches are
-          # content-addressed and checked (go mod verify / lockfile integrity) by land.yml.
+            value: /scratch/go-mod
           - name: GOCACHE
             value: /scratch/go-build
           - name: YARN_CACHE_FOLDER
-            value: /cache/yarn
+            value: /scratch/yarn
           - name: npm_config_cache
-            value: /cache/npm
+            value: /scratch/npm
           - name: RUNNER_TOOL_CACHE
             value: /scratch/tool-cache
           - name: AGENT_TOOLSDIRECTORY
@@ -59,17 +57,9 @@ template:
           requests: {cpu: "1", memory: 2Gi}
           limits: {cpu: "6", memory: 8Gi}
         volumeMounts:
-          - name: ci-cache
-            mountPath: /cache
           - name: scratch
             mountPath: /scratch
     volumes:
       - name: scratch
         emptyDir:
-          sizeLimit: 20Gi
-      # baseline PSA forbids hostPath: the PVC is bound by claimRef to the ci-cache-teknoir-land PV over the host dir
-      # /var/lib/ci-cache/teknoir-land (owned by 1001:1001, created by infra clusters/devhost-ci/install.sh). All
-      # runner pods are on the one node, so several may mount this ReadWriteOnce claim.
-      - name: ci-cache
-        persistentVolumeClaim:
-          claimName: ci-cache-teknoir-land
+          sizeLimit: 30Gi
