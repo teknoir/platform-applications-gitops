@@ -1,0 +1,148 @@
+---
+# Deny by default, allow by exception (proposal-v4 5.5). k3s enforces NetworkPolicy with its embedded kube-router.
+# arc-systems is deliberately left open: the controller and the listeners talk to the Kubernetes API and to each
+# other, and they run no workflow code.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: {{ .Values.namespaces.runners }}
+  labels:
+    {{- include "ci-runners.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# Runner egress: DNS, and the internet minus everything on the LAN, in the cluster, link-local, and the public IP of
+# the office line. Ingress stays denied: a runner never serves anything.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: runners-egress
+  namespace: {{ .Values.namespaces.runners }}
+  labels:
+    {{- include "ci-runners.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+{{ toYaml .Values.deniedCidrs | indent 14 }}
+---
+# The one scale set that may reach Harbor and BuildKit. The job-started hook (push-guard.yaml) admits only
+# refs/heads/main there, so this egress and the Harbor credential never belong to a workflow a PR can edit. The
+# podSelector matches actions.github.com/scale-set-name, which ARC sets to the AutoscalingRunnerSet (Helm release)
+# name: the teknoir-push release MUST keep that name for this policy to select its pods.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: push-egress
+  namespace: {{ .Values.namespaces.runners }}
+  labels:
+    {{- include "ci-runners.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      actions.github.com/scale-set-name: {{ .Values.scaleSets.push }}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: {{ .Values.harbor.ip }}/32
+      ports:
+        - protocol: TCP
+          port: 443
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.namespaces.buildkit }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: buildkitd
+      ports:
+        - protocol: TCP
+          port: {{ .Values.buildkit.port }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: {{ .Values.namespaces.buildkit }}
+  labels:
+    {{- include "ci-runners.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# buildkitd: ingress only from the teknoir-push runners; egress to DNS, the internet minus the LAN, and Harbor. Build
+# credentials arrive with the buildx session, so the pod itself holds none.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: buildkitd
+  namespace: {{ .Values.namespaces.buildkit }}
+  labels:
+    {{- include "ci-runners.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: buildkitd
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.namespaces.runners }}
+          podSelector:
+            matchLabels:
+              actions.github.com/scale-set-name: {{ .Values.scaleSets.push }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.buildkit.port }}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+{{ toYaml .Values.deniedCidrs | indent 14 }}
+    - to:
+        - ipBlock:
+            cidr: {{ .Values.harbor.ip }}/32
+      ports:
+        - protocol: TCP
+          port: 443

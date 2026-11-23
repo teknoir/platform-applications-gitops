@@ -1,0 +1,263 @@
+suite: ci-runners buildkitd (rootless BuildKit daemon)
+templates:
+  - templates/buildkitd.yaml
+release:
+  name: ci-runners
+  namespace: arc-systems
+tests:
+  # 0 buildkitd-config ConfigMap, 1 buildkitd Deployment, 2 buildkitd Service
+  - it: renders the config, the daemon and its Service
+    asserts:
+      - hasDocuments:
+          count: 3
+
+  - it: renders a ConfigMap first
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: ConfigMap
+
+  - it: renders a Deployment second
+    documentIndex: 1
+    asserts:
+      - isKind:
+          of: Deployment
+
+  - it: renders a Service third
+    documentIndex: 2
+    asserts:
+      - isKind:
+          of: Service
+
+  - it: configures an OCI worker with GC from values
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: buildkit
+      - matchRegex:
+          path: data["buildkitd.toml"]
+          pattern: '(?m)^  max-parallelism = 4$'
+      - matchRegex:
+          path: data["buildkitd.toml"]
+          pattern: '(?m)^  reservedSpace = "20GB"$'
+      - matchRegex:
+          path: data["buildkitd.toml"]
+          pattern: '(?m)^  maxUsedSpace = "200GB"$'
+      - matchRegex:
+          path: data["buildkitd.toml"]
+          pattern: '(?m)^  minFreeSpace = "10%"$'
+      - matchRegex:
+          path: data["buildkitd.toml"]
+          pattern: '(?m)^\[worker.containerd\]\n  enabled = false$'
+
+  - it: takes the GC settings and parallelism from values
+    documentIndex: 0
+    set:
+      buildkit.maxParallelism: 2
+      buildkit.gc.reservedSpace: 1GB
+      buildkit.gc.maxUsedSpace: 5GB
+      buildkit.gc.minFreeSpace: 1%
+    asserts:
+      - matchRegex:
+          path: data["buildkitd.toml"]
+          pattern: '(?m)^  max-parallelism = 2$'
+      - matchRegex:
+          path: data["buildkitd.toml"]
+          pattern: '(?m)^  reservedSpace = "1GB"$'
+      - matchRegex:
+          path: data["buildkitd.toml"]
+          pattern: '(?m)^  maxUsedSpace = "5GB"$'
+      - matchRegex:
+          path: data["buildkitd.toml"]
+          pattern: '(?m)^  minFreeSpace = "1%"$'
+
+  - it: runs one unprivileged daemon, recreating rather than rolling (one state dir)
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: buildkit
+      - equal:
+          path: spec.replicas
+          value: 1
+      - equal:
+          path: spec.strategy.type
+          value: Recreate
+      - equal:
+          path: spec.selector.matchLabels
+          value:
+            app.kubernetes.io/name: buildkitd
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            runAsUser: 1000
+            runAsGroup: 1000
+      - equal:
+          path: spec.template.spec.securityContext
+          value:
+            seccompProfile:
+              type: Unconfined
+            appArmorProfile:
+              type: Unconfined
+
+  - it: reaches Harbor by LAN IP through a hostAlias
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: spec.template.spec.hostAliases
+          value:
+            - ip: 192.168.2.166
+              hostnames:
+                - harbor.teknoir.cloud
+
+  - it: keeps its state on the host (Directory) and its config from the ConfigMap
+    documentIndex: 1
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: state
+            hostPath:
+              path: /var/lib/buildkit
+              type: Directory
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: state
+            mountPath: /home/user/.local/share/buildkit
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: config
+            configMap:
+              name: buildkitd-config
+
+  - it: never auto-creates the state dir root-owned (the rootless daemon could not write it)
+    documentIndex: 1
+    asserts:
+      - notEqual:
+          path: spec.template.spec.volumes[1].hostPath.type
+          value: DirectoryOrCreate
+
+  - it: takes the state path from values
+    documentIndex: 1
+    set:
+      buildkit.stateHostPath: /mnt/nvme/buildkit
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: state
+            hostPath:
+              path: /mnt/nvme/buildkit
+              type: Directory
+
+  - it: takes the image and resources from values
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: docker.io/moby/buildkit:v0.35.1-rootless@sha256:7d02292556e66feea6d2d89b7ec143503b57e4f59a4efc6b7ece8547e4d3e5be
+      - equal:
+          path: spec.template.spec.containers[0].resources
+          value:
+            requests: {cpu: "2", memory: 4Gi}
+            limits: {cpu: "12", memory: 10Gi}
+
+  - it: takes the image from values
+    documentIndex: 1
+    set:
+      buildkit.image: example.com/buildkit:test
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: example.com/buildkit:test
+
+  - it: serves on the configured port and is probed with buildctl
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].ports
+          value:
+            - name: buildkit
+              containerPort: 1234
+              protocol: TCP
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value:
+            - --addr
+            - tcp://0.0.0.0:1234
+            - --addr
+            - unix:///run/user/1000/buildkit/buildkitd.sock
+            - --oci-worker-no-process-sandbox
+            - --config
+            - /etc/buildkit/buildkitd.toml
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.exec.command
+          value: [buildctl, debug, workers]
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.exec.command
+          value: [buildctl, debug, workers]
+
+  # buildctl may be slow under load; a 1 s default timeout would restart the daemon mid-build
+  - it: gives the probes a 10 s timeout and the liveness probe five failures before acting
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.timeoutSeconds
+          value: 10
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.timeoutSeconds
+          value: 10
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.failureThreshold
+          value: 5
+
+  - it: moves the daemon and its container port with buildkit.port
+    documentIndex: 1
+    set:
+      buildkit.port: 9999
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: tcp://0.0.0.0:9999
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 9999
+
+  - it: exposes the daemon to the runners on a ClusterIP Service on the configured port
+    documentIndex: 2
+    asserts:
+      - equal:
+          path: metadata.name
+          value: buildkitd
+      - equal:
+          path: metadata.namespace
+          value: buildkit
+      - equal:
+          path: spec.type
+          value: ClusterIP
+      - equal:
+          path: spec.selector
+          value:
+            app.kubernetes.io/name: buildkitd
+      - equal:
+          path: spec.ports
+          value:
+            - port: 1234
+              targetPort: buildkit
+              protocol: TCP
+              name: buildkit
+
+  - it: moves the Service port with buildkit.port
+    documentIndex: 2
+    set:
+      buildkit.port: 9999
+    asserts:
+      - equal:
+          path: spec.ports[0].port
+          value: 9999

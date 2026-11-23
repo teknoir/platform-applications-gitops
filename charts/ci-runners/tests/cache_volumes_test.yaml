@@ -1,0 +1,155 @@
+suite: ci-runners cache volumes (hostPath is forbidden by baseline PSA, so static PV + PVC)
+templates:
+  - templates/cache-volumes.yaml
+release:
+  name: ci-runners
+  namespace: arc-systems
+tests:
+  # 0-5: PV/PVC per set, interleaved: PV teknoir-ci, PVC teknoir-ci, PV teknoir-land, PVC teknoir-land,
+  #      PV teknoir-push, PVC teknoir-push
+  - it: renders a PersistentVolume and a PersistentVolumeClaim for each scale set
+    asserts:
+      - hasDocuments:
+          count: 6
+
+  - it: renders the teknoir-ci PV as a static hostPath volume with a claimRef to the same-name PVC
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: PersistentVolume
+      - equal:
+          path: metadata.name
+          value: ci-cache-teknoir-ci
+      - equal:
+          path: spec.capacity.storage
+          value: 200Gi
+      - equal:
+          path: spec.accessModes
+          value: [ReadWriteOnce]
+      - equal:
+          path: spec.persistentVolumeReclaimPolicy
+          value: Retain
+      - equal:
+          path: spec.storageClassName
+          value: ""
+      - equal:
+          path: spec.volumeMode
+          value: Filesystem
+      - equal:
+          path: spec.hostPath
+          value:
+            path: /var/lib/ci-cache/teknoir-ci
+            type: Directory
+      - equal:
+          path: spec.claimRef
+          value:
+            namespace: arc-runners
+            name: ci-cache-teknoir-ci
+      - equal:
+          path: spec.nodeAffinity.required.nodeSelectorTerms[0].matchExpressions[0]
+          value:
+            key: kubernetes.io/hostname
+            operator: In
+            values:
+              - devhost-ci
+      - equal:
+          path: metadata.annotations["helm.sh/resource-policy"]
+          value: keep
+
+  - it: renders the teknoir-ci PVC bound to its PV by volumeName
+    documentIndex: 1
+    asserts:
+      - isKind:
+          of: PersistentVolumeClaim
+      - equal:
+          path: metadata.name
+          value: ci-cache-teknoir-ci
+      - equal:
+          path: metadata.namespace
+          value: arc-runners
+      - equal:
+          path: spec.accessModes
+          value: [ReadWriteOnce]
+      - equal:
+          path: spec.storageClassName
+          value: ""
+      - equal:
+          path: spec.volumeName
+          value: ci-cache-teknoir-ci
+      - equal:
+          path: spec.resources.requests.storage
+          value: 200Gi
+      - equal:
+          path: metadata.annotations["helm.sh/resource-policy"]
+          value: keep
+
+  - it: renders the teknoir-land PV/PVC pair
+    asserts:
+      - equal:
+          path: metadata.name
+          value: ci-cache-teknoir-land
+        documentIndex: 2
+      - equal:
+          path: spec.hostPath.path
+          value: /var/lib/ci-cache/teknoir-land
+        documentIndex: 2
+      - equal:
+          path: spec.claimRef.name
+          value: ci-cache-teknoir-land
+        documentIndex: 2
+      - equal:
+          path: metadata.name
+          value: ci-cache-teknoir-land
+        documentIndex: 3
+      - equal:
+          path: spec.volumeName
+          value: ci-cache-teknoir-land
+        documentIndex: 3
+
+  - it: renders the teknoir-push PV/PVC pair
+    asserts:
+      - equal:
+          path: metadata.name
+          value: ci-cache-teknoir-push
+        documentIndex: 4
+      - equal:
+          path: spec.hostPath.path
+          value: /var/lib/ci-cache/teknoir-push
+        documentIndex: 4
+      - equal:
+          path: spec.claimRef.name
+          value: ci-cache-teknoir-push
+        documentIndex: 4
+      - equal:
+          path: metadata.name
+          value: ci-cache-teknoir-push
+        documentIndex: 5
+      - equal:
+          path: spec.volumeName
+          value: ci-cache-teknoir-push
+        documentIndex: 5
+
+  - it: takes the host root, size and scale-set list from values
+    set:
+      cacheVolumes.scaleSets: [only-set]
+      cacheVolumes.hostPathRoot: /mnt/cache
+      cacheVolumes.size: 50Gi
+    asserts:
+      - hasDocuments:
+          count: 2
+      - equal:
+          path: metadata.name
+          value: ci-cache-only-set
+        documentIndex: 0
+      - equal:
+          path: spec.hostPath.path
+          value: /mnt/cache/only-set
+        documentIndex: 0
+      - equal:
+          path: spec.capacity.storage
+          value: 50Gi
+        documentIndex: 0
+      - equal:
+          path: spec.resources.requests.storage
+          value: 50Gi
+        documentIndex: 1

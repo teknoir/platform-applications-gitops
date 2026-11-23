@@ -1,0 +1,91 @@
+# Values for the gha-runner-scale-set chart (ARC 0.15.1), release name = scale-set name.
+#   helm upgrade --install teknoir-push --namespace arc-runners --kube-context devhost-ci \
+#     oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set \
+#     --version 0.15.1 -f charts/ci-runners/arc/teknoir-push.yaml
+#
+# The Helm release MUST be named teknoir-push: charts/ci-runners NetworkPolicies select
+# actions.github.com/scale-set-name=teknoir-push, which ARC sets from the release name.
+#
+# runs-on: teknoir-push - image.yml and chart publish only, on refs/heads/main (push, workflow_dispatch, schedule).
+# Never on tags: in a private repo a tag can point at an unmerged commit (no tag protection on Free). Release tags
+# re-tag a digest that a main job already built and pushed; the tag itself never builds. GitHub Free has one runner
+# group, so any workflow can name this label: the job-started hook from the push-guard ConfigMap (ci-runners chart)
+# kills the runner on every other ref before the first step, which is also why the Harbor credential and the
+# buildkitd/Harbor egress live only on this set.
+githubConfigUrl: https://github.com/teknoir
+githubConfigSecret: arc-github
+controllerServiceAccount:
+  namespace: arc-systems
+  name: arc-gha-rs-controller
+runnerScaleSetName: teknoir-push
+minRunners: 0
+maxRunners: 2
+template:
+  spec:
+    automountServiceAccountToken: false
+    priorityClassName: ci-runner-low
+    securityContext:
+      fsGroup: 1001
+    # Harbor by LAN IP (the pods never reach the public IP)
+    hostAliases:
+      - ip: 192.168.2.166
+        hostnames:
+          - harbor.teknoir.cloud
+    containers:
+      # ARC requires the runner container to be named "runner"
+      - name: runner
+        image: ghcr.io/actions/actions-runner:2.338.2@sha256:6d0b2d80d80f143f77dcb676e50920100bbb547e39e883454d57f45ab8c31300
+        imagePullPolicy: IfNotPresent
+        command: ["/home/runner/run.sh"]
+        env:
+          - name: ACTIONS_RUNNER_HOOK_JOB_STARTED
+            value: /hooks/push-guard.sh
+          - name: BUILDKIT_HOST
+            value: tcp://buildkitd.buildkit.svc.cluster.local:1234
+          - name: HARBOR_REGISTRY
+            value: harbor.teknoir.cloud
+          - name: HARBOR_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: harbor-push
+                key: username
+                optional: false
+          - name: HARBOR_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: harbor-push
+                key: password
+                optional: false
+          - name: GOMODCACHE
+            value: /cache/go-mod
+          - name: GOCACHE
+            value: /cache/go-build
+          - name: YARN_CACHE_FOLDER
+            value: /cache/yarn
+          - name: npm_config_cache
+            value: /cache/npm
+          - name: RUNNER_TOOL_CACHE
+            value: /cache/tool-cache
+          - name: AGENT_TOOLSDIRECTORY
+            value: /cache/tool-cache
+        resources:
+          requests: {cpu: 500m, memory: 512Mi}
+          limits: {cpu: "2", memory: 2Gi}
+        volumeMounts:
+          - name: ci-cache
+            mountPath: /cache
+          - name: hooks
+            mountPath: /hooks
+            readOnly: true
+    volumes:
+      # baseline PSA forbids hostPath: the PVC is bound by claimRef to the ci-cache-teknoir-push PV over the host dir
+      # /var/lib/ci-cache/teknoir-push (owned by 1001:1001, created by infra clusters/devhost-ci/install.sh). All
+      # runner pods are on the one node, so several may mount this ReadWriteOnce claim.
+      - name: ci-cache
+        persistentVolumeClaim:
+          claimName: ci-cache-teknoir-push
+      # 0555: the runner executes the hook but no job step can rewrite it
+      - name: hooks
+        configMap:
+          name: push-guard
+          defaultMode: 0555

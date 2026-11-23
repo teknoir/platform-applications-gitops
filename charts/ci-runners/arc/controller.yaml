@@ -1,0 +1,15 @@
+# Values for the gha-runner-scale-set-controller chart (ARC 0.15.1), release "arc" in namespace arc-systems.
+#   helm upgrade --install arc --namespace arc-systems --kube-context devhost-ci \
+#     oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller \
+#     --version 0.15.1 -f charts/ci-runners/arc/controller.yaml
+#
+# The release name matters: the scale sets name the controller ServiceAccount arc-gha-rs-controller, which the chart
+# derives as <release>-gha-rs-controller. The controller needs the Kubernetes API, so its namespace has no
+# NetworkPolicy.
+replicaCount: 1
+resources:
+  requests: {cpu: 100m, memory: 128Mi}
+  limits: {memory: 512Mi}
+flags:
+  logLevel: info
+  logFormat: json

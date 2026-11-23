@@ -1,0 +1,12 @@
+---
+# CI pods are evicted first under node pressure (proposal-v4 5.4): a lost runner is re-run, an agent session is not.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: {{ .Values.priorityClass.name }}
+  labels:
+    {{- include "ci-runners.labels" . | nindent 4 }}
+value: {{ .Values.priorityClass.value }}
+globalDefault: false
+preemptionPolicy: Never
+description: "CI runner pods: evicted first under node pressure"

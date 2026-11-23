@@ -1,0 +1,121 @@
+---
+# One rootless BuildKit daemon for every image build on devhost-ci (proposal-v4 5.2, 5.3). Rootless plus
+# --oci-worker-no-process-sandbox means the worker needs an unconfined seccomp profile and AppArmor, which is why the
+# buildkit namespace enforces privileged PSA; the pod itself is still unprivileged (user 1000, no token).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: buildkitd-config
+  namespace: {{ .Values.namespaces.buildkit }}
+  labels:
+    {{- include "ci-runners.labels" . | nindent 4 }}
+data:
+  buildkitd.toml: |
+    [worker.oci]
+      enabled = true
+      max-parallelism = {{ .Values.buildkit.maxParallelism }}
+      gc = true
+      reservedSpace = "{{ .Values.buildkit.gc.reservedSpace }}"
+      maxUsedSpace = "{{ .Values.buildkit.gc.maxUsedSpace }}"
+      minFreeSpace = "{{ .Values.buildkit.gc.minFreeSpace }}"
+    [worker.containerd]
+      enabled = false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: buildkitd
+  namespace: {{ .Values.namespaces.buildkit }}
+  labels:
+    {{- include "ci-runners.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  # one hostPath state dir, so never two daemons at once
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: buildkitd
+  template:
+    metadata:
+      labels:
+        {{- include "ci-runners.buildkitdLabels" . | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      # the daemon pushes the multi-arch manifest itself: Harbor by LAN IP, never via the public IP
+      hostAliases:
+        - ip: {{ .Values.harbor.ip }}
+          hostnames:
+            - {{ .Values.harbor.host }}
+      securityContext:
+        seccompProfile:
+          type: Unconfined
+        appArmorProfile:
+          type: Unconfined
+      containers:
+        - name: buildkitd
+          image: {{ .Values.buildkit.image }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - --addr
+            - tcp://0.0.0.0:{{ .Values.buildkit.port }}
+            - --addr
+            - unix:///run/user/1000/buildkit/buildkitd.sock
+            - --oci-worker-no-process-sandbox
+            - --config
+            - /etc/buildkit/buildkitd.toml
+          ports:
+            - name: buildkit
+              containerPort: {{ .Values.buildkit.port }}
+              protocol: TCP
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+          resources:
+            {{- toYaml .Values.buildkit.resources | nindent 12 }}
+          readinessProbe:
+            exec:
+              command: [buildctl, debug, workers]
+            initialDelaySeconds: 5
+            periodSeconds: 30
+            timeoutSeconds: 10
+          livenessProbe:
+            exec:
+              command: [buildctl, debug, workers]
+            initialDelaySeconds: 5
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          volumeMounts:
+            - name: config
+              mountPath: /etc/buildkit
+              readOnly: true
+            - name: state
+              mountPath: /home/user/.local/share/buildkit
+      volumes:
+        - name: config
+          configMap:
+            name: buildkitd-config
+        # Directory, not DirectoryOrCreate: install.sh creates it owned by 1000:1000; a root-owned auto-created dir
+        # would crash-loop the rootless daemon. (This namespace is privileged, so hostPath is allowed here.)
+        - name: state
+          hostPath:
+            path: {{ .Values.buildkit.stateHostPath }}
+            type: Directory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: buildkitd
+  namespace: {{ .Values.namespaces.buildkit }}
+  labels:
+    {{- include "ci-runners.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.buildkit.port }}
+      targetPort: buildkit
+      protocol: TCP
+      name: buildkit
+  selector:
+    app.kubernetes.io/name: buildkitd

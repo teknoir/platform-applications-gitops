@@ -1,0 +1,27 @@
+---
+# ARC job-started hook for the teknoir-push scale set (proposal-v4 5.2, 5.6). The gha-runner-scale-set values in
+# arc/teknoir-push.yaml point ACTIONS_RUNNER_HOOK_JOB_STARTED at /hooks/push-guard.sh, mounted from this ConfigMap
+# read-only with mode 0555. The runner runs it as the first step of every job, so a workflow cannot skip it.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.pushGuard.configMapName }}
+  namespace: {{ .Values.namespaces.runners }}
+  labels:
+    {{- include "ci-runners.labels" . | nindent 4 }}
+data:
+  push-guard.sh: |
+    #!/bin/sh
+    # ARC job-started hook for the teknoir-push scale set (plans/cicd/proposal-v4.md 5.2).
+    # The runner runs this as the first step of every job. A failed hook alone does NOT stop later
+    # steps with if: always() or pre: steps, so on refusal it kills its parent, Runner.Worker,
+    # which ends the job before any workflow step can read the Harbor credential.
+    # Only refs/heads/main passes: tags can point at unmerged commits in private repos (no tag protection on Free).
+    case "${GITHUB_EVENT_NAME}:${GITHUB_REF}" in
+      push:refs/heads/main|workflow_dispatch:refs/heads/main|schedule:refs/heads/main) exit 0 ;;
+      *)
+        echo "teknoir-push only runs jobs for refs/heads/main (push, workflow_dispatch, schedule); got ${GITHUB_EVENT_NAME}:${GITHUB_REF}" >&2
+        kill -KILL "$PPID"
+        exit 1
+        ;;
+    esac

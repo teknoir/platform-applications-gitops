@@ -1,0 +1,42 @@
+---
+# Quota on requests.memory only (proposal-v4 5.4): limits add up above node allocatable by design (Burstable, the
+# kernel OOM-kills inside kubepods), so a quota on limits would refuse pod creation at max fan-out. Requests bound
+# how many pods the scheduler may place, which is what keeps agent sessions from being starved.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: ci-quota
+  namespace: {{ .Values.namespaces.runners }}
+  labels:
+    {{- include "ci-runners.labels" . | nindent 4 }}
+spec:
+  hard:
+    requests.memory: {{ .Values.quota.runners.requestsMemory }}
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: ci-quota
+  namespace: {{ .Values.namespaces.buildkit }}
+  labels:
+    {{- include "ci-runners.labels" . | nindent 4 }}
+spec:
+  hard:
+    requests.memory: {{ .Values.quota.buildkit.requestsMemory }}
+---
+# A runner container that names no resources would sit at BestEffort and be the first kernel victim; give it a
+# Burstable floor and ceiling instead (proposal-v4 5.4, F2).
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: ci-defaults
+  namespace: {{ .Values.namespaces.runners }}
+  labels:
+    {{- include "ci-runners.labels" . | nindent 4 }}
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        {{- toYaml .Values.limitRange.defaultRequest | nindent 8 }}
+      default:
+        {{- toYaml .Values.limitRange.default | nindent 8 }}

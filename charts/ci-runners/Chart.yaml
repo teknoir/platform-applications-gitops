@@ -1,0 +1,7 @@
+---
+apiVersion: v2
+name: ci-runners
+description: devhost-ci support objects for ARC runner scale sets and BuildKit (plans/cicd/proposal-v4.md section 5)
+type: application
+version: 0.1.0
+appVersion: "0.15.1"
