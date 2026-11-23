@@ -18,7 +18,7 @@ tests:
           value:
             - apiGroups: [""]
               resources: [secrets]
-              resourceNames: [harbor-nodes-pull, harbor-teamspace-pull]
+              resourceNames: [harbor-devhost-ci, harbor-nodes-pull, harbor-teamspace-pull]
               verbs: [get, update]
   - it: never grants create on Secrets (it would mint a token for a cluster-admin ServiceAccount)
     documentSelector:
@@ -37,26 +37,42 @@ tests:
         documentIndex: 0
       - isKind: {of: Secret}
         documentIndex: 1
+      - isKind: {of: Secret}
+        documentIndex: 2
+      - equal: {path: metadata.name, value: harbor-devhost-ci}
+        documentIndex: 0
       - equal: {path: metadata.name, value: harbor-nodes-pull}
-        documentIndex: 0
+        documentIndex: 1
       - equal: {path: metadata.name, value: harbor-teamspace-pull}
-        documentIndex: 1
+        documentIndex: 2
       - equal: {path: type, value: Opaque}
         documentIndex: 0
       - equal: {path: type, value: Opaque}
         documentIndex: 1
+      - equal: {path: type, value: Opaque}
+        documentIndex: 2
       - notExists: {path: data}
         documentIndex: 0
       - notExists: {path: data}
         documentIndex: 1
+      - notExists: {path: data}
+        documentIndex: 2
       - notExists: {path: stringData}
-        documentIndex: 1
+        documentIndex: 0
+      - notExists: {path: stringData}
+        documentIndex: 2
       - equal: {path: metadata.namespace, value: teknoir-system}
-        documentIndex: 1
+        documentIndex: 0
+      - equal: {path: metadata.namespace, value: teknoir-system}
+        documentIndex: 2
       - equal:
           path: metadata.annotations["argocd.argoproj.io/sync-options"]
           value: Prune=false,Delete=false
-        documentIndex: 1
+        documentIndex: 0
+      - equal:
+          path: metadata.annotations["argocd.argoproj.io/sync-options"]
+          value: Prune=false,Delete=false
+        documentIndex: 2
   - it: never grants delete, list or watch on Secrets
     documentSelector:
       path: kind
@@ -109,26 +125,27 @@ tests:
       - equal:
           path: subjects[0]
           value: {kind: ServiceAccount, name: harbor-config, namespace: teknoir-system}
-  - it: renders only the nodes Secret, the Role and its binding when teamspace robots are off
+  - it: renders only the robot Secrets, the Role and its binding when teamspace robots are off
     set:
       harborConfig.config.teamspaceRobots.enabled: false
     asserts:
       - hasDocuments:
-          count: 3
-      - isKind:
-          of: Secret
+          count: 4
+      - equal:
+          path: metadata.name
+          value: harbor-devhost-ci
         documentIndex: 0
       - equal:
           path: metadata.name
           value: harbor-nodes-pull
-        documentIndex: 0
+        documentIndex: 1
       - isKind:
           of: Role
-        documentIndex: 1
+        documentIndex: 2
       - equal:
           path: rules[0].resourceNames
-          value: [harbor-nodes-pull]
-        documentIndex: 1
+          value: [harbor-devhost-ci, harbor-nodes-pull]
+        documentIndex: 2
   - it: renders nothing when harbor-config is disabled
     set:
       harborConfig.enabled: false

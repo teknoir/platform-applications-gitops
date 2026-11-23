@@ -150,10 +150,11 @@ harborConfig:
     # filesystem (1.8 TB, 1.2 TB free on 2026-10-22); kubelet image GC starts at 75 % use, so
     # Harbor gets 700 GiB in all: 250 + 150 + 100 + 100 + 40 + 30 + 30.
     projects:
-      # Immutable: release tags v*, and adopted-* (copies of digests production also runs,
-      # plans/staging-releases.md). sha-* stays mutable (CI skips re-pushing them instead);
-      # branch, timestamp and latest tags stay mutable (production pulls some of them).
-      - {name: teknoir, public: false, quotaGiB: 250, retention: ci, immutableTags: ["{v[0-9]*,adopted-*}"]}
+      # Immutable: release tags v*, adopted-* (copies of digests production also runs,
+      # plans/staging-releases.md) and sha-* (the dev-host CI's only build tag, plans/cicd/proposal-v4.md;
+      # CI skips a sha-* that exists). Branch, timestamp and latest tags stay mutable (production pulls
+      # some of them).
+      - {name: teknoir, public: false, quotaGiB: 250, retention: ci, immutableTags: ["{v[0-9]*,adopted-*,sha-*}"]}
       - {name: dockerhub, proxyRegistry: dockerhub, public: false, quotaGiB: 100, retention: proxy}
       - {name: ghcr, proxyRegistry: ghcr, public: false, quotaGiB: 150, retention: proxy}
       - {name: quay, proxyRegistry: quay, public: false, quotaGiB: 40, retention: proxy}
@@ -207,6 +208,20 @@ harborConfig:
           - {project: ghcr, access: ["repository:pull"]}
           - {project: quay, access: ["repository:pull"]}
           - {project: k8s, access: ["repository:pull"]}
+      # The dev-host CI (k3s devhost-ci, ARC scale set teknoir-push, plans/cicd/proposal-v4.md 5.2): pushes
+      # first-party images to `teknoir`. Opus copies the credential once from this Secret to devhost-ci
+      # arc-runners/harbor-push (never printed). Rotate: empty the data keys here, wait for the hourly run,
+      # copy again.
+      - name: devhost-ci
+        secret: {namespace: teknoir-system, name: harbor-devhost-ci}
+        permissions:
+          - project: teknoir
+            access: ["repository:push", "repository:pull", "repository:list", "artifact:read", "artifact:list",
+                     "artifact:create", "tag:create", "tag:list"]
+          - {project: dockerhub, access: ["repository:pull"]}
+          - {project: ghcr, access: ["repository:pull"]}
+          - {project: quay, access: ["repository:pull"]}
+          - {project: k8s, access: ["repository:pull"]}
       # The platform's cluster nodes (k3s registries.yaml, infra scripts/ci-node-setup.sh
       # --registry-mirror): pull-only on the proxy projects, never on `teknoir`. The credential is
       # copied from this Secret onto the nodes by hand (never printed).
@@ -216,9 +231,12 @@ harborConfig:
       # pod's). Accepted on staging, where teamspace developers can read the PAT anyway. A cluster
       # with customer teamspaces must drop the ghcr line below from `nodes`, or enable KubeletEnsureSecretPulledImages
       # / AlwaysPullImages (plans/new-cluster-requirements.md section 10).
+      # `teknoir` pull: first-party images built by the dev-host CI (staging pulls them via node auth,
+      # proposal-v4 4); the same any-pod-on-the-node caveat applies.
       - name: nodes
         secret: {namespace: teknoir-system, name: harbor-nodes-pull}
-        permissions: &proxyPull
+        permissions:
+          - {project: teknoir, access: ["repository:pull"]}
           - {project: dockerhub, access: ["repository:pull"]}
           - {project: ghcr, access: ["repository:pull"]}
           - {project: quay, access: ["repository:pull"]}
@@ -233,7 +251,14 @@ harborConfig:
       enabled: true
       namePrefix: ts-
       secret: {namespace: teknoir-system, name: harbor-teamspace-pull}
-      permissions: *proxyPull
+      # Proxy projects only, never `teknoir`.
+      permissions:
+        - {project: dockerhub, access: ["repository:pull"]}
+        - {project: ghcr, access: ["repository:pull"]}
+        - {project: quay, access: ["repository:pull"]}
+        - {project: k8s, access: ["repository:pull"]}
+        - {project: gcr, access: ["repository:pull"]}
+        - {project: nvcr, access: ["repository:pull"]}
 
   # Path guard on harbor-core's inbound listener (templates/harbor-proxy-guard.yaml). The ghcr
   # upstream credential can read every package its owner can read, but robots need only the
