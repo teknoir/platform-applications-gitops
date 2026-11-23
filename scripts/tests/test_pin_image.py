@@ -136,6 +136,8 @@ class PinFlow(unittest.TestCase):
                 "    # confirmation\n    leaderElection: true\n    pullPolicy: IfNotPresent\n",
             "charts/backstage/values.yaml":
                 "# fixture\nbackstage:\n  image: ghcr.io/teknoir/backstage-app:robot\nbackstageApi:\n  image: ghcr.io/teknoir/backstage:robot\n",
+            "charts/device-controller/values.yaml":
+                "# fixture\ndesktop:\n  agent:\n    image: \"ghcr.io/teknoir/teknoir-desktop:sha-ca46a99c-council@" + D + "\"\n",
         }
         for f, text in fixtures.items():
             os.makedirs(os.path.dirname(os.path.join(self.root, f)), exist_ok=True)
@@ -161,6 +163,27 @@ class PinFlow(unittest.TestCase):
     def test_ref_style_keeps_the_repository_in_the_value(self):
         res = self.pin(FakeSys()).pin("backstage-app", "ghcr.io/teknoir/backstage-app:robot", write=True)
         self.assertEqual(res["new"], "ghcr.io/teknoir/backstage-app:robot@" + D)
+
+    def _device_controller(self):
+        return open(os.path.join(self.root, "charts/device-controller/values.yaml")).read()
+
+    def test_council_sub_image_pins_by_tag(self):
+        # the council image is the sub-image ghcr.io/teknoir/teknoir-desktop/council: a bare tag resolves to it
+        res = self.pin(FakeSys()).pin("teknoir-desktop-agent", "sha-9df98cbf", write=True)
+        want = "ghcr.io/teknoir/teknoir-desktop/council:sha-9df98cbf@" + D
+        self.assertEqual(res["new"], want)
+        self.assertEqual(PI.get_leaf(self._device_controller(), "desktop.agent.image"), want)
+
+    def test_council_sub_image_pins_by_full_ref(self):
+        res = self.pin(FakeSys()).pin("teknoir-desktop-agent", "ghcr.io/teknoir/teknoir-desktop/council:sha-9df98cbf", write=True)
+        want = "ghcr.io/teknoir/teknoir-desktop/council:sha-9df98cbf@" + D
+        self.assertEqual(res["new"], want)
+        self.assertEqual(PI.get_leaf(self._device_controller(), "desktop.agent.image"), want)
+
+    def test_council_refuses_the_old_repository(self):
+        # the local-ci tag ghcr.io/teknoir/teknoir-desktop:sha-<8>-council is retired
+        with self.assertRaises(SystemExit):
+            self.pin(FakeSys()).pin("teknoir-desktop-agent", "ghcr.io/teknoir/teknoir-desktop:sha-9df98cbf-council", write=True)
 
     def _ztna(self):
         return open(os.path.join(self.root, "charts/ztna/values.yaml")).read()
