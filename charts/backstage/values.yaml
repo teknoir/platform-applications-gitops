@@ -30,10 +30,10 @@ config:
 # Backstage frontend deployment
 backstage:
   replicas: 1
-  # backstage 2836fe87 (branch nextgen, merged as #444 = 8842e0f4, same tree): nginx 1.31.9 pinned by digest for the
-  # Nov 2026 nginx CVEs, and a 4 GiB V8 heap for yarn tsc in the image build. Previous pin:
-  # ghcr.io/teknoir/backstage-app:sha-3df723fa@sha256:8a57b3d58efe22f7dfa96244198713efdcd0ac5ca8cac6a0198e6447d55f7cf1
-  image: "ghcr.io/teknoir/backstage-app:sha-2836fe87@sha256:4684d33300d31bd84d18fb810382de9826ab19a8167b9833c1e06cbecc2941b1"
+  # backstage 3121c3cb (branch council-roster-s1, merged as #447 = 8b5d7e91, same tree): TeknoirBot council v2
+  # Stage 1 (roles and rosters: hub, web, docs; R2a). Previous pin:
+  # ghcr.io/teknoir/backstage-app:sha-2836fe87@sha256:4684d33300d31bd84d18fb810382de9826ab19a8167b9833c1e06cbecc2941b1
+  image: "ghcr.io/teknoir/backstage-app:sha-3121c3cb@sha256:d5715b52be0cab2cc86cd8b297dea5e3c8b1839cb0d26a4d12b7f298eff8fd0b"
   imagePullPolicy: Always
   imagePullSecrets:
     - name: ghcr-token
@@ -42,9 +42,9 @@ backstage:
 # Backstage API deployment
 backstageApi:
   replicas: 1
-  # backstage 2836fe87 (see backstage.image). Previous pin:
-  # ghcr.io/teknoir/backstage:sha-3df723fa@sha256:4571a55f2d8bef5d2af91cc46cf6cff47d498f8b14f393bf1e9b40919c65350e
-  image: "ghcr.io/teknoir/backstage:sha-2836fe87@sha256:fc456b0c0e3476251667dcd647fcbc14be7b4292d81c49f0a0b63671e556a65e"
+  # backstage 3121c3cb (see backstage.image). Previous pin:
+  # ghcr.io/teknoir/backstage:sha-2836fe87@sha256:fc456b0c0e3476251667dcd647fcbc14be7b4292d81c49f0a0b63671e556a65e
+  image: "ghcr.io/teknoir/backstage:sha-3121c3cb@sha256:26cb09c91a4c5e0be81707aea22b45f6161bc0d77238efe7f8d03d965aa4c8ea"
   imagePullPolicy: Always
   imagePullSecrets:
     - name: ghcr-token
