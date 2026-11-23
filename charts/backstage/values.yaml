@@ -30,10 +30,10 @@ config:
 # Backstage frontend deployment
 backstage:
   replicas: 1
-  # backstage bfe0c64e (branch council-draft-start, merged as #450 = 8f2bec57, same tree): the New member
-  # draft never starts a fleet job from a plan reviewer (council v2 R2c). Previous pin (council v2 R2a):
-  # ghcr.io/teknoir/backstage-app:sha-3121c3cb@sha256:d5715b52be0cab2cc86cd8b297dea5e3c8b1839cb0d26a4d12b7f298eff8fd0b
-  image: "ghcr.io/teknoir/backstage-app:sha-bfe0c64e@sha256:f4456b174ce8140649a34028246fff4b8b226638c0366a95d1e4680c8cbfb2dd"
+  # backstage 75aea6ab (branch council-analyst-v2, merged as #452 = 5072aa16, same tree): the Analyst
+  # template v2 opens with its tools (council v2 R2d). Previous pin (R2c, backstage#450):
+  # ghcr.io/teknoir/backstage-app:sha-bfe0c64e@sha256:f4456b174ce8140649a34028246fff4b8b226638c0366a95d1e4680c8cbfb2dd
+  image: "ghcr.io/teknoir/backstage-app:sha-75aea6ab@sha256:d8e778d1230ba4218b4fd9814595fa574d5ca6fb1d000414b62d533ab5e22891"
   imagePullPolicy: Always
   imagePullSecrets:
     - name: ghcr-token
@@ -42,9 +42,9 @@ backstage:
 # Backstage API deployment
 backstageApi:
   replicas: 1
-  # backstage bfe0c64e (see backstage.image). Previous pin:
-  # ghcr.io/teknoir/backstage:sha-3121c3cb@sha256:26cb09c91a4c5e0be81707aea22b45f6161bc0d77238efe7f8d03d965aa4c8ea
-  image: "ghcr.io/teknoir/backstage:sha-bfe0c64e@sha256:7a3a19a0d8994b7a12cbe27ba44c0181fc8519fee0a79708e2abd0f102300e91"
+  # backstage 75aea6ab (see backstage.image). Previous pin:
+  # ghcr.io/teknoir/backstage:sha-bfe0c64e@sha256:7a3a19a0d8994b7a12cbe27ba44c0181fc8519fee0a79708e2abd0f102300e91
+  image: "ghcr.io/teknoir/backstage:sha-75aea6ab@sha256:b55c847f2ae6dccea28c33bb599cf6ef0b60db6f5b98ba6793bd76cf45aef241"
   imagePullPolicy: Always
   imagePullSecrets:
     - name: ghcr-token
