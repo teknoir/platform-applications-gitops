@@ -236,7 +236,8 @@ platformDeviceApplicationSets:
       matchLabels:
         device-group: test
     applications:
-      - {repo_url: "https://github.com/teknoir/teknoir-demo-gitops", path: common/devstudio.yaml, revision: 2140e79c8d8815da3bb2bd1a186187322b2d0362}
+      # devstudio chart 0.1.0: Node-RED 5.0.10, Teknoir theme (teknoir-demo-gitops #7, 2026-11-23).
+      - {repo_url: "https://github.com/teknoir/teknoir-demo-gitops", path: common/devstudio.yaml, revision: b35465914439f74af8d540645c339e3773092d69}
       - {repo_url: "https://github.com/teknoir/teknoir-demo-gitops", path: common/notebook.yaml, revision: 2140e79c8d8815da3bb2bd1a186187322b2d0362}
   # GPU metrics on the platform: the on-device Prometheus, the GPU exporter and gpu-metrics-app
   # (publishes to MQTT). Device label gpu=nvidia (discrete GPU, dcgm-exporter) or gpu=jetson
