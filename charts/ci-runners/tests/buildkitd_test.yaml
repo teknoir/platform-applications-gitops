@@ -166,7 +166,7 @@ tests:
           path: spec.template.spec.containers[0].resources
           value:
             requests: {cpu: "2", memory: 4Gi}
-            limits: {cpu: "12", memory: 10Gi}
+            limits: {cpu: "12", memory: 14Gi}
 
   - it: takes the image from values
     documentIndex: 1
