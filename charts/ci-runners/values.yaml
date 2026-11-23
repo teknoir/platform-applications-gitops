@@ -24,6 +24,9 @@ priorityClass:
   value: -10
 
 quota:
+  # 12Gi covers the runner containers and the per-pod Postgres sidecar (128Mi each) at the current maxRunners:
+  # teknoir-ci 3 x 2.125Gi + teknoir-land 2 x 2.125Gi + teknoir-push 2 x 0.5Gi = 11.63Gi. Raising a maxRunners, the
+  # sidecar requests or a runner request means raising this too, or pods are refused at max fan-out.
   runners:
     requestsMemory: 12Gi
   buildkit:

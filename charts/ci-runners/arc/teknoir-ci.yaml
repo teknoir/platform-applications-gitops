@@ -22,6 +22,61 @@ template:
     priorityClassName: ci-runner-low
     securityContext:
       fsGroup: 1001
+    # Test database: a native sidecar (a k8s >= 1.29 initContainer with restartPolicy: Always; the cluster is 1.34),
+    # so every runner pod gets its own Postgres 16 on its own emptyDir. It dies with the pod, which is the point: no
+    # job can leave a database, a changed template1 or an ALTER SYSTEM behind for the next job, and a job that is
+    # cancelled leaks nothing beyond its own pod. See README "Test database".
+    initContainers:
+      - name: postgres
+        # Postgres 16: Backstage TestDatabases' POSTGRES16 slot.
+        image: docker.io/library/postgres:16.16-alpine@sha256:f2f98726820d0342055351c6e9d36e705f5bfffb3dd53ff556325114b08afb6d
+        restartPolicy: Always
+        # listen_addresses=127.0.0.1: reachable only from this pod, so no other runner or workload can reach it.
+        # fsync/synchronous_commit/full_page_writes off: a throwaway database, speed over durability.
+        # max_connections 500: every parallel test of a job may hold its own pool.
+        args:
+          - -c
+          - listen_addresses=127.0.0.1
+          - -c
+          - max_connections=500
+          - -c
+          - fsync=off
+          - -c
+          - synchronous_commit=off
+          - -c
+          - full_page_writes=off
+        env:
+          # Not a secret: a fresh, throwaway server per job, reachable only on this pod's localhost.
+          - name: POSTGRES_PASSWORD
+            value: ci-test-only
+          - name: PGDATA
+            value: /var/lib/postgresql/data/pgdata
+        # uid 70, not the runner's 1001. It can still write the pgdata volume: the pod's fsGroup 1001 is a
+        # supplementary group on every container in the pod, and the emptyDir root is world-writable until kubelet
+        # rewrites it to root:1001, so 70 can create PGDATA either way.
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 70
+          runAsGroup: 70
+          capabilities:
+            drop: [ALL]
+          seccompProfile:
+            type: RuntimeDefault
+        # The runner container does not start until this probe passes, so tests never race the database's initdb.
+        # No liveness probe: restartPolicy: Always restarts the sidecar if it exits.
+        startupProbe:
+          exec:
+            command: [pg_isready, -h, 127.0.0.1, -U, postgres]
+          periodSeconds: 2
+          failureThreshold: 60
+          timeoutSeconds: 5
+        resources:
+          requests: {cpu: 100m, memory: 128Mi}
+          limits: {cpu: "2", memory: 1Gi}
+        volumeMounts:
+          - name: pgdata
+            mountPath: /var/lib/postgresql/data
     containers:
       # ARC requires the runner container to be named "runner"
       - name: runner
@@ -54,6 +109,10 @@ template:
             value: /cache/tool-cache
           - name: AGENT_TOOLSDIRECTORY
             value: /cache/tool-cache
+          # This pod's own Postgres sidecar, for Backstage's TestDatabases (..._POSTGRES16_... is the slot it looks
+          # for). Not a secret: the server is fresh per job and listens on the pod's localhost only.
+          - name: BACKSTAGE_TEST_DATABASE_POSTGRES16_CONNECTION_STRING
+            value: postgresql://postgres:ci-test-only@127.0.0.1:5432
         resources:
           requests: {cpu: "1", memory: 2Gi}
           limits: {cpu: "6", memory: 8Gi}
@@ -67,3 +126,8 @@ template:
       - name: ci-cache
         persistentVolumeClaim:
           claimName: ci-cache-teknoir-ci
+      # Per pod, so it dies with the pod (and with a cancelled job). 10Gi is far more than a test run needs; the
+      # sidecar's 128Mi request counts against the arc-runners requests.memory quota like the runner's.
+      - name: pgdata
+        emptyDir:
+          sizeLimit: 10Gi
