@@ -164,12 +164,12 @@ desktop:
   # The TeknoirBot agent on a bot's computer (DESKTOP.agent): rendered only with the agent switch (teknoirbotApi.enabled,
   # app-of-apps teknoirbot.agent.enabled) and an image. Every image pinned as <tag>@sha256:<digest> (scripts/pin-image).
   agent:
-    # The TeknoirBot council image (teknoir-desktop 32f6fc9, target council, linux/amd64): `tnctl council serve`
-    # (tnctl v0.3.0-rc.3, cli 42f1fa6: council stage 0, honest tool results and a non-truncating mqtt_get_sample)
+    # The TeknoirBot council image (teknoir-desktop ca46a99, target council, linux/amd64): `tnctl council serve`
+    # (tnctl v0.3.0-rc.4, cli b540e38: council v2 Stage 1, proto 2: runs the council the hub resolves, roles and rosters)
     # driving OpenCode 2.2.7 as the Coder; no Claude Code (the teamspace's Claude key may not be used in Claude Code).
-    # plans/teknoirbot/design/council-mvp-design.md. Previous pin: sha-bb362914-council (tnctl v0.3.0-rc.2); before that
-    # empty (bot computers ran the plain desktop since 2026-11-11), and ghcr.io/teknoir/teknoir-desktop:sha-dec806c1-agent.
-    image: "ghcr.io/teknoir/teknoir-desktop:sha-32f6fc91-council@sha256:b78ef6c523b1f4469566367f77039ef8b9afc31905ee2459a7521efaeb6c6c4c"  # the teknoir-desktop council image (make image-council, with the released tnctl)
+    # plans/teknoirbot/council-v2-stage1.md (R2b). Previous pin: sha-32f6fc91-council (tnctl v0.3.0-rc.3); before that
+    # sha-bb362914-council (tnctl v0.3.0-rc.2), and ghcr.io/teknoir/teknoir-desktop:sha-dec806c1-agent.
+    image: "ghcr.io/teknoir/teknoir-desktop:sha-ca46a99c-council@sha256:cb0435c359e9946d73181bc489f3ad3a28b0ff68b213807f9d60f52e8de84426"  # the teknoir-desktop council image (make image-council, with the released tnctl)
     buildkitImage: "moby/buildkit:v0.25.1@sha256:79cc6476ab1a3371c9afd8b44e7c55610057c43e18d9b39b68e2b0c2475cc1b6"  # moby/buildkit, rootful buildkitd for the bot's image builds
     registryImage: "registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373"  # registry, the bot computer's own registry its builds push to
     councilMemoryLimit: ""  # optional; the controller's default is 2Gi (at least 1Gi): the council pod's memory limit
