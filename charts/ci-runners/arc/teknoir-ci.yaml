@@ -27,6 +27,16 @@ template:
       - name: runner
         image: ghcr.io/actions/actions-runner:2.338.2@sha256:6d0b2d80d80f143f77dcb676e50920100bbb547e39e883454d57f45ab8c31300
         imagePullPolicy: IfNotPresent
+        # No sudo or root inside jobs: the runner image ships passwordless sudo, which this turns off.
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1001
+          runAsGroup: 1001
+          capabilities:
+            drop: [ALL]
+          seccompProfile:
+            type: RuntimeDefault
         command: ["/home/runner/run.sh"]
         env:
           - name: GOMODCACHE
