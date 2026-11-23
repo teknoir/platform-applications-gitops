@@ -60,6 +60,9 @@ buildkit:
     maxUsedSpace: 200GB
     minFreeSpace: 10%
   maxParallelism: 4
+  # 10Gi was OOMKilled on 2026-11-23 when nvr (a GStreamer compile) and devstudio-app (pip) built at
+  # once on the two teknoir-push runners. The node's allocatable memory is about 23Gi (k3s reserves
+  # the rest of the 44Gi host for development); idle runners use little, so 14Gi fits next to them.
   resources:
     requests: {cpu: "2", memory: 4Gi}
-    limits: {cpu: "12", memory: 10Gi}
+    limits: {cpu: "12", memory: 14Gi}
