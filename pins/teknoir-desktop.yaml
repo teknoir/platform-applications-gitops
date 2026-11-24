@@ -3,14 +3,16 @@
 # stage pin-teknoir-desktop and by scripts/pin-image; do not edit by hand. The desktop and its agent
 # image are built from the same teknoir-desktop commit (same_commit).
 desktop:
-  image: "ghcr.io/teknoir/teknoir-desktop:sha-096d8df8@sha256:d9b3e748351de468bf44493ede64fd4243392be5a4404a3b43a5054cc4e0765d"  # required when enabled: ghcr.io/teknoir/teknoir-desktop:<tag>@sha256:<digest> (scripts/pin-image teknoir-desktop ...)
+  image: "ghcr.io/teknoir/teknoir-desktop:sha-941e5155@sha256:2ba734a737d15738a17cd7725dce1be92242b3277fafa703b22d717203b5b9f6"  # required when enabled: ghcr.io/teknoir/teknoir-desktop:<tag>@sha256:<digest> (scripts/pin-image teknoir-desktop ...)
   agent:
-    # The TeknoirBot council image, built by teknoir-desktop image.yml (job council) from main 9df98cbf as the sub-image
+    # The TeknoirBot council image, built by teknoir-desktop image.yml (job council) from main 941e5155 as the sub-image
     # council:sha-<8>: `tnctl council serve` (tnctl v0.3.0-rc.5, cli 8bdae2f: council v2 Stage 1, proto 2, the no-tool
     # nudge) driving OpenCode 2.2.7 as the Coder; no Claude Code (the teamspace's Claude key may not be used in Claude
     # Code). To take a newer tnctl, bump TNCTL_REF and TNCTL_VERSION in that job. plans/teknoirbot/council-v2-stage1.md.
-    # Previous pin (the same tnctl, built by the dev-host local-ci script):
+    # 941e5155 changes only the desktop (the Teknoir theme); the council stage, its build-args and tnctl are those of
+    # the previous pin council:sha-9df98cbf@sha256:65c3b0402eaddf9a65d40eba06893fa59ab0d01f4adb3e903b36e78386a12540,
+    # re-pinned with the desktop because the group is same_commit. Before that (the same tnctl, dev-host local-ci):
     # ghcr.io/teknoir/teknoir-desktop:main-20261123-082724-council@sha256:4f1a01a88d0c6abac8440e5cd03772a52795db538135be00b1fe22276946624c;
     # before that sha-ca46a99c-council (rc.4), sha-32f6fc91-council (rc.3), sha-bb362914-council (rc.2),
     # and ghcr.io/teknoir/teknoir-desktop:sha-dec806c1-agent.
-    image: "ghcr.io/teknoir/teknoir-desktop/council:sha-9df98cbf@sha256:65c3b0402eaddf9a65d40eba06893fa59ab0d01f4adb3e903b36e78386a12540"  # the teknoir-desktop council image (make image-council, with the released tnctl)
+    image: "ghcr.io/teknoir/teknoir-desktop/council:sha-941e5155@sha256:2a1eba90d5405d7c37c1fbb98d4b58db16b5482bd88235db45c4e52223ea7347"  # the teknoir-desktop council image (make image-council, with the released tnctl)
