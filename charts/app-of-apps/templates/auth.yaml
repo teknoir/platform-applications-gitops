@@ -15,12 +15,21 @@ spec:
     path: charts/auth
     repoURL: https://github.com/teknoir/platform-applications-gitops
     targetRevision: {{ include "app-of-apps.revision" . }}
-{{- if include "app-of-apps.ztnaEnabled" . }}
+{{- $pins := has .Values.project (list "teknoir-cloud") }}
+{{- if or $pins (include "app-of-apps.ztnaEnabled" .) }}
     helm:
+{{- if $pins }}
+      # Pins of the image group (scripts/images.yaml); only teknoir-cloud has a pins/ directory.
+      valueFiles:
+        - values.yaml
+        - ../../pins/keycloak-theme.yaml
+{{- end }}
+{{- if include "app-of-apps.ztnaEnabled" . }}
       parameters:
         # The ZTNA switch (app-of-apps values ztna.enabled), wg.<domain> bypasses the edge login redirect (the hub validates tokens itself).
         - name: ztna.enabled
           value: "true"
+{{- end }}
 {{- end }}
   project: {{ .Values.project }}
   syncPolicy:

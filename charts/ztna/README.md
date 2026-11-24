@@ -30,8 +30,12 @@ the allowlist in `charts/app-of-apps/templates/_helpers.tpl` (`teknoir-cloud`), 
 **Before flipping**, once the images exist (these are required; the render of that chart fails without them, so
 nothing half-configured is applied):
 
-1. `charts/ztna/values.yaml`: `hub.image.tag` (`<immutable tag>@sha256:<digest>` of `ghcr.io/teknoir/wg-hub`).
-2. `charts/device-controller/values.yaml`: `ztna.agentImage` (wg-agent) and `ztna.terminalImage` (WireGuard web terminal).
+1. `pins/wg-tunnel.yaml`: `hub.image.tag` (`<immutable tag>@sha256:<digest>` of `ghcr.io/teknoir/wg-hub`), plus
+   `ztna.agentImage` (wg-agent) and `ztna.gatewayImage` (the web gateway) for `charts/device-controller`.
+2. `pins/web-terminal.yaml`: `ztna.terminalImage` (the WireGuard web terminal).
+
+Those are the pins files the `teknoir-cloud` Applications pass as Helm value files; the chart values keep the keys
+empty and the templates require them.
 3. The TURN shared secret exists: `infra/scripts/gen-stunner-auth-secret.sh --context r415` (creates
    `stunner-system/stunner-auth-secret`; not in Git; rotating it resets every tunnel).
 4. UDP 3478 is free on the node (`ss -ulpn`) and, for real devices, forwarded on the router.

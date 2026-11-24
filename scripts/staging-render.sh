@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # Render a release of platform-applications-gitops the way ArgoCD does (plans/staging-releases.md,
 # "enforcement" 1): the root chart with release=<sha>, then every gitops child Application with its own
-# helm parameters, then the profile-plugin charts at the pluginChartVersion of profile-controller.
+# helm valueFiles and parameters, then the profile-plugin charts at the pluginChartVersion of profile-controller.
 # Read-only: it never talks to a cluster; the only network use is `helm dependency build/update`, the
 # plugin chart repository and (with --plugins) its index.
+#
+# valueFiles are resolved the way ArgoCD resolves them in the repository (not in the chart copy the render uses):
+# a relative entry against the chart's path in --tree, an absolute one (leading /) against the repository root.
+# Each must be a file inside the tree, and its content is part of the cache key.
 #
 #   staging-render.sh --tree DIR --release SHA --out DIR [--release-name TAG] [--cache DIR]
 #                     [--plugins auto|none|VERSION] [--plugin-repo URL]
@@ -15,9 +19,10 @@
 #   DIR/plugins.json         {"version": ..., "digests": {chart: index digest}}
 #   DIR/failed               names that failed to render (exit status 1)
 #
-# Children whose chart path is unchanged since an earlier render (same git tree hash, same parameters)
-# are copied from the cache (default ~/.cache/staging-release/render), so a warm run renders only what
-# changed. Plugin charts are immutable per version and cached by name@version.
+# Children whose chart content is unchanged since an earlier render (the same hash of the chart directory's
+# files, tracked or untracked-but-not-ignored, and the same parameters) are copied from the cache (default
+# ~/.cache/staging-release/render), so a warm run renders only what changed: an uncommitted template edit
+# invalidates it. Plugin charts are immutable per version and cached by name@version.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -41,7 +46,8 @@ while [[ $# -gt 0 ]]; do
 done
 [[ -n "$TREE" && -n "$OUT" ]] || { usage >&2; exit 2; }
 [[ -d "$TREE/charts/app-of-apps" ]] || { echo "$TREE is not a platform-applications-gitops checkout" >&2; exit 2; }
-for t in helm python3 git; do command -v "$t" >/dev/null || { echo "missing tool: $t" >&2; exit 2; }; done
+for t in helm python3 git realpath; do command -v "$t" >/dev/null || { echo "missing tool: $t" >&2; exit 2; }; done
+TREE_ABS=$(realpath "$TREE")
 
 mkdir -p "$OUT/apps" "$OUT/plugins" "$CACHE" "$CACHE/deps"
 rm -f "$OUT"/apps/*.yaml "$OUT"/plugins/*.yaml "$OUT/failed" "$OUT/apps.tsv"
@@ -52,7 +58,7 @@ ROOT_ARGS=()
 [[ -n "$RELEASE_NAME" ]] && ROOT_ARGS+=(--set-string "releaseName=$RELEASE_NAME")
 helm template app-of-apps "$TREE/charts/app-of-apps" --namespace teknoir-system "${ROOT_ARGS[@]}" > "$OUT/root.yaml"
 
-# name<TAB>path<TAB>namespace<TAB>release-name<TAB>json-params for every gitops child
+# name<TAB>path<TAB>namespace<TAB>release-name<TAB>json-params<TAB>json-valueFiles for every gitops child
 python3 -I - "$OUT/root.yaml" > "$OUT/apps.full.tsv" <<'PY'
 import json, sys, yaml
 for d in yaml.safe_load_all(open(sys.argv[1])):
@@ -64,17 +70,46 @@ for d in yaml.safe_load_all(open(sys.argv[1])):
     helm = src.get("helm") or {}
     print("\t".join([d["metadata"]["name"], src["path"], spec["destination"]["namespace"],
                      helm.get("releaseName", d["metadata"]["name"]),
-                     json.dumps(helm.get("parameters") or [], separators=(",", ":"))]))
+                     json.dumps(helm.get("parameters") or [], separators=(",", ":")),
+                     json.dumps(helm.get("valueFiles") or [], separators=(",", ":"))]))
 PY
 cut -f1-3 "$OUT/apps.full.tsv" > "$OUT/apps.tsv"
 
 # --- the children ----------------------------------------------------------------------------
-render_child() { # name path ns relname params-json
-  local name=$1 path=$2 ns=$3 rel=$4 params=$5 tree key cached work args=()
-  tree=$(git -C "$TREE" rev-parse "HEAD:$path" 2>/dev/null || echo nogit)
-  key=$(printf '%s\0%s\0%s\0%s\0%s' "$tree" "$name" "$ns" "$rel" "$params" | sha256sum | cut -c1-40)
+chart_key() { # path: a hash of the chart directory's files by content and name
+  # Every file git would see there, tracked or untracked but not ignored (subchart archives are git-ignored; they
+  # are cached separately): the git tree hash of a path would ignore uncommitted edits, a content hash does not.
+  local f
+  git -C "$TREE" ls-files -co --exclude-standard -- "$1" 2>/dev/null | LC_ALL=C sort | while IFS= read -r f; do
+    printf '%s  %s\n' "$(sha256sum < "$TREE_ABS/$f" | cut -d' ' -f1)" "$f"
+  done | sha256sum | cut -c1-40
+}
+
+render_child() { # name path ns relname params-json valuefiles-json
+  local name=$1 path=$2 ns=$3 rel=$4 params=$5 vfiles=${6:-[]} ckey key cached work args=()
+  local vf resolved vhash=""
+  # ArgoCD resolves helm.valueFiles in the repository, so resolve them in $TREE (the chart itself is copied to a
+  # temp dir for the render): a relative entry against the chart path, an absolute one against the repository
+  # root. Refuse anything outside the tree: the render must not read a file the repository does not have.
+  while IFS= read -r vf; do
+    [[ -z "$vf" ]] && continue
+    if [[ "$vf" == /* ]]; then resolved=$(realpath -m -- "$TREE_ABS$vf"); else resolved=$(realpath -m -- "$TREE_ABS/$path/$vf"); fi
+    case "$resolved" in
+      "$TREE_ABS"/*) ;;
+      *) echo "REFUSED  $name: value file $vf is outside the tree ($resolved)" >&2; return 1 ;;
+    esac
+    [[ -f "$resolved" ]] || { echo "REFUSED  $name: value file $vf does not exist ($resolved)" >&2; return 1; }
+    vhash+="$vf $(sha256sum "$resolved" | cut -d' ' -f1)"$'\n'
+    args+=(-f "$resolved")
+  done < <(python3 -I -c 'import json,sys
+for v in json.loads(sys.argv[1]):
+    print(v)' "$vfiles")
+  ckey=$(chart_key "$path") || ckey=nogit
+  # chart_key hashes the chart's files by content, so uncommitted template edits invalidate the cache; the value
+  # files (pins/<group>.yaml, outside the chart) are hashed into vhash the same way.
+  key=$(printf '%s\0%s\0%s\0%s\0%s\0%s' "$ckey" "$name" "$ns" "$rel" "$params" "$vhash" | sha256sum | cut -c1-40)
   cached="$CACHE/$key.yaml"
-  if [[ "$tree" != nogit && -s "$cached" ]]; then cp "$cached" "$OUT/apps/$name.yaml"; echo "cached   $name"; return 0; fi
+  if [[ "$ckey" != nogit && -s "$cached" ]]; then cp "$cached" "$OUT/apps/$name.yaml"; echo "cached   $name"; return 0; fi
   work=$(mktemp -d); cp -a "$TREE/$path/." "$work/"
   if [[ -f "$work/Chart.yaml" ]] && grep -q '^dependencies:' "$work/Chart.yaml"; then
     local dkey; dkey=$(sha256sum "$work/Chart.yaml" "$work/Chart.lock" 2>/dev/null | cut -d' ' -f1 | sha256sum | cut -c1-40)
@@ -94,7 +129,7 @@ render_child() { # name path ns relname params-json
 for p in json.loads(sys.argv[1]):
     print("\t".join([p["name"], str(p.get("value","")), "true" if p.get("forceString") else "false"]))' "$params")
   if helm template "$rel" "$work" --namespace "$ns" --include-crds "${args[@]}" > "$OUT/apps/$name.yaml" 2>"$work/err"; then
-    [[ "$tree" != nogit ]] && cp "$OUT/apps/$name.yaml" "$cached"
+    [[ "$ckey" != nogit ]] && cp "$OUT/apps/$name.yaml" "$cached"
     echo "rendered $name"
   else
     echo "FAILED   $name: $(head -c 400 "$work/err")" >&2
@@ -103,8 +138,8 @@ for p in json.loads(sys.argv[1]):
   rm -rf "$work"
 }
 failed=()
-while IFS=$'\t' read -r name path ns rel params; do
-  render_child "$name" "$path" "$ns" "$rel" "$params" || failed+=("$name")
+while IFS=$'\t' read -r name path ns rel params vfiles; do
+  render_child "$name" "$path" "$ns" "$rel" "$params" "$vfiles" || failed+=("$name")
 done < "$OUT/apps.full.tsv"
 rm -f "$OUT/apps.full.tsv"
 

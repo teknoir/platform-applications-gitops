@@ -1,6 +1,10 @@
 suite: keycloak realm session lifetimes (keycloak-config-cli import)
 templates:
   - templates/keycloak-config.yaml
+# The pin the auth Application passes (charts/app-of-apps/templates/auth.yaml): the chart values carry an empty
+# digest now that Kargo writes the pins (scripts/images.yaml), and the keycloak-config image requires it.
+values:
+  - ../../../pins/keycloak-theme.yaml
 release:
   name: auth
   namespace: teknoir-auth

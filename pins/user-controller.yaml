@@ -1,0 +1,5 @@
+# Pins of the user-controller image group (scripts/images.yaml), read by the user-controller
+# Application (helm.valueFiles, charts/app-of-apps/templates/controllers.yaml). Written by the Kargo
+# stage pin-user-controller and by scripts/pin-image; do not edit by hand.
+image:
+  tag: "sha-b9fa6d14@sha256:9cd96563c7f58d14ed5ac7dafdf73723e08b12be894fcb68b28333c4e26dd1fb"

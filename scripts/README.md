@@ -8,9 +8,9 @@ Merging to `teknoir-cloud` queues a change; it is not live until a release.
 |---|---|
 | `staging-release` | dry run (default), `--yes SHA`, `--rollback`, `--verified TAG`, `--break-glass-begin/-end`, `--bootstrap`. `--help` has the details |
 | `staging-status` | where staging is and what is pending; read-only. `--devices` adds device-side revisions |
-| `staging-render.sh` | renders a release like ArgoCD (root, children, profile-plugin charts); cached |
+| `staging-render.sh` | renders a release like ArgoCD (root, children with their `helm.valueFiles` and parameters, profile-plugin charts); cached by chart tree and value-file content |
 | `check-pins.py` | the release lint over the rendered manifests; `release-policy.yaml` holds its rules and the dated exceptions |
-| `pin-image` | pins a Teknoir-built image as `tag@sha256:digest` (`images.tsv` lists them all); `--adopt-running`. A `wg-hub` pin changes only the tag (`hub.image.leaderElection` stays true) |
+| `pin-image` | pins a Teknoir-built image as `tag@sha256:digest` in the group's `pins/<group>.yaml` (or the chart values of a third party image; `scripts/images.yaml` lists them all); `--adopt-running`. A `wg-hub` pin changes only the tag (`hub.image.leaderElection` stays true) |
 | `watch.py` | the staging watch (`.github/workflows/watch.yml`, every 15 min once `vars.STAGING_WATCH` is `'true'`): an unverified default-branch commit older than 45 min, a `verified/*` tag without `freight=`, and `.github/rulesets/*.json` drifting from the live rulesets, each as one idempotent issue; `--dry-run` prints instead of calling gh |
 | `stagelib.py` | shared logic (tag numbering, candidate validation, plan, lease, convergence) |
 | `tests/` | `tests/run.sh` runs everything below |
@@ -81,6 +81,6 @@ exempt); removing Applications needs `--allow-remove`; the lint, `helm unittest 
 - `release-policy.yaml`: `images: warn` until the plugin pins are done (rollout step 8), then `deny`. The backstage-next
   `:nextgen` exceptions expire 2026-11-30 (the planned Nextgen cut-over): extend the date in a reviewed PR or pin the image.
   `rollback_floor` stays empty until the first release with the guard (release 2) exists.
-- Images that are not in `images.tsv` because they are not in this repo: the teamspace plugin images
+- Images that are not in `scripts/images.yaml` because they are not in this repo: the teamspace plugin images
   (profile-plugins-helm chart defaults) and `devstudio-configure-devices` (rendered by the controllers).
 - Needs: kubectl, helm (+ the unittest plugin), git, crane, gh, kubeconform, dyff, curl, python3 + PyYAML.

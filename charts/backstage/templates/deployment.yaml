@@ -21,7 +21,7 @@ spec:
         {{- toYaml .Values.backstage.imagePullSecrets | nindent 8 }}
       containers:
         - name: backstage
-          image: {{ .Values.backstage.image }}
+          image: {{ required "backstage.image is pinned in pins/backstage.yaml (Kargo stage pin-backstage)" .Values.backstage.image }}
           imagePullPolicy: {{ .Values.backstage.imagePullPolicy }}
           ports:
             - name: http-web
@@ -115,7 +115,7 @@ spec:
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          image: {{ .Values.backstageApi.image }}
+          image: {{ required "backstageApi.image is pinned in pins/backstage.yaml (Kargo stage pin-backstage)" .Values.backstageApi.image }}
           imagePullPolicy: {{ .Values.backstageApi.imagePullPolicy }}
           ports:
             - name: http-api

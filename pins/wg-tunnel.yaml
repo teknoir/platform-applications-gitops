@@ -1,0 +1,23 @@
+# Pins of the wg-tunnel image group (scripts/images.yaml), read by the ztna and device-controller
+# Applications (helm.valueFiles, charts/app-of-apps/templates/ztna.yaml and controllers.yaml). Written by
+# the Kargo stage pin-wg-tunnel and by scripts/pin-image; do not edit by hand. The three images are built
+# from the same wg-tunnel commit (same_commit).
+#
+# hub.image.tag is read by charts/ztna; ztna.agentImage and ztna.gatewayImage by charts/device-controller
+# (each chart ignores the other's keys).
+hub:
+  image:
+    # REQUIRED, no default: '<immutable tag>@sha256:<manifest digest>' of the wg-hub image
+    # (CI pushes sha-<commit>). Set it before flipping ztna.enabled in charts/app-of-apps;
+    # an empty tag fails the render of this chart (nothing half-configured is applied).
+    # The current pin, wg-tunnel #8 (b563d89, live as leader since staging-20261022.6), has the leader election
+    # and planned handover, the KEYCLOAK_AUDIENCE* (audience) check, zero-touch activation, revoke notice, k3s
+    # Service discovery and the agent race fixes. Re-pin with scripts/pin-image wg-hub=sha-<commit>.
+    # Previous pin: sha-37fe475@sha256:4a405ccced8b389e254d3f9965b0c2ea35ca1b0a77bb6c42c17b076b7b27f58b
+    tag: "sha-82cf91a@sha256:fc8e40e8785b856684c1f12a396f737ada817e373b13c59d8c1a7d8422b27472"
+ztna:
+  # REQUIRED once enabled (the render fails without them): the wg-agent image that the controller
+  # injects into a device, and the per-device WireGuard web terminal image
+  # (SSH_PROXY_MODE=wireguard). '<immutable tag>@sha256:<digest>'.
+  agentImage: "ghcr.io/teknoir/wg-agent:sha-41a0c20@sha256:d2437d10d89cc72114ff48631545106219b8e5e49b0aa711aa8e9a004fdb1155"
+  gatewayImage: "ghcr.io/teknoir/wg-gateway:sha-92680d4@sha256:05281333583b8739d6658eebd275c1dddc7973f5780158b59039da21163756f7"

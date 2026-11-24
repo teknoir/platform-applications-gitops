@@ -80,7 +80,11 @@ for name, path, ns in (("gateway-api-crds", "charts/gateway-api-crds", "kube-sys
                        ("stunner", "charts/stunner", "stunner-system"),
                        ("ztna", "charts/ztna", "teknoir-ztna")):
     a = on[name]
-    assert a["spec"]["source"] == {"path": path, "repoURL": repo, "targetRevision": "teknoir-cloud"}, a["spec"]["source"]
+    # teknoir-cloud children carry the pins of their image group as helm valueFiles (CI/CD v4 P4.2)
+    want = {"path": path, "repoURL": repo, "targetRevision": "teknoir-cloud"}
+    if name == "ztna":
+        want["helm"] = {"valueFiles": ["values.yaml", "../../pins/wg-tunnel.yaml"]}
+    assert a["spec"]["source"] == want, a["spec"]["source"]
     assert a["spec"]["destination"] == {"namespace": ns, "server": "https://kubernetes.default.svc"}
     assert a["spec"]["project"] == "teknoir-cloud"
     assert "sync-wave" not in str(a["metadata"]), "no sync waves: a failing ZTNA Application must not stall the root app-of-apps"
@@ -132,10 +136,11 @@ helm template gateway-api-crds "${CHARTS}/gateway-api-crds" --namespace kube-sys
 helm template stunner "${CHARTS}/stunner" --namespace stunner-system --include-crds >"$TMP/stunner.yaml"
 helm template ztna "${CHARTS}/ztna" --namespace teknoir-ztna --set hub.image.tag="$IMG_TAG" --set hub.image.leaderElection=true >"$TMP/ztna.yaml"
 helm template ztna "${CHARTS}/ztna" --namespace teknoir-ztna --set hub.image.tag="$IMG_TAG" --set hub.image.leaderElection=true --set hub.replicas=1 >"$TMP/ztna-one.yaml"
-# The committed values (what ArgoCD renders): the pin has leader election (sha-82cf91a) and hub.image.leaderElection
-# is true, so they render. The failure branches stay for a re-pin to an image without leader election: the render
-# stops instead of leaving wg-hub without endpoints.
-if helm template ztna "${CHARTS}/ztna" --namespace teknoir-ztna >"$TMP/ztna-values.yaml" 2>"$TMP/ztna-values.err"; then
+# The committed values (what ArgoCD renders: charts/ztna/values.yaml plus the pin, helm.valueFiles of the ztna
+# Application): the pin has leader election (sha-82cf91a) and hub.image.leaderElection is true, so they render. The
+# failure branches stay for a re-pin to an image without leader election: the render stops instead of leaving wg-hub
+# without endpoints.
+if helm template ztna "${CHARTS}/ztna" --namespace teknoir-ztna -f "$REPO/pins/wg-tunnel.yaml" >"$TMP/ztna-values.yaml" 2>"$TMP/ztna-values.err"; then
   ok "committed values render (hub.image.leaderElection confirms the pin)"
 elif grep -q "hub.image.leaderElection: true" "$TMP/ztna-values.err"; then
   printf 'NOTE: committed values do not render: repin hub.image.tag (scripts/pin-image) and set hub.image.leaderElection: true before this branch is released\n'
@@ -143,9 +148,11 @@ elif grep -q "hub.image.leaderElection: true" "$TMP/ztna-values.err"; then
 else
   cat "$TMP/ztna-values.err"; bad "committed values do not render"
 fi
-# virtual devices on in both renders (staging on r415 ships them off), so the ztna switch is checked with the VM runtime present
-helm template device-controller "${CHARTS}/device-controller" --namespace teknoir-system --set virtualDevices.enabled=true >"$TMP/dc-off.yaml"
-helm template device-controller "${CHARTS}/device-controller" --namespace teknoir-system --set virtualDevices.enabled=true "${DC_ON[@]}" >"$TMP/dc-on.yaml"
+# virtual devices on in both renders (staging on r415 ships them off), so the ztna switch is checked with the VM runtime
+# present. The images come from the pins, as in the device-controller Application (helm.valueFiles).
+DC_IMAGES=(-f "$REPO/pins/device-controller.yaml" -f "$REPO/pins/teknoir-desktop.yaml" -f "$REPO/pins/web-terminal.yaml" -f "$REPO/pins/wg-tunnel.yaml")
+helm template device-controller "${CHARTS}/device-controller" --namespace teknoir-system --set virtualDevices.enabled=true "${DC_IMAGES[@]}" >"$TMP/dc-off.yaml"
+helm template device-controller "${CHARTS}/device-controller" --namespace teknoir-system --set virtualDevices.enabled=true "${DC_IMAGES[@]}" "${DC_ON[@]}" >"$TMP/dc-on.yaml"
 helm template virtual-devices "${CHARTS}/virtual-devices" --namespace kubevirt >"$TMP/vd-off.yaml"
 helm template virtual-devices "${CHARTS}/virtual-devices" --namespace kubevirt --set ztna.enabled=true >"$TMP/vd-on.yaml"
 ok "rendered"
@@ -183,6 +190,18 @@ if git -C "$REPO" rev-parse --verify -q "$BASE_REF" >/dev/null; then
       # The switch is forced off on BOTH sides: once the base branch ships it on,
       # this still checks that the off state renders like the base's off state.
       [[ $n == app-of-apps ]] && args=(--set project="$proj" --set ztna.enabled=false --set virtualDevices.enabled=true)
+      # The images live in pins/<group>.yaml (CI/CD v4 P4.2) and the templates require them, so every pins file of a
+      # group whose rows name this chart is passed on BOTH sides (a chart whose group is named after it, like
+      # device-controller, takes pins/<n>.yaml; a chart in groups named otherwise, like auth for keycloak-theme,
+      # takes theirs). The comparison strips the image/tag lines, so the pin only has to be present, not equal.
+      if [[ -f "$TMP/base/charts/$n/Chart.yaml" ]]; then
+        while IFS= read -r pf; do
+          [[ -f "$REPO/$pf" ]] && args+=(-f "$REPO/$pf")
+        done < <(python3 -I -c 'import sys, yaml
+n = sys.argv[1]
+for r in (yaml.safe_load(open(sys.argv[2])).get("images") or []):
+    if r.get("group") and r.get("chart") == n: print(r["pins_file"])' "$n" "$REPO/scripts/images.yaml" | sort -u)
+      fi
       helm template "$n" "$TMP/base/charts/$n" --namespace x "${args[@]}" >"$TMP/base-$n.yaml" 2>"$TMP/base-$n.err" || { echo "skip $n (base render failed: $(head -c 150 "$TMP/base-$n.err"))"; continue 2; }
       # Force the switch off on the head render (the branch may ship it on), so this compares
       # only what the off state would change.

@@ -12,6 +12,11 @@ templates:
   - templates/secrets.yaml
   - templates/service.yaml
   - templates/serviceaccount.yaml
+
+# The pins the backstage Application passes (charts/app-of-apps/templates/backstage.yaml): the chart values
+# carry empty image keys now that Kargo writes the pins (scripts/images.yaml).
+values:
+  - ../../../pins/backstage.yaml
 tests:
   - it: keeps the classic names by default
     template: templates/service.yaml

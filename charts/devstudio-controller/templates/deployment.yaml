@@ -35,7 +35,7 @@ spec:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
       - name: manager
-        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+        image: "{{ .Values.image.repository }}:{{ required "image.tag is pinned in pins/devstudio-controller.yaml (Kargo stage pin-devstudio-controller)" .Values.image.tag }}"
         imagePullPolicy: {{ .Values.image.pullPolicy }}
         command:
         - /manager

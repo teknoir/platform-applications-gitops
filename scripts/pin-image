@@ -5,13 +5,15 @@
   pin-image COMPONENT=REF [--write] [--pr]     REF: a tag, repo:tag, or repo:tag@sha256:<digest> to verify
   pin-image --adopt-running [--write]          adopt the digests running on staging (--context, default r415) (zero diff, read-only on the cluster)
 
-images.tsv names every image: component, values file, key path, style (tag: the key holds the tag and a
-sibling `repository` is the repo; ref: the key holds repo:tag), repository. For REF the script
+images.yaml names every image: component, group, key path, style (tag: the key holds the tag and a sibling
+`repository` is the repo; ref: the key holds repo:tag), repository. A grouped component is written to the
+group's pins file (pins/<group>.yaml, passed to the child Application's chart as a Helm value file), a third
+party component (group: null) to its chart values file. For REF the script
 
   1. runs `crane digest`           (the index digest for a multi-arch image)
   2. checks that a linux/amd64 manifest exists
   3. reads the org.opencontainers.image.revision label and prints the source commit
-  4. rewrites the value in the values file, keeping comments and quoting (only with --write; else prints it)
+  4. rewrites the value in that file, keeping comments and quoting (only with --write; else prints it)
   5. with --pr: branch pin/<component>-<tag>, commit, push, `gh pr create` (merge, then scripts/staging-release)
 
 A wg-hub pin changes only the tag: every wg-tunnel main build has leader election, so hub.image.leaderElection stays
@@ -30,6 +32,8 @@ import os
 import re
 import sys
 
+import yaml
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import stagelib as L  # noqa: E402
@@ -39,19 +43,28 @@ SCALAR_RE = re.compile(r"""^(?P<indent>\s*)(?P<key>[A-Za-z0-9_.\-]+)\s*:\s*(?P<v
 
 
 # ---------------------------------------------------------------------------------------------
-# images.tsv
+# images.yaml
 # ---------------------------------------------------------------------------------------------
-def parse_images_tsv(text: str) -> dict[str, dict]:
-    rows = [l for l in text.splitlines() if l.strip() and not l.startswith("#")]
-    head = rows[0].split("\t")
+def parse_images_yaml(text: str) -> dict[str, dict]:
+    """{component: row} of scripts/images.yaml; a row's pin lives in pins_file (grouped) or values_file."""
+    doc = yaml.safe_load(text) or {}
     out = {}
-    for r in rows[1:]:
-        cols = r.split("\t")
-        d = dict(zip(head, cols + [""] * (len(head) - len(cols))))
-        if d["style"] not in ("tag", "ref", "digest"):
-            raise ValueError(f"images.tsv: style of {d['component']} must be tag, ref or digest")
-        out[d["component"]] = d
+    for d in doc.get("images") or []:
+        name = d.get("component")
+        if d.get("style") not in ("tag", "ref", "digest"):
+            raise ValueError(f"images.yaml: style of {name} must be tag, ref or digest")
+        if d.get("group"):
+            if not str(d.get("pins_file") or "").startswith("pins/"):
+                raise ValueError(f"images.yaml: {name} is in group {d['group']} but has no pins_file under pins/")
+        elif not d.get("values_file"):
+            raise ValueError(f"images.yaml: third party {name} (group: null) has no values_file")
+        out[name] = d
     return out
+
+
+def image_path(comp: dict) -> str:
+    """The file the pin is written to: the group's pins file, or the chart values file of a third party row."""
+    return comp.get("pins_file") or comp["values_file"]
 
 
 # ---------------------------------------------------------------------------------------------
@@ -184,8 +197,8 @@ def current_ref(style: str, repo: str, raw: str | None, tag: str | None = None) 
 class Pin:
     def __init__(self, sys_: L.Sys, root: str, out=print):
         self.sys, self.root, self.out = sys_, root, out
-        with open(os.path.join(root, "scripts", "images.tsv")) as fh:
-            self.images = parse_images_tsv(fh.read())
+        with open(os.path.join(root, "scripts", "images.yaml")) as fh:
+            self.images = parse_images_yaml(fh.read())
 
     def crane(self, *args: str) -> str:
         return self.sys.run(["crane", *args]).out.strip()
@@ -212,7 +225,7 @@ class Pin:
         return {"digest": digest, "amd64": amd64, "revision": label}
 
     def path_of(self, comp: dict) -> str:
-        return os.path.join(self.root, comp["values_file"])
+        return os.path.join(self.root, image_path(comp))
 
     def pin(self, name: str, ref: str, write: bool) -> dict:
         if name not in self.images:
@@ -230,15 +243,16 @@ class Pin:
         path = self.path_of(comp)
         text = open(path).read()
         old = get_leaf(text, comp["key_path"])
-        self.out(f"{name}: {comp['values_file']} {comp['key_path']}")
+        rel = image_path(comp)
+        self.out(f"{name}: {rel} {comp['key_path']}")
         self.out(f"  old  {old}")
         self.out(f"  new  {value}")
         self.out(f"  source commit {info['revision'] or '(no org.opencontainers.image.revision label)'}")
         if write:
             new_text = set_leaf(text, comp["key_path"], value)
             open(path, "w").write(new_text)
-            self.out(f"  written to {comp['values_file']}")
-        return {"name": name, "old": old, "new": value, "revision": info["revision"], "tag": tag, "file": comp["values_file"]}
+            self.out(f"  written to {rel}")
+        return {"name": name, "old": old, "new": value, "revision": info["revision"], "tag": tag, "file": rel}
 
     def open_pr(self, res: dict) -> None:
         git = L.Git(self.sys, self.root)
@@ -268,9 +282,15 @@ class Pin:
             text = open(path).read()
             raw = get_leaf(text, comp["key_path"])
             sib = get_leaf(text, sibling_tag_path(comp["key_path"])) if comp["style"] == "digest" else None
+            if comp["style"] == "digest" and sib is None:
+                # A digest-style pin holds only the digest: its sibling tag (keycloak.image.tag) stays in the
+                # chart values (e.g. charts/auth/values.yaml), not in the pins file.
+                values = os.path.join(self.root, "charts", comp["chart"], "values.yaml")
+                if os.path.isfile(values):
+                    sib = get_leaf(open(values).read(), sibling_tag_path(comp["key_path"]))
             ref = current_ref(comp["style"], comp["repository"], raw, sib)
             if not ref:
-                self.out(f"{name}: key {comp['key_path']} not set in {comp['values_file']}; skipped")
+                self.out(f"{name}: key {comp['key_path']} not set in {image_path(comp)}; skipped")
                 continue
             if "@sha256:" in ref:
                 results.append({"name": name, "status": "pinned"})
@@ -321,7 +341,7 @@ def main(argv: list[str] | None = None, sys_: L.Sys | None = None) -> int:
     try:
         if a.list:
             for n, c in pin.images.items():
-                print(f"{n:<22} {c['values_file']}  {c['key_path']}  [{c['style']}]  {c['repository']}")
+                print(f"{n:<22} {image_path(c)}  {c['key_path']}  [{c['style']}]  {c['repository']}")
             return 0
         if a.adopt_running:
             pin.adopt_running(a.write, a.context)

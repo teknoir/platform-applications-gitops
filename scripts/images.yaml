@@ -1,0 +1,228 @@
+# Every Teknoir-built image, its pin and where the pin lives (CI/CD v4 P4.2,
+# plans/cicd/v4/p42-spec.md section 1). Replaces scripts/images.tsv.
+#
+# groups  the Kargo image groups: one pins/<group>.yaml, one Warehouse img-<group> and, when enabled,
+#         one Stage pin-<group> (charts/kargo-config values groups[], asserted against this file).
+#         same_commit: the group makes freight only when every image carries the same sha tag.
+#         enabled:     the kargo-config default (auto-promotion and by-hand pin Stages); nothing else.
+# images  component: the pin-image name; group: a group above, or null for a third party image;
+#         pins_file: pins/<group>.yaml for a grouped row (null for a third party row);
+#         values_file: the chart values file of a third-party row (null for a grouped row);
+#         chart: the chart directory under charts/ (the child Application has the same name but for
+#         auth (keycloak-theme) and ztna (wg-tunnel));
+#         key_path: the nested values key that holds the pin;
+#         style: ref = repo:tag@sha256:…, tag = tag@sha256:…, digest = sha256:… (the sibling tag stays);
+#         repository: the registry repository the image is built and pinned from;
+#         poll: the repository a Kargo Warehouse polls (Harbor for a private image, ghcr for a public one;
+#         equal to repository while every group is still pinned from ghcr).
+#
+# scripts/pin-image reads this file: it writes the pins file of a grouped component and the chart values
+# of a third-party one. Kargo's pin Stages write the grouped pins files too (one pull request per pin).
+groups:
+  backstage: {same_commit: true, enabled: false}
+  device-controller: {same_commit: false, enabled: false}
+  profile-controller: {same_commit: false, enabled: false}
+  devstudio-controller: {same_commit: false, enabled: false}
+  user-controller: {same_commit: false, enabled: false}
+  notebook-controller: {same_commit: false, enabled: false}
+  teknoirbot-controller: {same_commit: false, enabled: false}
+  keycloak-theme: {same_commit: false, enabled: false}
+  wg-tunnel: {same_commit: true, enabled: true}
+  web-terminal: {same_commit: false, enabled: false}
+  teknoir-desktop: {same_commit: true, enabled: false}
+
+images:
+  - component: backstage-app
+    group: backstage
+    pins_file: pins/backstage.yaml
+    chart: backstage
+    key_path: backstage.image
+    style: ref
+    repository: ghcr.io/teknoir/backstage-app
+    poll: harbor.teknoir.cloud/teknoir/backstage-app
+    note: "the staging UI: next-gen (backstage branch nextgen) since the UI cut-over a2 (2026-10-17); was classic :robot"
+
+  - component: backstage-api
+    group: backstage
+    pins_file: pins/backstage.yaml
+    chart: backstage
+    key_path: backstageApi.image
+    style: ref
+    repository: ghcr.io/teknoir/backstage
+    poll: harbor.teknoir.cloud/teknoir/backstage
+    note: "the staging UI API: next-gen (nextgen) since the UI cut-over a2; was classic :robot"
+
+  - component: device-controller
+    group: device-controller
+    pins_file: pins/device-controller.yaml
+    chart: device-controller
+    key_path: image.tag
+    style: tag
+    repository: ghcr.io/teknoir/device-controller
+    poll: harbor.teknoir.cloud/teknoir/device-controller
+    note: "already tag@digest"
+
+  - component: profile-controller
+    group: profile-controller
+    pins_file: pins/profile-controller.yaml
+    chart: profile-controller
+    key_path: image.tag
+    style: tag
+    repository: ghcr.io/teknoir/profile-controller
+    poll: harbor.teknoir.cloud/teknoir/profile-controller
+    note: "already tag@digest; production pulls :latest of this repo"
+
+  - component: devstudio-controller
+    group: devstudio-controller
+    pins_file: pins/devstudio-controller.yaml
+    chart: devstudio-controller
+    key_path: image.tag
+    style: tag
+    repository: ghcr.io/teknoir/devstudio-controller
+    poll: harbor.teknoir.cloud/teknoir/devstudio-controller
+    note: "dormant; production pulls :teknoir-cloud of this repo"
+
+  - component: user-controller
+    group: user-controller
+    pins_file: pins/user-controller.yaml
+    chart: user-controller
+    key_path: image.tag
+    style: tag
+    repository: ghcr.io/teknoir/user-controller
+    poll: harbor.teknoir.cloud/teknoir/user-controller
+    note: "timestamp tag, built by legacy GitHub Actions"
+
+  - component: notebook-controller
+    group: notebook-controller
+    pins_file: pins/notebook-controller.yaml
+    chart: notebook-controller
+    key_path: image.tag
+    style: tag
+    repository: ghcr.io/teknoir/notebook-controller
+    poll: harbor.teknoir.cloud/teknoir/notebook-controller
+    note: "timestamp tag, built by legacy GitHub Actions"
+
+  - component: teknoirbot-controller
+    group: teknoirbot-controller
+    pins_file: pins/teknoirbot-controller.yaml
+    chart: teknoirbot-controller
+    key_path: image.tag
+    style: tag
+    repository: ghcr.io/teknoir/teknoirbot-controller
+    poll: harbor.teknoir.cloud/teknoir/teknoirbot-controller
+    note: "TeknoirBot controller (private repo, local-ci builds)"
+
+  - component: keycloak-theme
+    group: keycloak-theme
+    pins_file: pins/keycloak-theme.yaml
+    chart: auth
+    key_path: keycloak.image.digest
+    style: digest
+    repository: ghcr.io/teknoir/keycloak-theme
+    poll: ghcr.io/teknoir/keycloak-theme
+    note: "StatefulSet and keycloak-config Job; production pulls :latest of this repo"
+
+  - component: wg-hub
+    group: wg-tunnel
+    pins_file: pins/wg-tunnel.yaml
+    chart: ztna
+    key_path: hub.image.tag
+    style: tag
+    repository: ghcr.io/teknoir/wg-hub
+    poll: ghcr.io/teknoir/wg-hub
+    note: "already tag@digest; also the wg-flags watcher"
+
+  - component: wg-agent
+    group: wg-tunnel
+    pins_file: pins/wg-tunnel.yaml
+    chart: device-controller
+    key_path: ztna.agentImage
+    style: ref
+    repository: ghcr.io/teknoir/wg-agent
+    poll: ghcr.io/teknoir/wg-agent
+    note: "already tag@digest"
+
+  - component: wg-gateway
+    group: wg-tunnel
+    pins_file: pins/wg-tunnel.yaml
+    chart: device-controller
+    key_path: ztna.gatewayImage
+    style: ref
+    repository: ghcr.io/teknoir/wg-gateway
+    poll: ghcr.io/teknoir/wg-gateway
+    note: "already tag@digest"
+
+  - component: web-terminal
+    group: web-terminal
+    pins_file: pins/web-terminal.yaml
+    chart: device-controller
+    key_path: ztna.terminalImage
+    style: ref
+    repository: ghcr.io/teknoir/web-terminal
+    poll: ghcr.io/teknoir/web-terminal
+    note: "already tag@digest"
+
+  - component: teknoir-desktop
+    group: teknoir-desktop
+    pins_file: pins/teknoir-desktop.yaml
+    chart: device-controller
+    key_path: desktop.image
+    style: ref
+    repository: ghcr.io/teknoir/teknoir-desktop
+    poll: ghcr.io/teknoir/teknoir-desktop
+    note: "browser remote desktop, injected into devices by device-controller (public repo)"
+
+  - component: teknoir-desktop-agent
+    group: teknoir-desktop
+    pins_file: pins/teknoir-desktop.yaml
+    chart: device-controller
+    key_path: desktop.agent.image
+    style: ref
+    repository: ghcr.io/teknoir/teknoir-desktop/council
+    poll: ghcr.io/teknoir/teknoir-desktop/council
+    note: "the TeknoirBot council image (target council, linux/amd64), built by teknoir-desktop image.yml job council as the sub-image council:sha-<8>; its tnctl is the job's TNCTL_REF and TNCTL_VERSION build-args (was teknoir-desktop:sha-<8>-council from the local-ci script until 2026-11-23)"
+
+  # Third party images: no group, pinned by hand into the chart values file with scripts/pin-image.
+  - component: postgres
+    group: null
+    pins_file: null
+    values_file: charts/backstage/values.yaml
+    chart: backstage
+    key_path: postgres.image
+    style: ref
+    repository: postgres
+    poll: null
+    note: "third party; the design pins the running digest (17-alpine)"
+
+  - component: httpbin
+    group: null
+    pins_file: null
+    values_file: charts/auth/values.yaml
+    chart: auth
+    key_path: httpbin.image.tag
+    style: tag
+    repository: docker.io/kennethreitz/httpbin
+    poll: null
+    note: "third party :latest; remove if unused, else pin"
+
+  - component: buildkit
+    group: null
+    pins_file: null
+    values_file: charts/device-controller/values.yaml
+    chart: device-controller
+    key_path: desktop.agent.buildkitImage
+    style: ref
+    repository: moby/buildkit
+    poll: null
+    note: "third party; rootful buildkitd on a bot computer, same version as the agent image buildctl"
+
+  - component: bot-registry
+    group: null
+    pins_file: null
+    values_file: charts/device-controller/values.yaml
+    chart: device-controller
+    key_path: desktop.agent.registryImage
+    style: ref
+    repository: registry
+    poll: null
+    note: "third party; the bot computer own registry"

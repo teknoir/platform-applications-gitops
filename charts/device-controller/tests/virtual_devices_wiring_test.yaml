@@ -3,6 +3,13 @@ templates:
   - templates/configmap.yaml
   - templates/deployment.yaml
   - templates/rbac.yaml
+# The pins the device-controller Application passes (charts/app-of-apps/templates/controllers.yaml): the chart
+# values carry empty image keys now that Kargo writes the pins (scripts/images.yaml).
+values:
+  - ../../../pins/device-controller.yaml
+  - ../../../pins/teknoir-desktop.yaml
+  - ../../../pins/web-terminal.yaml
+  - ../../../pins/wg-tunnel.yaml
 set:
   virtualDevices.enabled: true
 tests:

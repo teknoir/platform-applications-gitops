@@ -176,7 +176,10 @@ ztna.enabled. The images are required: the controller refuses an enabled config 
 {{- /* hasKey, not if: an explicit [] must reach the controller (no inspect rule); an absent key means its default */ -}}
 {{- if hasKey $z "inspectPrincipals" }}{{- $_ := set $c "inspectPrincipals" $z.inspectPrincipals -}}{{- end -}}
 {{- if $z.attestorEnabled }}{{- $_ := set $c "attestorEnabled" true -}}{{- end -}}
-{{- if $z.gatewayImage }}{{- $_ := set $c "gatewayImage" $z.gatewayImage -}}{{- end -}}
+{{- /* An empty gatewayImage is the controller's off switch for the web gateway, so it cannot be `required` in
+place: fail instead, because an enabled ZTNA without the gateway would silently leave web services without a URL. */ -}}
+{{- if not $z.gatewayImage }}{{- fail "ztna.gatewayImage is required when ztna.enabled (the wg-gateway image, '<tag>@sha256:<digest>'; pinned in pins/wg-tunnel.yaml)" -}}{{- end -}}
+{{- $_ := set $c "gatewayImage" $z.gatewayImage -}}
 {{- if $z.terminalRunAsUser }}{{- $_ := set $c "terminalRunAsUser" (int64 $z.terminalRunAsUser) -}}{{- end -}}
 {{- /* Tunneling on by default (device-controller wg-default-on, plans/ssh-tunnel-removal.md): only
 emitted when set, so an older controller image never sees the keys. */ -}}
@@ -187,16 +190,19 @@ emitted when set, so an older controller image never sees the keys. */ -}}
 
 {{/*
 Desktop: the DESKTOP JSON for the controller (key DESKTOP of the parameters ConfigMap). Only included
-in the ConfigMap when desktop.enabled and ztna.enabled. The image is required.
+in the ConfigMap when desktop.enabled and ztna.enabled. The image is required, as is the agent image
+once the agent switch (teknoirbotApi.enabled) is on.
 */}}
 {{- define "device-controller.desktop.configJSON" -}}
 {{- $d := .Values.desktop -}}
 {{- $c := dict "enabled" true "image" (required "desktop.image is required when desktop.enabled (the teknoir-desktop image, '<tag>@sha256:<digest>'; pin it with scripts/pin-image teknoir-desktop ...)" $d.image) "hostGroupID" (int $d.hostGroupID) -}}
 {{- /* The TeknoirBot council on a bot's computer: only with the agent switch (teknoirbotApi.enabled, from
-app-of-apps teknoirbot.agent.enabled) and an agent image. Then the buildkit and registry images are
+app-of-apps teknoirbot.agent.enabled). An agent image is required then: an empty one is the off switch the switch
+replaces, and it would silently leave the bot without its council. Then the buildkit and registry images are
 required too; councilMemoryLimit is optional (the controller's default is 2Gi, at least 1Gi). */ -}}
 {{- $a := $d.agent | default dict -}}
-{{- if and (.Values.teknoirbotApi).enabled $a.image -}}
+{{- if (.Values.teknoirbotApi).enabled -}}
+{{- if not $a.image }}{{- fail "desktop.agent.image is required when teknoirbotApi.enabled (the TeknoirBot council image, '<tag>@sha256:<digest>'; pinned in pins/teknoir-desktop.yaml)" -}}{{- end -}}
 {{- $agent := dict "image" $a.image "buildkitImage" (required "desktop.agent.buildkitImage is required when desktop.agent.image is set (moby/buildkit '<tag>@sha256:<digest>'; scripts/pin-image)" $a.buildkitImage) "registryImage" (required "desktop.agent.registryImage is required when desktop.agent.image is set (registry '<tag>@sha256:<digest>'; scripts/pin-image)" $a.registryImage) -}}
 {{- if $a.councilMemoryLimit -}}
 {{- $_ := set $agent "councilMemoryLimit" $a.councilMemoryLimit -}}

@@ -4,7 +4,8 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/teknoir/user-controller
-  tag: "sha-b9fa6d14@sha256:9cd96563c7f58d14ed5ac7dafdf73723e08b12be894fcb68b28333c4e26dd1fb"
+  # pinned in pins/user-controller.yaml (Kargo stage pin-user-controller)
+  tag: ""
   pullPolicy: Always
 
 imagePullSecrets:

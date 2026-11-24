@@ -30,10 +30,8 @@ config:
 # Backstage frontend deployment
 backstage:
   replicas: 1
-  # backstage main dce12b42 (#457: CI runs every suite), built by image.yml (run 45173993643, CI/CD v4 P3.8 end-to-end
-  # check). Previous pin, main a934b301 (the first main build: #453, #455, #456):
-  # ghcr.io/teknoir/backstage-app:sha-a934b301@sha256:940a59108aec5d955d518f0e9405b1d62ef69a21681acc9fe37bfae57b5e46fa
-  image: "ghcr.io/teknoir/backstage-app:sha-dce12b42@sha256:5fbb6712c427765204bead405c315f96436ec63a1557428475490b2b8d82ea68"
+  # pinned in pins/backstage.yaml (Kargo stage pin-backstage)
+  image: ""
   imagePullPolicy: Always
   imagePullSecrets:
     - name: ghcr-token
@@ -42,9 +40,8 @@ backstage:
 # Backstage API deployment
 backstageApi:
   replicas: 1
-  # backstage main dce12b42 (see backstage.image). Previous pin:
-  # ghcr.io/teknoir/backstage:sha-a934b301@sha256:386cf90c5ae6af70e8b6f514108d68fdec7ab3086d5a8e0ba82c7a81bdb61b91
-  image: "ghcr.io/teknoir/backstage:sha-dce12b42@sha256:d1a8622c573258385041a7f73bfeac969f721288b0fd7929991bbabed62f0d54"
+  # pinned in pins/backstage.yaml (Kargo stage pin-backstage)
+  image: ""
   imagePullPolicy: Always
   imagePullSecrets:
     - name: ghcr-token

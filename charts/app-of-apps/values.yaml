@@ -25,9 +25,9 @@ virtualDevices:
 # TeknoirBot controller (charts/teknoirbot-controller, templates/teknoirbot.yaml): the TeknoirBot CRD and its
 # controller, which gives each bot a virtual Device with a browser remote desktop. teknoir-cloud only (allowlist in
 # the template). Turned on only after (a) charts/device-controller crds/devices.yaml carries spec.desktop (copied from
-# device-controller with its Prune=false,Delete=false annotation) and image.tag is a device-controller build with the
-# desktop, (b) desktop.enabled and desktop.image are set and pinned there, and (c) charts/teknoirbot-controller image.tag
-# is pinned.
+# device-controller with its Prune=false,Delete=false annotation) and pins/device-controller.yaml is a device-controller
+# build with the desktop, (b) desktop.enabled is set and desktop.image is pinned in pins/teknoir-desktop.yaml, and
+# (c) charts/teknoirbot-controller image.tag is pinned in pins/teknoirbot-controller.yaml.
 teknoirbot:
   enabled: true
   # The AI agent in a bot's computer (plans/teknoirbot/design/agent-mvp-design.md): the in-cluster bot API
@@ -49,9 +49,10 @@ teknoirbot:
 #     Application (CoreDNS rewrites for wg-device and turn, NetworkPolicy egress to the TURN
 #     server), the auth Application (wg.<domain> bypasses the edge login redirect; the hub
 #     validates the Keycloak tokens itself) and the backstage Application (UI flag teknoir.ztna).
-# The images are NOT set here: before flipping this, set charts/ztna image.tag and
-# charts/device-controller ztna.agentImage / ztna.terminalImage (a missing value fails
-# the render of that chart, so nothing half-configured is ever applied). Like
+# The images are NOT set here: before flipping this, pin hub.image.tag and
+# ztna.agentImage / ztna.gatewayImage in pins/wg-tunnel.yaml and ztna.terminalImage in
+# pins/web-terminal.yaml (a missing value fails the render of that chart, so nothing
+# half-configured is ever applied). Like
 # virtualDevices, the Applications also need the project in the allowlist in
 # templates/_helpers.tpl (teknoir-cloud only), so this flag does nothing if it is
 # cherry-picked onto another environment branch.

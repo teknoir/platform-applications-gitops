@@ -1,6 +1,13 @@
 suite: desktop (remote desktop) config
 templates:
   - templates/configmap.yaml
+# The pins the device-controller Application passes (charts/app-of-apps/templates/controllers.yaml): the chart
+# values carry empty image keys now that Kargo writes the pins (scripts/images.yaml). set: still overrides them.
+values:
+  - ../../../pins/device-controller.yaml
+  - ../../../pins/teknoir-desktop.yaml
+  - ../../../pins/web-terminal.yaml
+  - ../../../pins/wg-tunnel.yaml
 set:
   ztna.agentImage: "ghcr.io/teknoir/wg-agent:sha-0000000a@sha256:1111111111111111111111111111111111111111111111111111111111111111"
   ztna.terminalImage: "ghcr.io/teknoir/web-terminal:sha-0000000b@sha256:2222222222222222222222222222222222222222222222222222222222222222"
@@ -68,7 +75,7 @@ tests:
           path: data.DESKTOP
           pattern: '"agent"'
 
-  - it: has no agent with the switch on and no agent image
+  - it: fails with the switch on and no agent image (an empty one is not an off switch while the switch is on)
     set:
       desktop.enabled: true
       desktop.image: "img:v1@sha256:3333333333333333333333333333333333333333333333333333333333333333"
@@ -76,9 +83,8 @@ tests:
       teknoirbotApi.enabled: true
       ztna.enabled: true
     asserts:
-      - notMatchRegex:
-          path: data.DESKTOP
-          pattern: '"agent"'
+      - failedTemplate:
+          errorPattern: "desktop.agent.image is required when teknoirbotApi.enabled"
 
   - it: renders the agent with the switch on and its images
     set:

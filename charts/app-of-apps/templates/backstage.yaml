@@ -18,6 +18,10 @@ spec:
 {{- /* Staging only: a cherry-pick onto teknoir-online (production) or teknoir-local (airgapped) renders as before. */}}
 {{- if has .Values.project (list "teknoir-cloud") }}
     helm:
+      # Pins of the image group (scripts/images.yaml); only teknoir-cloud has a pins/ directory.
+      valueFiles:
+        - values.yaml
+        - ../../pins/backstage.yaml
       parameters:
         # Next-gen fleet pages (the UI cut-over a2, plans/nextgen/ui-cutover.md): same in-cluster URL the
         # device-controller uses (plugin_device_state PROMETHEUS_URL_TEMPLATE).

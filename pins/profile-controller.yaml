@@ -1,0 +1,8 @@
+# Pins of the profile-controller image group (scripts/images.yaml), read by the profile-controller
+# Application (helm.valueFiles, charts/app-of-apps/templates/controllers.yaml). Written by the Kargo
+# stage pin-profile-controller and by scripts/pin-image; do not edit by hand.
+image:
+  # Pinned by tag@digest: profile-controller teknoir-cloud (59523f59), r5 release line.
+  # profile-controller 2b54db9 (teknoir-cloud #211: Deadend plugin off by default, plans/ssh-tunnel-removal.md
+  # step 8). Previous pin: sha-59523f59@sha256:6d67f83d05da3f043f4a1382798830773d72fe721addef5919fd4d1c393b0fcf
+  tag: "sha-f31a3fbd@sha256:ce635c2fe93dc57b38a8038241c3d72e961a41c74dc38941974459fafa7694f0"
