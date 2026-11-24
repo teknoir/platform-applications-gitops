@@ -147,7 +147,7 @@ src = dict(spec["source"])
 # With ztna.enabled the Application passes ztna.enabled=true to the chart (CoreDNS rewrites for
 # wg-device and turn); everything else about the source is the same.
 assert src.pop("helm", None) in (None, {"parameters": [{"name": "ztna.enabled", "value": "true"}]}), spec["source"]
-assert src == {"path": "charts/virtual-devices", "repoURL": "https://github.com/teknoir/platform-applications-gitops", "targetRevision": "teknoir-cloud"}, src
+assert src == {"path": "charts/virtual-devices", "repoURL": "https://github.com/teknoir/platform-applications-gitops", "targetRevision": "main"}, src
 assert spec["project"] == "teknoir-cloud"
 assert spec["destination"] == {"namespace": "kubevirt", "server": "https://kubernetes.default.svc"}, spec["destination"]
 sp = spec["syncPolicy"]
@@ -158,7 +158,7 @@ assert app["metadata"]["annotations"] == {"argocd.argoproj.io/compare-options": 
 assert "finalizers" not in app["metadata"], "no cascading delete when the flag is turned off"
 assert spec["ignoreDifferences"] == [{"group": "apiextensions.k8s.io", "kind": "CustomResourceDefinition", "name": "cdis.cdi.kubevirt.io", "jsonPointers": ["/spec/versions"]}], spec.get("ignoreDifferences")
 others = sorted(n for n in apps if n != "virtual-devices")
-print("ok   virtual-devices -> charts/virtual-devices @ teknoir-cloud: ServerSideApply, ServerSideDiff, RespectIgnoreDifferences (cdis CRD /spec/versions), retry 10 x 30s..5m, automated prune/selfHeal, no finalizer")
+print("ok   virtual-devices -> charts/virtual-devices @ main: ServerSideApply, ServerSideDiff, RespectIgnoreDifferences (cdis CRD /spec/versions), retry 10 x 30s..5m, automated prune/selfHeal, no finalizer")
 print("ok   other Applications:", ", ".join(others))
 PY
 

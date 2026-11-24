@@ -13,7 +13,7 @@ Argo CD is deployed behind the Istio ingress gateway.
 ## Prerequisites
 
 1.  **First install**: on a new cluster, `scripts/deploy-argo.sh` in [teknoir/infra](https://github.com/teknoir/infra) installs this chart once (Helm release `argo`). From then on the Application `argo` (`charts/app-of-apps/templates/argo.yaml`) manages Argo CD from this directory, and this repository is the source of truth.
-2.  **App-of-apps**: The [app-of-apps](https://github.com/teknoir/platform-applications-gitops/tree/teknoir-cloud/charts/app-of-apps) application must be deployed (providing Keycloak).
+2.  **App-of-apps**: The [app-of-apps](https://github.com/teknoir/platform-applications-gitops/tree/main/charts/app-of-apps) application must be deployed (providing Keycloak).
 3.  **Setup in Keycloak**
 * Client setup in master realm - Client ID: `argocd`
 * OpenID Connect

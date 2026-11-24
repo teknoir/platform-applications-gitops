@@ -136,7 +136,7 @@ def main(argv: list[str] | None = None, sys_: L.Sys | None = None) -> int:
     ap.add_argument("--devices", action="store_true", help="also check device-side revisions and HelmCharts")
     ap.add_argument("--no-network", action="store_true", help="skip crane and the plugin chart index")
     ap.add_argument("--context", default=L.CONTEXT, help=argparse.SUPPRESS)
-    ap.add_argument("--branch", default=L.BRANCH, help=argparse.SUPPRESS)
+    ap.add_argument("--branch", default=None, help=argparse.SUPPRESS)   # default: origin/HEAD's branch
     a = ap.parse_args(argv)
     s = sys_ or L.Sys()
     try:
@@ -145,8 +145,12 @@ def main(argv: list[str] | None = None, sys_: L.Sys | None = None) -> int:
         print(f"REFUSED: {e}", file=sys.stderr)
         return 2
     git = L.Git(s, L.repo_root_of(HERE))
+    branch = a.branch or L.gitops_ref(s, git.repo)
+    short = branch[len("origin/"):] if branch.startswith("origin/") else branch
     attention: list[str] = []
-    s.run(["git", "-C", git.repo, "fetch", "--tags", "--force", "origin", "teknoir-cloud"], check=False)
+    fetched = s.run(["git", "-C", git.repo, "fetch", "--tags", "--force", "origin", short], check=False).rc == 0
+    if not fetched:
+        attention.append(f"cannot fetch {short}: origin/HEAD may be stale, run git remote set-head origin -a")
 
     root = kube.root()
     cutover = L.is_cutover_state(root)
@@ -156,7 +160,7 @@ def main(argv: list[str] | None = None, sys_: L.Sys | None = None) -> int:
     print(f"live commit        {live_sha}")
     rec = {"plugin_version": None, "plugin_digests": {}, "shared": {}, "guard_warn": None}
     if cutover:
-        print("live release       NONE: the root still follows the branch (pre-cutover). Every merge to teknoir-cloud is live.")
+        print(f"live release       NONE: the root still follows the branch (pre-cutover). Every merge to {short} is live.")
         attention.append("pre-cutover: the root follows the branch")
     else:
         peeled = s.run(["git", "-C", git.repo, "rev-parse", "--verify", f"refs/tags/{live_tag}^{{commit}}"], check=False)
@@ -175,19 +179,25 @@ def main(argv: list[str] | None = None, sys_: L.Sys | None = None) -> int:
     print("\nroot Application   " + ("as expected" if not dev and not cutover else "; ".join(dev) if dev else "(branch-following)"))
     attention += [d for d in dev if not cutover]
 
-    try:
-        head = git.rev(a.branch)
-        pending = git.pending(live_sha, head) if git.is_ancestor(live_sha, head) else []
-    except RuntimeError as e:
+    head = ""
+    if not fetched:
+        # The local remote-tracking ref may be behind the remote (or gone): a count from it would look current.
         pending = []
-        print(f"\npending            cannot read {a.branch}: {e}")
-        head = ""
-    print(f"\npending commits    {len(pending)} on {a.branch} not live" + (f" (head {head[:12]})" if head else ""))
-    now = s.now()
-    for c in pending:
-        age = now - dt.datetime.fromisoformat(c["date"])
-        pr = f"#{c['pr']}" if c["pr"] else "-"
-        print(f"  {c['short']} {pr:>5} {c['subject'][:80]}  [{c['branch'] or '?'}]  {int(age.total_seconds() // 3600)}h ago")
+        print(f"\npending commits    unknown: cannot fetch {short} (origin/HEAD may be stale, run git remote set-head origin -a)")
+    else:
+        try:
+            head = git.rev(branch)
+            pending = git.pending(live_sha, head) if git.is_ancestor(live_sha, head) else []
+        except RuntimeError as e:
+            pending = []
+            print(f"\npending            cannot read {branch}: {e}")
+            head = ""
+        print(f"\npending commits    {len(pending)} on {branch} not live" + (f" (head {head[:12]})" if head else ""))
+        now = s.now()
+        for c in pending:
+            age = now - dt.datetime.fromisoformat(c["date"])
+            pr = f"#{c['pr']}" if c["pr"] else "-"
+            print(f"  {c['short']} {pr:>5} {c['subject'][:80]}  [{c['branch'] or '?'}]  {int(age.total_seconds() // 3600)}h ago")
 
     apps = kube.applications()
     if cutover:

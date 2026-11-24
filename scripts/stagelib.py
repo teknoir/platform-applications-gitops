@@ -27,7 +27,10 @@ LEASE_NAME = "staging-release-lock"
 GITHUB_REPO = "teknoir/platform-applications-gitops"
 REPO_URL = "https://github.com/teknoir/platform-applications-gitops"
 ROOT_PATH = "charts/app-of-apps"
-BRANCH = "origin/teknoir-cloud"
+# The gitops working branch is read from origin/HEAD (the rename to main at the CI v4 cut-over),
+# never hard-coded; this is the fallback when origin/HEAD is missing (e.g. a bare remote without
+# a HEAD, or a checkout that never fetched it).
+GITOPS_BRANCH_FALLBACK = "main"
 # staging-YYYYMMDD.N: N has no leading zero and is at least 1 (the guard policy uses the same expression).
 TAG_RE = re.compile(r"^staging-([0-9]{8})\.([1-9][0-9]*)$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -86,6 +89,29 @@ class Sys:
 
     def sleep(self, s: float) -> None:
         time.sleep(s)
+
+
+def gitops_branch(sys_: Sys | None = None, repo: str | None = None) -> str:
+    """The gitops working branch, short name (the `--base`, the fetch ref, targetRevision).
+
+    Read from the remote's HEAD (`git symbolic-ref --short refs/remotes/origin/HEAD` -> "origin/main"),
+    so the rename `teknoir-cloud` -> `main` at the CI v4 cut-over needs no change here. Falls back to
+    GITOPS_BRANCH_FALLBACK when origin/HEAD is missing or points nowhere."""
+    s = sys_ or Sys()
+    git = ["git", *(["-C", repo] if repo else [])]
+    r = s.run([*git, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], check=False)
+    ref = (r.out or "").strip() if r.rc == 0 else ""
+    if ref.startswith("origin/"):
+        ref = ref[len("origin/"):]
+    # a dangling origin/HEAD (it names a branch the last fetch did not bring) counts as missing
+    if ref and s.run([*git, "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{ref}"], check=False).rc == 0:
+        return ref
+    return GITOPS_BRANCH_FALLBACK
+
+
+def gitops_ref(sys_: Sys | None = None, repo: str | None = None) -> str:
+    """`origin/<gitops branch>`: the remote-tracking ref the release tooling compares and fetches."""
+    return "origin/" + gitops_branch(sys_, repo)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -194,13 +220,14 @@ def parse_pr(subject: str) -> dict:
     return {"pr": None, "branch": ""}
 
 
-def validate_candidate(first_parent_line: list[str], is_ancestor, cand: str, live: str) -> str:
-    """A release is a commit on the first-parent history of origin/teknoir-cloud that descends from
-    the live release. Returns 'noop' for the live commit itself, 'forward' otherwise."""
+def validate_candidate(first_parent_line: list[str], is_ancestor, cand: str, live: str,
+                       branch: str = "the gitops branch") -> str:
+    """A release is a commit on the first-parent history of the gitops branch (origin/HEAD) that
+    descends from the live release. Returns 'noop' for the live commit itself, 'forward' otherwise."""
     if not SHA_RE.match(cand):
         raise Refuse(f"candidate must be a full 40-hex commit SHA, got '{cand}'")
     if cand not in first_parent_line:
-        raise Refuse(f"{cand[:12]} is not on the first-parent history of {BRANCH}. Prefix releases only: "
+        raise Refuse(f"{cand[:12]} is not on the first-parent history of {branch}. Prefix releases only: "
                      "pick a merge commit of the branch (git log --first-parent), or merge first")
     if cand == live:
         return "noop"

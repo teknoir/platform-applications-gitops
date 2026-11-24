@@ -5,7 +5,7 @@ under apps/ is byte-identical.
 
 Opt-in, because it needs a base ref that predates the pins: run it when a change must not alter renders with
 
-    PINS_RENDER_BASE=origin/teknoir-cloud python3 -m unittest scripts.tests.test_pins_render
+    PINS_RENDER_BASE=origin/main python3 -m unittest scripts.tests.test_pins_render
 
 (any ref with the pins still in the chart values works, e.g. a commit on this branch's base). Without
 PINS_RENDER_BASE the class skips; so does a checkout without helm or without that ref (CI's scripts-tests job has a
@@ -47,7 +47,7 @@ class PinsRenderIsIdentical(unittest.TestCase):
     def setUpClass(cls):
         if not BASE:
             raise unittest.SkipTest("PINS_RENDER_BASE is not set: run it with "
-                                    "PINS_RENDER_BASE=origin/teknoir-cloud (a ref whose chart values still hold the pins)")
+                                    "PINS_RENDER_BASE=origin/main (a ref whose chart values still hold the pins)")
         if not shutil.which("helm"):
             raise unittest.SkipTest("helm is not on PATH")
         if not shutil.which("git") or not have_base():

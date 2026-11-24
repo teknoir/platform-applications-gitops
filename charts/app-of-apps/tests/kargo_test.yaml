@@ -89,7 +89,7 @@ tests:
           path: 'spec.sources[1].repoURL'
           value: https://github.com/teknoir/platform-applications-gitops
       - equal: {path: 'spec.sources[1].ref', value: values}
-      - equal: {path: 'spec.sources[1].targetRevision', value: teknoir-cloud}
+      - equal: {path: 'spec.sources[1].targetRevision', value: main}
       - equal:
           path: spec.syncPolicy.syncOptions
           value:
@@ -131,7 +131,7 @@ tests:
       - equal: {path: spec.destination.namespace, value: platform}
       - equal: {path: spec.source.path, value: charts/kargo-config}
       - equal: {path: spec.source.repoURL, value: https://github.com/teknoir/platform-applications-gitops}
-      - equal: {path: spec.source.targetRevision, value: teknoir-cloud}
+      - equal: {path: spec.source.targetRevision, value: main}
       - equal:
           path: spec.syncPolicy.syncOptions
           value:

@@ -281,6 +281,33 @@ class PinFlow(unittest.TestCase):
         values = open(os.path.join(self.root, "charts/auth/values.yaml")).read()
         self.assertEqual(PI.get_leaf(values, "keycloak.image.tag"), "latest")  # ... and the chart values are untouched
 
+    def pr_base(self, sys_, **kw):
+        """The --base of the gh pr create open_pr runs."""
+        self.pin(sys_).open_pr({"name": "devstudio-controller", "old": "x", "new": "y@" + D, "revision": "r",
+                                "tag": "sha-abc", "file": "pins/devstudio-controller.yaml"}, **kw)
+        call = next(c for c in sys_.calls if c[:3] == ["gh", "pr", "create"])
+        return call[call.index("--base") + 1]
+
+    def test_open_pr_bases_on_the_gitops_branch_not_a_hard_coded_one(self):
+        sys_ = FakeSys()                                   # its git answers "no origin/HEAD": falls back to main
+        self.assertEqual(self.pr_base(sys_), "main")
+
+    def test_open_pr_follows_origin_head(self):
+        class HeadSys(FakeSys):
+            def run(self, argv, **kw):
+                if argv[:3] == ["git", "-C", self.root] and argv[3] == "symbolic-ref":
+                    return L.Result(0, "origin/teknoir-cloud\n", "")
+                if argv[:3] == ["git", "-C", self.root] and argv[3] == "rev-parse":
+                    return L.Result(0, "", "")
+                return super().run(argv, **kw)
+
+        sys_ = HeadSys()
+        sys_.root = self.root
+        self.assertEqual(self.pr_base(sys_), "teknoir-cloud")
+
+    def test_open_pr_base_can_be_given(self):
+        self.assertEqual(self.pr_base(FakeSys(), base="release/x"), "release/x")
+
     def test_adopt_skips_what_is_already_pinned(self):
         res = {r["name"]: r for r in self.pin(FakeSys()).adopt_running(write=False, context="r415")}
         self.assertNotIn("device-controller", res)        # file not copied into the fixture

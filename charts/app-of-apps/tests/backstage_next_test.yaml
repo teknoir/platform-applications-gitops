@@ -8,7 +8,7 @@ tests:
       - hasDocuments: {count: 1}
       - equal: {path: metadata.name, value: backstage-next}
       - equal: {path: spec.source.path, value: charts/backstage}
-      - equal: {path: spec.source.targetRevision, value: teknoir-cloud}
+      - equal: {path: spec.source.targetRevision, value: main}
       - equal: {path: spec.destination.namespace, value: teknoir-system}
       - contains: {path: spec.source.helm.parameters, content: {name: name, value: backstage-next}}
       - contains: {path: spec.source.helm.parameters, content: {name: config.host, value: next.teknoir.cloud}}

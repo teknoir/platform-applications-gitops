@@ -7,14 +7,17 @@ name: ci
 #   check-pins     scripts/check-pins.py over the render, with RELEASE set
 #   kubeconform    the render against the kubeconform schemas (scripts/ci/kubeconform.sh)
 #   scripts-tests  scripts/tests/run.sh and the harbor scripts tests
+#   settings-branch  .github/settings.yml default_branch equals the PR base (pull requests only)
 # A pull request gets every check: CI always renders with the PR head SHA as the release (RELEASE
 # below), so the revision check passes for any change; a Kargo pin PR needs no release parameter of its
 # own.
 
 on:
   pull_request:
+    # `edited` also fires when GitHub retargets the PR (the base branch changes after the rename).
+    types: [opened, synchronize, reopened, edited]
   push:
-    branches: [main, teknoir-cloud]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -189,3 +192,27 @@ jobs:
           npm ci
           npx tsc --noEmit
           npx playwright test --list
+
+  # Before the CI v4 P5.1 rename lands on GitHub, merging any PR would make GitHub apply
+  # .github/settings.yml's default_branch and switch the default branch out from under everyone. Every PR must
+  # target the branch settings.yml names.
+  settings-branch:
+    name: settings-branch
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      BASE_REF: ${{ github.base_ref }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: default_branch matches the PR base
+        run: |
+          set -euo pipefail
+          want=$(awk '/^  default_branch:/{print $2}' .github/settings.yml)
+          if [ "$want" != "$BASE_REF" ]; then
+            echo "::error::.github/settings.yml sets default_branch $want but this PR targets $BASE_REF: merging it would make GitHub switch the default branch (CI v4 P5.1 renames teknoir-cloud to main first)"
+            exit 1
+          fi

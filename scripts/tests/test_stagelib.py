@@ -79,7 +79,7 @@ class Candidate(unittest.TestCase):
     def setUpClass(cls):
         cls.r = H.Repo()
         cls.g = L.Git(L.Sys(), cls.r.work)
-        cls.fp = cls.g.first_parent("origin/teknoir-cloud")
+        cls.fp = cls.g.first_parent("origin/main")
 
     def validate(self, cand, live):
         return L.validate_candidate(self.fp, self.g.is_ancestor, cand, live)
@@ -204,7 +204,7 @@ class RootSpec(unittest.TestCase):
             L.build_root_patch(SHA1, "v1", None)
 
     def test_cutover_state_and_live_sha(self):
-        branch = H.root_app(target="teknoir-cloud", sync_rev=SHA1)
+        branch = H.root_app(target="main", sync_rev=SHA1)
         self.assertTrue(L.is_cutover_state(branch))
         self.assertEqual(L.root_live_sha(branch), SHA1)
         pinned = H.root_app(target=SHA2)
@@ -215,7 +215,7 @@ class RootSpec(unittest.TestCase):
         ok = H.root_app(target=SHA1, release_name="staging-20261017.1",
                         params=[{"name": "release", "value": SHA1}, {"name": "releaseName", "value": "staging-20261017.1"}])
         self.assertEqual(L.root_deviations(ok), [])
-        self.assertTrue(L.root_deviations(H.root_app(target="teknoir-cloud")))
+        self.assertTrue(L.root_deviations(H.root_app(target="main")))
         bad_params = H.root_app(target=SHA1, release_name="staging-20261017.1", params=[{"name": "release", "value": SHA2}, {"name": "releaseName", "value": "staging-20261017.1"}])
         self.assertTrue(any("helm parameters" in d for d in L.root_deviations(bad_params)))
         noheal = H.root_app(target=SHA1, release_name="staging-20261017.1", selfheal=False,
@@ -240,6 +240,47 @@ class RootSpec(unittest.TestCase):
         self.assertEqual(self.pinned(lambda s: s.update(sources=[])), [])
 
 
+class GitopsBranch(unittest.TestCase):
+    """The gitops branch comes from origin/HEAD (rename teknoir-cloud -> main at the CI v4 cut-over), never
+    from a constant; origin/HEAD missing falls back to main."""
+
+    def repo(self, head: str | None) -> str:
+        """A throwaway repo with a bare 'origin'; head=None leaves refs/remotes/origin/HEAD unset."""
+        tmp = H.tmpdir()
+        origin = os.path.join(tmp, "origin.git")
+        work = os.path.join(tmp, "work")
+        subprocess.run(["git", "init", "-q", "--bare", origin], check=True)
+        subprocess.run(["git", "init", "-q", "-b", "main", work], check=True)
+        H.git(work, "remote", "add", "origin", origin)
+        H.git(work, "commit", "-q", "--allow-empty", "-m", "c1")
+        H.git(work, "push", "-q", "origin", "main")
+        if head:
+            H.git(work, "update-ref", "refs/remotes/origin/main", H.git(work, "rev-parse", "HEAD"))
+            H.git(work, "symbolic-ref", "refs/remotes/origin/HEAD", f"refs/remotes/origin/{head}")
+        return work
+
+    def test_origin_head_names_the_branch(self):
+        self.assertEqual(L.gitops_branch(L.Sys(), self.repo("main")), "main")
+        self.assertEqual(L.gitops_ref(L.Sys(), self.repo("main")), "origin/main")
+
+    def test_missing_origin_head_falls_back_to_main(self):
+        work = self.repo(None)
+        self.assertEqual(L.gitops_branch(L.Sys(), work), "main")
+        self.assertEqual(L.gitops_ref(L.Sys(), work), "origin/main")
+
+    def test_another_origin_head_is_followed(self):
+        # e.g. before the cut-over the remote's HEAD is still teknoir-cloud: the tooling follows it, no code change
+        work = self.repo("teknoir-cloud")
+        H.git(work, "update-ref", "refs/remotes/origin/teknoir-cloud", H.git(work, "rev-parse", "HEAD"))
+        self.assertEqual(L.gitops_branch(L.Sys(), work), "teknoir-cloud")
+        self.assertEqual(L.gitops_ref(L.Sys(), work), "origin/teknoir-cloud")
+
+    def test_dangling_origin_head_falls_back_to_main(self):
+        work = self.repo("main")
+        H.git(work, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/does-not-exist")
+        self.assertEqual(L.gitops_branch(L.Sys(), work), "main")
+
+
 class Convergence(unittest.TestCase):
     def test_all_on_sha_and_healthy(self):
         apps = [H.app("a", target=SHA1), H.app("b", target=SHA1)]
@@ -252,7 +293,7 @@ class Convergence(unittest.TestCase):
         self.assertIn("b:", pr[0])
 
     def test_child_still_following_the_branch(self):
-        ok, pr = L.converged([H.app("a", target="teknoir-cloud", revision=SHA1)], SHA1)
+        ok, pr = L.converged([H.app("a", target="main", revision=SHA1)], SHA1)
         self.assertFalse(ok)
 
     def test_unhealthy(self):

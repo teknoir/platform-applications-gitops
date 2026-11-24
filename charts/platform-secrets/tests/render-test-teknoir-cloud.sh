@@ -116,7 +116,7 @@ yq -N 'select(.kind == "Application" and .metadata.name == "platform-secrets")' 
 app=$(yq -N -o=json -I=0 '[.spec.source.path, .spec.source.repoURL, .spec.source.targetRevision, .spec.project, .spec.destination.namespace,
 	 .spec.destination.server, .metadata.annotations["argocd.argoproj.io/sync-wave"],
 	 .spec.syncPolicy.automated.prune, .spec.syncPolicy.automated.selfHeal, .spec.syncPolicy.automated.enabled]' "$WORK/app.yaml")
-want_app='["charts/platform-secrets","https://github.com/teknoir/platform-applications-gitops","teknoir-cloud","teknoir-cloud","teknoir-system","https://kubernetes.default.svc","-10",true,true,true]'
+want_app='["charts/platform-secrets","https://github.com/teknoir/platform-applications-gitops","main","teknoir-cloud","teknoir-system","https://kubernetes.default.svc","-10",true,true,true]'
 [ "$app" = "$want_app" ] && ok "R6 Application platform-secrets: path, revision, project, destination, wave -10, automated" ||
 	bad "R6 Application platform-secrets: ${app:-<missing>}"
 [ -s "$WORK/app.yaml" ] && [ "$(yq -N '.metadata.finalizers // [] | length' "$WORK/app.yaml")" = 0 ] &&

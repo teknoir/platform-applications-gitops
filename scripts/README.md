@@ -1,8 +1,8 @@
 # Staging release tooling
 
-Design: `plans/staging-releases.md` (workspace). Staging (context `r415`, default `r415`, override with `--context` or `STAGING_CONTEXT`; branch `teknoir-cloud`) runs only the commit of the
+Design: `plans/staging-releases.md` (workspace). Staging (context `r415`, default `r415`, override with `--context` or `STAGING_CONTEXT`; the gitops branch, read from `origin/HEAD`: `main` since the CI v4 cut-over, `teknoir-cloud` before it) runs only the commit of the
 live `staging-YYYYMMDD.N` release, held as `targetRevision` of the hand-applied root Application `app-of-apps`.
-Merging to `teknoir-cloud` queues a change; it is not live until a release.
+Merging to the gitops branch (`main`) queues a change; it is not live until a release.
 
 | Script | What |
 |---|---|
@@ -30,18 +30,18 @@ Cutover (once): `scripts/staging-release --bootstrap` (the dry run must show no 
 
 Context exactly `r415` (default `r415`, override with `--context` or `STAGING_CONTEXT`; names with online|eks|prod are refused); the tag is `staging-YYYYMMDD.N`
 (`^staging-[0-9]{8}\.[1-9][0-9]*$`, the same expression as the guard policy); the candidate is a first-parent commit of
-`origin/teknoir-cloud` that descends from the live release; `--yes` equals the dry-run SHA and the plan is fresh and
+the gitops branch (`origin/HEAD`) that descends from the live release; `--yes` equals the dry-run SHA and the plan is fresh and
 live has not moved; the Lease `teknoir-system/staging-release-lock` is held from apply to converged; an existing tag is
 refused (push rejection retries with N+1); children must be converged on live (rollback and a re-run of the live SHA are
 exempt); removing Applications needs `--allow-remove`; the lint, `helm unittest charts/app-of-apps`, kubeconform and
 `crane manifest` of every `@sha256` image must pass.
 
 - **Which tooling decides.** The lint code (`check-pins.py`) and the image policy (`release-policy.yaml`) are those of
-  the CANDIDATE commit (its worktree), the rollback floor is read from `origin/teknoir-cloud`.
+  the CANDIDATE commit (its worktree), the rollback floor is read from the gitops branch (`origin/HEAD`).
 - **Tooling identity.** The tooling is the tree `git rev-parse HEAD:scripts` of the checkout that runs. `--yes` and
   `--rollback --yes` refuse unless `scripts/` of the checkout is CLEAN (no uncommitted or staged change and no
   untracked file, `__pycache__` aside; a file `git diff` cannot see is still a difference) and that tree equals
-  `git rev-parse <candidate>:scripts`. `--rollback --yes` accepts the head of `origin/teknoir-cloud`, the live release or
+  `git rev-parse <candidate>:scripts`. `--rollback --yes` accepts the head of the gitops branch (`origin/HEAD`), the live release or
   the target instead of the candidate. The dry run records the tree (and any dirty paths) in the plan as `tooling`;
   `--yes` refuses a plan whose tooling is not the one it runs. The message names the worktree to run it from.
 - **Who applies.** The releaser identity (`staging-releaser`) is used only when the release-guard chart installed it

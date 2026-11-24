@@ -3,8 +3,9 @@ project: teknoir-cloud
 
 # Staging releases (plans/staging-releases.md). On teknoir-cloud every Application that reads this
 # repository follows `release` (a full commit SHA) instead of the branch; with `release` empty they
-# follow the branch as before (see app-of-apps.revision in templates/_helpers.tpl). Both values are set
-# ONLY on the root Application, as helm parameters, by scripts/staging-release; never commit them here.
+# follow `main`, the gitops branch since the CI v4 cut-over (see app-of-apps.revision in
+# templates/_helpers.tpl). Both values are set ONLY on the root Application, as helm parameters, by
+# scripts/staging-release (before the cut-over) or Kargo's argocd-update step (after it); never commit them here.
 # releaseName is the tag (staging-YYYYMMDD.N) and is rendered as annotation teknoir.org/release.
 release: ""
 releaseName: ""

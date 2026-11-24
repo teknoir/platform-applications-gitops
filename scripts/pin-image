@@ -14,7 +14,8 @@ party component (group: null) to its chart values file. For REF the script
   2. checks that a linux/amd64 manifest exists
   3. reads the org.opencontainers.image.revision label and prints the source commit
   4. rewrites the value in that file, keeping comments and quoting (only with --write; else prints it)
-  5. with --pr: branch pin/<component>-<tag>, commit, push, `gh pr create` (merge, then scripts/staging-release)
+  5. with --pr: branch pin/<component>-<tag>, commit, push, `gh pr create` (base: --base, default the gitops
+     branch read from origin/HEAD: `main` since the CI v4 cut-over; merge, then the next release)
 
 A wg-hub pin changes only the tag: every wg-tunnel main build has leader election, so hub.image.leaderElection stays
 true (the chart needs it while hub.leaderElection.enabled is on, as the leader Service selects a label only an image
@@ -254,7 +255,7 @@ class Pin:
             self.out(f"  written to {rel}")
         return {"name": name, "old": old, "new": value, "revision": info["revision"], "tag": tag, "file": rel}
 
-    def open_pr(self, res: dict) -> None:
+    def open_pr(self, res: dict, base: str | None = None) -> None:
         git = L.Git(self.sys, self.root)
         branch = f"pin/{res['name']}-{re.sub(r'[^A-Za-z0-9._-]', '-', res['tag'])}"
         git.run("checkout", "-b", branch)
@@ -264,7 +265,8 @@ class Pin:
                "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>")
         git.run("commit", "-m", msg)
         git.run("push", "-u", "origin", branch)
-        self.sys.run(["gh", "pr", "create", "--repo", L.GITHUB_REPO, "--base", "teknoir-cloud", "--head", branch,
+        self.sys.run(["gh", "pr", "create", "--repo", L.GITHUB_REPO, "--base", base or L.gitops_branch(self.sys, self.root),
+                      "--head", branch,
                       "--title", f"pin {res['name']} {res['tag']}",
                       "--body", f"Pins `{res['name']}` to `{res['new']}` (source commit {res['revision'] or 'unknown'}).\n\n"
                                 "Merging queues the change. Release it with `scripts/staging-release`.\n\n"
@@ -335,6 +337,7 @@ def main(argv: list[str] | None = None, sys_: L.Sys | None = None) -> int:
     ap.add_argument("--write", action="store_true", help="rewrite the values file(s); the default only prints")
     ap.add_argument("--pr", action="store_true", help="branch, commit, push and open a PR (implies --write)")
     ap.add_argument("--context", default=L.CONTEXT, help=argparse.SUPPRESS)
+    ap.add_argument("--base", help="PR base branch (default: the gitops branch from origin/HEAD, `main`)")
     a = ap.parse_args(argv)
     root = L.repo_root_of(HERE)
     pin = Pin(sys_ or L.Sys(), root)
@@ -355,7 +358,7 @@ def main(argv: list[str] | None = None, sys_: L.Sys | None = None) -> int:
             name, ref = p.split("=", 1)
             res = pin.pin(name, ref, a.write or a.pr)
             if a.pr:
-                pin.open_pr(res)
+                pin.open_pr(res, a.base)
         return 0
     except L.Refuse as e:
         print(f"REFUSED: {e}", file=sys.stderr)

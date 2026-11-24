@@ -105,7 +105,7 @@ of a running VM never changes.
 
 Order (the flag is off until step 3):
 1. **[Anders, once]** Merge the PR that adds the chart and the workflow. The workflow
-   `vdev-spike-render` builds the image on `teknoir-cloud` and prints its digest in the job
+   `vdev-spike-render` builds the image on `main` and prints its digest in the job
    summary. Make the ghcr package `vdev-spike-render` public (r415 has no pull secret in
    `teknoir-vdev-spike`).
 2. A PR pins that digest in `charts/virtual-device-spike/values.yaml` (`renderer.digest`).
@@ -135,7 +135,7 @@ read-only and can be run by anyone with the `r415` context, including Claude.
 
 | # | Step | Who |
 |---|---|---|
-| 1 | Merge the gitops PR into `teknoir-cloud`. This deploys KubeVirt and CDI on r415. | **[Anders]** |
+| 1 | Merge the gitops PR into `main`. This deploys KubeVirt and CDI on r415. | **[Anders]** |
 | 2 | Platform checks (`--phase platform`) | anyone |
 | 3 | Create the test Device in Backstage | **[Anders]** |
 | 4 | Render the manifests and review them | anyone with r415 read access (reads the Device's keys) |
@@ -154,7 +154,7 @@ needed only for the tests.
 
 ### 1. [Anders] Merge the gitops PR
 
-When the PR merges into `teknoir-cloud`, Argo CD creates the Application
+When the PR merges into `main`, Argo CD creates the Application
 `virtual-devices`. It applies the operators and RBAC first, then the KubeVirt and CDI CRs in
 sync wave 1, plus PriorityClass `teknoir-virtual-device` and `kube-system/coredns-custom`.
 That ConfigMap has one key, `virtual-devices.override`; r415 had no `coredns-custom` before.
@@ -364,7 +364,7 @@ CoreDNS rewrite) stays; step 10 removes it.
 There are two levels.
 
 **Rollback.** This stops Argo CD from managing the runtime. Set
-`virtualDevices.enabled: false` in `charts/app-of-apps/values.yaml` on `teknoir-cloud`
+`virtualDevices.enabled: false` in `charts/app-of-apps/values.yaml` on `main`
 (or revert the enable commit) and merge. Argo CD prunes the `virtual-devices` Application.
 It has no resources finalizer, so **everything else stays**: KubeVirt, CDI, their
 APIServices and webhooks, PriorityClasses `kubevirt-cluster-critical` and
