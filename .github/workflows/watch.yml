@@ -1,0 +1,51 @@
+name: watch
+
+# The staging watch (P4.2 section 6, plan 7.3): scripts/watch.py checks, every 15 minutes,
+#   1. the newest commit on the default branch older than 45 min that no verified/* tag contains,
+#   2. every verified/* tag whose annotated message lacks freight=,
+#   3. .github/rulesets/*.json against the live rulesets (looked up by name),
+# and keeps one issue per finding (labelled staging-alert or ruleset-drift), editing it in place and closing it
+# when it clears.
+#
+# Inert until vars.STAGING_WATCH is 'true' (P5.2): every job is skipped while the variable is unset or anything
+# else. P5.2 also applies .github/rulesets/; the two labels (staging-alert, ruleset-drift) come from
+# .github/settings.yml.
+# Fully qualified hostnames are never contacted from here: gh talks to api.github.com, git to origin.
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    name: watch
+    if: vars.STAGING_WATCH == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Full history and every tag: `git tag --contains` and the verified/* tag messages are the input of checks 1
+      # and 2.
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+
+      - name: Watch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/watch.py --root .

@@ -175,3 +175,17 @@ jobs:
 
       - name: harbor scripts tests
         run: CI=1 python3 -m unittest discover -s charts/harbor/tests -p 'test_*.py'
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: verify/package-lock.json
+
+      # The browser spec never runs against a live URL here: typecheck it and collect it, no browser, no env.
+      - name: verify typecheck and collect
+        run: |
+          cd verify
+          npm ci
+          npx tsc --noEmit
+          npx playwright test --list
