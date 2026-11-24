@@ -1,0 +1,113 @@
+suite: pin Stages (image pins through pull requests)
+# plans/cicd/v4/p42-spec.md section 4. Defaults: one group enabled (wg-tunnel, scripts/images.yaml) with three
+# images of two styles (tag, ref, ref).
+templates:
+  - templates/stage-pins.yaml
+tests:
+  - it: renders one Stage per enabled group and none for a disabled group
+    asserts:
+      - hasDocuments: {count: 1}
+      - isKind: {of: Stage}
+      - equal: {path: metadata.name, value: pin-wg-tunnel}
+      - equal: {path: metadata.namespace, value: platform}
+      - equal:
+          path: spec.requestedFreight
+          value:
+            - origin: {kind: Warehouse, name: img-wg-tunnel}
+              sources: {direct: true}
+
+  - it: renders no pin Stage when pinStages.enabled is off
+    set:
+      pinStages.enabled: false
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: clones the branch, rewrites every key of the group pins file, commits, opens a PR and merges it
+    asserts:
+      - equal: {path: 'spec.promotionTemplate.spec.steps[0].uses', value: git-clone}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[0].as', value: clone}
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[0].config.checkout'
+          value:
+            - {branch: main, path: ./src}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[1].uses', value: yaml-update}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[1].as', value: update}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[1].config.path', value: ./src/pins/wg-tunnel.yaml}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[2].uses', value: git-commit}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[2].as', value: commit}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[3].uses', value: git-push}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[3].as', value: push}
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[3].config.targetBranch'
+          value: kargo/promotion/${{ ctx.promotion }}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[4].uses', value: git-open-pr}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[4].as', value: openpr}
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[4].config'
+          value:
+            repoURL: https://github.com/teknoir/platform-applications-gitops.git
+            provider: github
+            sourceBranch: ${{ outputs.push.branch }}
+            targetBranch: main
+            title: 'chore(pins): wg-hub wg-agent wg-gateway ${{ imageFrom("ghcr.io/teknoir/wg-hub").Tag }} [kargo]'
+      - equal: {path: 'spec.promotionTemplate.spec.steps[5].uses', value: git-merge-pr}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[5].as', value: merge}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[5].retry', value: {timeout: 30m}}
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[5].config'
+          value:
+            repoURL: https://github.com/teknoir/platform-applications-gitops.git
+            provider: github
+            prNumber: ${{ outputs.openpr.pr.id }}
+            mergeMethod: squash
+            wait: true
+            pollInterval: 60s
+            deleteSourceBranch: true
+
+  - it: maps the style to the value written into the pins file (tag and ref)
+    asserts:
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[1].config.updates'
+          value:
+            - {key: hub.image.tag, value: '${{ imageFrom("ghcr.io/teknoir/wg-hub").Tag }}@${{ imageFrom("ghcr.io/teknoir/wg-hub").Digest }}'}
+            - {key: ztna.agentImage, value: 'ghcr.io/teknoir/wg-agent:${{ imageFrom("ghcr.io/teknoir/wg-agent").Tag }}@${{ imageFrom("ghcr.io/teknoir/wg-agent").Digest }}'}
+            - {key: ztna.gatewayImage, value: 'ghcr.io/teknoir/wg-gateway:${{ imageFrom("ghcr.io/teknoir/wg-gateway").Tag }}@${{ imageFrom("ghcr.io/teknoir/wg-gateway").Digest }}'}
+
+  - it: writes only the digest for the digest style (the sibling tag stays)
+    set:
+      groups:
+        - name: keycloak-theme
+          enabled: true
+          sameCommit: false
+          images:
+            - {component: keycloak-theme, poll: ghcr.io/teknoir/keycloak-theme, repository: ghcr.io/teknoir/keycloak-theme, key: keycloak.image.digest, style: digest}
+    asserts:
+      - equal: {path: metadata.name, value: pin-keycloak-theme}
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[1].config.updates'
+          value:
+            - {key: keycloak.image.digest, value: '${{ imageFrom("ghcr.io/teknoir/keycloak-theme").Digest }}'}
+
+  - it: names the components, not the group, in the commit message (plan 7.1)
+    asserts:
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[2].config.message'
+          value: 'chore(pins): wg-hub wg-agent wg-gateway ${{ imageFrom("ghcr.io/teknoir/wg-hub").Tag }} [kargo]'
+
+  - it: uses the rehearsal branch and pin prefix from the override values
+    values:
+      - ../values-rehearsal.yaml
+    asserts:
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[0].config.checkout'
+          value:
+            - {branch: rehearsal/kargo, path: ./src}
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[3].config.targetBranch'
+          value: kargo/rehearsal/${{ ctx.promotion }}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[4].config.targetBranch', value: rehearsal/kargo}
+
+  - it: renders the Kargo promotion name and image references literally
+    asserts:
+      - matchRegex: {path: 'spec.promotionTemplate.spec.steps[3].config.targetBranch', pattern: '^kargo/promotion/\$\{\{ ctx\.promotion \}\}$'}
+      - matchRegex: {path: 'spec.promotionTemplate.spec.steps[1].config.updates[0].value', pattern: '^\$\{\{ imageFrom\("ghcr\.io/teknoir/wg-hub"\)\.Tag \}\}@'}

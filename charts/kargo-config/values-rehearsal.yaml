@@ -1,0 +1,12 @@
+# Rehearsal override (P4.2/P4.3): the whole flow against the k3d rehearsal cluster, on its own branch, so no
+# pin pull request or verified tag ever touches main or the real kargo/promotion branches.
+# Values given here win over values.yaml (a separate file on the Application, or `-f` on helm template).
+gitops:
+  branch: rehearsal/kargo
+  pinBranchPrefix: kargo/rehearsal
+  verifiedTagPrefix: rehearsal/verified/
+# The rehearsal promotes commits of its own branch, so it needs the git Warehouse that watches it (off by
+# default: nothing promotes without a human until P6).
+warehouses:
+  gitopsMain:
+    enabled: true

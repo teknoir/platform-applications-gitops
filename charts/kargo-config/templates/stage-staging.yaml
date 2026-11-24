@@ -1,0 +1,71 @@
+# yamllint disable-file
+# A Helm template (Go template actions), not a YAML document.
+{{/*
+Stage `staging`: promote a gitops commit and verify the cluster actually runs it.
+
+  - requestedFreight: directly from the gitops-main Warehouse (disabled in values.yaml until P6; the Stage is
+    promoted by hand meanwhile: kargo promote --freight <f> --stage staging).
+  - step argocd-update: point the root Application's targetRevision at the Freight commit and wait for ArgoCD to
+    sync it. The root Application must carry kargo.akuity.io/authorized-stage: "platform:staging" (Kargo refuses
+    an Application without it); on r415 the root Application is rendered by infra scripts/staging-root.sh.
+  - verification: the revision-check Job (analysis-revision-check.yaml) proves the root Application and every
+    child Application of it is Synced and Healthy at that exact commit, then optionally the browser check and
+    the Prometheus soak. The Stage stays Verifying until the AnalysisRun finishes; a failure blocks the Freight
+    downstream.
+*/}}
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Stage
+metadata:
+  name: staging
+  namespace: {{ .Values.project }}
+spec:
+  requestedFreight:
+    - origin:
+        kind: Warehouse
+        name: gitops-main
+      sources:
+        direct: true
+  promotionTemplate:
+    spec:
+      steps:
+        - uses: argocd-update
+          as: update
+          # The root app's own sync, plus the children it then applies, must finish: 10 minutes (Kargo's default
+          # is 5) before the step fails and the Promotion can be retried.
+          retry:
+            timeout: 10m
+          config:
+            apps:
+              - name: {{ .Values.verification.rootApp.name }}
+                namespace: {{ .Values.verification.rootApp.namespace }}
+                sources:
+                  # This repository's source of the root Application: the only one that moves. The desired
+                  # revision is the Freight's commit; targetRevision is rewritten to it.
+                  - repoURL: {{ .Values.gitops.repoURL }}
+                    updateTargetRevision: true
+                    desiredRevision: {{ include "kargo-config.commitFromID" .Values.gitops.repoURL | squote }}
+{{- if .Values.staging.setReleaseParam }}
+                    # P4.3 (b) fallback: set the Helm parameter `release` as well, so the render follows the
+                    # commit even where targetRevision alone is not enough. argocd-update's only Helm knob in
+                    # 1.12.6 is helm.images[] (argocd-update-config.json, argoCDHelmParameterUpdates): each
+                    # entry is a Helm parameter named `key` with value `value`, despite the field's name.
+                    helm:
+                      images:
+                        - key: release
+                          value: {{ include "kargo-config.commitFromID" .Values.gitops.repoURL | squote }}
+{{- end }}
+  verification:
+    analysisTemplates:
+      - name: revision-check
+{{- if .Values.verification.browser.image }}
+      - name: browser
+{{- end }}
+{{- if .Values.verification.prometheus.address }}
+      - name: prometheus-soak
+{{- end }}
+    # Declared by revision-check (and by browser, which also takes it); every template must declare an arg the
+    # Stage passes. Commit expressions are resolved when the AnalysisRun is created, so every metric sees one
+    # revision even if the branch moves during verification.
+    args:
+      - name: revision
+        value: {{ include "kargo-config.commitFromID" .Values.gitops.repoURL | squote }}

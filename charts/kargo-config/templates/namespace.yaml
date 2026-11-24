@@ -1,0 +1,19 @@
+# The Kargo project namespace. Kargo adopts a pre-existing namespace labelled
+# kargo.akuity.io/project: "true" as its project namespace (the label the Project would otherwise put on the
+# namespace it creates). Rendered here so turning kargo-config off cannot delete it: it holds the hand-piped
+# Secrets (the git PAT, the staging test user) and the robot Secret harbor-config fills in. Tekton-style
+# Delete=false: ArgoCD prunes nothing here, and the Namespace object itself survives the Application.
+# kargo.akuity.io/keep-namespace: "true" is the same promise to Kargo, which otherwise deletes a project's
+# namespace when the Project is deleted (also set on the Project itself): removing kargo-config must leave
+# the hand-piped Secrets alone.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.project }}
+  labels:
+    kargo.akuity.io/project: "true"
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+    kargo.akuity.io/keep-namespace: "true"
+    # First in the sync: the Project, the Secrets and the Kargo objects need it.
+    argocd.argoproj.io/sync-wave: "-5"

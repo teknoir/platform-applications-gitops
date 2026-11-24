@@ -1,0 +1,51 @@
+# yamllint disable-file
+# A Helm template (Go template actions), not a YAML document.
+{{/*
+AnalysisTemplate browser: the headless-browser check of the staging UI (verify/, P4.2 section 6).
+
+Rendered only when verification.browser.image is set (empty by default: the image is built in P4.2 section 6 and
+imported into the rehearsal cluster; until then the staging Stage verifies with revision-check only). The Job
+gets the deployed revision, the site's base URL and the staging test user from the hand-piped Secret
+(verification.browser.secretName, keys username and password): no credential in this repository. The suite
+itself decides what "the release works" means (sign-in, home page, no console errors).
+*/}}
+{{- if .Values.verification.browser.image }}
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: browser
+  namespace: {{ .Values.project }}
+spec:
+  args:
+    - name: revision
+  metrics:
+    - name: browser
+      count: 1
+      failureLimit: 0
+      provider:
+        job:
+          spec:
+            activeDeadlineSeconds: 600
+            backoffLimit: 0
+            template:
+              spec:
+                restartPolicy: Never
+                containers:
+                  - name: browser
+                    image: {{ .Values.verification.browser.image }}
+                    env:
+                      - name: BASE_URL
+                        value: {{ .Values.verification.browser.baseURL | quote }}
+                      - name: REVISION
+                        value: {{ include "kargo-config.analysisArg.revision" "" | squote }}
+                      - name: TEST_USER
+                        valueFrom:
+                          secretKeyRef:
+                            name: {{ .Values.verification.browser.secretName }}
+                            key: username
+                      - name: TEST_PASSWORD
+                        valueFrom:
+                          secretKeyRef:
+                            name: {{ .Values.verification.browser.secretName }}
+                            key: password
+{{- end }}

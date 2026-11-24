@@ -1,0 +1,76 @@
+suite: rehearsal and drill override values
+# plans/cicd/v4/p42-spec.md section 4: values-rehearsal.yaml (branch rehearsal/kargo, pin prefix kargo/rehearsal,
+# tag prefix rehearsal/verified/) and values-drill.yaml (branch rehearsal/drill, no pin Stages).
+templates:
+  - templates/stage-staging-verified.yaml
+  - templates/stage-pins.yaml
+  - templates/warehouses.yaml
+tests:
+  - it: the rehearsal tags under rehearsal/verified/
+    template: templates/stage-staging-verified.yaml
+    values:
+      - ../values-rehearsal.yaml
+    asserts:
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[1].config.tag'
+          value: rehearsal/verified/${{ now().UTC().Format("20060102T150405Z") }}-${{ commitFrom("https://github.com/teknoir/platform-applications-gitops.git").ID[0:8] }}
+
+  - it: the drill tags under rehearsal/verified/ and checks out the Freight commit
+    template: templates/stage-staging-verified.yaml
+    values:
+      - ../values-drill.yaml
+    asserts:
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[0].config.checkout'
+          value:
+            - commit: ${{ commitFrom("https://github.com/teknoir/platform-applications-gitops.git").ID }}
+              path: ./src
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[1].config.tag'
+          value: rehearsal/verified/${{ now().UTC().Format("20060102T150405Z") }}-${{ commitFrom("https://github.com/teknoir/platform-applications-gitops.git").ID[0:8] }}
+
+  - it: the drill renders no pin Stage
+    template: templates/stage-pins.yaml
+    values:
+      - ../values-drill.yaml
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: the rehearsal pins against rehearsal/kargo on the kargo/rehearsal branch
+    template: templates/stage-pins.yaml
+    values:
+      - ../values-rehearsal.yaml
+    asserts:
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[0].config.checkout'
+          value:
+            - {branch: rehearsal/kargo, path: ./src}
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[3].config.targetBranch'
+          value: kargo/rehearsal/${{ ctx.promotion }}
+
+  # Both overrides watch their own branch: the git Warehouse that makes the Freight a Stage promotes is on.
+  - it: the drill polls the git branch (gitops-main Warehouse)
+    template: templates/warehouses.yaml
+    values:
+      - ../values-drill.yaml
+    documentSelector:
+      path: metadata.name
+      value: gitops-main
+    asserts:
+      - isKind: {of: Warehouse}
+      - equal:
+          path: 'spec.subscriptions[0].git.repoURL'
+          value: https://github.com/teknoir/platform-applications-gitops.git
+      - equal: {path: 'spec.subscriptions[0].git.branch', value: rehearsal/drill}
+
+  - it: the rehearsal polls the git branch (gitops-main Warehouse)
+    template: templates/warehouses.yaml
+    values:
+      - ../values-rehearsal.yaml
+    documentSelector:
+      path: metadata.name
+      value: gitops-main
+    asserts:
+      - isKind: {of: Warehouse}
+      - equal: {path: 'spec.subscriptions[0].git.branch', value: rehearsal/kargo}

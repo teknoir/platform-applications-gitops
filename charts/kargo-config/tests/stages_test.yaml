@@ -1,0 +1,133 @@
+suite: Stages staging and staging-verified
+# plans/cicd/v4/p42-spec.md section 4. Every Kargo ${{ ... }} and Argo Rollouts {{args.x}} must render
+# literally: the literal asserts below are the regression test for the Helm escaping.
+templates:
+  - templates/stage-staging.yaml
+  - templates/stage-staging-verified.yaml
+tests:
+  - it: staging syncs the root Application to the Freight commit
+    template: templates/stage-staging.yaml
+    asserts:
+      - isKind: {of: Stage}
+      - equal: {path: metadata.name, value: staging}
+      - equal: {path: metadata.namespace, value: platform}
+      - equal:
+          path: spec.requestedFreight
+          value:
+            - origin: {kind: Warehouse, name: gitops-main}
+              sources: {direct: true}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[0].uses', value: argocd-update}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[0].as', value: update}
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[0].retry'
+          value: {timeout: 10m}
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[0].config.apps'
+          value:
+            - name: app-of-apps
+              namespace: teknoir-system
+              sources:
+                - repoURL: https://github.com/teknoir/platform-applications-gitops.git
+                  updateTargetRevision: true
+                  desiredRevision: ${{ commitFrom("https://github.com/teknoir/platform-applications-gitops.git").ID }}
+
+  - it: staging does not set the release Helm parameter by default
+    template: templates/stage-staging.yaml
+    asserts:
+      - notExists: {path: 'spec.promotionTemplate.spec.steps[0].config.apps[0].sources[0].helm'}
+
+  - it: staging sets the release Helm parameter with staging.setReleaseParam (P4.3 (b) fallback)
+    template: templates/stage-staging.yaml
+    set:
+      staging.setReleaseParam: true
+    asserts:
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[0].config.apps[0].sources[0].helm'
+          value:
+            images:
+              - key: release
+                value: ${{ commitFrom("https://github.com/teknoir/platform-applications-gitops.git").ID }}
+
+  - it: staging verifies with revision-check only by default
+    template: templates/stage-staging.yaml
+    asserts:
+      - equal:
+          path: spec.verification.analysisTemplates
+          value:
+            - name: revision-check
+      - equal:
+          path: spec.verification.args
+          value:
+            - name: revision
+              value: ${{ commitFrom("https://github.com/teknoir/platform-applications-gitops.git").ID }}
+
+  - it: staging adds browser and prometheus-soak when they are configured
+    template: templates/stage-staging.yaml
+    set:
+      verification.browser.image: ghcr.io/teknoir/gitops-verify:sha-0000000a@sha256:1111111111111111111111111111111111111111111111111111111111111111
+      verification.prometheus.address: http://prometheus.teknoir-system.svc.cluster.local:9090
+    asserts:
+      - equal:
+          path: spec.verification.analysisTemplates
+          value:
+            - name: revision-check
+            - name: browser
+            - name: prometheus-soak
+
+  - it: staging-verified takes Freight only after the staging Stage verified it
+    template: templates/stage-staging-verified.yaml
+    asserts:
+      - isKind: {of: Stage}
+      - equal: {path: metadata.name, value: staging-verified}
+      - equal:
+          path: spec.requestedFreight
+          value:
+            - origin: {kind: Warehouse, name: gitops-main}
+              sources: {stages: [staging]}
+
+  - it: staging-verified clones, computes the tag once, tags and pushes
+    template: templates/stage-staging-verified.yaml
+    asserts:
+      - equal: {path: 'spec.promotionTemplate.spec.steps[0].uses', value: git-clone}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[0].as', value: clone}
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[0].config'
+          value:
+            repoURL: https://github.com/teknoir/platform-applications-gitops.git
+            author: {name: Kargo (teknoir), email: kargo@teknoir.ai}
+            checkout:
+              - commit: ${{ commitFrom("https://github.com/teknoir/platform-applications-gitops.git").ID }}
+                path: ./src
+      - equal: {path: 'spec.promotionTemplate.spec.steps[1].uses', value: compose-output}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[1].as', value: stamp}
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[1].config.tag'
+          value: verified/${{ now().UTC().Format("20060102T150405Z") }}-${{ commitFrom("https://github.com/teknoir/platform-applications-gitops.git").ID[0:8] }}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[2].uses', value: git-tag}
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[2].config'
+          value:
+            path: ./src
+            tag: ${{ outputs.stamp.tag }}
+            message: freight=${{ ctx.targetFreight.name }}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[3].uses', value: git-push}
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[3].config'
+          value:
+            path: ./src
+            tag: ${{ outputs.stamp.tag }}
+
+  - it: stamps the tag without a time with verifiedTagStamp none
+    template: templates/stage-staging-verified.yaml
+    set:
+      gitops.verifiedTagStamp: none
+    asserts:
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[1].config.tag'
+          value: verified/${{ commitFrom("https://github.com/teknoir/platform-applications-gitops.git").ID[0:8] }}
+
+  - it: renders Kargo expressions literally (not parsed by Helm)
+    template: templates/stage-staging-verified.yaml
+    asserts:
+      - matchRegex: {path: 'spec.promotionTemplate.spec.steps[2].config.message', pattern: '^freight=\$\{\{ ctx\.targetFreight\.name \}\}$'}
+      - matchRegex: {path: 'spec.promotionTemplate.spec.steps[1].config.tag', pattern: 'ID\[0:8\] \}\}$'}

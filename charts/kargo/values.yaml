@@ -1,0 +1,40 @@
+# Values of the Kargo chart for staging on r415 (plans/cicd/v4/ground-kargo.md; CI/CD v4 P4.2,
+# plans/cicd/v4/p42-spec.md section 3). There is no Chart.yaml here: the chart is not vendored, the
+# kargo Application (charts/app-of-apps/templates/kargo.yaml) pulls kargo 1.12.6 from
+# oci://ghcr.io/akuity/kargo-charts and merges this file over the chart's own values through the
+# multi-source `ref: values`.
+#
+# Every key below exists in the 1.12.6 chart values.yaml; every key name is taken from that file.
+# Everything else stays at the chart default on purpose, so an upgrade changes as little as possible.
+controller:
+  argocd:
+    # Argo CD lives in teknoir-system on r415 (the root Application app-of-apps is there; charts/argo).
+    namespace: teknoir-system
+    # Watch Applications in Argo CD's own namespace only: every child Application of app-of-apps is
+    # there, and teamspace namespaces hold Applications of their own that no Stage of this Project
+    # promotes (Kargo would otherwise reconcile them all).
+    watchArgocdNamespaceOnly: true
+  rollouts:
+    # Stage verification is an Argo Rollouts AnalysisRun (AnalysisTemplate revision-check,
+    # charts/kargo-config/templates/analysis-revision-check.yaml): the controller creates the
+    # AnalysisRuns and their Jobs and reports the result back into the Stage.
+    integrationEnabled: true
+api:
+  rollouts:
+    # The API server applies the AnalysisTemplates the kargo-config chart renders (and the ones
+    # `kargo apply` would create); without it only kubectl could write them.
+    integrationEnabled: true
+  adminAccount:
+    # No Kargo admin login: agents use kubectl and the Kargo CLI with a token minted out of band
+    # (P4.3; Anders confirmed). Disabling it also removes the mandatory api.adminAccount.passwordHash
+    # and api.adminAccount.tokenSigningKey values: no admin password hash goes into this repository.
+    enabled: false
+  ingress:
+    # No inbound path to the API server: the chart renders no Ingress (the chart default is false
+    # too; kept explicit so enabling an ingress is a reviewed change). The API stays reachable
+    # in-cluster (kargo-api.kargo.svc) and through `kubectl port-forward`.
+    enabled: false
+externalWebhooksServer:
+  # No inbound webhook endpoint: nothing pushes into Kargo. The Warehouses poll (the gitops repository
+  # is public, Harbor and ghcr are polled with the image credentials).
+  enabled: false

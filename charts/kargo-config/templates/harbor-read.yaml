@@ -1,0 +1,43 @@
+# Kargo's read credential for Harbor (plans/cicd/v4/p42-spec.md section 5). Kargo resolves an image
+# subscription's credentials from Secrets labelled kargo.akuity.io/cred-type: image in the Project namespace
+# (exact repoURL matches before regex matches). The Secret is rendered EMPTY on purpose: harbor-config
+# (charts/harbor, robot `kargo`) writes the robot's username, password, repoURL and repoURLIsRegex into it, one
+# write per credential, and this chart is what grants it access to a Secret outside its own namespace.
+#
+# compare-options IgnoreExtraneous + Prune/Delete=false: ArgoCD must neither reset the data harbor-config writes
+# nor prune the Secret. Rotate the credential by emptying the data in Harbor's robot (delete the robot's Secret
+# here, then sync this Application; harbor-config's hourly run recreates the robot and the data).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: harbor-read
+  namespace: {{ .Values.project }}
+  labels:
+    kargo.akuity.io/cred-type: image
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+    argocd.argoproj.io/compare-options: IgnoreExtraneous
+type: Opaque
+---
+# harbor-config runs in teknoir-system (the harbor Application's namespace) and may only get/update/patch this
+# one Secret by name: no create (a Role that can create Secrets in a kargo project namespace could mint a
+# token for a service account there), no list, no delete. The Secret exists because this chart renders it.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: harbor-read
+  namespace: {{ .Values.project }}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [harbor-read]
+    verbs: [get, update, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: harbor-read
+  namespace: {{ .Values.project }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: harbor-read}
+subjects:
+  - {kind: ServiceAccount, name: harbor-config, namespace: teknoir-system}

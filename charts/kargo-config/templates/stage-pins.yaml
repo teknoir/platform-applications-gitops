@@ -1,0 +1,33 @@
+# yamllint disable-file
+# A Helm template (Go template actions), not a YAML document.
+{{/*
+One Stage pin-<group> per ENABLED group (scripts/images.yaml): a new image build of the group becomes Freight,
+and the Stage's promotion pins it in pins/<group>.yaml through a pull request that it merges itself. Merging the
+PR is the promotion; the next staging release renders the new pins. Disabled groups (every private group until
+P6.2) have no Warehouse, so no Stage either.
+
+The steps live in templates/_pin-steps.tpl.
+*/}}
+{{- if .Values.pinStages.enabled }}
+{{- range $g := .Values.groups }}
+{{- if $g.enabled }}
+---
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Stage
+metadata:
+  name: pin-{{ $g.name }}
+  namespace: {{ $.Values.project }}
+spec:
+  requestedFreight:
+    - origin:
+        kind: Warehouse
+        name: img-{{ $g.name }}
+      sources:
+        direct: true
+  promotionTemplate:
+    spec:
+      steps:
+{{ include "kargo-config.pinSteps" (dict "group" $g "root" $) | indent 8 }}
+{{- end }}
+{{- end }}
+{{- end }}

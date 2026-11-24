@@ -1,0 +1,127 @@
+suite: Warehouses (git branch and image groups)
+# plans/cicd/v4/p42-spec.md section 4. Defaults: gitopsMain off, only wg-tunnel enabled (scripts/images.yaml).
+templates:
+  - templates/warehouses.yaml
+tests:
+  - it: polls no git branch by default and one Warehouse for the one enabled group
+    asserts:
+      - hasDocuments: {count: 1}
+      - isKind: {of: Warehouse}
+      - equal: {path: metadata.name, value: img-wg-tunnel}
+      - equal: {path: metadata.namespace, value: platform}
+      - equal: {path: spec.interval, value: 5m}
+
+  - it: subscribes to every image of the group with the sha-<8> tag filter and cached tags
+    asserts:
+      - lengthEqual: {path: spec.subscriptions, count: 3}
+      - equal:
+          path: 'spec.subscriptions[0]'
+          value:
+            image:
+              repoURL: ghcr.io/teknoir/wg-hub
+              imageSelectionStrategy: NewestBuild
+              allowTagsRegexes: ["^sha-[0-9a-f]{8}$"]
+              discoveryLimit: 5
+              cacheByTag: true
+      - equal: {path: 'spec.subscriptions[1].image.repoURL', value: ghcr.io/teknoir/wg-agent}
+      - equal: {path: 'spec.subscriptions[2].image.repoURL', value: ghcr.io/teknoir/wg-gateway}
+
+  - it: requires the same tag for every image of a same_commit group
+    asserts:
+      - equal:
+          path: spec.freightCreationCriteria.expression
+          value: imageFrom("ghcr.io/teknoir/wg-hub").Tag == imageFrom("ghcr.io/teknoir/wg-agent").Tag && imageFrom("ghcr.io/teknoir/wg-hub").Tag == imageFrom("ghcr.io/teknoir/wg-gateway").Tag
+
+  - it: adds the git Warehouse when warehouses.gitopsMain.enabled is on
+    set:
+      warehouses.gitopsMain.enabled: true
+    asserts:
+      - hasDocuments: {count: 2}
+
+  - it: the git Warehouse follows the branch
+    set:
+      warehouses.gitopsMain.enabled: true
+    documentSelector:
+      path: metadata.name
+      value: gitops-main
+    asserts:
+      - equal: {path: spec.interval, value: 2m}
+      - equal:
+          path: spec.subscriptions
+          value:
+            - git:
+                repoURL: https://github.com/teknoir/platform-applications-gitops.git
+                branch: main
+                commitSelectionStrategy: NewestFromBranch
+                discoveryLimit: 20
+
+  - it: renders no Warehouse at all with every group disabled and no git branch
+    set:
+      groups:
+        - name: wg-tunnel
+          enabled: false
+          sameCommit: true
+          images:
+            - {component: wg-hub, poll: ghcr.io/teknoir/wg-hub, repository: ghcr.io/teknoir/wg-hub, key: hub.image.tag, style: tag}
+            - {component: wg-agent, poll: ghcr.io/teknoir/wg-agent, repository: ghcr.io/teknoir/wg-agent, key: ztna.agentImage, style: ref}
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: gives a non-same_commit group no freightCreationCriteria
+    set:
+      groups:
+        - name: device-controller
+          enabled: true
+          sameCommit: false
+          images:
+            - {component: device-controller, poll: harbor.teknoir.cloud/teknoir/device-controller, repository: ghcr.io/teknoir/device-controller, key: image.tag, style: tag}
+        - name: backstage
+          enabled: true
+          sameCommit: true
+          images:
+            - {component: backstage-app, poll: harbor.teknoir.cloud/teknoir/backstage-app, repository: ghcr.io/teknoir/backstage-app, key: backstage.image, style: ref}
+            - {component: backstage-api, poll: harbor.teknoir.cloud/teknoir/backstage, repository: ghcr.io/teknoir/backstage, key: backstageApi.image, style: ref}
+    asserts:
+      - hasDocuments: {count: 2}
+
+  - it: a single-image group has no same_commit criterion
+    set:
+      groups:
+        - name: device-controller
+          enabled: true
+          sameCommit: false
+          images:
+            - {component: device-controller, poll: harbor.teknoir.cloud/teknoir/device-controller, repository: ghcr.io/teknoir/device-controller, key: image.tag, style: tag}
+        - name: backstage
+          enabled: true
+          sameCommit: true
+          images:
+            - {component: backstage-app, poll: harbor.teknoir.cloud/teknoir/backstage-app, repository: ghcr.io/teknoir/backstage-app, key: backstage.image, style: ref}
+            - {component: backstage-api, poll: harbor.teknoir.cloud/teknoir/backstage, repository: ghcr.io/teknoir/backstage, key: backstageApi.image, style: ref}
+    documentSelector:
+      path: metadata.name
+      value: img-device-controller
+    asserts:
+      - notExists: {path: spec.freightCreationCriteria}
+
+  - it: a multi-image same_commit group requires one tag
+    set:
+      groups:
+        - name: device-controller
+          enabled: true
+          sameCommit: false
+          images:
+            - {component: device-controller, poll: harbor.teknoir.cloud/teknoir/device-controller, repository: ghcr.io/teknoir/device-controller, key: image.tag, style: tag}
+        - name: backstage
+          enabled: true
+          sameCommit: true
+          images:
+            - {component: backstage-app, poll: harbor.teknoir.cloud/teknoir/backstage-app, repository: ghcr.io/teknoir/backstage-app, key: backstage.image, style: ref}
+            - {component: backstage-api, poll: harbor.teknoir.cloud/teknoir/backstage, repository: ghcr.io/teknoir/backstage, key: backstageApi.image, style: ref}
+    documentSelector:
+      path: metadata.name
+      value: img-backstage
+    asserts:
+      - equal:
+          path: spec.freightCreationCriteria.expression
+          value: imageFrom("harbor.teknoir.cloud/teknoir/backstage-app").Tag == imageFrom("harbor.teknoir.cloud/teknoir/backstage").Tag

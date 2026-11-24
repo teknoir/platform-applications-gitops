@@ -1,0 +1,148 @@
+suite: Kargo project, namespace and the Harbor read credential
+# plans/cicd/v4/p42-spec.md section 4. The namespace is Delete=false so turning kargo-config off never deletes
+# the hand-piped Secrets (the git PAT, the staging test user) or harbor-config's robot Secret.
+templates:
+  - templates/namespace.yaml
+  - templates/harbor-read.yaml
+  - templates/project.yaml
+tests:
+  - it: labels the project namespace for Kargo and protects it from pruning
+    template: templates/namespace.yaml
+    asserts:
+      - isKind: {of: Namespace}
+      - equal: {path: metadata.name, value: platform}
+      - equal: {path: 'metadata.labels["kargo.akuity.io/project"]', value: "true"}
+      - equal:
+          path: 'metadata.annotations["argocd.argoproj.io/sync-options"]'
+          value: "Prune=false,Delete=false"
+      - equal: {path: 'metadata.annotations["argocd.argoproj.io/sync-wave"]', value: "-5"}
+      # Kargo deletes a project's namespace with the Project unless this says otherwise.
+      - equal: {path: 'metadata.annotations["kargo.akuity.io/keep-namespace"]', value: "true"}
+
+  - it: renders the harbor-read Secret empty, labeled as a Kargo image credential
+    template: templates/harbor-read.yaml
+    documentSelector:
+      path: kind
+      value: Secret
+    asserts:
+      - hasDocuments: {count: 3}
+      - isKind: {of: Secret}
+      - equal: {path: metadata.name, value: harbor-read}
+      - equal: {path: metadata.namespace, value: platform}
+      - equal: {path: 'metadata.labels["kargo.akuity.io/cred-type"]', value: image}
+      - equal:
+          path: 'metadata.annotations["argocd.argoproj.io/sync-options"]'
+          value: "Prune=false,Delete=false"
+      - equal:
+          path: 'metadata.annotations["argocd.argoproj.io/compare-options"]'
+          value: IgnoreExtraneous
+      - equal: {path: type, value: Opaque}
+      - notExists: {path: data}
+
+  - it: grants harbor-config get/update/patch on that one Secret, nothing more
+    template: templates/harbor-read.yaml
+    documentSelector:
+      path: kind
+      value: Role
+    asserts:
+      - isKind: {of: Role}
+      - equal: {path: metadata.namespace, value: platform}
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [""]
+              resources: [secrets]
+              resourceNames: [harbor-read]
+              verbs: [get, update, patch]
+
+  - it: binds the harbor-read Role to harbor-config in teknoir-system
+    template: templates/harbor-read.yaml
+    documentSelector:
+      path: kind
+      value: RoleBinding
+    asserts:
+      - isKind: {of: RoleBinding}
+      - equal:
+          path: roleRef
+          value: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: harbor-read}
+      - equal:
+          path: subjects
+          value:
+            - {kind: ServiceAccount, name: harbor-config, namespace: teknoir-system}
+
+  - it: renders the cluster-scoped Project and its ProjectConfig
+    template: templates/project.yaml
+    asserts:
+      - hasDocuments: {count: 2}
+
+  - it: the Project is cluster-scoped and named platform
+    template: templates/project.yaml
+    documentSelector:
+      path: kind
+      value: Project
+    asserts:
+      - isKind: {of: Project}
+      - equal: {path: metadata.name, value: platform}
+
+  - it: the Project keeps its namespace when the Project is deleted (the hand-piped Secrets stay)
+    template: templates/project.yaml
+    documentSelector:
+      path: kind
+      value: Project
+    asserts:
+      - equal: {path: 'metadata.annotations["kargo.akuity.io/keep-namespace"]', value: "true"}
+      - equal: {path: 'metadata.annotations["argocd.argoproj.io/sync-wave"]', value: "-4"}
+
+  - it: the ProjectConfig lives in the project namespace
+    template: templates/project.yaml
+    documentSelector:
+      path: kind
+      value: ProjectConfig
+    asserts:
+      - isKind: {of: ProjectConfig}
+      - equal: {path: metadata.name, value: platform}
+      - equal: {path: metadata.namespace, value: platform}
+
+  - it: has a promotion policy for staging, staging-verified and every image group, all off
+    template: templates/project.yaml
+    documentSelector:
+      path: kind
+      value: ProjectConfig
+    asserts:
+      - lengthEqual: {path: spec.promotionPolicies, count: 13}
+      - contains:
+          path: spec.promotionPolicies
+          content: {stageSelector: {name: staging}, autoPromotionEnabled: false}
+      - contains:
+          path: spec.promotionPolicies
+          content: {stageSelector: {name: staging-verified}, autoPromotionEnabled: false}
+      - contains:
+          path: spec.promotionPolicies
+          content: {stageSelector: {name: pin-wg-tunnel}, autoPromotionEnabled: false}
+      - contains:
+          path: spec.promotionPolicies
+          content: {stageSelector: {name: pin-backstage}, autoPromotionEnabled: false}
+
+  - it: turns one policy on without touching the others
+    template: templates/project.yaml
+    documentSelector:
+      path: kind
+      value: ProjectConfig
+    set:
+      autoPromotion:
+        staging: true
+        staging-verified: false
+        pins: {wg-tunnel: true}
+    asserts:
+      - contains:
+          path: spec.promotionPolicies
+          content: {stageSelector: {name: staging}, autoPromotionEnabled: true}
+      - contains:
+          path: spec.promotionPolicies
+          content: {stageSelector: {name: staging-verified}, autoPromotionEnabled: false}
+      - contains:
+          path: spec.promotionPolicies
+          content: {stageSelector: {name: pin-wg-tunnel}, autoPromotionEnabled: true}
+      - contains:
+          path: spec.promotionPolicies
+          content: {stageSelector: {name: pin-backstage}, autoPromotionEnabled: false}

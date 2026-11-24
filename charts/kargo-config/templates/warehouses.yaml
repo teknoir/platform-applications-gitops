@@ -1,0 +1,60 @@
+# yamllint disable-file
+# A Helm template (Go template actions), not a YAML document.
+{{/*
+Warehouses: where Freight comes from.
+  - gitops-main: new commits on the gitops branch (the thing the staging Stage promotes), off by default;
+  - img-<group>: one image subscription per image of every ENABLED group (scripts/images.yaml), each polling the
+    image's `poll` repository (ghcr for public images, Harbor through the kargo robot for private ones, see
+    plans/cicd/v4/p42-spec.md "Deviations"). A private group whose repository is still ghcr stays disabled until
+    P6.2 flips it: a Harbor digest whose ghcr push failed would otherwise pin an image ghcr lacks.
+Every subscription only accepts the dev-host CI's immutable build tags sha-<8 hex> (proposal-v4 3.1), so a
+Warehouse never makes Freight from a branch tag or :latest that moved under it.
+*/}}
+{{- $w := .Values.warehouses }}
+{{- if $w.gitopsMain.enabled }}
+# New commits on the gitops branch.
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Warehouse
+metadata:
+  name: gitops-main
+  namespace: {{ .Values.project }}
+spec:
+  interval: {{ $w.gitopsMain.interval }}
+  subscriptions:
+    - git:
+        repoURL: {{ .Values.gitops.repoURL }}
+        branch: {{ .Values.gitops.branch }}
+        commitSelectionStrategy: NewestFromBranch
+        discoveryLimit: 20
+{{- end }}
+{{- range $g := .Values.groups }}
+{{- if $g.enabled }}
+---
+# Group {{ $g.name }}: {{ len $g.images }} image subscription(s){{ if $g.sameCommit }}, Freight only when all of
+# them carry the same sha-<8> tag{{ end }} (scripts/images.yaml groups.{{ $g.name }}).
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Warehouse
+metadata:
+  name: img-{{ $g.name }}
+  namespace: {{ $.Values.project }}
+spec:
+  interval: {{ $w.images.interval }}
+  subscriptions:
+{{- range $img := $g.images }}
+    - image:
+        repoURL: {{ $img.poll }}
+        # NewestBuild: the newest manifest by build time, filtered to the CI's sha-<8> tags below.
+        imageSelectionStrategy: NewestBuild
+        allowTagsRegexes: ["^sha-[0-9a-f]{8}$"]
+        discoveryLimit: {{ $w.images.discoveryLimit }}
+        # sha-* tags are immutable (Harbor enforces it), so a tag's digest can be cached.
+        cacheByTag: true
+{{- end }}
+{{- if and $g.sameCommit (gt (len $g.images) 1) }}
+  # same_commit: no Freight until every image of the group carries the same tag (one build of the group), so a
+  # pin PR never mixes two builds.
+  freightCreationCriteria:
+    expression: {{ include "kargo-config.sameCommitExpression" $g | quote }}
+{{- end }}
+{{- end }}
+{{- end }}

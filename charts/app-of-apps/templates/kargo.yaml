@@ -1,0 +1,181 @@
+{{- /*
+Kargo (promotions and the staging release flow, plans/cicd/proposal-v4.md 6.1/6.2, plans/cicd/v4/ground-kargo.md),
+Argo Rollouts (the AnalysisRun provider every Kargo Stage verification runs on) and kargo-config (the Project,
+Warehouses, Stages and AnalysisTemplates this repository owns, charts/kargo-config).
+
+Two gates, both required: a flag in this environment's values (a missing key is off) AND the environment in the
+allowlist below. The allowlist lives here, not in values, for the same reason as in teknoirbot.yaml: a
+cherry-pick that brings this file and an enabled flag onto teknoir-online (production) or teknoir-local
+(airgapped) must still render nothing there, and an environment that is not listed renders nothing instead of
+failing the root render. Add an environment only in its own reviewed commit.
+
+The flags are separate, and depend on each other in one direction:
+  argoRollouts.enabled  -> Application argo-rollouts
+  kargo.enabled         -> Application kargo, but ONLY with argoRollouts.enabled
+  kargo.config.enabled  -> Application kargo-config, only with kargo.enabled (and so Rollouts too)
+
+Why Kargo waits for Rollouts: the Kargo controller checks for the Argo Rollouts CRDs once, at startup
+(controller.rollouts.integrationEnabled), and never rechecks them. A Kargo that starts before the CRDs exist runs
+with the Rollouts integration off and its Stage verifications fail for as long as that pod lives. So Rollouts is
+its own value and may ship one release before Kargo; `kargo.enabled: true` with `argoRollouts.enabled: false`
+renders no Kargo at all, rather than a Kargo that cannot verify.
+
+kargo-config renders only with kargo.enabled AND kargo.config.enabled: its Project and Stages are Kargo CRs and
+the kargo Application must have installed the CRDs first (an unknown kind fails the dry run otherwise).
+
+Turning it off is also ordered, two releases, never one: FIRST set kargo.config.enabled=false (the Kargo
+controller then removes its finalizers from Project platform and from Namespace platform), THEN set
+kargo.enabled=false (and finally argoRollouts.enabled=false). Deleting both Applications in the same release
+removes the controller that would have cleared those finalizers, so Project platform and Namespace platform
+(which holds the hand-piped Secrets) can be left Terminating.
+
+No sync waves, on purpose: sync waves order the resources of ONE sync; a child Application's own sync is not
+ordered against its siblings (the root does not wait for a child to be healthy, templates/argo.yaml). Each
+Application therefore carries the same retry (kargo-config's objects fail until the kargo CRDs exist and until
+harbor-config has filled the platform/harbor-read Secret), automated prune + selfHeal and a
+resources-finalizer: turning a flag off deletes its Application and what it installed (the Kargo Project
+namespace and its hand-piped Secrets are Delete=false in charts/kargo-config, so they stay).
+*/ -}}
+{{- $allowedProjects := list "teknoir-cloud" }}
+{{- $enabled := has .Values.project $allowedProjects }}
+{{- $rollouts := and $enabled (.Values.argoRollouts).enabled }}
+{{- $kargo := and $rollouts (.Values.kargo).enabled }}
+{{- if $rollouts }}
+---
+# Argo Rollouts, the controller that runs the AnalysisRuns Kargo's Stage verification creates. Kargo talks to
+# it through its own stubs (controller.rollouts.integrationEnabled) and pins no Rollouts version; 2.43.12
+# (appVersion v1.10.2) is the newest chart at P4.2 time and is rehearsed in P4.3.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-rollouts
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+{{- if .Values.releaseName }}
+  annotations:
+    teknoir.org/release: {{ .Values.releaseName | quote }}
+{{- end }}
+spec:
+  destination:
+    namespace: argo-rollouts
+    server: https://kubernetes.default.svc
+  project: {{ .Values.project }}
+  source:
+    repoURL: https://argoproj.github.io/argo-helm
+    chart: argo-rollouts
+    targetRevision: 2.43.12
+    helm:
+      # valuesObject: empty maps cannot be expressed as helm parameters.
+      valuesObject:
+        # The AnalysisTemplate and AnalysisRun CRDs the Kargo controller watches come with the chart.
+        installCRDs: true
+        # No Rollouts UI (nothing uses it; Kargo promotes and verifies through the API server).
+        dashboard:
+          enabled: false
+        # No Rollouts notifications: no notifiers, templates or triggers in the configmap (the chart defaults
+        # are empty too; kept explicit so an ArgoCD diff after a chart bump shows a real change).
+        notifications:
+          notifiers: {}
+          templates: {}
+          triggers: {}
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      # The Rollouts CRDs are 180-200 KB each: above the 256 KiB client-side apply annotation limit.
+      - ServerSideApply=true
+    automated:
+      prune: true
+      selfHeal: true
+      enabled: true
+    retry:
+      limit: 10
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
+{{- end }}
+{{- if $kargo }}
+---
+# Kargo itself. Multi-source (the form the Kargo docs recommend for ArgoCD): kargo 1.12.6 from the OCI chart
+# repository, plus this repository as the `values` source that supplies charts/kargo/values.yaml.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kargo
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+{{- if .Values.releaseName }}
+  annotations:
+    teknoir.org/release: {{ .Values.releaseName | quote }}
+{{- end }}
+spec:
+  destination:
+    namespace: kargo
+    server: https://kubernetes.default.svc
+  project: {{ .Values.project }}
+  sources:
+    - repoURL: ghcr.io/akuity/kargo-charts
+      chart: kargo
+      targetRevision: 1.12.6
+      helm:
+        valueFiles:
+          - $values/charts/kargo/values.yaml
+    # The values file lives in this repository and follows the release gate, like every other source here.
+    - repoURL: https://github.com/teknoir/platform-applications-gitops
+      targetRevision: {{ include "app-of-apps.revision" . }}
+      ref: values
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      # Kargo's CRDs and webhooks land in the same sync as the objects that reference them.
+      - SkipDryRunOnMissingResource=true
+    automated:
+      prune: true
+      selfHeal: true
+      enabled: true
+    retry:
+      limit: 10
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
+{{- end }}
+{{- if and $kargo (.Values.kargo.config).enabled }}
+---
+# The Kargo objects of this repository (charts/kargo-config): Project platform, ProjectConfig, Warehouses,
+# Stages staging / staging-verified / pin-<group>, the pin steps and the verification AnalysisTemplates.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kargo-config
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+{{- if .Values.releaseName }}
+  annotations:
+    teknoir.org/release: {{ .Values.releaseName | quote }}
+{{- end }}
+spec:
+  destination:
+    namespace: platform
+    server: https://kubernetes.default.svc
+  project: {{ .Values.project }}
+  source:
+    path: charts/kargo-config
+    repoURL: https://github.com/teknoir/platform-applications-gitops
+    targetRevision: {{ include "app-of-apps.revision" . }}
+  syncPolicy:
+    syncOptions:
+      # The Kargo CRs are unknown to the API server until the kargo Application installed the CRDs.
+      - SkipDryRunOnMissingResource=true
+    automated:
+      prune: true
+      selfHeal: true
+      enabled: true
+    retry:
+      limit: 10
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
+{{- end }}
