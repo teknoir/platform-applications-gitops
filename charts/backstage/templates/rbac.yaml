@@ -230,7 +230,7 @@ subjects:
 {{- end }}
 {{- $fleet := .Values.fleet | default dict }}
 {{- $mirror := $fleet.registryMirror | default dict }}
-{{- if $mirror.host }}
+{{- if ($mirror.host | default "" | trim) }}
 {{- $mirrorSecret := $mirror.secret | default dict }}
 {{- $secretNamespace := $mirrorSecret.namespace | default "teknoir-system" }}
 {{- $secretName := $mirrorSecret.name | default "harbor-teamspace-pull" }}

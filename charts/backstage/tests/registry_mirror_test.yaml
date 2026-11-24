@@ -115,3 +115,44 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "fleet.registryMirror.host must be a host name"
+
+  - it: fails to render on a host the backend would refuse to start with
+    template: templates/configmap-app-config.yaml
+    set:
+      fleet.registryMirror.host: "none"
+    asserts:
+      - failedTemplate:
+          errorPattern: "fleet.registryMirror.host must be a host name"
+
+  - it: fails to render on a port outside 1-65535
+    template: templates/configmap-app-config.yaml
+    set:
+      fleet.registryMirror.host: "harbor.teknoir.cloud:99999"
+    asserts:
+      - failedTemplate:
+          errorPattern: "fleet.registryMirror.host must be a host name"
+
+  - it: fails to render on port 0
+    template: templates/configmap-app-config.yaml
+    set:
+      fleet.registryMirror.host: "harbor.teknoir.cloud:0"
+    asserts:
+      - failedTemplate:
+          errorPattern: "fleet.registryMirror.host must be a host name"
+
+  - it: fails to render on an empty label
+    template: templates/configmap-app-config.yaml
+    set:
+      fleet.registryMirror.host: "harbor..teknoir.cloud"
+    asserts:
+      - failedTemplate:
+          errorPattern: "fleet.registryMirror.host must be a host name"
+
+  - it: renders an upper-case host in lower case, with its port
+    template: templates/configmap-app-config.yaml
+    set:
+      fleet.registryMirror.host: "Harbor.Teknoir.Cloud:5000"
+    asserts:
+      - matchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: 'host: "harbor.teknoir.cloud:5000"'

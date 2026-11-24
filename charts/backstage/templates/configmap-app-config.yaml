@@ -85,21 +85,28 @@ data:
 {{- $access := $fleet.access | default dict }}
 {{- $mirror := $fleet.registryMirror | default dict }}
 {{- $mirrorSecret := $mirror.secret | default dict }}
-{{- if $mirror.host }}
-{{- if or (contains "://" $mirror.host) (contains "/" $mirror.host) }}
-{{- fail (printf "fleet.registryMirror.host must be a host name such as harbor.teknoir.cloud (no scheme or path), not %q" $mirror.host) }}
+{{- $mirrorHost := $mirror.host | default "" | trim | lower }}
+{{- if $mirrorHost }}
+{{- /* The backend's own check (registryMirror.ts): it refuses to start on a bad host, so fail at render time instead.
+       DNS labels with an optional port 1-65535; never "none" (tnctl reads that as "remove the registries.yaml"). */}}
+{{- $hostOnly := regexReplaceAll ":[0-9]+$" $mirrorHost "" }}
+{{- $port := trimPrefix ":" (trimPrefix $hostOnly $mirrorHost) }}
+{{- $badHost := or (eq $hostOnly "none") (gt (len $hostOnly) 253) (not (regexMatch "^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?)*$" $hostOnly)) }}
+{{- $badPort := and $port (or (gt (len $port) 5) (lt (atoi $port) 1) (gt (atoi $port) 65535)) }}
+{{- if or $badHost $badPort }}
+{{- fail (printf "fleet.registryMirror.host must be a host name such as harbor.teknoir.cloud with an optional port 1-65535 (no scheme or path, not none), not %q" $mirror.host) }}
 {{- end }}
 {{- end }}
-{{- if or $fleet.prometheusUrlTemplate $access.enabled $mirror.host }}
+{{- if or $fleet.prometheusUrlTemplate $access.enabled $mirrorHost }}
       fleet:
 {{- with $fleet.prometheusUrlTemplate }}
         prometheusUrlTemplate: {{ . | quote }}
 {{- end }}
-{{- if $mirror.host }}
+{{- if $mirrorHost }}
         # Device credentials carry the teamspace's Harbor pull-through cache (plans/harbor-proxy-staging.md
         # phase 1b): the API reads <teamspace>.username/.password from this one Secret, by name only.
         registryMirror:
-          host: {{ $mirror.host | quote }}
+          host: {{ $mirrorHost | quote }}
           secret:
             namespace: {{ $mirrorSecret.namespace | default "teknoir-system" | quote }}
             name: {{ $mirrorSecret.name | default "harbor-teamspace-pull" | quote }}
