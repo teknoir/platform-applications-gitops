@@ -1,0 +1,117 @@
+suite: backstage registry mirror (Harbor pull credentials in device credentials)
+# fleet.registryMirror (plans/harbor-proxy-staging.md phase 1b): the API puts the teamspace's Harbor pull robot
+# in the device credentials it returns, read from charts/harbor's one teamspace Secret. The chart may read that
+# one Secret by name only, in the namespace it lives in; tests/rbac_test.yaml still holds the least-privilege line.
+templates:
+  - templates/configmap-app-config.yaml
+  - templates/rbac.yaml
+tests:
+  - it: renders the mirror host and its one Secret in the backend config by default
+    template: templates/configmap-app-config.yaml
+    asserts:
+      - matchRegex:
+          path: data["app-config.prod-env.yaml"]
+          # app-config.prod-env.yaml is a literal block: its 4-space baseline is stripped, so fleet: keeps 2
+          # spaces and its children 4 (cf. tests/instance_name_test.yaml).
+          pattern: "fleet:\\n(.*\\n)*    registryMirror:\\n      host: \"harbor.teknoir.cloud\"\\n      secret:\\n        namespace: \"teknoir-system\"\\n        name: \"harbor-teamspace-pull\"\\n"
+
+  - it: renders a Role and a RoleBinding that only get that one Secret, in the Secret's namespace
+    template: templates/rbac.yaml
+    release:
+      namespace: backstage
+    asserts:
+      - hasDocuments: {count: 5}
+      - isKind: {of: Role}
+        documentIndex: 3
+      - equal: {path: metadata.name, value: backstage-api-registry-mirror}
+        documentIndex: 3
+      - equal: {path: metadata.namespace, value: teknoir-system}
+        documentIndex: 3
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [""]
+              resources: [secrets]
+              resourceNames: [harbor-teamspace-pull]
+              verbs: [get]
+        documentIndex: 3
+      - isKind: {of: RoleBinding}
+        documentIndex: 4
+      - equal: {path: metadata.name, value: backstage-api-registry-mirror}
+        documentIndex: 4
+      - equal: {path: metadata.namespace, value: teknoir-system}
+        documentIndex: 4
+      - equal:
+          path: roleRef
+          value: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: backstage-api-registry-mirror}
+        documentIndex: 4
+      # the ServiceAccount stays in the release namespace, not in the Secret's
+      - equal:
+          path: subjects
+          value: [{kind: ServiceAccount, name: backstage-api, namespace: backstage}]
+        documentIndex: 4
+
+  - it: puts the Role and RoleBinding in a custom Secret's namespace, by its name
+    template: templates/rbac.yaml
+    release:
+      namespace: backstage
+    set:
+      fleet.registryMirror.secret: {namespace: other-ns, name: x}
+    asserts:
+      - equal: {path: metadata.namespace, value: other-ns}
+        documentIndex: 3
+      - equal: {path: 'rules[0].resourceNames', value: [x]}
+        documentIndex: 3
+      - equal: {path: metadata.namespace, value: other-ns}
+        documentIndex: 4
+      - equal:
+          path: 'subjects[0]'
+          value: {kind: ServiceAccount, name: backstage-api, namespace: backstage}
+        documentIndex: 4
+
+  - it: follows the instance name
+    template: templates/rbac.yaml
+    set: {name: backstage-next}
+    asserts:
+      - equal: {path: metadata.name, value: backstage-next-api-registry-mirror}
+        documentIndex: 3
+      - equal: {path: metadata.name, value: backstage-next-api-registry-mirror}
+        documentIndex: 4
+      - equal: {path: 'subjects[0].name', value: backstage-next-api}
+        documentIndex: 4
+
+  - it: renders no mirror config when the host is empty (the fleet block still renders for Prometheus)
+    template: templates/configmap-app-config.yaml
+    set:
+      fleet.registryMirror.host: ""
+      fleet.prometheusUrlTemplate: "http://prometheus.{namespace}.svc.cluster.local/{namespace}/prometheus"
+    asserts:
+      - matchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: "fleet:\\n    prometheusUrlTemplate"
+      - notMatchRegex:
+          path: data["app-config.prod-env.yaml"]
+          pattern: "registryMirror"
+
+  - it: renders no mirror Role or RoleBinding when the host is empty
+    template: templates/rbac.yaml
+    set:
+      fleet.registryMirror.host: ""
+    asserts:
+      - hasDocuments: {count: 3}
+
+  - it: fails to render when the host carries a scheme
+    template: templates/configmap-app-config.yaml
+    set:
+      fleet.registryMirror.host: "https://harbor.teknoir.cloud"
+    asserts:
+      - failedTemplate:
+          errorPattern: "fleet.registryMirror.host must be a host name"
+
+  - it: fails to render when the host carries a path
+    template: templates/configmap-app-config.yaml
+    set:
+      fleet.registryMirror.host: "harbor.teknoir.cloud/v2"
+    asserts:
+      - failedTemplate:
+          errorPattern: "fleet.registryMirror.host must be a host name"

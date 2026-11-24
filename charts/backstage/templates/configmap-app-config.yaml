@@ -83,10 +83,26 @@ data:
 {{- end }}
 {{- $fleet := .Values.fleet | default dict }}
 {{- $access := $fleet.access | default dict }}
-{{- if or $fleet.prometheusUrlTemplate $access.enabled }}
+{{- $mirror := $fleet.registryMirror | default dict }}
+{{- $mirrorSecret := $mirror.secret | default dict }}
+{{- if $mirror.host }}
+{{- if or (contains "://" $mirror.host) (contains "/" $mirror.host) }}
+{{- fail (printf "fleet.registryMirror.host must be a host name such as harbor.teknoir.cloud (no scheme or path), not %q" $mirror.host) }}
+{{- end }}
+{{- end }}
+{{- if or $fleet.prometheusUrlTemplate $access.enabled $mirror.host }}
       fleet:
 {{- with $fleet.prometheusUrlTemplate }}
         prometheusUrlTemplate: {{ . | quote }}
+{{- end }}
+{{- if $mirror.host }}
+        # Device credentials carry the teamspace's Harbor pull-through cache (plans/harbor-proxy-staging.md
+        # phase 1b): the API reads <teamspace>.username/.password from this one Secret, by name only.
+        registryMirror:
+          host: {{ $mirror.host | quote }}
+          secret:
+            namespace: {{ $mirrorSecret.namespace | default "teknoir-system" | quote }}
+            name: {{ $mirrorSecret.name | default "harbor-teamspace-pull" | quote }}
 {{- end }}
 {{- if $access.enabled }}
         # Connect: web terminal and device apps over Tunneling (wgt-/wgs- hosts), plans/nextgen/app-tunnels.md.

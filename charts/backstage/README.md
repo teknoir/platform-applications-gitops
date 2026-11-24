@@ -11,6 +11,14 @@ own rights are kept to what the code calls (plans/ztna-later.md, "backstage-sa")
 | ClusterRole `<name>-api-resources-role` + ClusterRoleBinding | cluster-wide | `profiles`, `users`: CRUD; their `/status`: get; `devices`, `deviceapplicationsets`, `claims`, `claimsets`: get, list, watch; `resourcequotas`: get, list |
 | ClusterRole `<name>-api-teamspace`, **no binding in this chart** | each teamspace | `devices`, `robots`, `robottypes`, `deviceapplicationsets`, `devstudios`, `notebooks`, `claimsets`, `teknoirbots`: CRUD (+ `/status` get); VirtualServices: read; PVCs: get, list, watch, create, delete; ConfigMaps: create, get/update `peripheral-config`; Secrets: get `mongodb-credentials`, `emqx-bootstrap-user`; Events: read, create, patch; LocalSubjectAccessReviews: create |
 | Role `backstage-api-hub-workloads` (charts/ztna) | `teknoir-ztna` | `deployments`: get |
+| Role `<name>-api-registry-mirror` + RoleBinding (rendered only when `fleet.registryMirror.host` is set) | the Secret's namespace, default `teknoir-system` | `secrets`: get on `harbor-teamspace-pull` only |
+
+The registry-mirror Role is how device credentials carry a teamspace's Harbor pull-through cache
+(`fleet.registryMirror` = `{host, secret: {namespace, name}}` in app-config, plans/harbor-proxy-staging.md
+phase 1b): the API reads `<teamspace>.username`/`.password` from the one Secret charts/harbor keeps and
+returns it with the device credentials, so `tnctl bootstrap` writes the device's k3s `registries.yaml` with no
+flags. Get on that Secret by name only, in the namespace it lives in (which need not be the release
+namespace), never list or watch.
 
 profile-controller binds the teamspace ClusterRole with a RoleBinding `teknoir-portal` in every teamspace it owns
 (`config.portal` in charts/profile-controller: `serviceAccounts`, `clusterRole`). With `config.portal` empty nothing is

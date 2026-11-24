@@ -178,7 +178,10 @@ through `harbor.teknoir.cloud/<project>/<path>`, with the upstream as the fallba
   password, Harbor answers 401 and containerd falls through to the upstream (public images keep
   working, private `ghcr.io/teknoir/*` images stop pulling). Re-run ansible
   `playbooks/registry-mirror.yml` (`--limit` the teamspace's robots) afterwards; there is no
-  automatic roll-out of the new credential yet (plan phase 1b/2). Proposed, not built: a
+  automatic roll-out of the new credential yet (plan phase 1b/2). The Backstage API reads the same
+  Secret with a Role limited to it (`charts/backstage`, `fleet.registryMirror`): it returns the
+  teamspace robot in the device credentials, so `tnctl bootstrap` writes the device's
+  `registries.yaml` too. Proposed, not built: a
   Prometheus alert on failed Harbor logins by `robot$ts-*` (harbor-core's access log or the
   gateway's 401 count on `harbor.<domain>/v2/` and `/service/token` grouped by robot name),
   so a stale robot credential shows up before a pull fails on a robot.

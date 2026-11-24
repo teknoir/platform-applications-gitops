@@ -87,7 +87,7 @@ tests:
       - equal: {path: 'subjects[0].name', value: backstage-next-api}
         documentIndex: 1
       # teknoir-admin is no longer bound; the teamspace role follows the instance name and has no binding here
-      - hasDocuments: {count: 3}
+      - hasDocuments: {count: 5}
       - equal: {path: metadata.name, value: backstage-next-api-teamspace}
         documentIndex: 2
       - equal: {path: kind, value: ClusterRole}
@@ -223,9 +223,10 @@ tests:
         documentIndex: 1
       - notExists: {path: 'spec.template.spec.containers[0].resources'}
         template: templates/postgres-statefulset.yaml
+      # the fleet block itself now renders by default (fleet.registryMirror); the other keys stay out
       - notMatchRegex:
           path: data["app-config.prod-env.yaml"]
-          pattern: "fleet:"
+          pattern: "prometheusUrlTemplate|tunnelDomain"
         template: templates/configmap-app-config.yaml
 
   - it: renders resources on all three containers when set

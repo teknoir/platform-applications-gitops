@@ -7,7 +7,7 @@ tests:
       teknoirBots.enabled: true
     asserts:
       - hasDocuments:
-          count: 3
+          count: 5
 
   - it: grants nothing with the agent on but TeknoirBots off
     set:
@@ -15,7 +15,7 @@ tests:
       teknoirBots.agent.enabled: true
     asserts:
       - hasDocuments:
-          count: 3
+          count: 5
 
   - it: lets the API get the one Secret, by name, in its own namespace
     set:

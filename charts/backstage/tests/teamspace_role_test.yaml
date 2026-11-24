@@ -4,13 +4,14 @@ templates:
 tests:
   - it: has a teamspace ClusterRole and no binding for it in this chart
     asserts:
-      - hasDocuments: {count: 3}
+      - hasDocuments: {count: 5}
       - equal: {path: kind, value: ClusterRole}
         documentIndex: 2
       - equal: {path: metadata.name, value: backstage-api-teamspace}
         documentIndex: 2
       # profile-controller binds it per teamspace (RoleBinding teknoir-portal); a ClusterRoleBinding here would
-      # give the rights in every namespace. The one binding there is points at the cluster-wide role (3 documents: role, binding, teamspace role).
+      # give the rights in every namespace. The one ClusterRoleBinding there points at the cluster-wide role
+      # (5 documents: role, binding, teamspace role, then the registry-mirror Role and RoleBinding).
       - equal: {path: roleRef.name, value: backstage-api-resources-role}
         documentIndex: 1
 

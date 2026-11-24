@@ -143,6 +143,13 @@ fleet:
     tunnelDomain: ""
     writes: false
     maxPerTeamspace: 25
+  # Device credentials carry the teamspace's Harbor pull-through cache (plans/harbor-proxy-staging.md phase 1b):
+  # tnctl bootstrap then writes the device's k3s registries.yaml with no flags. The API reads only the Secret
+  # named here (keys <teamspace>.username/.password, kept by charts/harbor), through a Role limited to that name.
+  # Empty host = off. The same host and Secret as charts/device-controller virtualDevices.registryMirror.
+  registryMirror:
+    host: harbor.teknoir.cloud
+    secret: {namespace: teknoir-system, name: harbor-teamspace-pull}
 
 # Catalog behaviour (app-config catalog.*). orphanStrategy delete removes entities that nothing emits any
 # more, e.g. the mock robots (examples/robots) after their location was removed (2026-10-16). Empty = the
