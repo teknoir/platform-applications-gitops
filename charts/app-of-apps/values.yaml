@@ -110,7 +110,9 @@ kargo:
 # teknoir-system/staging-releaser), ArgoCD and profile-controller write ArgoCD Applications.
 # teknoir-cloud only (allowlist in templates/_helpers.tpl).
 releaseGuard:
-  # On again since the second r415 release, in Warn first; Deny in the release after that.
-  enabled: true
+  # Off since CI v4 P4.6 (2026-11-24): Kargo writes the root Application from P5 on, which the guard would
+  # flag. The Application has no resources-finalizer, so turning this off leaves the policy and binding in
+  # the cluster; plans/cicd/v4/remove-release-guard.sh (Anders) deletes them under break-glass afterwards.
+  enabled: false
   # Warn | Deny, passed to the chart as guard.mode.
   mode: Warn
