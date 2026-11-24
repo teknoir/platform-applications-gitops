@@ -1,6 +1,6 @@
 # P4.3 rehearsal fixture. Drill commits change marker (any test), readyDelaySeconds (c) or image (d).
 release: ""                  # helm parameter from the Application: the commit; rolls the pod on every release
-image: docker.io/library/busybox:0.0.0-does-not-exist 
+image: docker.io/library/busybox:1.37.0 
 readyDelaySeconds: 5 # (c): 150 keeps the Application Progressing while the AnalysisRun runs
 progressDeadlineSeconds: 300 # (d): an unpullable image turns the Deployment Degraded after this; above (c)'s delay
-marker: dbad 
+marker: dfix 
