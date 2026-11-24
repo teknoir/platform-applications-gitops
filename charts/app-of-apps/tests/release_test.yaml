@@ -845,9 +845,14 @@ tests:
       - notMatchRegexRaw: {pattern: "targetRevision: teknoir-cloud"}
       - notMatchRegexRaw: {pattern: "targetRevision: \\{\\{"}
 
-  - it: release-guard is on in Warn by default on teknoir-cloud (second r415 release; Deny in the next one)
+  - it: release-guard is off by default on teknoir-cloud since CI v4 P4.6 (Kargo writes the root from P5)
     template: templates/release-guard.yaml
     set: {project: teknoir-cloud}
+    asserts:
+      - hasDocuments: {count: 0}
+  - it: release-guard still renders in Warn when turned back on (rollback of P4.6)
+    template: templates/release-guard.yaml
+    set: {project: teknoir-cloud, releaseGuard: {enabled: true}}
     asserts:
       - hasDocuments: {count: 1}
       - contains: {path: spec.source.helm.parameters, content: {name: guard.mode, value: Warn}}
