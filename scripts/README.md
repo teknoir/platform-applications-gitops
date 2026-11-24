@@ -10,7 +10,7 @@ Merging to `teknoir-cloud` queues a change; it is not live until a release.
 | `staging-status` | where staging is and what is pending; read-only. `--devices` adds device-side revisions |
 | `staging-render.sh` | renders a release like ArgoCD (root, children, profile-plugin charts); cached |
 | `check-pins.py` | the release lint over the rendered manifests; `release-policy.yaml` holds its rules and the dated exceptions |
-| `pin-image` | pins a Teknoir-built image as `tag@sha256:digest` (`images.tsv` lists them all); `--adopt-running`. A changed `wg-hub` tag resets `hub.image.leaderElection` to false (render stops); `--leader-election` confirms an image with leader election |
+| `pin-image` | pins a Teknoir-built image as `tag@sha256:digest` (`images.tsv` lists them all); `--adopt-running`. A `wg-hub` pin changes only the tag (`hub.image.leaderElection` stays true) |
 | `stagelib.py` | shared logic (tag numbering, candidate validation, plan, lease, convergence) |
 | `tests/` | `tests/run.sh` runs everything below |
 
@@ -48,10 +48,8 @@ exempt); removing Applications needs `--allow-remove`; the lint, `helm unittest 
   the release is applied as the operator's own admin identity and the script says `guard not installed: applying as admin`.
 - **Portal bindings (backstage-sa).** A render in which a portal service account (`config.portal.serviceAccounts` of
   `charts/profile-controller`) has no `teknoir-admin` ClusterRoleBinding left depends on profile-controller writing the
-  RoleBinding `teknoir-portal` into every teamspace. Two guards: (1) the lint (`check-pins.py`, code
-  `portal-controller-unchecked`, also a step of `scripts/tests/run.sh`) fails while the pinned profile-controller tag is not
-  in `portal_profile_controller_tags` of `release-policy.yaml` (fail closed; list a tag only after checking that its build
-  contains the portal commits); (2) when the release diff removes a `<name>-api-teknoir-admin-rolebinding`, the dry run and
+  RoleBinding `teknoir-portal` into every teamspace. When the release diff removes a
+  `<name>-api-teknoir-admin-rolebinding`, the dry run and
   `--yes` (before and under the Lease) read every `profiles.teknoir.org` and the `teknoir-portal` RoleBindings (read-only)
   and refuse unless each teamspace has one with the ClusterRole and service accounts of the candidate's config.
 - **Under the Lease** the live release is read again and the plan, the candidate and the convergence guard are checked

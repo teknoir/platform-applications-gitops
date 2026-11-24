@@ -66,7 +66,6 @@ class Repo:
         with open(os.path.join(SCRIPTS, "release-policy.yaml")) as src, open(os.path.join(self.work, "scripts", "release-policy.yaml"), "w") as dst:
             text = re.sub(r"(?m)^rollback_floor:.*$", 'rollback_floor: ""', src.read())
             text = re.sub(r"(?m)^cr_revisions:.*$", "cr_revisions: warn", text)
-            text = re.sub(r"(?m)^portal_profile_controller_tags:.*$", 'portal_profile_controller_tags: ["sha-1234abcd"]', text)
             dst.write(re.sub(r"(?m)^images:.*$", "images: warn", text))   # the fixture baseline; tests set deny themselves
         self.c["c1"] = self.commit("c1", "README", "1")
         self.c["c2"] = self.commit("c2", "README", "2")

@@ -4,8 +4,8 @@
 Checks the rendered manifests of a release (scripts/staging-render.sh output, or any YAML files):
 
   errors, from day 1
-    revision-not-release   a gitops Application whose targetRevision is not the release SHA
-    release-unset          project teknoir-cloud but no release SHA given
+    revision-not-release   a gitops Application whose targetRevision is not the release SHA (release given only)
+    release-invalid        the release given is not a 40-hex commit SHA
     chart-dependency-range a chart dependency that is a range, not an exact version
     exception-expired      an exception of release-policy.yaml past its date
     app-not-roundtrip-stable  a rendered Application with a field that ArgoCD's Go types drop when they write the
@@ -13,15 +13,6 @@ Checks the rendered manifests of a release (scripts/staging-render.sh output, or
   errors once release-policy.yaml has `images: deny`, otherwise warnings
     first-party-unpinned   a first-party image that is not repo:<tag>@sha256:<digest>
     first-party-latest     the same, with :latest or no tag
-    hub-audience-unchecked a wg-hub rendered with KEYCLOAK_AUDIENCE_MODE (transition or enforce) whose image tag is
-                           NOT listed in release-policy.yaml `audience_hub_tags` (an allowlist of the tags known to
-                           have the audience check; any other hub ignores the env, so enforce would only look
-                           enforced and transition would never produce the audience metric the plan gates on)
-    portal-controller-unchecked  a render in which a portal service account (profile-controller PORTAL_SERVICE_ACCOUNTS) no
-                           longer has the teknoir-admin ClusterRoleBinding, i.e. its teamspace rights come only from the
-                           teknoir-portal RoleBindings that profile-controller writes, but the profile-controller image
-                           tag is NOT listed in release-policy.yaml `portal_profile_controller_tags` (builds that
-                           contain the portal code), or no profile-controller Deployment is rendered at all
   warnings
     third-party-no-digest  a third-party image without a digest (exact version tags are fine)
     cr-revision            a teknoir.org DeviceApplicationSet/Device/Robot/RobotType with a revision that is not 40-hex
@@ -119,11 +110,15 @@ def load_docs(paths: list[str]) -> list[tuple[str, dict]]:
 
 
 def load_policy(path: str | None) -> dict:
-    pol = {"images": "warn", "cr_revisions": "warn", "first_party_prefixes": DEFAULT_PREFIXES, "exceptions": [], "rollback_floor": "",
-           "audience_hub_tags": [], "portal_profile_controller_tags": []}
+    # Unknown keys (e.g. the removed audience_hub_tags/portal_profile_controller_tags of an older checkout) are
+    # ignored: images are built from main only since CI v4, so every new wg-hub and profile-controller tag contains
+    # the audience check and the portal code, and the old allowlists would fail closed on every machine-written pin.
+    pol = {"images": "warn", "cr_revisions": "warn", "first_party_prefixes": DEFAULT_PREFIXES, "exceptions": [],
+           "rollback_floor": ""}
+    known = set(pol)
     if path:
         with open(path) as fh:
-            pol.update(yaml.safe_load(fh) or {})
+            pol.update({k: v for k, v in (yaml.safe_load(fh) or {}).items() if k in known})
     if pol["images"] not in ("warn", "deny"):
         raise SystemExit(f"release-policy: images must be warn or deny, got {pol['images']!r}")
     if pol["cr_revisions"] not in ("warn", "deny"):
@@ -260,97 +255,6 @@ def check_images(images: list[ImageRef], policy: dict, today: dt.date, verbose: 
     return out
 
 
-def check_hub_audience(docs: list[tuple[str, dict]], policy: dict) -> list[Finding]:
-    """A wg-hub that renders KEYCLOAK_AUDIENCE_MODE must run an image that has the audience check.
-
-    The hub image is pinned by hand (scripts/pin-image). A pin that predates the check ignores KEYCLOAK_AUDIENCE and
-    KEYCLOAK_AUDIENCE_MODE, so `enforce` would be reported while the downscoped main token (the one Backstage sees)
-    still opens hub sessions. This is an allowlist and fails closed: only the exact tags listed in the policy as
-    `audience_hub_tags` are known to have the check, any other tag (an old main build, a branch build, a digest-only
-    reference) is an error in both modes. An empty or missing list allows no tag.
-    """
-    known = {str(t) for t in (policy.get("audience_hub_tags") or [])}
-    out: list[Finding] = []
-    for _, d in docs:
-        path = POD_PATHS.get(d.get("kind"))
-        spec = _dig(d, path) if path else None
-        if not isinstance(spec, dict):
-            continue
-        name = (d.get("metadata") or {}).get("name", "?")
-        for c in spec.get("containers") or []:
-            mode = next((e.get("value") for e in c.get("env") or []
-                         if isinstance(e, dict) and e.get("name") == "KEYCLOAK_AUDIENCE_MODE"), None)
-            img = str(c.get("image") or "")
-            if mode is None or (image_tag(img) or "") in known:
-                continue
-            where = f"{d.get('kind')}/{name} {c.get('name', '')}"
-            hint = ("re-pin wg-hub to the wg-tunnel ztna-audience commit or later with scripts/pin-image and list its "
-                    "tag in release-policy.yaml audience_hub_tags")
-            out.append(Finding("error", "hub-audience-unchecked",
-                               f"KEYCLOAK_AUDIENCE_MODE={mode} but {img} is not listed in release-policy.yaml "
-                               f"audience_hub_tags (hubs known to have the audience check): it ignores the setting; "
-                               f"{hint}", where))
-    return out
-
-
-def check_portal_binding(docs: list[tuple[str, dict]], policy: dict) -> list[Finding]:
-    """The Backstage API service account must not lose teknoir-admin before profile-controller can bind it per teamspace.
-
-    profile-controller writes the RoleBinding teknoir-portal into every teamspace when PORTAL_SERVICE_ACCOUNTS is set
-    (charts/profile-controller config.portal); an older image ignores the setting. A render in which a listed service
-    account has no ClusterRoleBinding to teknoir-admin any more (backstage-sa R2) depends on that code being live, so
-    the profile-controller image tag must be one of `portal_profile_controller_tags` in the policy: exact tags without
-    the digest, built from a commit that contains the portal code. Fails closed: an unlisted tag, a missing Deployment
-    or an empty list is an error. Renders that still bind the service account to teknoir-admin (backstage-sa R1) are
-    not affected. The live check that every Profile namespace HAS the RoleBinding is in scripts/staging-release.
-    """
-    sas: set[str] = set()
-    for _, d in docs:
-        if d.get("kind") == "ConfigMap":
-            val = ((d.get("data") or {}).get("PORTAL_SERVICE_ACCOUNTS") or "")
-            sas |= {x.strip() for x in str(val).split(",") if x.strip()}
-    if not sas:
-        return []
-    admin_bound: set[str] = set()
-    for _, d in docs:
-        if d.get("kind") == "ClusterRoleBinding" and (d.get("roleRef") or {}).get("name") == "teknoir-admin":
-            for sub in d.get("subjects") or []:
-                if isinstance(sub, dict) and sub.get("kind") == "ServiceAccount":
-                    admin_bound.add(f"{sub.get('namespace', '')}/{sub.get('name', '')}")
-    portal_only = sorted(sas - admin_bound)
-    if not portal_only:
-        return []
-    known = {str(t) for t in (policy.get("portal_profile_controller_tags") or [])}
-    hint = ("build and pin a profile-controller that contains the portal commit (profile-controller branch "
-            "backstage-sa-teamspace-binding: 'Bind the portal service account into each teamspace' and 'Replace a "
-            "RoleBinding whose roleRef changed instead of updating it') with scripts/pin-image, and list its tag in "
-            "release-policy.yaml portal_profile_controller_tags")
-    out: list[Finding] = []
-    seen = False
-    for _, d in docs:
-        path = POD_PATHS.get(d.get("kind"))
-        spec = _dig(d, path) if path else None
-        if d.get("kind") != "Deployment" or not isinstance(spec, dict):
-            continue
-        name = (d.get("metadata") or {}).get("name", "?")
-        for c in spec.get("containers") or []:
-            img = str(c.get("image") or "")
-            if image_without_digest(img).rsplit("/", 1)[-1].split(":", 1)[0] != "profile-controller":
-                continue
-            seen = True
-            if (image_tag(img) or "") not in known:
-                out.append(Finding("error", "portal-controller-unchecked",
-                                   f"{', '.join(portal_only)} lost teknoir-admin, so its teamspace rights come only from the "
-                                   f"teknoir-portal RoleBindings, but {img} is not listed in release-policy.yaml "
-                                   f"portal_profile_controller_tags (builds with the portal code): {hint}",
-                                   f"Deployment/{name} {c.get('name', '')}"))
-    if not seen:
-        out.append(Finding("error", "portal-controller-unchecked",
-                           f"{', '.join(portal_only)} lost teknoir-admin but no profile-controller Deployment is rendered, "
-                           "so nothing writes the teknoir-portal RoleBindings"))
-    return out
-
-
 def gitops_apps(docs: list[tuple[str, dict]]) -> list[dict]:
     apps = []
     for _, d in docs:
@@ -363,17 +267,21 @@ def gitops_apps(docs: list[tuple[str, dict]]) -> list[dict]:
 
 
 def check_applications(docs: list[tuple[str, dict]], release: str | None, project: str) -> list[Finding]:
+    """Every gitops Application of staging must follow the release. Only teknoir-cloud follows a release: the other
+    environment branches follow their branch name (app-of-apps.revision), so their Applications are not checked.
+    A missing release (a pull request) is not an error either."""
     out = []
+    if project != "teknoir-cloud":
+        return out                     # teknoir-online, teknoir-local, ... follow their branch name
     apps = gitops_apps(docs)
-    if project == "teknoir-cloud" and not release:
-        out.append(Finding("error", "release-unset", "no release SHA given for project teknoir-cloud (staging must follow a release)"))
-        return out
-    if release and not SHA40.match(release):
-        out.append(Finding("error", "release-unset", f"release '{release}' is not a 40-hex commit SHA"))
+    if not release:
+        return out                     # a PR (Kargo pin, a hand change): the Applications are not on a release yet
+    if not SHA40.match(release):
+        out.append(Finding("error", "release-invalid", f"release '{release}' is not a 40-hex commit SHA"))
         return out
     for a in apps:
         tr = a["spec"]["source"].get("targetRevision", "")
-        if release and tr != release:
+        if tr != release:
             out.append(Finding("error", "revision-not-release",
                                f"targetRevision is '{tr}', want the release {release[:12]}", f"Application/{a['metadata']['name']}"))
     return out
@@ -516,8 +424,6 @@ def lint(docs, *, policy: dict, release: str | None, project: str, repo_root: st
     out += check_images(collect_images(docs), policy, today, verbose)
     out += check_crs(docs, "error" if policy.get("cr_revisions") == "deny" else "warn")
     out += check_profiles(docs)
-    out += check_hub_audience(docs, policy)
-    out += check_portal_binding(docs, policy)
     return out
 
 
@@ -531,7 +437,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--today", help="YYYY-MM-DD (default: today, for the exception expiry)")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--quiet", action="store_true", help="only errors")
-    ap.add_argument("--only", help="comma list of finding codes: report (and fail on) only those, e.g. portal-controller-unchecked")
+    ap.add_argument("--only", help="comma list of finding codes: report (and fail on) only those, e.g. first-party-unpinned")
     ap.add_argument("-v", "--verbose", action="store_true", help="list every third-party image without a digest")
     a = ap.parse_args(argv)
     today = dt.date.fromisoformat(a.today) if a.today else dt.date.today()
