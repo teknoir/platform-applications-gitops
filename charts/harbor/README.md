@@ -106,7 +106,7 @@ master has no `harbor` client; admin + robot accounts), and `harbor-token-servic
 from cert-manager (`tokenServiceCert`, templates/token-service-cert.yaml).
 
 ### Configuration as code (`harborConfig`)
-`files/harbor-config.py` (PostSync hook + hourly CronJob `harbor-config`) reconciles:
+`files/harbor-config.py` (PostSync hook + CronJob `harbor-config` every 10 minutes) reconciles:
 - system settings (admin-only project creation, no self-registration);
 - proxy-cache upstreams and projects `dockerhub`, `ghcr`, `quay`, `k8s`, `gcr`, `nvcr` (all
   private; see [Pull-through cache](#pull-through-cache-for-the-cluster-and-the-robots));
@@ -115,7 +115,10 @@ from cert-manager (`tokenServiceCert`, templates/token-service-cert.yaml).
   starts at 75 % use, so the quotas total 700 GiB: `teknoir` 250, `ghcr` 150, `dockerhub` 100,
   `nvcr` 100, `quay` 40, `gcr` 30, `k8s` 30. Retention: `ci` keeps release/environment tags,
   the 15 newest pushes per repository and anything pulled in 30 days; `proxy` keeps what was
-  pulled in 30 days, digest-pinned (untagged) pulls included;
+  pulled in 7 days plus the 3 most recently cached artifacts per repository, digest-pinned
+  (untagged) pulls included. Set the rules per environment in `retentionPolicies`: an airgapped
+  Harbor (no upstream to fetch from again) keeps images until newer ones replace them
+  (`latestPushedK` only, never `nDaysSinceLastPull`), see the comment in values.yaml;
 - weekly GC (blobs only; `deleteUntagged: false`, untagged artifacts go through the retention rules), audit-log purge (30 days), weekly scan-all;
 - robot `robot$ci`, written as `teknoir-ci/harbor-ci-robot` (charts/ci grants the Job that
   Secret), robot `robot$nodes` (pull-only on the six proxies, never on `teknoir`), written as

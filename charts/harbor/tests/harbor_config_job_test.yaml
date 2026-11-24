@@ -113,6 +113,12 @@ tests:
           pattern: '"untagged": true'
       - matchRegex:
           path: data["config.json"]
+          pattern: '"template": "nDaysSinceLastPull",\s*"untagged": true,\s*"value": 7'
+      - matchRegex:
+          path: data["config.json"]
+          pattern: '"template": "latestPushedK",\s*"untagged": true,\s*"value": 3'
+      - matchRegex:
+          path: data["config.json"]
           pattern: '"teamspaceRobots"'
       - matchRegex:
           path: data["config.json"]

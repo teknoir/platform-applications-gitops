@@ -34,7 +34,8 @@ data:
   config.json: |
 {{ $config | toPrettyJson | indent 4 }}
 ---
-# After every sync (Harbor up), and hourly to correct drift and heal robot Secrets.
+# After every sync (Harbor up), and on harborConfig.schedule (every 10 minutes) to correct drift,
+# heal robot Secrets and give a new teamspace its pull robot.
 apiVersion: batch/v1
 kind: Job
 metadata:
