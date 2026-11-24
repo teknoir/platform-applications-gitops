@@ -101,8 +101,9 @@ kargo:
   enabled: true
   # Application kargo-config (the Kargo objects of this repository).
   config:
-    # Needs kargo.enabled too: the Kargo CRDs must exist before its Project and Stages sync.
-    enabled: false
+    # Needs kargo.enabled too: the Kargo CRDs must exist before its Project and Stages sync. On since P4.5
+    # (2026-11-24), one release after kargo.
+    enabled: true
 
 # Staging release guard (charts/release-guard, templates/release-guard.yaml): a
 # ValidatingAdmissionPolicy that lets only scripts/staging-release (ServiceAccount

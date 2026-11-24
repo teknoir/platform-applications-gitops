@@ -6,10 +6,10 @@ suite: Argo Rollouts, Kargo and kargo-config Applications
 templates:
   - templates/kargo.yaml
 tests:
-  - it: renders argo-rollouts and kargo with no value set (the real default since P4.5)
+  - it: renders argo-rollouts, kargo and kargo-config with no value set (the real default since P4.5)
     asserts:
-      - hasDocuments: {count: 2}
-      - matchRegex: {path: metadata.name, pattern: ^(argo-rollouts|kargo)$}
+      - hasDocuments: {count: 3}
+      - matchRegex: {path: metadata.name, pattern: ^(argo-rollouts|kargo|kargo-config)$}
 
   - it: renders nothing with every flag off
     set:
@@ -37,7 +37,7 @@ tests:
   - it: renders exactly the argo-rollouts and kargo Applications when both flags are on
     set:
       argoRollouts: {enabled: true}
-      kargo: {enabled: true}
+      kargo: {enabled: true, config: {enabled: false}}
     asserts:
       - hasDocuments: {count: 2}
       - isKind: {of: Application}
