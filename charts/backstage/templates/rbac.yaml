@@ -228,3 +228,44 @@ subjects:
   name: {{ .Values.name }}-api
   namespace: {{ .Release.Namespace }}
 {{- end }}
+{{- $fleet := .Values.fleet | default dict }}
+{{- $mirror := $fleet.registryMirror | default dict }}
+{{- if ($mirror.host | default "" | trim) }}
+{{- $mirrorSecret := $mirror.secret | default dict }}
+{{- $secretNamespace := $mirrorSecret.namespace | default "teknoir-system" }}
+{{- $secretName := $mirrorSecret.name | default "harbor-teamspace-pull" }}
+
+---
+# Harbor pull credentials for device credentials (fleet.registryMirror, plans/harbor-proxy-staging.md phase 1b):
+# the API hands a teamspace's robot password to tnctl bootstrap, from charts/harbor's one teamspace Secret. Get
+# on that Secret by name only, in the namespace it lives in (usually not this release's), never list or watch,
+# so a compromised Backstage cannot enumerate teamspace credentials.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Values.name }}-api-registry-mirror
+  namespace: {{ $secretNamespace }}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  resourceNames:
+  - {{ $secretName }}
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Values.name }}-api-registry-mirror
+  namespace: {{ $secretNamespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Values.name }}-api-registry-mirror
+subjects:
+- kind: ServiceAccount
+  name: {{ .Values.name }}-api
+  namespace: {{ .Release.Namespace }}
+{{- end }}

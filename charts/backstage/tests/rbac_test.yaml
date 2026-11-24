@@ -8,9 +8,9 @@ suite: backstage API service account RBAC (least privilege)
 templates:
   - templates/rbac.yaml
 tests:
-  - it: renders the cluster-wide role, its one binding and the teamspace role, and nothing else
+  - it: renders the cluster-wide role, its one binding, the teamspace role and the registry-mirror Role/RoleBinding
     asserts:
-      - hasDocuments: {count: 3}
+      - hasDocuments: {count: 5}
       - equal: {path: kind, value: ClusterRole}
         documentIndex: 0
       - equal: {path: kind, value: ClusterRoleBinding}

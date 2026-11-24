@@ -155,6 +155,8 @@ can yes patch users.teknoir.org
 can yes create users.teknoir.org
 can yes get resourcequotas -n "${TS}-vdev"
 can yes get deployments.apps -n "$HUB_NS"
+# the teamspace Harbor pull credentials (fleet.registryMirror): the one Secret, by name, in teknoir-system only
+can yes get secrets/harbor-teamspace-pull -n "$SYS_NS"
 
 echo "== no: no direct route to another identity, a pod, Secrets in bulk or RBAC"
 for ns in "$SYS_NS" "$HUB_NS" "$TS"; do
@@ -176,6 +178,8 @@ can no list secrets -n stunner-system
 can no list secrets -n "$TS"
 can no list secrets -A
 can no get secrets/other -n "$TS"
+can no list secrets -n "$SYS_NS"
+can no get secrets/harbor-teamspace-pull -n "$TS"
 can no get secrets/stunner-auth-secret -n stunner-system
 can no create secrets -n "$TS"
 can no create rolebindings.rbac.authorization.k8s.io -n "$TS"
