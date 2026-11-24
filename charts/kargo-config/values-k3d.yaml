@@ -5,7 +5,7 @@ autoPromotion:
   staging: true
   staging-verified: true
   # (f) adds wg-tunnel; (j) teknoir-desktop and rehearsal-k; (g) empties it again.
-  pins: {}
+  pins: {wg-tunnel: true}
 verification:
   browser:
     # Stub: busybox's default command (sh, no stdin) exits 0 at once. Proves the second AnalysisTemplate, the revision
