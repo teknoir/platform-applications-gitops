@@ -31,8 +31,9 @@ The project allowlist is here, not in values, for the same reason as app-of-apps
 environment branches are kept in step by cherry-pick, and a cherry-pick of this file together with a
 release value onto teknoir-online (production) or teknoir-local (airgapped) must still follow the
 branch there. There is deliberately NO `required` anywhere: a failed render of the root would stop
-every Application of the environment from syncing. The release lint (scripts/check-pins.py) enforces
-that staging has `release` set, not the template.
+every Application of the environment from syncing. The release lint (scripts/check-pins.py) checks the
+release only when --release is given (scripts/staging-release and CI always give it); the template
+does not enforce it.
 */}}
 {{- define "app-of-apps.revision" -}}
 {{- $releaseProjects := list "teknoir-cloud" -}}

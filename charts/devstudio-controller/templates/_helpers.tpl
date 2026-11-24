@@ -40,8 +40,6 @@ helm.sh/chart: {{ include "devstudio-controller.chart" . }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
-app: {{ include "devstudio-controller.name" . }}
-kustomize.component: {{ include "devstudio-controller.name" . }}
 {{- end }}
 
 {{/*

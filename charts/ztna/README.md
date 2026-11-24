@@ -78,10 +78,9 @@ and the admission policies against a throwaway local apiserver).
   visible when no pod carries the leader label. PrometheusRule `wg-hub` (`metrics.prometheusRule`) alerts on
   `WgHubLeaderCount` (`(sum(wghub_leader) or vector(0)) != 1` for `leaderFor`, default 5m, above `leaseDuration` so a normal
   failover is no incident), `WgHubRolePatchErrors` and `WgHubReplicaNotScraped`.
-  **Rollback:** do not repin `hub.image.tag` alone. `scripts/pin-image wg-hub=<tag>` resets `hub.image.leaderElection` to
-  false (and `--leader-election` sets it true for an image with leader election), so the render stops instead of leaving
-  Service `wg-hub` without endpoints; to go back to an image without leader election, switch `hub.leaderElection.enabled`
-  and `hub.replicas` off first (selector without the role label, one replica), then repin.
+  **Rollback:** every wg-tunnel main build has leader election, so `scripts/pin-image wg-hub=<tag>` changes only the tag
+  and `hub.image.leaderElection` stays true. To go back to an image without leader election, switch
+  `hub.leaderElection.enabled` and `hub.replicas` off first (selector without the role label, one replica), then repin.
 
 ## The flags watcher (`templates/flags.yaml`)
 
@@ -270,10 +269,8 @@ with in-memory sessions: a restart drops every tunnel and clients re-establish t
   (`wghub_user_tokens_total{audience="legacy"}`, log field `token_audience`), `enforce` (also the default when unset)
   refuses it; any other value fails the render. The `azp` pin (`hub.allowedAZP`) stays.
 - The hub image must contain the audience check (wg-tunnel `ztna-audience` merge commit or later). An older pin ignores
-  both env vars, so `enforce` would only look enforced. `scripts/check-pins.py` (run by `scripts/staging-release`) fails
-  both `transition` and `enforce` on any tag that is not in the allowlist `release-policy.yaml` `audience_hub_tags`
-  (fail closed: old main builds, branch builds and unknown tags all fail). When you re-pin the hub to the
-  ztna-audience merge commit or a descendant, add its tag to that list in the same change. After the release, the negative test (a downscoped main token POSTed to `wg.<domain>/v1/client/session` must give 401) is a hard
+  both env vars, so `enforce` would only look enforced. Images are built from wg-tunnel `main` only since CI v4, so every
+  new tag contains the check; re-pin the hub to the ztna-audience merge commit or a descendant. After the release, the negative test (a downscoped main token POSTed to `wg.<domain>/v1/client/session` must give 401) is a hard
   gate before `staging-release --verified`.
 - Rollback: set `audienceMode: transition` (or re-pin the previous image). Reverting the realm change alone is not
   enough: `teknoir-cli` must keep `teknoir-ztna` in `optionalClientScopes` while tnctl >= 0.1.2 is in use (the scope

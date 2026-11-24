@@ -348,16 +348,6 @@ class PortalBindings(Base):
         self.assertIn("checking the teknoir-portal RoleBindings", self.out_text())
         self.assertTrue(all(v == "get" for v in fake.verbs()), fake.verbs())
 
-    def test_an_image_without_the_portal_code_fails_the_dry_run_through_the_lint(self):
-        fake = self.fake()
-        fake.extra_docs[self.repo.sha("c4")]["pc.yaml"] = self.controller("sha-fd269839")
-        t, rc = self.plan(fake, self.repo.sha("c4"))
-        self.assertEqual(rc, 1)
-        self.assertIn("portal-controller-unchecked", self.out_text())
-        self.assertIn("sha-fd269839", self.out_text())
-        with self.assertRaisesRegex(L.Refuse, "preflight errors"):
-            self.tool(fake).cmd_yes(self.args(yes=self.repo.sha("c4"), by="s", reason="r", timeout=60))
-
     def test_a_teamspace_without_the_binding_fails_the_dry_run_and_yes(self):
         fake = self.fake(bound=("ts-a",))
         t, rc = self.plan(fake, self.repo.sha("c4"))

@@ -132,8 +132,9 @@ helm template gateway-api-crds "${CHARTS}/gateway-api-crds" --namespace kube-sys
 helm template stunner "${CHARTS}/stunner" --namespace stunner-system --include-crds >"$TMP/stunner.yaml"
 helm template ztna "${CHARTS}/ztna" --namespace teknoir-ztna --set hub.image.tag="$IMG_TAG" --set hub.image.leaderElection=true >"$TMP/ztna.yaml"
 helm template ztna "${CHARTS}/ztna" --namespace teknoir-ztna --set hub.image.tag="$IMG_TAG" --set hub.image.leaderElection=true --set hub.replicas=1 >"$TMP/ztna-one.yaml"
-# The committed values (what ArgoCD renders): the only allowed failure is the leader-election pin gate (the
-# pin has not been repinned to an image with leader election yet: the render stops instead of leaving wg-hub without endpoints)
+# The committed values (what ArgoCD renders): the pin has leader election (sha-82cf91a) and hub.image.leaderElection
+# is true, so they render. The failure branches stay for a re-pin to an image without leader election: the render
+# stops instead of leaving wg-hub without endpoints.
 if helm template ztna "${CHARTS}/ztna" --namespace teknoir-ztna >"$TMP/ztna-values.yaml" 2>"$TMP/ztna-values.err"; then
   ok "committed values render (hub.image.leaderElection confirms the pin)"
 elif grep -q "hub.image.leaderElection: true" "$TMP/ztna-values.err"; then

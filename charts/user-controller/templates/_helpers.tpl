@@ -42,7 +42,6 @@ app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/component: manager
 app.kubernetes.io/created-by: user-controller
-teknoir.org/part-of: user-controller
 {{- end }}
 
 {{/*

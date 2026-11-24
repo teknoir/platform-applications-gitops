@@ -12,24 +12,18 @@ hub:
     # REQUIRED, no default: '<immutable tag>@sha256:<manifest digest>' of the wg-hub image
     # (CI pushes sha-<commit>). Set it before flipping ztna.enabled in charts/app-of-apps;
     # an empty tag fails the render of this chart (nothing half-configured is applied).
-    # wg-tunnel 41a0c20 (main: rev 3 zero-touch activation, revoke notice, k3s Service
-    # discovery, agent race fixes #4): hub + flags watcher, index digest.
-    # MUST be re-pinned (scripts/pin-image wg-hub=sha-<commit>) to the wg-tunnel ztna-audience merge commit or later
-    # before this is released: sha-9c9bdae predates the audience check and ignores KEYCLOAK_AUDIENCE*. Release lint
-    # (scripts/check-pins.py) fails audienceMode transition and enforce on any tag not listed in release-policy.yaml
-    # audience_hub_tags (an allowlist: list the new tag there when you re-pin).
+    # The current pin, wg-tunnel #8 (b563d89, live as leader since staging-20261022.6), has the leader election
+    # and planned handover, the KEYCLOAK_AUDIENCE* (audience) check, zero-touch activation, revoke notice, k3s
+    # Service discovery and the agent race fixes. Re-pin with scripts/pin-image wg-hub=sha-<commit>.
+    # An older image without leader election ignores LEADER_ELECTION and never sets ztna.teknoir.org/hub-role,
+    # so the Service wg-hub (selector hub-role=leader) would have no endpoints (full ZTNA outage). The chart
+    # enforces it: the render fails until leaderElection below is true.
     # Previous pin: sha-37fe475@sha256:4a405ccced8b389e254d3f9965b0c2ea35ca1b0a77bb6c42c17b076b7b27f58b
-    # hub-ha: this pin MUST be replaced by an image built from wg-tunnel with leader election (branch
-    # hub-ha, hub.leaderElection) before this stage is released. An older image ignores LEADER_ELECTION and never
-    # sets ztna.teknoir.org/hub-role, so the Service wg-hub (selector hub-role=leader) would have no endpoints
-    # (full ZTNA outage). The chart enforces it: the render fails until leaderElection below is true.
-    # wg-tunnel #8 (b563d89): leader election and planned handover; live as leader since staging-20261022.6.
     tag: "sha-82cf91a@sha256:fc8e40e8785b856684c1f12a396f737ada817e373b13c59d8c1a7d8422b27472"
-    # Set to true TOGETHER WITH the repin above, and only when the image is built from wg-tunnel with leader
-    # election (it sets ztna.teknoir.org/hub-role). The render fails while hub.leaderElection.enabled is on and
-    # this is false, so an image that never labels a pod cannot leave wg-hub without endpoints.
-    # scripts/pin-image wg-hub=<tag> --write resets this to false on every tag change; pass --leader-election
-    # for an image with leader election. Roll back by switching hub.leaderElection.enabled (and replicas) off first.
+    # The image sets ztna.teknoir.org/hub-role when leader election is on. Every wg-tunnel main build has leader
+    # election, so this stays true across re-pins: the render fails while hub.leaderElection.enabled is on and this
+    # is false, so an image that never labels a pod cannot leave wg-hub without endpoints. Roll back by switching
+    # hub.leaderElection.enabled (and replicas) off first.
     leaderElection: true
     pullPolicy: IfNotPresent
   imagePullSecrets:

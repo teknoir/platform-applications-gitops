@@ -1,0 +1,177 @@
+name: ci
+
+# The required checks of this repository (they replace the in-cluster CI of
+# charts/ci/files/repos/platform-applications-gitops.yaml on GitHub):
+#   render         scripts/staging-render.sh of the PR head (or the pushed commit)
+#   helm-unittest  every charts/*/tests suite (scripts/ci/helm-unittest.sh)
+#   check-pins     scripts/check-pins.py over the render, with RELEASE set
+#   kubeconform    the render against the kubeconform schemas (scripts/ci/kubeconform.sh)
+#   scripts-tests  scripts/tests/run.sh and the harbor scripts tests
+# A pull request gets every check: CI always renders with the PR head SHA as the release (RELEASE
+# below), so the revision check passes for any change; a Kargo pin PR needs no release parameter of its
+# own.
+
+on:
+  pull_request:
+  push:
+    branches: [main, teknoir-cloud]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  render:
+    name: render
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RELEASE: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5
+        with:
+          version: v3.20.2
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+
+      - name: Install PyYAML
+        run: pip install PyYAML==6.0.2
+
+      - name: Helm repositories
+        run: scripts/ci/helm-repos.sh
+
+      - name: Render
+        run: |
+          set -euo pipefail
+          scripts/staging-render.sh --tree . --release "$RELEASE" --out "$RUNNER_TEMP/render" \
+            --cache "$RUNNER_TEMP/render-cache" --plugins auto
+          test ! -s "$RUNNER_TEMP/render/failed"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: render
+          path: ${{ runner.temp }}/render
+          retention-days: 3
+
+  check-pins:
+    name: check-pins
+    needs: render
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RELEASE: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+
+      - name: Install PyYAML
+        run: pip install PyYAML==6.0.2
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: render
+          path: ${{ runner.temp }}/render
+
+      # The environment branch's project: check-pins checks the release only for teknoir-cloud (staging).
+      - name: Project
+        run: echo "PROJECT=$(awk '/^project:/{print $2}' charts/app-of-apps/values.yaml)" >> "$GITHUB_ENV"
+
+      - name: check-pins
+        run: python3 scripts/check-pins.py --release "$RELEASE" --project "$PROJECT" --repo-root . "$RUNNER_TEMP/render"
+
+  kubeconform:
+    name: kubeconform
+    needs: render
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+
+      - name: Install PyYAML
+        run: pip install PyYAML==6.0.2
+
+      - name: Install kubeconform
+        run: scripts/ci/install-kubeconform.sh "$RUNNER_TEMP/bin"
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: render
+          path: ${{ runner.temp }}/render
+
+      - name: kubeconform
+        run: scripts/ci/kubeconform.sh "$RUNNER_TEMP/render"
+
+  helm-unittest:
+    name: helm-unittest
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5
+        with:
+          version: v3.20.2
+
+      - name: Helm repositories
+        run: scripts/ci/helm-repos.sh
+
+      - name: Install helm-unittest
+        run: helm plugin install https://github.com/helm-unittest/helm-unittest --version v1.1.2
+
+      - name: helm unittest
+        run: scripts/ci/helm-unittest.sh
+
+  scripts-tests:
+    name: scripts-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 1
+
+      - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5
+        with:
+          version: v3.20.2
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends luajit
+          pip install PyYAML==6.0.2
+          helm plugin install https://github.com/helm-unittest/helm-unittest --version v1.1.2
+
+      - name: Helm repositories
+        run: scripts/ci/helm-repos.sh
+
+      - name: Install kubeconform
+        run: scripts/ci/install-kubeconform.sh "$RUNNER_TEMP/bin"
+
+      - name: scripts/tests/run.sh
+        run: CI=1 bash scripts/tests/run.sh
+
+      # The harbor scripts tests render the harbor chart's subchart, which is not in the repository.
+      - name: helm dependency build charts/harbor
+        run: helm dependency build charts/harbor
+
+      - name: harbor scripts tests
+        run: CI=1 python3 -m unittest discover -s charts/harbor/tests -p 'test_*.py'
