@@ -206,6 +206,9 @@ clients:
   # with PKCE S256, no secret. Kargo verifies the ID token's aud against this client id (Keycloak's default) and
   # maps group admin to Kargo admin (api.oidc.admins). Turning kargo.enabled off does not delete the client
   # (no-delete import): disable or delete it in Keycloak by hand.
+  # fullScopeAllowed false (both Kargo clients): their tokens carry no realm or client roles (Kargo needs only
+  # the groups claim, a group-membership mapper), so a token the third-party SPA keeps in browser storage cannot
+  # be refreshed into an access token with realm role admin (Keycloak admin API) or an edge-accepted audience.
   - clientId: kargo
     name: Kargo (kargo.{{ $d }})
     enabled: true
@@ -215,6 +218,7 @@ clients:
     implicitFlowEnabled: false
     directAccessGrantsEnabled: false
     serviceAccountsEnabled: false
+    fullScopeAllowed: false
     rootUrl: https://kargo.{{ $d }}
     redirectUris: ["https://kargo.{{ $d }}/login"]
     webOrigins: ["https://kargo.{{ $d }}"]
@@ -235,6 +239,7 @@ clients:
     implicitFlowEnabled: false
     directAccessGrantsEnabled: false
     serviceAccountsEnabled: false
+    fullScopeAllowed: false
     redirectUris: ["http://localhost:8085/auth/callback"]
     attributes:
       pkce.code.challenge.method: S256

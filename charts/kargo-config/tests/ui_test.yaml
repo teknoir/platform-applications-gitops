@@ -12,7 +12,8 @@ tests:
       - equal: {path: spec.gateways, value: [istio-system/teknoir-gateway]}
       - equal: {path: "spec.http[0].route[0].destination.host", value: kargo-api.kargo.svc.cluster.local}
       - equal: {path: "spec.http[0].route[0].destination.port.number", value: 80}
-      - equal: {path: "spec.http[0].timeout", value: 0s}
+      # no route timeout key at all: Istio rejects timeout: 0s (duration must be greater than 1ms)
+      - notExists: {path: "spec.http[0].timeout"}
   - it: renders nothing with ui.enabled false
     set:
       ui: {enabled: false}
