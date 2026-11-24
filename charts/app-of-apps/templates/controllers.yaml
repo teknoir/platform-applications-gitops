@@ -1,4 +1,4 @@
----
+{{- if not (.Values.rehearsal).enabled }}---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -195,4 +195,4 @@ spec:
         duration: 30s
         factor: 2
         maxDuration: 5m
-{{- end -}}
+{{- end -}}{{- end -}}

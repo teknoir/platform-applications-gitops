@@ -1,4 +1,4 @@
----
+{{- if not (.Values.rehearsal).enabled }}---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -46,3 +46,4 @@ spec:
       name: monitoring-kube-prome-admission
       jqPathExpressions:
         - '.webhooks[]?.clientConfig.caBundle'
+{{- end }}

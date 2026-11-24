@@ -164,6 +164,11 @@ spec:
     path: charts/kargo-config
     repoURL: https://github.com/teknoir/platform-applications-gitops
     targetRevision: {{ include "app-of-apps.revision" . }}
+{{- if (.Values.rehearsal).enabled }}
+    # P4.3 rehearsal only (branch rehearsal/kargo, never main).
+    helm:
+      valueFiles: [values-rehearsal.yaml, values-k3d.yaml]
+{{- end }}
   syncPolicy:
     syncOptions:
       # The Kargo CRs are unknown to the API server until the kargo Application installed the CRDs.

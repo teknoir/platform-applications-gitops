@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rehearsal-fixture
+spec:
+  replicas: 1
+  progressDeadlineSeconds: {{ .Values.progressDeadlineSeconds }}
+  selector:
+    matchLabels: {app: rehearsal-fixture}
+  template:
+    metadata:
+      labels: {app: rehearsal-fixture}
+      annotations:
+        rehearsal.teknoir.org/release: {{ .Values.release | quote }}
+        rehearsal.teknoir.org/marker: {{ .Values.marker | quote }}
+    spec:
+      terminationGracePeriodSeconds: 1
+      containers:
+        - name: fixture
+          image: {{ .Values.image }}
+          command: ["sh", "-c", "touch /tmp/ready && exec sleep 2147483647"]
+          readinessProbe:
+            exec: {command: ["cat", "/tmp/ready"]}
+            initialDelaySeconds: {{ .Values.readyDelaySeconds }}
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 5m, memory: 8Mi}
+            limits: {memory: 16Mi}

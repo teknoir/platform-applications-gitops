@@ -93,6 +93,11 @@ jobs:
       - name: check-pins
         run: python3 scripts/check-pins.py --release "$RELEASE" --project "$PROJECT" --repo-root . "$RUNNER_TEMP/render"
 
+      # P4.3 (f), rehearsal branch only: while rehearsal/red-pin-prs exists, every Kargo pin PR fails check-pins.
+      - name: rehearsal red switch
+        if: github.base_ref == 'rehearsal/kargo' && startsWith(github.head_ref, 'kargo/rehearsal/')
+        run: test ! -e rehearsal/red-pin-prs
+
   kubeconform:
     name: kubeconform
     needs: render
@@ -198,7 +203,7 @@ jobs:
   # target the branch settings.yml names.
   settings-branch:
     name: settings-branch
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && !startsWith(github.base_ref, 'rehearsal/')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

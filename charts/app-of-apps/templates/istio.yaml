@@ -1,4 +1,4 @@
----
+{{- if not (.Values.rehearsal).enabled }}---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -34,3 +34,4 @@ spec:
       jsonPointers:
         - /webhooks/0/clientConfig/caBundle
         - /webhooks/0/failurePolicy
+{{- end }}

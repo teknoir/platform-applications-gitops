@@ -1,0 +1,6 @@
+apiVersion: v2
+name: rehearsal-fixture
+description: P4.3 rehearsal fixture (branch rehearsal/kargo only, never merged to main).
+type: application
+version: 0.0.1
+appVersion: "0.0.1"

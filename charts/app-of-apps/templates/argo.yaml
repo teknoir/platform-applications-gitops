@@ -1,4 +1,4 @@
----
+{{- if not (.Values.rehearsal).enabled }}---
 # Argo CD manages itself (charts/argo). The Helm release name argo is the one teknoir/infra
 # scripts/deploy-argo.sh installs (as the k3s manifest teknoir-argo.yaml), so the render keeps every
 # name (argo-argocd-*) and this Application adopts the running install in place. Once it is Synced,
@@ -51,4 +51,5 @@ spec:
         duration: 10s
         factor: 2
         maxDuration: 3m
+{{- end }}
 {{- end }}

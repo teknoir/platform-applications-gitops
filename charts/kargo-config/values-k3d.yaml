@@ -1,0 +1,39 @@
+# P4.3 rehearsal on k3d ONLY (branch rehearsal/kargo, never main). Third values file of the kargo-config Application
+# when the root sets rehearsal.enabled=true. A change takes effect once Stage staging has promoted the commit carrying
+# it (kargo-config follows the root's release).
+autoPromotion:
+  staging: true
+  staging-verified: true
+  # (f) adds wg-tunnel; (j) teknoir-desktop and rehearsal-k; (g) empties it again.
+  pins: {}
+verification:
+  browser:
+    # Stub: busybox's default command (sh, no stdin) exits 0 at once. Proves the second AnalysisTemplate, the revision
+    # arg and the secretKeyRef wiring (dummy Secret staging-test-user); never reaches a real site.
+    image: docker.io/library/busybox:1.37.0
+    baseURL: http://rehearsal.invalid
+  prometheus:
+    # Stub: a bare Prometheus with no targets (k3d namespace rehearsal-prom); `or vector(0)` makes every sample 0.
+    address: http://prometheus.rehearsal-prom.svc:9090
+    namespaces: [rehearsal-fixture]
+    interval: 30s
+    count: 2
+# Replaces the groups list of values.yaml (Helm replaces lists): only images the rehearsal can poll.
+groups:
+  - name: wg-tunnel
+    enabled: true
+    sameCommit: true
+    images:
+      - {component: wg-hub, poll: ghcr.io/teknoir/wg-hub, repository: ghcr.io/teknoir/wg-hub, key: hub.image.tag, style: tag}
+      - {component: wg-agent, poll: ghcr.io/teknoir/wg-agent, repository: ghcr.io/teknoir/wg-agent, key: ztna.agentImage, style: ref}
+      - {component: wg-gateway, poll: ghcr.io/teknoir/wg-gateway, repository: ghcr.io/teknoir/wg-gateway, key: ztna.gatewayImage, style: ref}
+  - name: teknoir-desktop
+    enabled: true
+    sameCommit: false
+    images:
+      - {component: teknoir-desktop-agent, poll: ghcr.io/teknoir/teknoir-desktop/council, repository: ghcr.io/teknoir/teknoir-desktop/council, key: desktop.agent.image, style: ref}
+  - name: rehearsal-k
+    enabled: false
+    sameCommit: false
+    images:
+      - {component: rehearsal-k, poll: 10.43.250.250:5000/rehearsal/k, repository: 10.43.250.250:5000/rehearsal/k, key: image.tag, style: tag}

@@ -1,0 +1,30 @@
+{{- /* P4.3 rehearsal only (branch rehearsal/kargo, never main): a tiny in-repo child the drills make slow (c) or broken (d). */ -}}
+{{- if (.Values.rehearsal).enabled }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: rehearsal-fixture
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  destination:
+    namespace: rehearsal-fixture
+    server: https://kubernetes.default.svc
+  project: {{ .Values.project }}
+  source:
+    path: charts/rehearsal-fixture
+    repoURL: https://github.com/teknoir/platform-applications-gitops
+    targetRevision: {{ include "app-of-apps.revision" . }}
+    helm:
+      parameters:
+        - name: release
+          value: {{ include "app-of-apps.revision" . | quote }}
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+    automated:
+      prune: true
+      selfHeal: true
+      enabled: true
+{{- end }}

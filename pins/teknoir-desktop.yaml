@@ -15,4 +15,4 @@ desktop:
     # ghcr.io/teknoir/teknoir-desktop:main-20261123-082724-council@sha256:4f1a01a88d0c6abac8440e5cd03772a52795db538135be00b1fe22276946624c;
     # before that sha-ca46a99c-council (rc.4), sha-32f6fc91-council (rc.3), sha-bb362914-council (rc.2),
     # and ghcr.io/teknoir/teknoir-desktop:sha-dec806c1-agent.
-    image: "ghcr.io/teknoir/teknoir-desktop/council:sha-941e5155@sha256:2a1eba90d5405d7c37c1fbb98d4b58db16b5482bd88235db45c4e52223ea7347"  # the teknoir-desktop council image (make image-council, with the released tnctl)
+    image: "ghcr.io/teknoir/teknoir-desktop/council:sha-9df98cbf@sha256:65c3b0402eaddf9a65d40eba06893fa59ab0d01f4adb3e903b36e78386a12540"  # the teknoir-desktop council image (make image-council, with the released tnctl)
