@@ -1,0 +1,160 @@
+# Values of charts/kargo-config: the Kargo objects of staging (plans/cicd/proposal-v4.md 6.1/6.2,
+# plans/cicd/v4/p42-spec.md section 4). Rendered only by the kargo-config Application
+# (charts/app-of-apps/templates/kargo.yaml), which renders only on teknoir-cloud with kargo.enabled.
+#
+# Inert by default: no gitops-main Warehouse polls, every pin group is disabled in scripts/images.yaml (only
+# wg-tunnel's public images are on), and every auto-promotion is off, so Kargo creates a Promotion only when a
+# human asks for one (`kargo promote`). P6.1/P6.2 turn the groups and the policies on, one reviewed PR each.
+
+# The Kargo project: the cluster-scoped Project and the namespace every object below lives in.
+project: platform
+
+gitops:
+  # The repository Kargo clones for pin pull requests and tags for verified releases.
+  repoURL: https://github.com/teknoir/platform-applications-gitops.git
+  # Branch the pin Stages clone and open their pull requests against (a rehearsal overrides it).
+  branch: main
+  # The pin branch is <pinBranchPrefix>/<promotion name>; one prefix per line so rehearsals never collide.
+  pinBranchPrefix: kargo/promotion
+  # Tag the staging-verified Stage pushes on the Freight commit once the staging Stage verified it.
+  verifiedTagPrefix: verified/
+  # How the tag is stamped: time = <prefix><UTC yyyymmddThhmmssZ>-<sha8> (one tag per promotion, and the
+  # staging-alert watcher can tell two verifications of the same commit apart);
+  # none = <prefix><sha8> (the P4.3 (e) fallback if the ruleset or the PAT forbids the timestamped form).
+  verifiedTagStamp: time
+  # Author of the commits and tags Kargo makes (git-clone config.author; 1.12 has no author on git-commit).
+  author:
+    name: "Kargo (teknoir)"
+    email: "kargo@teknoir.ai"
+
+warehouses:
+  # Poll this repository's branch for commits. Off: nothing promotes without a human until P6.
+  gitopsMain:
+    enabled: false
+    interval: 2m
+  # The image Warehouses img-<group>, one per enabled group of `groups`.
+  images:
+    interval: 5m
+    discoveryLimit: 5
+
+pinStages:
+  # One Stage pin-<group> per enabled group: it pins that group's images in pins/<group>.yaml and opens a pull
+  # request (merging the PR is the promotion; the release then ships it).
+  enabled: true
+
+# ProjectConfig.spec.promotionPolicies, one per Stage. Off: Kargo never promotes on its own.
+autoPromotion:
+  staging: false
+  staging-verified: false
+  # group -> bool. A missing group is off (P6.1 enables one group per reviewed PR).
+  pins: {}
+
+staging:
+  # P4.3 (b) fallback: also set the root Application's Helm parameter `release` to the Freight commit (besides
+  # targetRevision). argocd-update's only Helm knob in 1.12.6 is source.helm.images[] (a key/value Helm
+  # parameter, despite its name), see templates/stage-staging.yaml.
+  setReleaseParam: false
+
+verification:
+  # The root Application the staging Stage syncs (argocd-update) and the revision-check Job reads.
+  rootApp:
+    name: app-of-apps
+    namespace: teknoir-system
+  # Applications listed in the root's status.resources that the revision check skips (they are not part of a
+  # release: cliproxyapi is the CLI proxy, deployed on its own).
+  excludeApps: [cliproxyapi]
+  # Destination server of the devhost-ci Applications (they run on the dev-host cluster, not on r415): their
+  # revision is checked, their sync status and health are not. Empty: no such Application.
+  devhostCiServer: ""
+  # The profile-controller ConfigMap in rootApp.namespace whose PLUGIN_CHART_VERSION every profile-plugin
+  # Application must follow. The revision-check Role may read this one ConfigMap (resourceNames) and nothing
+  # else, and the script gets the same name as env PLUGIN_CONFIGMAP: one value, both places.
+  pluginConfigMap:
+    name: profile-controller-config
+  # sh + jq + kubectl for the revision-check Job (an index digest, like every pinned image; mirrored on Harbor
+  # and the dev host).
+  kubectlImage: docker.io/alpine/k8s:1.34.11@sha256:0382123ab8ae17d8da5d43cc299242933eb012cfbe56787b43731c942c3eed80
+  browser:
+    # The Playwright verification image (verify/, built by .github/workflows/verify-image.yml and imported into
+    # the rehearsal cluster). Empty: no browser metric (staging verifies with revision-check only until P4.2
+    # section 6 has built the image).
+    image: ""
+    # Secret with the staging test user's Keycloak sign-in, keys username and password (hand-piped, never in
+    # git). The Job reads it with env secretKeyRef.
+    secretName: staging-test-user
+    baseURL: https://teknoir.cloud
+  prometheus:
+    # Address of an in-cluster Prometheus that serves kube-state-metrics (the soak metric). Empty: no soak.
+    # It must be reachable WITHOUT mTLS: teknoir-system is STRICT mTLS and the Argo Rollouts controller (which
+    # queries this address for the metric) has no Istio sidecar, so a plain in-cluster Prometheus Service on
+    # the mesh answers it with a TLS handshake failure and every soak AnalysisRun fails. P4.2 sets no such
+    # address: the soak metric stays off until an out-of-mesh scrape endpoint exists.
+    address: ""
+    # Namespaces whose pod restarts the soak counts, joined with | into the PromQL regex.
+    namespaces: [teknoir-system]
+    interval: 1m
+    count: 10
+
+# The image groups of scripts/images.yaml (section 1), in its order: for every group a Warehouse img-<group>
+# when enabled and a Stage pin-<group> when pinStages.enabled, and a promotion policy always.
+# scripts/tests/test_images_yaml.py asserts this block equals scripts/images.yaml.
+groups:
+  - name: backstage
+    enabled: false
+    sameCommit: true
+    images:
+      - {component: backstage-app, poll: harbor.teknoir.cloud/teknoir/backstage-app, repository: ghcr.io/teknoir/backstage-app, key: backstage.image, style: ref}
+      - {component: backstage-api, poll: harbor.teknoir.cloud/teknoir/backstage, repository: ghcr.io/teknoir/backstage, key: backstageApi.image, style: ref}
+  - name: device-controller
+    enabled: false
+    sameCommit: false
+    images:
+      - {component: device-controller, poll: harbor.teknoir.cloud/teknoir/device-controller, repository: ghcr.io/teknoir/device-controller, key: image.tag, style: tag}
+  - name: profile-controller
+    enabled: false
+    sameCommit: false
+    images:
+      - {component: profile-controller, poll: harbor.teknoir.cloud/teknoir/profile-controller, repository: ghcr.io/teknoir/profile-controller, key: image.tag, style: tag}
+  - name: devstudio-controller
+    enabled: false
+    sameCommit: false
+    images:
+      - {component: devstudio-controller, poll: harbor.teknoir.cloud/teknoir/devstudio-controller, repository: ghcr.io/teknoir/devstudio-controller, key: image.tag, style: tag}
+  - name: user-controller
+    enabled: false
+    sameCommit: false
+    images:
+      - {component: user-controller, poll: harbor.teknoir.cloud/teknoir/user-controller, repository: ghcr.io/teknoir/user-controller, key: image.tag, style: tag}
+  - name: notebook-controller
+    enabled: false
+    sameCommit: false
+    images:
+      - {component: notebook-controller, poll: harbor.teknoir.cloud/teknoir/notebook-controller, repository: ghcr.io/teknoir/notebook-controller, key: image.tag, style: tag}
+  - name: teknoirbot-controller
+    enabled: false
+    sameCommit: false
+    images:
+      - {component: teknoirbot-controller, poll: harbor.teknoir.cloud/teknoir/teknoirbot-controller, repository: ghcr.io/teknoir/teknoirbot-controller, key: image.tag, style: tag}
+  - name: keycloak-theme
+    enabled: false
+    sameCommit: false
+    images:
+      - {component: keycloak-theme, poll: ghcr.io/teknoir/keycloak-theme, repository: ghcr.io/teknoir/keycloak-theme, key: keycloak.image.digest, style: digest}
+  - name: wg-tunnel
+    enabled: true
+    sameCommit: true
+    images:
+      - {component: wg-hub, poll: ghcr.io/teknoir/wg-hub, repository: ghcr.io/teknoir/wg-hub, key: hub.image.tag, style: tag}
+      - {component: wg-agent, poll: ghcr.io/teknoir/wg-agent, repository: ghcr.io/teknoir/wg-agent, key: ztna.agentImage, style: ref}
+      - {component: wg-gateway, poll: ghcr.io/teknoir/wg-gateway, repository: ghcr.io/teknoir/wg-gateway, key: ztna.gatewayImage, style: ref}
+  - name: web-terminal
+    enabled: false
+    sameCommit: false
+    images:
+      - {component: web-terminal, poll: ghcr.io/teknoir/web-terminal, repository: ghcr.io/teknoir/web-terminal, key: ztna.terminalImage, style: ref}
+  - name: teknoir-desktop
+    enabled: false
+    sameCommit: true
+    images:
+      - {component: teknoir-desktop, poll: ghcr.io/teknoir/teknoir-desktop, repository: ghcr.io/teknoir/teknoir-desktop, key: desktop.image, style: ref}
+      - {component: teknoir-desktop-agent, poll: ghcr.io/teknoir/teknoir-desktop/council, repository: ghcr.io/teknoir/teknoir-desktop/council, key: desktop.agent.image, style: ref}

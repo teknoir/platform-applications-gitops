@@ -1,0 +1,107 @@
+suite: harbor-config RBAC renders nothing into the Kargo project namespace
+# plans/cicd/v4/p42-spec.md section 5: the kargo robot's Secret (platform/harbor-read) and the Role and
+# RoleBinding that let teknoir-system/harbor-config get/update/patch it belong to charts/kargo-config, not to
+# this chart. The harbor chart only knows that Secret's namespace and name from values (harborConfig.config.
+# robots) and renders every object in its own release namespace; these suites pin that, document by document.
+templates:
+  - templates/harbor-config-rbac.yaml
+release:
+  name: harbor
+  namespace: teknoir-system
+tests:
+  - it: renders the three robot Secrets harbor-config writes here, and no harbor-read Secret
+    asserts:
+      - hasDocuments: {count: 7}
+
+  - it: the first robot Secret is teknoir-system/harbor-devhost-ci
+    documentIndex: 0
+    asserts:
+      - isKind: {of: Secret}
+      - equal: {path: metadata.name, value: harbor-devhost-ci}
+      - equal: {path: metadata.namespace, value: teknoir-system}
+
+  - it: the second robot Secret is teknoir-system/harbor-nodes-pull
+    documentIndex: 1
+    asserts:
+      - isKind: {of: Secret}
+      - equal: {path: metadata.name, value: harbor-nodes-pull}
+      - equal: {path: metadata.namespace, value: teknoir-system}
+
+  - it: the third robot Secret is teknoir-system/harbor-teamspace-pull
+    documentIndex: 2
+    asserts:
+      - isKind: {of: Secret}
+      - equal: {path: metadata.name, value: harbor-teamspace-pull}
+      - equal: {path: metadata.namespace, value: teknoir-system}
+
+  - it: the Role is in teknoir-system and grants nothing on the kargo robot's Secret in platform
+    documentIndex: 3
+    asserts:
+      - isKind: {of: Role}
+      - equal: {path: metadata.namespace, value: teknoir-system}
+      - lengthEqual: {path: 'rules[0].resourceNames', count: 3}
+      - notContains: {path: 'rules[0].resourceNames', content: harbor-read}
+
+  - it: the RoleBinding is in teknoir-system
+    documentIndex: 4
+    asserts:
+      - isKind: {of: RoleBinding}
+      - equal: {path: metadata.namespace, value: teknoir-system}
+
+  - it: the cluster-scoped Role and RoleBinding are not namespaced
+    documentIndex: 5
+    asserts:
+      - isKind: {of: ClusterRole}
+      - notExists: {path: metadata.namespace}
+
+  - it: the cluster-scoped RoleBinding is not namespaced
+    documentIndex: 6
+    asserts:
+      - isKind: {of: ClusterRoleBinding}
+      - notExists: {path: metadata.namespace}
+---
+suite: the config Jobs render in the release namespace, never in platform
+templates:
+  - templates/oidc-config-job.yaml
+release:
+  name: harbor
+  namespace: teknoir-system
+tests:
+  - it: renders its ServiceAccount, Role, RoleBinding, ConfigMap and Job in teknoir-system
+    asserts:
+      - hasDocuments: {count: 5}
+
+  - it: its Role is in teknoir-system
+    documentIndex: 1
+    asserts:
+      - isKind: {of: Role}
+      - equal: {path: metadata.namespace, value: teknoir-system}
+
+  - it: its RoleBinding is in teknoir-system
+    documentIndex: 2
+    asserts:
+      - isKind: {of: RoleBinding}
+      - equal: {path: metadata.namespace, value: teknoir-system}
+---
+suite: the registry auth Job renders in the release namespace, never in platform
+templates:
+  - templates/registry-auth-job.yaml
+release:
+  name: harbor
+  namespace: teknoir-system
+tests:
+  - it: renders its ServiceAccount, Role, RoleBinding, ConfigMap and Job in teknoir-system
+    asserts:
+      - hasDocuments: {count: 5}
+
+  - it: its Role is in teknoir-system
+    documentIndex: 1
+    asserts:
+      - isKind: {of: Role}
+      - equal: {path: metadata.namespace, value: teknoir-system}
+
+  - it: its RoleBinding is in teknoir-system
+    documentIndex: 2
+    asserts:
+      - isKind: {of: RoleBinding}
+      - equal: {path: metadata.namespace, value: teknoir-system}

@@ -82,6 +82,26 @@ ci:
 backstageNext:
   enabled: false
 
+# Argo Rollouts (plans/cicd/proposal-v4.md 6.1/6.2, charts/app-of-apps/templates/kargo.yaml): the controller
+# that runs the AnalysisRuns a Kargo Stage verification creates. Off: nothing renders until P4.3 rehearses the
+# stack on k3d. teknoir-cloud only (allowlist in the template), so a cherry-pick onto another environment branch
+# renders nothing.
+argoRollouts:
+  # Application argo-rollouts. On its own, one release before Kargo: Kargo looks for the Rollouts CRDs once, at
+  # startup, and never again (see the template header).
+  enabled: false
+
+# Kargo and kargo-config (charts/kargo-config: the Project, Warehouses, Stages and AnalysisTemplates). Off:
+# nothing renders until P4.3 rehearses the stack on k3d and a later release turns it on. teknoir-cloud only
+# (allowlist in the template), so a cherry-pick onto another environment branch renders nothing.
+kargo:
+  # Application kargo. Needs argoRollouts.enabled: it renders only with Rollouts already installed.
+  enabled: false
+  # Application kargo-config (the Kargo objects of this repository).
+  config:
+    # Needs kargo.enabled too: the Kargo CRDs must exist before its Project and Stages sync.
+    enabled: false
+
 # Staging release guard (charts/release-guard, templates/release-guard.yaml): a
 # ValidatingAdmissionPolicy that lets only scripts/staging-release (ServiceAccount
 # teknoir-system/staging-releaser), ArgoCD and profile-controller write ArgoCD Applications.

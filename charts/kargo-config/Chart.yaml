@@ -1,0 +1,10 @@
+---
+apiVersion: v2
+name: kargo-config
+description: >-
+  The Kargo objects of the platform-teknoir staging pipeline: Project platform, Warehouses, the
+  staging / staging-verified / pin-<group> Stages, their promotion steps and the verification
+  AnalysisTemplates.
+type: application
+version: 0.0.1
+appVersion: "1.0.0"

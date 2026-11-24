@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "GitTagConfig",
+  "type": "object",
+  "properties": {
+    "force": {
+      "type": "boolean",
+      "description": "Indicates whether to overwrite an existing tag of the same name. WARNING: Force overwriting tags is an unconventional use of tags and should be utilized only with extreme caution. Default is false.",
+      "default": false
+    },
+    "message": {
+      "type": "string",
+      "description": "The annotation message for the tag.",
+      "minLength": 1
+    },
+    "tag": {
+      "type": "string",
+      "description": "The tag to create in the repository.",
+      "minLength": 1
+    },
+    "path": {
+      "type": "string",
+      "description": "The path to a working directory of a local repository.",
+      "minLength": 1
+    }
+  },
+  "required": ["path", "tag", "message"]
+}

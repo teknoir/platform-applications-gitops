@@ -1,0 +1,108 @@
+# yamllint disable-file
+# A Helm template (Go template actions), not a YAML document.
+{{/*
+AnalysisTemplate revision-check: is the live GitOps state the commit the staging Stage just promoted?
+
+Kargo creates an AnalysisRun of this template after the argocd-update step; the AnalysisRun runs one Job
+(files/revision-check.sh through the ConfigMap below) with the ServiceAccount kargo-verify, which may read
+Applications and ConfigMaps in teknoir-system and nothing else. The Job polls for up to 8 minutes (Argo Rollouts'
+Job metric: count 1, failureLimit 0), exits 0 when every Application is Synced and Healthy at the revision, and
+otherwise prints one line per failing Application and exits 1; the Stage then reports Failed verification.
+*/}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kargo-verify
+  namespace: {{ .Values.project }}
+---
+# The revision check reads the root Application and its children, plus the profile-controller ConfigMap (the
+# plugin chart version). Read-only, in teknoir-system only.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kargo-verify
+  namespace: {{ .Values.verification.rootApp.namespace }}
+rules:
+  - apiGroups: [argoproj.io]
+    resources: [applications]
+    verbs: [get, list]
+  - apiGroups: [""]
+    resources: [configmaps]
+    # Only the one ConfigMap the script reads (verification.pluginConfigMap.name, env PLUGIN_CONFIGMAP).
+    resourceNames: [{{ .Values.verification.pluginConfigMap.name }}]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kargo-verify
+  namespace: {{ .Values.verification.rootApp.namespace }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: kargo-verify}
+subjects:
+  - {kind: ServiceAccount, name: kargo-verify, namespace: {{ .Values.project }}}
+---
+# The script runs from a ConfigMap (files/revision-check.sh), so a fix ships with the chart, not with an image.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: revision-check-script
+  namespace: {{ .Values.project }}
+data:
+  revision-check.sh: |
+{{ .Files.Get "files/revision-check.sh" | indent 4 }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: revision-check
+  namespace: {{ .Values.project }}
+spec:
+  args:
+    # Passed by the Stage (verification.args): the Freight commit, as a 40-hex SHA.
+    - name: revision
+  metrics:
+    - name: revision-check
+      count: 1
+      failureLimit: 0
+      provider:
+        job:
+          spec:
+            # 8 minutes of polling inside the script, plus scheduling: the Job is killed at 10.
+            activeDeadlineSeconds: 600
+            backoffLimit: 0
+            template:
+              spec:
+                serviceAccountName: kargo-verify
+                restartPolicy: Never
+                containers:
+                  - name: revision-check
+                    image: {{ .Values.verification.kubectlImage }}
+                    command: ["/bin/sh", "/scripts/revision-check.sh"]
+                    env:
+                      - name: REVISION
+                        value: {{ include "kargo-config.analysisArg.revision" "" | squote }}
+                      - name: ROOT_APP_NAME
+                        value: {{ .Values.verification.rootApp.name | quote }}
+                      - name: ROOT_APP_NAMESPACE
+                        value: {{ .Values.verification.rootApp.namespace | quote }}
+                      - name: EXCLUDE_APPS
+                        value: {{ join " " .Values.verification.excludeApps | quote }}
+                      - name: DEVHOST_CI_SERVER
+                        value: {{ .Values.verification.devhostCiServer | quote }}
+                      - name: GITOPS_REPO_URL
+                        value: {{ .Values.gitops.repoURL | quote }}
+                      # The profile-controller ConfigMap in the root Application's namespace; its
+                      # PLUGIN_CHART_VERSION key (charts/profile-controller templates/configmap.yaml) is the
+                      # version every profile-plugin Application must follow.
+                      - name: PLUGIN_CONFIGMAP
+                        value: {{ .Values.verification.pluginConfigMap.name | quote }}
+                      - name: PLUGIN_NAMESPACE
+                        value: {{ .Values.verification.rootApp.namespace | quote }}
+                    volumeMounts:
+                      - name: script
+                        mountPath: /scripts
+                        readOnly: true
+                volumes:
+                  - name: script
+                    configMap:
+                      name: revision-check-script

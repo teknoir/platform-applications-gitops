@@ -255,21 +255,33 @@ def check_images(images: list[ImageRef], policy: dict, today: dt.date, verbose: 
     return out
 
 
+def is_gitops_source(src: dict) -> bool:
+    return str(src.get("repoURL", "")).rstrip("/").endswith(GITOPS_SUFFIX)
+
+
+def gitops_sources(app: dict) -> list[tuple[int | None, dict]]:
+    """(index, source) of an Application whose repoURL is this repository: its single `source`, or each entry of
+    a multi-source `sources` list (the kargo Application's `ref: values` source, for one)."""
+    spec = app.get("spec") or {}
+    pairs: list[tuple[int | None, dict]] = []
+    if isinstance(spec.get("source"), dict) and is_gitops_source(spec["source"]):
+        pairs.append((None, spec["source"]))
+    for i, src in enumerate(spec.get("sources") or []):
+        if isinstance(src, dict) and is_gitops_source(src):
+            pairs.append((i, src))
+    return pairs
+
+
 def gitops_apps(docs: list[tuple[str, dict]]) -> list[dict]:
-    apps = []
-    for _, d in docs:
-        if d.get("kind") != "Application":
-            continue
-        src = (d.get("spec") or {}).get("source") or {}
-        if str(src.get("repoURL", "")).rstrip("/").endswith(GITOPS_SUFFIX):
-            apps.append(d)
-    return apps
+    return [d for _, d in docs if d.get("kind") == "Application" and gitops_sources(d)]
 
 
 def check_applications(docs: list[tuple[str, dict]], release: str | None, project: str) -> list[Finding]:
     """Every gitops Application of staging must follow the release. Only teknoir-cloud follows a release: the other
     environment branches follow their branch name (app-of-apps.revision), so their Applications are not checked.
-    A missing release (a pull request) is not an error either."""
+    A missing release (a pull request) is not an error either. Every source of this repository is checked: the
+    single `source`, and every entry of a multi-source `sources` list (an OCI chart's own targetRevision is not
+    this repository's)."""
     out = []
     if project != "teknoir-cloud":
         return out                     # teknoir-online, teknoir-local, ... follow their branch name
@@ -280,10 +292,13 @@ def check_applications(docs: list[tuple[str, dict]], release: str | None, projec
         out.append(Finding("error", "release-invalid", f"release '{release}' is not a 40-hex commit SHA"))
         return out
     for a in apps:
-        tr = a["spec"]["source"].get("targetRevision", "")
-        if tr != release:
-            out.append(Finding("error", "revision-not-release",
-                               f"targetRevision is '{tr}', want the release {release[:12]}", f"Application/{a['metadata']['name']}"))
+        name = a["metadata"]["name"]
+        for i, src in gitops_sources(a):
+            tr = src.get("targetRevision", "")
+            if tr != release:
+                where = f"Application/{name}" if i is None else f"Application/{name} sources[{i}]"
+                out.append(Finding("error", "revision-not-release",
+                                   f"targetRevision is '{tr}', want the release {release[:12]}", where))
     return out
 
 

@@ -1,0 +1,166 @@
+suite: Argo Rollouts, Kargo and kargo-config Applications
+# CI/CD v4 P4.2 (plans/cicd/v4/p42-spec.md section 3). All flags are off by default and teknoir-cloud only (the
+# allowlist in templates/kargo.yaml), so the staging release render is unchanged until a release turns a flag
+# on. The flags are separate and ordered: argoRollouts.enabled ships one release before kargo.enabled (the Kargo
+# controller looks for the Rollouts CRDs once, at startup), and kargo-config needs both kargo.enabled and
+# kargo.config.enabled: its Kargo CRs need the kargo Application's CRDs.
+templates:
+  - templates/kargo.yaml
+tests:
+  - it: renders nothing with no value set (the real default)
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: renders nothing with kargo.enabled alone, because Kargo needs Argo Rollouts first
+    set:
+      kargo: {enabled: true, config: {enabled: true}}
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: renders argo-rollouts alone, one release before Kargo
+    set:
+      argoRollouts: {enabled: true}
+    asserts:
+      - hasDocuments: {count: 1}
+      - isKind: {of: Application}
+      - equal: {path: metadata.name, value: argo-rollouts}
+
+  - it: renders exactly the argo-rollouts and kargo Applications when both flags are on
+    set:
+      argoRollouts: {enabled: true}
+      kargo: {enabled: true}
+    asserts:
+      - hasDocuments: {count: 2}
+      - isKind: {of: Application}
+      - matchRegex: {path: metadata.name, pattern: ^(argo-rollouts|kargo)$}
+
+  - it: every Application has a resources-finalizer and the project
+    set:
+      argoRollouts: {enabled: true}
+      kargo: {enabled: true}
+    asserts:
+      - equal: {path: metadata.finalizers, value: [resources-finalizer.argocd.argoproj.io]}
+      - equal: {path: spec.project, value: teknoir-cloud}
+
+  - it: argo-rollouts installs the Rollouts CRDs and the controller only
+    set:
+      argoRollouts: {enabled: true}
+    documentSelector:
+      path: metadata.name
+      value: argo-rollouts
+    asserts:
+      - equal: {path: spec.destination.namespace, value: argo-rollouts}
+      - equal: {path: spec.source.repoURL, value: https://argoproj.github.io/argo-helm}
+      - equal: {path: spec.source.chart, value: argo-rollouts}
+      - equal: {path: spec.source.targetRevision, value: 2.43.12}
+      - equal: {path: spec.source.helm.valuesObject.installCRDs, value: true}
+      - equal: {path: spec.source.helm.valuesObject.dashboard.enabled, value: false}
+      - equal: {path: spec.source.helm.valuesObject.notifications.notifiers, value: {}}
+      - equal: {path: spec.source.helm.valuesObject.notifications.templates, value: {}}
+      - equal: {path: spec.source.helm.valuesObject.notifications.triggers, value: {}}
+      - equal:
+          path: spec.syncPolicy.syncOptions
+          value:
+            - CreateNamespace=true
+            - ServerSideApply=true
+      - notExists: {path: spec.sources}
+      - equal:
+          path: spec.syncPolicy.retry
+          value: {limit: 10, backoff: {duration: 30s, factor: 2, maxDuration: 5m}}
+
+  - it: kargo is a multi-source Application (OCI chart plus this repository as the values source)
+    set:
+      argoRollouts: {enabled: true}
+      kargo: {enabled: true}
+    documentSelector:
+      path: metadata.name
+      value: kargo
+    asserts:
+      - equal: {path: spec.destination.namespace, value: kargo}
+      - notExists: {path: spec.source}
+      - equal: {path: 'spec.sources[0].repoURL', value: ghcr.io/akuity/kargo-charts}
+      - equal: {path: 'spec.sources[0].chart', value: kargo}
+      - equal: {path: 'spec.sources[0].targetRevision', value: 1.12.6}
+      - equal:
+          path: 'spec.sources[0].helm.valueFiles'
+          value:
+            - $values/charts/kargo/values.yaml
+      - equal:
+          path: 'spec.sources[1].repoURL'
+          value: https://github.com/teknoir/platform-applications-gitops
+      - equal: {path: 'spec.sources[1].ref', value: values}
+      - equal: {path: 'spec.sources[1].targetRevision', value: teknoir-cloud}
+      - equal:
+          path: spec.syncPolicy.syncOptions
+          value:
+            - CreateNamespace=true
+            - ServerSideApply=true
+            - SkipDryRunOnMissingResource=true
+      - equal:
+          path: spec.syncPolicy.retry
+          value: {limit: 10, backoff: {duration: 30s, factor: 2, maxDuration: 5m}}
+
+  - it: the kargo values source follows the release SHA
+    set:
+      argoRollouts: {enabled: true}
+      kargo: {enabled: true}
+      release: "0123456789abcdef0123456789abcdef01234567"
+      releaseName: staging-20261017.1
+    documentSelector:
+      path: metadata.name
+      value: kargo
+    asserts:
+      - equal: {path: 'spec.sources[1].targetRevision', value: "0123456789abcdef0123456789abcdef01234567"}
+      - equal: {path: 'metadata.annotations["teknoir.org/release"]', value: staging-20261017.1}
+
+  - it: renders kargo-config with kargo.enabled and kargo.config.enabled (and Rollouts)
+    set:
+      argoRollouts: {enabled: true}
+      kargo: {enabled: true, config: {enabled: true}}
+    asserts:
+      - hasDocuments: {count: 3}
+
+  - it: kargo-config lives in platform and follows this repository
+    set:
+      argoRollouts: {enabled: true}
+      kargo: {enabled: true, config: {enabled: true}}
+    documentSelector:
+      path: metadata.name
+      value: kargo-config
+    asserts:
+      - equal: {path: spec.destination.namespace, value: platform}
+      - equal: {path: spec.source.path, value: charts/kargo-config}
+      - equal: {path: spec.source.repoURL, value: https://github.com/teknoir/platform-applications-gitops}
+      - equal: {path: spec.source.targetRevision, value: teknoir-cloud}
+      - equal:
+          path: spec.syncPolicy.syncOptions
+          value:
+            - SkipDryRunOnMissingResource=true
+      - equal:
+          path: spec.syncPolicy.retry
+          value: {limit: 10, backoff: {duration: 30s, factor: 2, maxDuration: 5m}}
+      - equal: {path: metadata.finalizers, value: [resources-finalizer.argocd.argoproj.io]}
+
+  - it: renders no kargo-config while kargo.enabled is off, even with kargo.config.enabled
+    set:
+      argoRollouts: {enabled: true}
+      kargo: {enabled: false, config: {enabled: true}}
+    asserts:
+      - hasDocuments: {count: 1}
+      - equal: {path: metadata.name, value: argo-rollouts}
+
+  - it: renders nothing on teknoir-online even when everything is enabled
+    set:
+      project: teknoir-online
+      argoRollouts: {enabled: true}
+      kargo: {enabled: true, config: {enabled: true}}
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: renders nothing on the airgapped line even when everything is enabled
+    set:
+      project: teknoir-local
+      argoRollouts: {enabled: true}
+      kargo: {enabled: true, config: {enabled: true}}
+    asserts:
+      - hasDocuments: {count: 0}

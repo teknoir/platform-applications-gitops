@@ -1,0 +1,29 @@
+# yamllint disable-file
+# A Helm template (Go template actions), not a YAML document.
+{{/*
+AnalysisTemplate prometheus-soak: the cluster is stable after the rollout.
+
+Rendered only when verification.prometheus.address is set (empty by default). Every interval for count samples it
+asks Prometheus for the pod restarts in the platform namespaces over the last minute; successCondition holds
+only when no container restarted (the `or vector(0)` makes an empty series a zero, not a missing result). A
+rolling restart of a Deployment shows up as a restart count, so a rollout that CrashLoops during the soak fails
+the Stage's verification.
+*/}}
+{{- if .Values.verification.prometheus.address }}
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: prometheus-soak
+  namespace: {{ .Values.project }}
+spec:
+  metrics:
+    - name: prometheus-soak
+      interval: {{ .Values.verification.prometheus.interval }}
+      count: {{ .Values.verification.prometheus.count }}
+      failureLimit: 0
+      provider:
+        prometheus:
+          address: {{ .Values.verification.prometheus.address | quote }}
+          query: {{ printf "sum(increase(kube_pod_container_status_restarts_total{namespace=~%q}[1m])) or vector(0)" (join "|" .Values.verification.prometheus.namespaces) | quote }}
+      successCondition: result[0] == 0
+{{- end }}

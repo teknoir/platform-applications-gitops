@@ -1,0 +1,56 @@
+# yamllint disable-file
+# A Helm template (Go template actions), not a YAML document.
+{{/*
+Stage `staging-verified`: tag the commit the `staging` Stage verified.
+
+  - requestedFreight: the gitops-main Warehouse, but only Freight the `staging` Stage has verified
+    (sources.stages); a Freight that failed verification never reaches this Stage.
+  - steps: clone this repository at the Freight commit, compute the tag name ONCE (compose-output, so a second
+    evaluation of now() cannot produce a different name), tag that commit and push the tag.
+  - The tag is the provenance the watcher and staging-release read: verified/<UTC stamp>-<sha8>, or
+    verified/<sha8> with verifiedTagStamp: none (P4.3 (e)). The tag ruleset allows creation of verified/* only
+    from the Kargo PAT's user (P4.2 section 6); a rejection fails the Promotion, which is the intended signal.
+*/}}
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Stage
+metadata:
+  name: staging-verified
+  namespace: {{ .Values.project }}
+spec:
+  requestedFreight:
+    - origin:
+        kind: Warehouse
+        name: gitops-main
+      sources:
+        stages:
+          - staging
+  promotionTemplate:
+    spec:
+      steps:
+        - uses: git-clone
+          as: clone
+          config:
+            repoURL: {{ .Values.gitops.repoURL }}
+            author:
+              name: {{ .Values.gitops.author.name | quote }}
+              email: {{ .Values.gitops.author.email | quote }}
+            checkout:
+              - commit: {{ include "kargo-config.commitFromID" .Values.gitops.repoURL | squote }}
+                path: ./src
+        - uses: compose-output
+          as: stamp
+          config:
+            tag: {{ include "kargo-config.verifiedTag" .Values.gitops | squote }}
+        - uses: git-tag
+          as: tag
+          config:
+            path: ./src
+            tag: {{ include "kargo-config.output" "stamp.tag" | squote }}
+            # Annotated: the watcher reads `freight=` from the tag message (plan 7.3), which proves the tag was
+            # pushed by a Promotion and not by hand.
+            message: {{ printf "freight=%s" (include "kargo-config.targetFreight" .) | squote }}
+        - uses: git-push
+          as: push
+          config:
+            path: ./src
+            tag: {{ include "kargo-config.output" "stamp.tag" | squote }}

@@ -22,7 +22,15 @@ that already matches.
     Secret is adopted only when the Secret carries the explicit seed annotation
     teknoir.org/harbor-robot-seed: "true" (removed by the write; a teamspace Secret
     keeps it while a seeded teamspace has no Profile yet), so a credential carried
-    over from another Harbor keeps working.
+    over from another Harbor keeps working. A robot's `secret.extraData` is
+    written into the Secret as plaintext extra keys on every write (Kargo reads
+    repoURL/repoURLIsRegex next to username/password), and `secret.keys` renames
+    the two credential keys (default username/password); the docker config keeps
+    the real robot name. A robot with `secret.optional: true` is skipped before
+    Harbor is touched when its Secret cannot be read (403: the chart that owns it
+    has not granted it yet) or does not exist yet (the owning chart renders it),
+    with one log line; its robot is neither created nor rotated. Every other
+    robot is required: an unreadable or uncreatable Secret fails the robots step.
   - teamspace robots: one pull-only system robot `robot$ts-<profile>` per Profile
     (profiles.teknoir.org), never expiring, with all credentials in ONE Opaque Secret
     (keys <profile>.username / <profile>.password). A robot that this job created
@@ -591,52 +599,91 @@ def robot_prefix():
     return (call("GET", "/configurations") or {}).get("robot_name_prefix", {}).get("value", "robot$")
 
 
+def extra_data(r):
+    return r["secret"].get("extraData") or {}
+
+
+def robot_secret(r, full, password):
+    """The Secret of a system robot: the docker config for the real robot name, username/password (or the
+    names `secret.keys` maps them to) and the robot's `secret.extraData` as plaintext extra keys."""
+    keys = r["secret"].get("keys") or {}
+    user_key, pass_key = keys.get("username", "username"), keys.get("password", "password")
+    auth = base64.b64encode(f"{full}:{password}".encode()).decode()
+    dockercfg = json.dumps({"auths": {HOST: {"username": full, "password": password, "auth": auth}}})
+    data = {".dockerconfigjson": base64.b64encode(dockercfg.encode()).decode(),
+            user_key: base64.b64encode(full.encode()).decode(),
+            pass_key: base64.b64encode(password.encode()).decode()}
+    for key, value in extra_data(r).items():
+        data[key] = base64.b64encode(str(value).encode()).decode()
+    return {"apiVersion": "v1", "kind": "Secret", "type": "kubernetes.io/dockerconfigjson",
+            "metadata": {"name": r["secret"]["name"], "namespace": r["secret"]["namespace"],
+                         "labels": {"teknoir.org/managed-by": "harbor-config"},
+                         "annotations": {"teknoir.org/harbor-robot": full}},
+            "data": data}
+
+
 @step("robots")
 def robots():
     prefix = robot_prefix()
     have = {r["name"]: r for r in get_all("/robots?q=level%3Dsystem")}
     for r in CFG.get("robots", []):
         ns, sname = r["secret"]["namespace"], r["secret"]["name"]
+        # `secret.optional: true`: another chart owns this Secret and has not rendered it yet (charts/kargo-config
+        # renders platform/harbor-read). A 403 on the read, or a missing Secret, ends this robot before Harbor or
+        # the Secret is touched: no robot is created or rotated. A robot without `optional` is required: an
+        # unreadable or uncreatable Secret fails the step, as it always has.
+        optional = r["secret"].get("optional") is True
+        pass_key = (r["secret"].get("keys") or {}).get("password", "password")
         path = f"/api/v1/namespaces/{ns}/secrets/{sname}"
+        ksec = None
         try:
             ksec = k8s("GET", path)
         except HTTPError as e:
             if e.code == 404 and "namespaces" in e.body and "not found" in e.body and sname not in e.body:
                 log(f"robot {r['name']}: namespace {ns} does not exist yet; skipped")
                 continue
+            if optional and e.code == 403:
+                # The Role does not grant this Secret yet (the owning chart has not synced). Not a failure of
+                # this run: the other robots still converge.
+                log(f"robot {r['name']}: Secret {ns}/{sname} not granted yet (403); skipped")
+                continue
+            if optional and e.code == 404:
+                log(f"robot {r['name']}: Secret {ns}/{sname} missing (kargo-config renders it); skipped")
+                continue
             if e.code != 404:
+                # A required robot's Secret it may not read: the step fails, as before this option existed.
                 raise
             ksec = None
         stored = None
         if ksec:
             d = ksec.get("data") or {}
-            if "password" in d:
-                stored = b64text(ns, sname, "password", d["password"])
+            if pass_key in d:
+                stored = b64text(ns, sname, pass_key, d[pass_key])
         adopt = (((ksec or {}).get("metadata") or {}).get("annotations")
                  or {}).get(SEED_ANNOTATION) == "true"
         full, password = ensure_robot(prefix, have, r["name"], r, "managed by harbor-config", stored, adopt)
-        completed = False
+        completed = extra = False
         if password is None:
             # The robot works with the stored password, but the Secret lacks the docker config (a seed,
             # or a write that failed after the robot was created), or it is a seed whose marker must go:
-            # write it once (completing it, and consuming the marker) with the stored credential.
+            # write it once (completing it, and consuming the marker) with the stored credential. A changed
+            # `secret.extraData` (a key added to or changed in the config) is written the same way: the write
+            # replaces .data, so the wanted extra keys must be included every time.
             if ksec is not None and (adopt or ".dockerconfigjson" not in (ksec.get("data") or {})):
                 password = stored
                 completed = True
+            elif ksec is not None:
+                have_data = ksec.get("data") or {}
+                want = {k: base64.b64encode(str(v).encode()).decode() for k, v in extra_data(r).items()}
+                if all(have_data.get(k) == v for k, v in want.items()):
+                    continue
+                password = stored
+                extra = True
             else:
                 continue
-        auth = base64.b64encode(f"{full}:{password}".encode()).decode()
-        dockercfg = json.dumps({"auths": {HOST: {"username": full, "password": password, "auth": auth}}})
-        data = {".dockerconfigjson": base64.b64encode(dockercfg.encode()).decode(),
-                "username": base64.b64encode(full.encode()).decode(),
-                "password": base64.b64encode(password.encode()).decode()}
-        obj = {"apiVersion": "v1", "kind": "Secret", "type": "kubernetes.io/dockerconfigjson",
-               "metadata": {"name": sname, "namespace": ns,
-                            "labels": {"teknoir.org/managed-by": "harbor-config"},
-                            "annotations": {"teknoir.org/harbor-robot": full}},
-               "data": data}
-        write_secret(ns, sname, ksec, obj)
-        log(f"robot {full}: Secret {ns}/{sname} written" + (" (completed)" if completed else ""))
+        write_secret(ns, sname, ksec, robot_secret(r, full, password))
+        log(f"robot {full}: Secret {ns}/{sname} written"
+            + (" (completed)" if completed else " (extra data)" if extra else ""))
 
 
 ROBOT_NAME = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")

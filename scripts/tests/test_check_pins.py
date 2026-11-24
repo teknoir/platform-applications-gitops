@@ -152,6 +152,33 @@ class Applications(unittest.TestCase):
         d = self.appdoc("p", "0.0.104", repo="https://teknoir.github.io/profile-plugins-helm")
         self.assertEqual(CP.check_applications([d], SHA, "teknoir-cloud"), [])
 
+    @staticmethod
+    def multisource(name, *sources):
+        return ("root.yaml", {"kind": "Application", "metadata": {"name": name}, "spec": {"sources": list(sources)}})
+
+    def kargo_app(self, ref_revision):
+        """The kargo Application: an OCI chart source plus this repository as the `values` source."""
+        return self.multisource(
+            "kargo",
+            {"repoURL": "ghcr.io/akuity/kargo-charts", "chart": "kargo", "targetRevision": "1.12.6"},
+            {"repoURL": "https://github.com/teknoir/platform-applications-gitops", "ref": "values",
+             "targetRevision": ref_revision})
+
+    def test_a_multi_source_application_checks_the_source_of_this_repository(self):
+        self.assertEqual(CP.check_applications([self.kargo_app(SHA)], SHA, "teknoir-cloud"), [])
+
+    def test_a_multi_source_application_source_off_the_release_is_an_error(self):
+        f = CP.check_applications([self.kargo_app("main")], SHA, "teknoir-cloud")
+        self.assertEqual(codes(f), ["revision-not-release"])
+        self.assertIn("Application/kargo sources[1]", f[0].where)
+        # the OCI chart's own version is not this repository's revision and is never flagged
+        self.assertNotIn("1.12.6", f[0].message)
+
+    def test_a_multi_source_application_without_this_repository_is_not_checked(self):
+        appdoc = self.multisource("kargo", {"repoURL": "ghcr.io/akuity/kargo-charts", "chart": "kargo",
+                                            "targetRevision": "1.12.6"})
+        self.assertEqual(CP.check_applications([appdoc], SHA, "teknoir-cloud"), [])
+
     def test_no_release_skips_the_revision_check(self):
         # a PR (a pin, a hand change) is not on a release yet: no Application revision check at all
         self.assertEqual(CP.check_applications([self.appdoc("a", "teknoir-cloud")], None, "teknoir-cloud"), [])

@@ -1,0 +1,33 @@
+# The root Application of the k3d rehearsal (P4.3), not read by the chart: it is the model of the r415 root
+# (infra scripts/staging-root.sh renders that one), applied to the rehearsal cluster after `helm template` of
+# charts/app-of-apps. It points at the rehearsal branch, passes the same helm parameters (project and release;
+# release is the commit ArgoCD synced, so every child Application of the root follows the same revision the
+# staging Stage promotes), and carries the authorized-stage annotation Kargo's argocd-update step requires
+# (exact match on project and stage, plans/cicd/v4/ground-kargo.md 1).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: app-of-apps
+  namespace: teknoir-system
+  annotations:
+    kargo.akuity.io/authorized-stage: platform:staging
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/teknoir/platform-applications-gitops.git
+    targetRevision: rehearsal/kargo
+    path: charts/app-of-apps
+    helm:
+      parameters:
+        - name: project
+          value: teknoir-cloud
+        - name: release
+          value: $ARGOCD_APP_REVISION
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: teknoir-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      enabled: true

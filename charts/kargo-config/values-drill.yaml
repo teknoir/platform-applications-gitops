@@ -1,0 +1,11 @@
+# Drill override (P4.3): the staging Stage alone, on its own branch, with the pin Stages off: it proves the
+# argocd-update, revision-check and staging-verified tag path without opening any image pin pull request.
+gitops:
+  branch: rehearsal/drill
+  verifiedTagPrefix: rehearsal/verified/
+# The drill promotes a commit of its own branch, so it needs the git Warehouse that watches it (off by default).
+warehouses:
+  gitopsMain:
+    enabled: true
+pinStages:
+  enabled: false

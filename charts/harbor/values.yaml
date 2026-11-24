@@ -233,6 +233,24 @@ harborConfig:
       # / AlwaysPullImages (plans/new-cluster-requirements.md section 10).
       # `teknoir` pull: first-party images built by the dev-host CI (staging pulls them via node auth,
       # proposal-v4 4); the same any-pod-on-the-node caveat applies.
+      # Kargo (charts/kargo-config: Warehouse img-<group> image subscriptions). Pull-only on `teknoir`, the
+      # first-party images Kargo discovers and pins. The Secret lives in the Kargo project namespace `platform`
+      # (charts/kargo-config/templates/harbor-read.yaml renders it and grants harbor-config get/update/patch):
+      # Kargo reads a Secret labelled kargo.akuity.io/cred-type: image from the project namespace. Besides
+      # username/password it carries the two keys Kargo's credential lookup reads, repoURL (a regex: every
+      # repository of the project) and repoURLIsRegex. Rotate: empty the data in Harbor (PATCH the robot's
+      # secret), then run the job; it rewrites the Secret.
+      # `optional: true`: kargo-config renders the Secret with `kargo.enabled`; until it syncs (or with Kargo
+      # off) harbor-config skips this robot with one line and creates no `robot$kargo`, the other robots
+      # still converge. Without it the robots step would fail on the missing/unreadable Secret.
+      - name: kargo
+        secret:
+          namespace: platform
+          name: harbor-read
+          optional: true
+          extraData: {repoURL: '^harbor\.teknoir\.cloud/teknoir/.*', repoURLIsRegex: "true"}
+        permissions:
+          - {project: teknoir, access: ["repository:pull"]}
       - name: nodes
         secret: {namespace: teknoir-system, name: harbor-nodes-pull}
         permissions:

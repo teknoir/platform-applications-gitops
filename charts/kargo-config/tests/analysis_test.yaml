@@ -1,0 +1,151 @@
+suite: verification AnalysisTemplates (revision-check, browser, prometheus-soak)
+# plans/cicd/v4/p42-spec.md section 4. browser and prometheus-soak render only when configured (both empty by
+# default). The Argo Rollouts placeholder {{args.revision}} must reach the Job literally.
+templates:
+  - templates/analysis-revision-check.yaml
+  - templates/analysis-browser.yaml
+  - templates/analysis-soak.yaml
+tests:
+  - it: renders the revision check as a ServiceAccount, Role, RoleBinding, ConfigMap and AnalysisTemplate
+    template: templates/analysis-revision-check.yaml
+    asserts:
+      - hasDocuments: {count: 5}
+
+  - it: the revision check runs as kargo-verify in the project namespace
+    template: templates/analysis-revision-check.yaml
+    documentSelector:
+      path: kind
+      value: ServiceAccount
+    asserts:
+      - isKind: {of: ServiceAccount}
+      - equal: {path: metadata.name, value: kargo-verify}
+      - equal: {path: metadata.namespace, value: platform}
+
+  - it: kargo-verify may read Applications and ConfigMaps in teknoir-system, nothing else
+    template: templates/analysis-revision-check.yaml
+    documentSelector:
+      path: kind
+      value: Role
+    asserts:
+      - equal: {path: metadata.namespace, value: teknoir-system}
+      - equal:
+          path: rules
+          value:
+            - {apiGroups: [argoproj.io], resources: [applications], verbs: [get, list]}
+            - {apiGroups: [""], resources: [configmaps], resourceNames: [profile-controller-config], verbs: [get]}
+
+  - it: the kargo-verify RoleBinding points at the platform ServiceAccount
+    template: templates/analysis-revision-check.yaml
+    documentSelector:
+      path: kind
+      value: RoleBinding
+    asserts:
+      - equal: {path: metadata.namespace, value: teknoir-system}
+      - equal:
+          path: subjects
+          value:
+            - {kind: ServiceAccount, name: kargo-verify, namespace: platform}
+
+  - it: mounts the script from a ConfigMap built from files/revision-check.sh
+    template: templates/analysis-revision-check.yaml
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - equal: {path: metadata.name, value: revision-check-script}
+      - matchRegex:
+          path: 'data["revision-check.sh"]'
+          pattern: ^#!/bin/sh
+
+  - it: runs one Job that polls for up to 8 minutes with the revision as an Argo Rollouts argument
+    template: templates/analysis-revision-check.yaml
+    documentSelector:
+      path: kind
+      value: AnalysisTemplate
+    asserts:
+      - equal: {path: metadata.name, value: revision-check}
+      - equal:
+          path: spec.args
+          value:
+            - name: revision
+      - equal: {path: 'spec.metrics[0].name', value: revision-check}
+      - equal: {path: 'spec.metrics[0].count', value: 1}
+      - equal: {path: 'spec.metrics[0].failureLimit', value: 0}
+      - equal: {path: 'spec.metrics[0].provider.job.spec.activeDeadlineSeconds', value: 600}
+      - equal: {path: 'spec.metrics[0].provider.job.spec.backoffLimit', value: 0}
+      - equal: {path: 'spec.metrics[0].provider.job.spec.template.spec.serviceAccountName', value: kargo-verify}
+      - equal:
+          path: 'spec.metrics[0].provider.job.spec.template.spec.containers[0].command'
+          value: [/bin/sh, /scripts/revision-check.sh]
+      - equal:
+          path: 'spec.metrics[0].provider.job.spec.template.spec.containers[0].image'
+          value: docker.io/alpine/k8s:1.34.11@sha256:0382123ab8ae17d8da5d43cc299242933eb012cfbe56787b43731c942c3eed80
+      - contains:
+          path: 'spec.metrics[0].provider.job.spec.template.spec.containers[0].env'
+          content: {name: REVISION, value: "{{args.revision}}"}
+      - contains:
+          path: 'spec.metrics[0].provider.job.spec.template.spec.containers[0].env'
+          content: {name: ROOT_APP_NAME, value: app-of-apps}
+      - contains:
+          path: 'spec.metrics[0].provider.job.spec.template.spec.containers[0].env'
+          content: {name: EXCLUDE_APPS, value: cliproxyapi}
+      - matchRegex: {path: 'spec.metrics[0].provider.job.spec.template.spec.containers[0].env[0].value', pattern: '^\{\{args\.revision\}\}$'}
+
+  - it: renders no browser AnalysisTemplate without a verification image
+    template: templates/analysis-browser.yaml
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: renders the browser Job with the test user from its Secret when an image is configured
+    template: templates/analysis-browser.yaml
+    set:
+      verification.browser.image: ghcr.io/teknoir/gitops-verify:sha-0000000a@sha256:1111111111111111111111111111111111111111111111111111111111111111
+    asserts:
+      - isKind: {of: AnalysisTemplate}
+      - equal: {path: metadata.name, value: browser}
+      - equal: {path: spec.args, value: [{name: revision}]}
+      - equal: {path: 'spec.metrics[0].count', value: 1}
+      - equal: {path: 'spec.metrics[0].failureLimit', value: 0}
+      - equal: {path: 'spec.metrics[0].provider.job.spec.activeDeadlineSeconds', value: 600}
+      - equal: {path: 'spec.metrics[0].provider.job.spec.backoffLimit', value: 0}
+      - contains:
+          path: 'spec.metrics[0].provider.job.spec.template.spec.containers[0].env'
+          content: {name: BASE_URL, value: https://teknoir.cloud}
+      - contains:
+          path: 'spec.metrics[0].provider.job.spec.template.spec.containers[0].env'
+          content:
+            name: TEST_USER
+            valueFrom: {secretKeyRef: {name: staging-test-user, key: username}}
+      - contains:
+          path: 'spec.metrics[0].provider.job.spec.template.spec.containers[0].env'
+          content:
+            name: TEST_PASSWORD
+            valueFrom: {secretKeyRef: {name: staging-test-user, key: password}}
+      - contains:
+          path: 'spec.metrics[0].provider.job.spec.template.spec.containers[0].env'
+          content: {name: REVISION, value: "{{args.revision}}"}
+
+  - it: renders no soak AnalysisTemplate without a Prometheus address
+    template: templates/analysis-soak.yaml
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: renders the Prometheus soak metric when an address is configured
+    template: templates/analysis-soak.yaml
+    set:
+      verification.prometheus.address: http://prometheus.teknoir-system.svc.cluster.local:9090
+      verification.prometheus.namespaces: [teknoir-system, teknoir-ci]
+    asserts:
+      - isKind: {of: AnalysisTemplate}
+      - equal: {path: metadata.name, value: prometheus-soak}
+      - equal: {path: 'spec.metrics[0].name', value: prometheus-soak}
+      - equal: {path: 'spec.metrics[0].interval', value: 1m}
+      - equal: {path: 'spec.metrics[0].count', value: 10}
+      - equal: {path: 'spec.metrics[0].failureLimit', value: 0}
+      - equal:
+          path: 'spec.metrics[0].provider.prometheus.address'
+          value: http://prometheus.teknoir-system.svc.cluster.local:9090
+      - equal:
+          path: 'spec.metrics[0].provider.prometheus.query'
+          value: 'sum(increase(kube_pod_container_status_restarts_total{namespace=~"teknoir-system|teknoir-ci"}[1m])) or vector(0)'
+      - equal: {path: 'spec.metrics[0].successCondition', value: 'result[0] == 0'}

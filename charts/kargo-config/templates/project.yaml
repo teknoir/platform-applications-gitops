@@ -1,0 +1,43 @@
+# yamllint disable-file
+# A Helm template (Go template actions), not a YAML document.
+# The Kargo project (cluster-scoped; it "owns" the namespace of the same name, which namespace.yaml renders
+# with the kargo.akuity.io/project label) and its ProjectConfig.
+#
+# Sync waves within this one sync: the namespace first (-5), then the Project (the ProjectConfig below
+# references it by name), then everything else.
+#
+# kargo.akuity.io/keep-namespace: "true": deleting the Project (turning kargo.config.enabled off) must not
+# delete the project namespace, which holds the hand-piped Secrets and harbor-config's robot Secret. It is set
+# on the Namespace too (namespace.yaml), where ArgoCD's Prune=false,Delete=false already protects it.
+apiVersion: kargo.akuity.io/v1alpha1
+kind: Project
+metadata:
+  name: {{ .Values.project }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-4"
+    kargo.akuity.io/keep-namespace: "true"
+---
+# Promotion policies: Kargo creates a Promotion for a new Freight only where a policy says so; autoPromotion
+# missing means false. Everything is off by default (values.yaml autoPromotion): a human promotes with
+# `kargo promote --freight <f> --stage <s>` until P6 turns a policy on.
+apiVersion: kargo.akuity.io/v1alpha1
+kind: ProjectConfig
+metadata:
+  name: {{ .Values.project }}
+  namespace: {{ .Values.project }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-3"
+spec:
+  promotionPolicies:
+    - stageSelector:
+        name: staging
+      autoPromotionEnabled: {{ dig "staging" false .Values.autoPromotion }}
+    - stageSelector:
+        name: staging-verified
+      autoPromotionEnabled: {{ dig "staging-verified" false .Values.autoPromotion }}
+{{- range $g := .Values.groups }}
+    # Group {{ $g.name }} (scripts/images.yaml): on to auto-promote a pin as soon as Freight exists.
+    - stageSelector:
+        name: pin-{{ $g.name }}
+      autoPromotionEnabled: {{ dig "pins" $g.name false $.Values.autoPromotion }}
+{{- end }}

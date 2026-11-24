@@ -1,0 +1,69 @@
+{{- /*
+The promotion steps of one pin Stage (stage-pins.yaml), rendered per group by Helm instead of shared as a Kargo
+PromotionTask: the number of images and the value style differ per group, which a PromotionTask's string
+variables cannot express (plans/cicd/v4/p42-spec.md "Deviations").
+
+Input: (dict "group" <entry of .Values.groups> "root" $).
+  - clone the gitops branch;
+  - rewrite every image's key in pins/<group>.yaml from the Freight's image references;
+  - commit with the component names in the message (plan 7.1 searches commits by image name);
+  - push a per-promotion branch, open a pull request, merge it (squash) and wait for the merge.
+Aliases have no hyphens (Kargo expressions address step outputs as outputs.<alias>.<field>).
+*/ -}}
+{{- define "kargo-config.pinSteps" -}}
+{{- $g := .group -}}
+{{- $gitops := .root.Values.gitops -}}
+{{- $msg := include "kargo-config.pinMessage" $g -}}
+- uses: git-clone
+  as: clone
+  config:
+    repoURL: {{ $gitops.repoURL }}
+    author:
+      name: {{ $gitops.author.name | quote }}
+      email: {{ $gitops.author.email | quote }}
+    checkout:
+      # The release branch, not the Freight (the Freight is an image tag, and the pins are read from the branch).
+      - branch: {{ $gitops.branch }}
+        path: ./src
+- uses: yaml-update
+  as: update
+  config:
+    path: ./src/pins/{{ $g.name }}.yaml
+    updates:
+{{- range $img := $g.images }}
+      - key: {{ $img.key | quote }}
+        value: {{ include "kargo-config.pinValue" (dict "image" $img) | squote }}
+{{- end }}
+- uses: git-commit
+  as: commit
+  config:
+    path: ./src
+    message: {{ $msg | squote }}
+- uses: git-push
+  as: push
+  config:
+    path: ./src
+    # One branch per promotion name: two promotions of one group never race on the same branch.
+    targetBranch: {{ printf "%s/%s" $gitops.pinBranchPrefix (include "kargo-config.promotion" "") | squote }}
+- uses: git-open-pr
+  as: openpr
+  config:
+    repoURL: {{ $gitops.repoURL }}
+    provider: github
+    sourceBranch: {{ include "kargo-config.output" "push.branch" | squote }}
+    targetBranch: {{ $gitops.branch }}
+    title: {{ $msg | squote }}
+- uses: git-merge-pr
+  as: merge
+  # Required checks (render, helm-unittest, ...) gate the merge: wait for them, and give up after 30 minutes.
+  retry:
+    timeout: 30m
+  config:
+    repoURL: {{ $gitops.repoURL }}
+    provider: github
+    prNumber: {{ include "kargo-config.output" "openpr.pr.id" | squote }}
+    mergeMethod: squash
+    wait: true
+    pollInterval: 60s
+    deleteSourceBranch: true
+{{- end -}}
