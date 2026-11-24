@@ -39,6 +39,17 @@ def apps_of(project):
     return {d["metadata"]["name"]: d for d in render(project) if isinstance(d, dict) and d.get("kind") == "Application"}
 
 
+def source(app):
+    """The single source of a gitops chart Application. Multi-source Applications (kargo: an
+    upstream chart plus a $values ref) have none and never carry pins, which test_multi_source_applications_list_no_pins
+    checks."""
+    return app["spec"].get("source") or {}
+
+
+def all_sources(app):
+    return ([app["spec"]["source"]] if app["spec"].get("source") else []) + (app["spec"].get("sources") or [])
+
+
 MISSING = object()
 
 
@@ -93,19 +104,19 @@ class PinsWiring(unittest.TestCase):
             self.assertEqual(row["pins_file"], f"pins/{row['group']}.yaml", row["component"])
             self.assertFalse(row.get("values_file"), row["component"])
             app = self.cloud[APP_NAME.get(row["chart"], row["chart"])]
-            files = (app["spec"]["source"].get("helm") or {}).get("valueFiles") or []
+            files = (source(app).get("helm") or {}).get("valueFiles") or []
             self.assertIn(f"../../pins/{row['group']}.yaml", files, f"{row['component']}: {app['metadata']['name']}")
             self.assertEqual(files[0], "values.yaml", f"{row['component']}: values.yaml first")
 
     def test_every_application_with_value_files_lists_only_pins_files_after_values(self):
         for name, app in self.cloud.items():
-            files = (app["spec"]["source"].get("helm") or {}).get("valueFiles") or []
+            files = (source(app).get("helm") or {}).get("valueFiles") or []
             if not files:
                 continue
             self.assertEqual(files[0], "values.yaml", name)
             pins = files[1:]
             self.assertEqual(pins, sorted(pins), f"{name}: pins files alphabetical")
-            chart = (app["spec"]["source"] or {}).get("path") or ""
+            chart = source(app).get("path") or ""
             for f in pins:
                 self.assertRegex(f, r"^\.\./\.\./pins/[a-z0-9-]+\.yaml$", name)
                 # ArgoCD resolves a value file against the chart in the repository
@@ -114,27 +125,35 @@ class PinsWiring(unittest.TestCase):
     def test_the_affected_applications_are_exactly_the_ones_with_a_group(self):
         charts = {row["chart"] for row in self.images["images"] if row["group"]}
         expected = {APP_NAME.get(c, c) for c in charts}
-        got = {n for n, a in self.cloud.items() if (a["spec"]["source"].get("helm") or {}).get("valueFiles")}
+        got = {n for n, a in self.cloud.items() if (source(a).get("helm") or {}).get("valueFiles")}
         self.assertEqual(got, expected)
 
     def test_no_application_lists_value_files_for_the_other_projects(self):
         for name, app in self.online.items():
-            self.assertNotIn("valueFiles", app["spec"]["source"].get("helm") or {}, name)
+            self.assertNotIn("valueFiles", source(app).get("helm") or {}, name)
         # teknoir-local renders the same children (no allowlisted valueFiles either)
         for name, app in self.local.items():
-            self.assertNotIn("valueFiles", app["spec"]["source"].get("helm") or {}, name)
+            self.assertNotIn("valueFiles", source(app).get("helm") or {}, name)
 
     def test_a_helm_block_is_never_empty(self):
         for project in (CLOUD, ONLINE, LOCAL):
             for name, app in apps_of(project).items():
-                if "helm" in app["spec"]["source"]:
-                    self.assertTrue(app["spec"]["source"]["helm"], f"{project}/{name}")
+                for src in all_sources(app):
+                    if "helm" in src:
+                        self.assertTrue(src["helm"], f"{project}/{name}")
+
+    def test_multi_source_applications_list_no_pins(self):
+        for project in (CLOUD, ONLINE, LOCAL):
+            for name, app in apps_of(project).items():
+                for src in app["spec"].get("sources") or []:
+                    for f in (src.get("helm") or {}).get("valueFiles") or []:
+                        self.assertNotIn("pins/", f, f"{project}/{name}")
 
     def test_the_parameters_the_pins_change_left_alone_are_kept(self):
         # backstage and device-controller already emitted helm.parameters conditionally; restructuring the helm block
         # keeps them identical (the byte-identical test_pins_render.py proves it against the base ref)
         cloud = self.cloud
-        names = lambda app: [p["name"] for p in (app["spec"]["source"].get("helm") or {}).get("parameters") or []]
+        names = lambda app: [p["name"] for p in (source(app).get("helm") or {}).get("parameters") or []]
         self.assertEqual(names(cloud["backstage"])[0], "fleet.prometheusUrlTemplate")
         self.assertIn("ztna.enabled", names(cloud["backstage"]))
         self.assertEqual(names(cloud["device-controller"]), ["ztna.enabled", "ztna.defaultOn", "teknoirbotApi.enabled"])

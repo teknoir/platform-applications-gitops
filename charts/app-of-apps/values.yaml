@@ -89,26 +89,30 @@ backstageNext:
 # renders nothing.
 argoRollouts:
   # Application argo-rollouts. On its own, one release before Kargo: Kargo looks for the Rollouts CRDs once, at
-  # startup, and never again (see the template header).
-  enabled: false
+  # startup, and never again (see the template header). On since P4.5 (2026-11-24, after the P4.3 rehearsal).
+  enabled: true
 
 # Kargo and kargo-config (charts/kargo-config: the Project, Warehouses, Stages and AnalysisTemplates). Off:
 # nothing renders until P4.3 rehearses the stack on k3d and a later release turns it on. teknoir-cloud only
 # (allowlist in the template), so a cherry-pick onto another environment branch renders nothing.
 kargo:
-  # Application kargo. Needs argoRollouts.enabled: it renders only with Rollouts already installed.
-  enabled: false
+  # Application kargo. Needs argoRollouts.enabled: it renders only with Rollouts already installed. On since
+  # P4.5 (2026-11-24), one release after argoRollouts.
+  enabled: true
   # Application kargo-config (the Kargo objects of this repository).
   config:
-    # Needs kargo.enabled too: the Kargo CRDs must exist before its Project and Stages sync.
-    enabled: false
+    # Needs kargo.enabled too: the Kargo CRDs must exist before its Project and Stages sync. On since P4.5
+    # (2026-11-24), one release after kargo.
+    enabled: true
 
 # Staging release guard (charts/release-guard, templates/release-guard.yaml): a
 # ValidatingAdmissionPolicy that lets only scripts/staging-release (ServiceAccount
 # teknoir-system/staging-releaser), ArgoCD and profile-controller write ArgoCD Applications.
 # teknoir-cloud only (allowlist in templates/_helpers.tpl).
 releaseGuard:
-  # On again since the second r415 release, in Warn first; Deny in the release after that.
-  enabled: true
+  # Off since CI v4 P4.6 (2026-11-24): Kargo writes the root Application from P5 on, which the guard would
+  # flag. The Application has no resources-finalizer, so turning this off leaves the policy and binding in
+  # the cluster; plans/cicd/v4/remove-release-guard.sh (Anders) deletes them under break-glass afterwards.
+  enabled: false
   # Warn | Deny, passed to the chart as guard.mode.
   mode: Warn

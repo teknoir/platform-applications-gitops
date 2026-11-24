@@ -1,18 +1,26 @@
 suite: Argo Rollouts, Kargo and kargo-config Applications
-# CI/CD v4 P4.2 (plans/cicd/v4/p42-spec.md section 3). All flags are off by default and teknoir-cloud only (the
-# allowlist in templates/kargo.yaml), so the staging release render is unchanged until a release turns a flag
-# on. The flags are separate and ordered: argoRollouts.enabled ships one release before kargo.enabled (the Kargo
-# controller looks for the Rollouts CRDs once, at startup), and kargo-config needs both kargo.enabled and
-# kargo.config.enabled: its Kargo CRs need the kargo Application's CRDs.
+# CI/CD v4 P4.2 (plans/cicd/v4/p42-spec.md section 3). The flags are teknoir-cloud only (the allowlist in
+# templates/kargo.yaml) and each turns on in its own staging release (P4.5): argoRollouts.enabled ships one
+# release before kargo.enabled (the Kargo controller looks for the Rollouts CRDs once, at startup), and
+# kargo-config needs both kargo.enabled and kargo.config.enabled: its Kargo CRs need the kargo Application's CRDs.
 templates:
   - templates/kargo.yaml
 tests:
-  - it: renders nothing with no value set (the real default)
+  - it: renders argo-rollouts, kargo and kargo-config with no value set (the real default since P4.5)
+    asserts:
+      - hasDocuments: {count: 3}
+      - matchRegex: {path: metadata.name, pattern: ^(argo-rollouts|kargo|kargo-config)$}
+
+  - it: renders nothing with every flag off
+    set:
+      argoRollouts: {enabled: false}
+      kargo: {enabled: false}
     asserts:
       - hasDocuments: {count: 0}
 
   - it: renders nothing with kargo.enabled alone, because Kargo needs Argo Rollouts first
     set:
+      argoRollouts: {enabled: false}
       kargo: {enabled: true, config: {enabled: true}}
     asserts:
       - hasDocuments: {count: 0}
@@ -20,6 +28,7 @@ tests:
   - it: renders argo-rollouts alone, one release before Kargo
     set:
       argoRollouts: {enabled: true}
+      kargo: {enabled: false}
     asserts:
       - hasDocuments: {count: 1}
       - isKind: {of: Application}
@@ -28,7 +37,7 @@ tests:
   - it: renders exactly the argo-rollouts and kargo Applications when both flags are on
     set:
       argoRollouts: {enabled: true}
-      kargo: {enabled: true}
+      kargo: {enabled: true, config: {enabled: false}}
     asserts:
       - hasDocuments: {count: 2}
       - isKind: {of: Application}

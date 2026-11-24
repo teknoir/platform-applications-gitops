@@ -398,3 +398,25 @@ tests:
       - matchRegex:
           path: spec.configPatches[1].patch.value.typed_config.inlineCode
           pattern: 'h:get\(":authority"\) == "login\.example\.test"'
+
+  # Kargo (gitops charts/kargo, api.oidc) signs users in against Keycloak itself: with kargo.enabled the edge
+  # login is off for kargo.<domain> (both filters), without it nothing mentions kargo.
+  - it: bypasses ext_authz and the Lua login redirect for kargo.<domain> when kargo.enabled
+    documentIndex: 0
+    set:
+      kargo.enabled: true
+    asserts:
+      - equal:
+          path: spec.configPatches[9].match.routeConfiguration.vhost.name
+          value: "kargo.teknoir.cloud:443"
+      - equal:
+          path: spec.configPatches[9].patch.value.typed_per_filter_config["envoy.filters.http.ext_authz"].disabled
+          value: true
+      - equal:
+          path: spec.configPatches[9].patch.value.typed_per_filter_config["envoy.filters.http.lua"].disabled
+          value: true
+  - it: has no kargo exemption without kargo.enabled
+    documentIndex: 0
+    asserts:
+      - notMatchRegexRaw:
+          pattern: kargo

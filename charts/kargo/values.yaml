@@ -29,11 +29,45 @@ api:
     # (P4.3; Anders confirmed). Disabling it also removes the mandatory api.adminAccount.passwordHash
     # and api.adminAccount.tokenSigningKey values: no admin password hash goes into this repository.
     enabled: false
-  ingress:
-    # No inbound path to the API server: the chart renders no Ingress (the chart default is false
-    # too; kept explicit so enabling an ingress is a reviewed change). The API stays reachable
-    # in-cluster (kargo-api.kargo.svc) and through `kubectl port-forward`.
+  # The UI and API at https://kargo.teknoir.cloud (Anders 2026-11-24). The public path is the Istio gateway
+  # istio-system/teknoir-gateway (wildcard certificate) and VirtualService kargo
+  # (charts/kargo-config/templates/virtualservice.yaml); the edge login (oauth2-proxy) is bypassed for this host
+  # (charts/auth istio-auth.yaml, kargo.enabled) because Kargo authenticates against Keycloak itself.
+  # Base URL of the UI, the API and the OIDC redirects (chart helper kargo.baseURL).
+  host: kargo.teknoir.cloud
+  tls:
+    # The gateway terminates TLS. The pod serves plain HTTP: Service kargo-api becomes port 80 (appProtocol
+    # http), probes HTTP, no self-signed Certificate. Namespace kargo has no sidecar, so no DestinationRule.
     enabled: false
+    selfSignedCert: false
+    # Generated URLs stay https:// although the pod speaks HTTP.
+    terminatedUpstream: true
+  ingress:
+    # No Ingress: the VirtualService above is the inbound path (the chart default is false too; kept explicit so
+    # enabling an ingress is a reviewed change).
+    enabled: false
+  oidc:
+    # Keycloak realm master (charts/auth/files/realm/master.yaml, clients kargo and kargo-cli, rendered only when
+    # app-of-apps passes kargo.enabled to the auth Application). Both clients are public with PKCE S256: no
+    # client secret exists. The API verifies the ID token's aud against clientID or cliClientID
+    # (pkg/server/auth_middleware.go in 1.12.6); Keycloak sets aud to the client id by default.
+    enabled: true
+    issuerURL: https://auth.teknoir.cloud/auth/realms/master
+    # The UI (redirect https://kargo.teknoir.cloud/login).
+    clientID: kargo
+    # `kargo login https://kargo.teknoir.cloud --sso --port 8085`: the CLI listens on
+    # http://localhost:<port>/auth/callback, and Keycloak has exactly port 8085 registered (a trailing wildcard
+    # would also match http://localhost.<any domain>).
+    cliClientID: kargo-cli
+    # Flat group names (realm client scope groups, a default scope of both clients).
+    additionalScopes: [groups]
+    usernameClaim: email
+    admins:
+      # Keycloak group admin = platform administrators (ArgoCD role:admin, Harbor admin, Argo Workflows
+      # ci-admin): Kargo admin in every Project. Nobody else gets a Kargo role: other users can sign in but
+      # see nothing.
+      claims:
+        groups: [admin]
 externalWebhooksServer:
   # No inbound webhook endpoint: nothing pushes into Kargo. The Warehouses poll (the gitops repository
   # is public, Harbor and ghcr are polled with the image credentials).

@@ -19,6 +19,15 @@ environment from syncing. Add an environment only in its own reviewed commit.
 {{- end -}}
 
 {{/*
+"true" when the kargo Application renders (templates/kargo.yaml: teknoir-cloud only, argoRollouts.enabled and
+kargo.enabled), else "". templates/auth.yaml passes it to charts/auth as kargo.enabled: the Keycloak clients
+kargo and kargo-cli and the edge-login bypass for kargo.<domain> exist only while Kargo does.
+*/}}
+{{- define "app-of-apps.kargoEnabled" -}}
+{{- if and (has .Values.project (list "teknoir-cloud")) (.Values.argoRollouts).enabled (.Values.kargo).enabled -}}true{{- end -}}
+{{- end -}}
+
+{{/*
 targetRevision of every Application that reads this repository (gitops release gate).
 
   teknoir-cloud (staging): .Values.release (a full 40-hex commit SHA, passed as a helm parameter of

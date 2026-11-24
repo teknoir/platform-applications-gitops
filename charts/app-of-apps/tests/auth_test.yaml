@@ -1,0 +1,28 @@
+suite: auth Application parameters (ztna and kargo switches)
+templates:
+  - templates/auth.yaml
+tests:
+  - it: passes kargo.enabled to charts/auth on teknoir-cloud while Kargo is installed (the default)
+    set: {project: teknoir-cloud}
+    asserts:
+      - contains: {path: spec.source.helm.parameters, content: {name: kargo.enabled, value: "true"}}
+  - it: does not pass kargo.enabled when kargo is off
+    set: {project: teknoir-cloud, kargo: {enabled: false}}
+    asserts:
+      - notContains: {path: spec.source.helm.parameters, content: {name: kargo.enabled, value: "true"}}
+  - it: does not pass kargo.enabled without Argo Rollouts (Kargo does not render then)
+    set: {project: teknoir-cloud, argoRollouts: {enabled: false}}
+    asserts:
+      - notContains: {path: spec.source.helm.parameters, content: {name: kargo.enabled, value: "true"}}
+  - it: passes nothing about kargo on teknoir-online or teknoir-local
+    set: {project: teknoir-online}
+    asserts:
+      - notMatchRegexRaw: {pattern: kargo}
+  - it: passes nothing about kargo on teknoir-local
+    set: {project: teknoir-local}
+    asserts:
+      - notMatchRegexRaw: {pattern: kargo}
+  - it: keeps an empty helm block out when neither pins, ztna nor kargo apply
+    set: {project: teknoir-online, ztna: {enabled: false}}
+    asserts:
+      - notExists: {path: spec.source.helm}
