@@ -5,7 +5,7 @@ autoPromotion:
   staging: true
   staging-verified: true
   # (f) adds wg-tunnel; (j) teknoir-desktop and rehearsal-k; (g) empties it again.
-  pins: {wg-tunnel: true}
+  pins: {wg-tunnel: true, teknoir-desktop: true, rehearsal-k: true}
 verification:
   browser:
     # Stub: busybox's default command (sh, no stdin) exits 0 at once. Proves the second AnalysisTemplate, the revision
@@ -33,7 +33,7 @@ groups:
     images:
       - {component: teknoir-desktop-agent, poll: ghcr.io/teknoir/teknoir-desktop/council, repository: ghcr.io/teknoir/teknoir-desktop/council, key: desktop.agent.image, style: ref}
   - name: rehearsal-k
-    enabled: false
+    enabled: true
     sameCommit: false
     images:
       - {component: rehearsal-k, poll: 10.43.250.250:5000/rehearsal/k, repository: 10.43.250.250:5000/rehearsal/k, key: image.tag, style: tag}
