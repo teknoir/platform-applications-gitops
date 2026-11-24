@@ -60,6 +60,10 @@ verification:
   rootApp:
     name: app-of-apps
     namespace: teknoir-system
+    # The root Application's source repoURL, spelled EXACTLY as in the root (infra clusters/r415/root.yaml: no
+    # `.git`). argocd-update matches sources by this string; on a mismatch it updates nothing, only re-syncs the
+    # root, and still reports Succeeded (P4.3 (a), 2026-11-24). gitops.repoURL (with `.git`) stays the Warehouse's.
+    repoURL: https://github.com/teknoir/platform-applications-gitops
   # Applications listed in the root's status.resources that the revision check skips (they are not part of a
   # release: cliproxyapi is the CLI proxy, deployed on its own).
   excludeApps: [cliproxyapi]
