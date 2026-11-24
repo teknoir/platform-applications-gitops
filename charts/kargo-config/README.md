@@ -1,7 +1,5 @@
 # charts/kargo-config
 
-Live on staging since 2026-11-24 (CI v4 P5.2): Kargo promotes and verifies every merge to `main` with these objects.
-
 The Kargo objects of the staging pipeline (CI/CD v4 P4.2, `plans/cicd/v4/p42-spec.md` section 4):
 the cluster-scoped `Project` `platform` and its `ProjectConfig`, the Warehouses, the Stages
 `staging`, `staging-verified` and one `pin-<group>` per enabled image group, and the verification
