@@ -20,6 +20,12 @@ controller:
     # AnalysisRuns and their Jobs and reports the result back into the Stage.
     integrationEnabled: true
 api:
+  argocd:
+    # Deep links from a Stage in the Kargo UI to the Argo CD Applications it updates (Kargo records them in the
+    # Stage annotation kargo.akuity.io/argocd-context; staging -> teknoir-system/app-of-apps). "" = the one,
+    # unsharded Argo CD (charts/argo, VirtualService argocd).
+    urls:
+      "": https://argocd.teknoir.cloud
   rollouts:
     # The API server applies the AnalysisTemplates the kargo-config chart renders (and the ones
     # `kargo apply` would create); without it only kubectl could write them.

@@ -172,6 +172,14 @@ groups:
 # passes kargo.enabled. ui.host must equal api.host in charts/kargo/values.yaml.
 ui:
   enabled: true
+  # The project's one-line description in the UI's project list (Project annotation kargo.akuity.io/description).
+  description: "Staging (r415): every merge to gitops main is promoted to staging, verified (every Application at the commit, Synced and Healthy, plus a signed-in browser check) and tagged verified/*. pin-<group> Stages pin image builds by pull request."
+  # Stage colours in the pipeline view (annotation kargo.akuity.io/color; names of the UI palette: red, orange,
+  # amber, yellow, lime, green, teal, cyan, sky, blue, indigo, violet, purple, ...). pins: every pin-<group> Stage.
+  colors:
+    staging: blue
+    staging-verified: green
+    pins: amber
   host: kargo.teknoir.cloud
   gateway: istio-system/teknoir-gateway
   service: kargo-api.kargo.svc.cluster.local

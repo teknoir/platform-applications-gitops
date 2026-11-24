@@ -15,6 +15,10 @@ metadata:
   name: {{ .Values.project }}
   annotations:
     argocd.argoproj.io/sync-wave: "-4"
+{{- with .Values.ui.description }}
+    # Shown under the project name in the Kargo UI's project list.
+    kargo.akuity.io/description: {{ . | quote }}
+{{- end }}
     kargo.akuity.io/keep-namespace: "true"
 ---
 # Promotion policies: Kargo creates a Promotion for a new Freight only where a policy says so; autoPromotion
