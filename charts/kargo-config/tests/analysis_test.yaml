@@ -93,6 +93,8 @@ tests:
 
   - it: renders no browser AnalysisTemplate without a verification image
     template: templates/analysis-browser.yaml
+    set:
+      verification.browser.image: ""
     asserts:
       - hasDocuments: {count: 0}
 

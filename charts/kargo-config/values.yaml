@@ -2,9 +2,10 @@
 # plans/cicd/v4/p42-spec.md section 4). Rendered only by the kargo-config Application
 # (charts/app-of-apps/templates/kargo.yaml), which renders only on teknoir-cloud with kargo.enabled.
 #
-# Inert by default: no gitops-main Warehouse polls, every pin group is disabled in scripts/images.yaml (only
-# wg-tunnel's public images are on), and every auto-promotion is off, so Kargo creates a Promotion only when a
-# human asks for one (`kargo promote`). P6.1/P6.2 turn the groups and the policies on, one reviewed PR each.
+# Since the P5.2 cut-over (2026-11-24) Kargo ships staging: the gitops-main Warehouse polls `main`, and the
+# Stages staging and staging-verified auto-promote every new commit (argocd-update on the root, verification,
+# then the verified/* tag). Every pin group is still disabled in scripts/images.yaml (only wg-tunnel's public
+# images are on) and every pin auto-promotion is off: P6.1/P6.2 turn them on, one reviewed PR each.
 
 # The Kargo project: the cluster-scoped Project and the namespace every object below lives in.
 project: platform
@@ -28,9 +29,9 @@ gitops:
     email: "kargo@teknoir.ai"
 
 warehouses:
-  # Poll this repository's branch for commits. Off: nothing promotes without a human until P6.
+  # Poll this repository's branch for commits: every merge to `main` becomes Freight (P5.2).
   gitopsMain:
-    enabled: false
+    enabled: true
     interval: 2m
   # The image Warehouses img-<group>, one per enabled group of `groups`.
   images:
@@ -42,10 +43,11 @@ pinStages:
   # request (merging the PR is the promotion; the release then ships it).
   enabled: true
 
-# ProjectConfig.spec.promotionPolicies, one per Stage. Off: Kargo never promotes on its own.
+# ProjectConfig.spec.promotionPolicies, one per Stage. Off: Kargo never promotes that Stage on its own.
+# staging and staging-verified are on since the P5.2 cut-over: a merge to main is a release.
 autoPromotion:
-  staging: false
-  staging-verified: false
+  staging: true
+  staging-verified: true
   # group -> bool. A missing group is off (P6.1 enables one group per reviewed PR).
   pins: {}
 
@@ -79,10 +81,10 @@ verification:
   # and the dev host).
   kubectlImage: docker.io/alpine/k8s:1.34.11@sha256:0382123ab8ae17d8da5d43cc299242933eb012cfbe56787b43731c942c3eed80
   browser:
-    # The Playwright verification image (verify/, built by .github/workflows/verify-image.yml and imported into
-    # the rehearsal cluster). Empty: no browser metric (staging verifies with revision-check only until P4.2
-    # section 6 has built the image).
-    image: ""
+    # The Playwright verification image (verify/, built by .github/workflows/verify-image.yml from main bd11f03,
+    # public ghcr; pre-tested as a Job in namespace platform on r415 2026-11-24). Empty: no browser metric.
+    # Bump it by PR after a change to verify/ builds a new sha-<8>.
+    image: ghcr.io/teknoir/gitops-verify:sha-bd11f03c@sha256:48c0e4b873e425473e8ad4937b3ce9b9ff217217feba064a68773052ce9ba3fb
     # Secret with the staging test user's Keycloak sign-in, keys username and password (hand-piped, never in
     # git). The Job reads it with env secretKeyRef.
     secretName: staging-test-user
