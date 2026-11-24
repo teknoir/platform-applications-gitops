@@ -1192,6 +1192,14 @@ def main(argv: list[str] | None = None, sys_: L.Sys | None = None) -> int:
         if (args.yes or args.rollback is not None or args.verified) and tool.branch_name not in ("main", "teknoir-cloud"):
             raise L.Refuse(f"a release acts on the gitops branch main (or teknoir-cloud before the cut-over), not "
                            f"'{tool.branch_name}': origin/HEAD may be stale, run git remote set-head origin -a")
+        # CI v4 P5.2 (2026-11-24): Kargo owns the root (annotation kargo.akuity.io/authorized-stage). Every action that
+        # would tag, patch the root or open break-glass would fight Kargo; only the dry run and the status still run.
+        if args.yes or args.rollback is not None or args.verified or args.break_glass_begin or args.break_glass_end:
+            stage = ((tool.kube.root().get("metadata") or {}).get("annotations") or {}).get(L.ANN_KARGO_STAGE)
+            if stage:
+                raise L.Refuse(f"Kargo ships staging since the CI v4 cut-over (the root is owned by Kargo Stage "
+                               f"{stage}): merge to main instead, roll back with a revert PR (AGENTS.md \"Staging\"); "
+                               f"break-glass is infra clusters/r415/BREAK-GLASS.md, Anders only")
         if args.verified:
             return tool.cmd_verified(args.verified)
         if args.break_glass_begin or args.break_glass_end:

@@ -1018,6 +1018,24 @@ class VerifiedAndBreakGlass(Base):
         self.assertIn("must be one of r415", err.getvalue())
         self.assertEqual(fake.calls, [])
 
+    def test_main_refuses_every_action_once_kargo_owns_the_root(self):
+        """CI v4 P5.2: after the cut-over the root carries kargo.akuity.io/authorized-stage; releasing, rolling
+        back, marking verified and break-glass are refused before anything is tagged or patched."""
+        import contextlib
+        import io
+        s = self.repo.sha("c2")
+        root = H.root_app(target=s, params=[{"name": "release", "value": "$ARGOCD_APP_REVISION"}],
+                          annotations={L.ANN_KARGO_STAGE: "platform:staging"})
+        for argv in (["--yes", SHA("a"), "--by", "s", "--reason", "r"], ["--rollback"],
+                     ["--verified", "staging-20261017.1"], ["--break-glass-begin", "--reason", "r", "--confirm-anders"]):
+            fake = H.FakeSys(root)
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                rc = SR.main(argv, sys_=fake)
+            self.assertEqual(rc, 2, argv)
+            self.assertIn("Kargo ships staging", err.getvalue())
+            self.assertFalse([c for c in fake.calls if "patch" in c or "tag" in c or "annotate" in c], (argv, fake.calls))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -53,6 +53,8 @@ SHARED_TAGS = ["ghcr.io/teknoir/keycloak-theme:latest", "ghcr.io/teknoir/devstud
                "ghcr.io/teknoir/profile-controller:latest"]
 ANN_RELEASE = "teknoir.org/release"
 ANN_PREVIOUS = "teknoir.org/previous-release"
+# The annotation that hands the root to a Kargo Stage (CI v4 P5.2 cut-over, infra clusters/r415/root.yaml).
+ANN_KARGO_STAGE = "kargo.akuity.io/authorized-stage"
 ANN_BREAK_GLASS = "teknoir.org/break-glass"
 NS_GUARD_ANN = "teknoir.org/release-guard"     # on the Namespace; value "break-glass" lifts the guard
 NS_GUARD_REASON_ANN = "teknoir.org/release-guard-reason"
