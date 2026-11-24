@@ -12,7 +12,8 @@ import helpers as H  # noqa: E402
 
 SCRIPT = os.path.join(H.SCRIPTS, "staging-render.sh")
 TOOLS = ["bash", "env", "helm", "python3", "git", "sha256sum", "cut", "cp", "mktemp", "rm", "mkdir", "grep", "head", "sed",
-         "wc", "ls", "cat", "dirname", "date", "tr", "sort", "uniq", "basename", "readlink", "chmod", "ln", "awk", "find", "printf", "tee"]
+         "wc", "ls", "cat", "dirname", "date", "tr", "sort", "uniq", "basename", "readlink", "realpath", "chmod", "ln",
+         "awk", "find", "printf", "tee"]
 SHA = "a" * 40
 
 
@@ -57,8 +58,12 @@ spec:
     path: charts/{{ $n }}
     targetRevision: {{ $.Values.release | default "branch" | quote }}
     helm:
+{{- if eq $n "alpha" }}
+      valueFiles: [values.yaml, ../../pins/alpha.yaml]
+{{- else }}
       parameters:
         - {name: image.tag, value: v1}
+{{- end }}
 {{- end }}
 ---
 apiVersion: argoproj.io/v1alpha1
@@ -68,6 +73,8 @@ spec:
   destination: {namespace: x, server: https://kubernetes.default.svc}
   source: {repoURL: https://example.org/other, chart: other, targetRevision: 1.0.0}
 """)
+        # a value file outside the chart directory, like pins/<group>.yaml: passed with -f after values.yaml
+        write(os.path.join(tree, "pins/alpha.yaml"), "image: {tag: pinned}\n")
         for n in ("alpha", "beta"):
             write(os.path.join(tree, f"charts/{n}/Chart.yaml"), f"apiVersion: v2\nname: {n}\nversion: 0.1.0\n")
             write(os.path.join(tree, f"charts/{n}/values.yaml"), "image: {tag: x}\n")
@@ -105,7 +112,8 @@ spec:
         self.assertEqual(open(os.path.join(out, "apps.tsv")).read().splitlines(),
                          ["alpha\tcharts/alpha\tns-alpha", "beta\tcharts/beta\tns-beta"])
         self.assertIn(f'targetRevision: "{SHA}"', open(os.path.join(out, "root.yaml")).read())            # --release reached the root chart
-        self.assertIn("ghcr.io/teknoir/alpha:v1", open(os.path.join(out, "apps", "alpha.yaml")).read())  # the Application's parameter reached the child
+        self.assertIn("ghcr.io/teknoir/alpha:pinned", open(os.path.join(out, "apps", "alpha.yaml")).read())  # the Application's valueFiles reached the child
+        self.assertIn("ghcr.io/teknoir/beta:v1", open(os.path.join(out, "apps", "beta.yaml")).read())    # the Application's parameter reached the child
         self.assertFalse(os.path.exists(os.path.join(out, "failed")))
 
     def test_a_second_render_is_served_from_the_cache(self):
@@ -114,6 +122,79 @@ spec:
         r = self.render(out)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("cached   alpha", r.stdout)
+
+    def test_a_changed_value_file_content_is_rendered_again(self):
+        # the cache key hashes the value files by content: git rev-parse HEAD would not see this change
+        out = os.path.join(self.tmp, "out")
+        self.assertEqual(self.render(out).returncode, 0)
+        self.assertIn("cached   alpha", self.render(out).stdout)
+        write(os.path.join(self.tree, "pins/alpha.yaml"), "image: {tag: pinned2}\n")
+        r = self.render(out)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("rendered alpha", r.stdout)
+        self.assertIn("ghcr.io/teknoir/alpha:pinned2", open(os.path.join(out, "apps", "alpha.yaml")).read())
+
+    def test_a_changed_template_is_rendered_again_without_a_commit(self):
+        # the chart part of the cache key hashes the chart's files by content: git rev-parse HEAD would not see this
+        out = os.path.join(self.tmp, "out")
+        self.assertEqual(self.render(out).returncode, 0)
+        self.assertIn("cached   alpha", self.render(out).stdout)
+        path = os.path.join(self.tree, "charts/alpha/templates/d.yaml")
+        write(path, open(path).read().replace("spec:\n  template:", "spec:\n  revisionHistoryLimit: 3\n  template:", 1))
+        r = self.render(out)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("rendered alpha", r.stdout)
+        self.assertIn("revisionHistoryLimit: 3", open(os.path.join(out, "apps", "alpha.yaml")).read())
+        self.assertIn("cached   beta", r.stdout)        # a chart nobody touched stays cached
+
+    def add_app(self, name, valuefiles):
+        write(os.path.join(self.tree, "charts/app-of-apps/templates/extra.yaml"), f"""\
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata: {{name: {name}, namespace: teknoir-system}}
+spec:
+  destination: {{namespace: ns-{name}, server: https://kubernetes.default.svc}}
+  source:
+    repoURL: https://github.com/teknoir/platform-applications-gitops
+    path: charts/alpha
+    targetRevision: branch
+    helm:
+      valueFiles: [{", ".join(valuefiles)}]
+""")
+
+    def test_an_absolute_value_file_resolves_against_the_repository_root(self):
+        # ArgoCD resolves a valueFiles entry starting with / against the repository root, not the chart directory
+        self.add_app("gamma", ["/pins/alpha.yaml"])
+        out = os.path.join(self.tmp, "out")
+        r = self.render(out)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("ghcr.io/teknoir/alpha:pinned", open(os.path.join(out, "apps", "gamma.yaml")).read())
+
+    def test_a_value_file_outside_the_tree_is_refused(self):
+        self.add_app("gamma", ["../../../etc/hosts"])
+        out = os.path.join(self.tmp, "out")
+        r = self.render(out)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("outside the tree", r.stderr)
+        self.assertEqual(open(os.path.join(out, "failed")).read().split(), ["gamma"])
+        self.assertFalse(os.path.exists(os.path.join(out, "apps", "gamma.yaml")))
+        self.assertTrue(os.path.exists(os.path.join(out, "apps", "alpha.yaml")))    # the others still render
+
+    def test_an_absolute_value_file_outside_the_tree_is_refused(self):
+        write(os.path.join(self.tmp, "outside.yaml"), "image: {tag: outside}\n")
+        self.add_app("gamma", ["/../outside.yaml"])
+        out = os.path.join(self.tmp, "out")
+        r = self.render(out)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("outside the tree", r.stderr)
+        self.assertEqual(open(os.path.join(out, "failed")).read().split(), ["gamma"])
+
+    def test_a_missing_value_file_is_refused(self):
+        self.add_app("gamma", ["../../pins/nope.yaml"])
+        r = self.render(os.path.join(self.tmp, "out"))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("does not exist", r.stderr)
 
     def test_the_script_names_no_cluster_tool(self):
         text = open(SCRIPT).read()

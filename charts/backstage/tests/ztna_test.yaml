@@ -2,6 +2,11 @@ suite: backstage ztna flag
 templates:
   - templates/configmap-app-config.yaml
   - templates/deployment.yaml
+
+# The pins the backstage Application passes (charts/app-of-apps/templates/backstage.yaml): the chart values
+# carry empty image keys now that Kargo writes the pins (scripts/images.yaml).
+values:
+  - ../../../pins/backstage.yaml
 tests:
   - it: puts teknoir.ztna.enabled in the backend app-config when the switch is on
     template: templates/configmap-app-config.yaml

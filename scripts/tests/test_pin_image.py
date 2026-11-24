@@ -64,13 +64,11 @@ class Yaml(unittest.TestCase):
 
     def test_real_values_files_round_trip_for_every_component(self):
         root = os.path.dirname(H.SCRIPTS)
-        images = PI.parse_images_tsv(open(os.path.join(H.SCRIPTS, "images.tsv")).read())
+        images = PI.parse_images_yaml(open(os.path.join(H.SCRIPTS, "images.yaml")).read())
         for name, c in images.items():
-            text = open(os.path.join(root, c["values_file"])).read()
+            text = open(os.path.join(root, PI.image_path(c))).read()
             old = PI.get_leaf(text, c["key_path"])
-            if old is None:
-                self.assertIn(name, ("backstage-next-app", "backstage-next-api"))   # keys added by the adoption PR
-                continue
+            self.assertIsNotNone(old, f"{name}: {PI.image_path(c)} has no value at {c['key_path']}")
             new = PI.set_leaf(text, c["key_path"], old + "-x")
             self.assertEqual(PI.get_leaf(new, c["key_path"]), old + "-x", name)
             self.assertEqual(len(new.split("\n")), len(text.split("\n")), name)
@@ -91,13 +89,19 @@ class Refs(unittest.TestCase):
         self.assertEqual(PI.build_value("tag", "r", "t", D), "t@" + D)
         self.assertEqual(PI.build_value("ref", "r", "t", D), "r:t@" + D)
 
-    def test_tsv(self):
-        imgs = PI.parse_images_tsv(open(os.path.join(H.SCRIPTS, "images.tsv")).read())
+    def test_images_yaml(self):
+        imgs = PI.parse_images_yaml(open(os.path.join(H.SCRIPTS, "images.yaml")).read())
         for must in ("backstage-app", "backstage-api", "devstudio-controller", "user-controller",
                      "notebook-controller", "keycloak-theme", "device-controller", "profile-controller", "postgres"):
             self.assertIn(must, imgs)
         for c in imgs.values():
-            self.assertTrue(c["values_file"].startswith("charts/") and c["key_path"] and c["repository"])
+            self.assertTrue(c["key_path"] and c["repository"] and c["chart"])
+            if c["group"]:
+                self.assertTrue(PI.image_path(c).startswith("pins/"), c)        # a grouped row pins in pins/<group>.yaml
+                self.assertFalse(c.get("values_file"), c)
+            else:
+                self.assertTrue(PI.image_path(c).startswith("charts/"), c)      # a third party row pins in its chart values
+                self.assertIsNone(c["pins_file"])
 
 
 class FakeSys(L.Sys):
@@ -127,17 +131,25 @@ class PinFlow(unittest.TestCase):
         self.root = H.tmpdir()
         shutil.copytree(os.path.join(os.path.dirname(H.SCRIPTS), "scripts"), os.path.join(self.root, "scripts"),
                         ignore=shutil.ignore_patterns("tests", "__pycache__"))
-        # Self-contained fixtures (unpinned on purpose): the real values files get pinned by releases.
+        # Self-contained fixtures (unpinned on purpose): the real pins files get pinned by releases. A grouped
+        # component is pinned in the group's pins file, a third party one in its chart values file.
         fixtures = {
-            "charts/devstudio-controller/values.yaml":
-                "# fixture\nimage:\n  repository: ghcr.io/teknoir/devstudio-controller\n  tag: \"teknoir-cloud\"\n  pullPolicy: Always\n",
+            "pins/devstudio-controller.yaml":
+                "# fixture\nimage:\n  tag: \"teknoir-cloud\"\n",
             "charts/ztna/values.yaml":
-                "# fixture\nhub:\n  image:\n    repository: ghcr.io/teknoir/wg-hub\n    tag: \"sha-9c9bdae@sha256:" + "c" * 64 + "\"\n"
-                "    # confirmation\n    leaderElection: true\n    pullPolicy: IfNotPresent\n",
-            "charts/backstage/values.yaml":
+                "# fixture\nhub:\n  image:\n    repository: ghcr.io/teknoir/wg-hub\n    leaderElection: true\n    pullPolicy: IfNotPresent\n",
+            "pins/wg-tunnel.yaml":
+                "# fixture\nhub:\n  image:\n    tag: \"sha-9c9bdae@sha256:" + "c" * 64 + "\"\n"
+                "    # confirmation\n",
+            "pins/backstage.yaml":
                 "# fixture\nbackstage:\n  image: ghcr.io/teknoir/backstage-app:robot\nbackstageApi:\n  image: ghcr.io/teknoir/backstage:robot\n",
-            "charts/device-controller/values.yaml":
+            "pins/teknoir-desktop.yaml":
                 "# fixture\ndesktop:\n  agent:\n    image: \"ghcr.io/teknoir/teknoir-desktop:sha-ca46a99c-council@" + D + "\"\n",
+            # digest style: the pin holds only the digest; its sibling tag stays in the chart values
+            "pins/keycloak-theme.yaml":
+                "# fixture\nkeycloak:\n  image:\n    digest: \"\"\n",
+            "charts/auth/values.yaml":
+                "# fixture\nkeycloak:\n  image:\n    repository: ghcr.io/teknoir/keycloak-theme\n    tag: \"latest\"\n    digest: \"\"\n",
         }
         for f, text in fixtures.items():
             os.makedirs(os.path.dirname(os.path.join(self.root, f)), exist_ok=True)
@@ -149,15 +161,16 @@ class PinFlow(unittest.TestCase):
         return PI.Pin(sys_, self.root, out=self.out.append)
 
     def test_pin_dry_run_prints_and_does_not_write(self):
-        before = open(os.path.join(self.root, "charts/devstudio-controller/values.yaml")).read()
+        before = open(os.path.join(self.root, "pins/devstudio-controller.yaml")).read()
         res = self.pin(FakeSys()).pin("devstudio-controller", "teknoir-cloud", write=False)
         self.assertEqual(res["new"], "teknoir-cloud@" + D)
-        self.assertEqual(open(os.path.join(self.root, "charts/devstudio-controller/values.yaml")).read(), before)
+        self.assertEqual(open(os.path.join(self.root, "pins/devstudio-controller.yaml")).read(), before)
+        self.assertEqual(res["file"], "pins/devstudio-controller.yaml")
         self.assertTrue(any("source commit " + "f" * 40 in l for l in self.out))
 
     def test_pin_write(self):
         self.pin(FakeSys()).pin("devstudio-controller", "teknoir-cloud", write=True)
-        text = open(os.path.join(self.root, "charts/devstudio-controller/values.yaml")).read()
+        text = open(os.path.join(self.root, "pins/devstudio-controller.yaml")).read()
         self.assertEqual(PI.get_leaf(text, "image.tag"), "teknoir-cloud@" + D)
 
     def test_ref_style_keeps_the_repository_in_the_value(self):
@@ -165,7 +178,7 @@ class PinFlow(unittest.TestCase):
         self.assertEqual(res["new"], "ghcr.io/teknoir/backstage-app:robot@" + D)
 
     def _device_controller(self):
-        return open(os.path.join(self.root, "charts/device-controller/values.yaml")).read()
+        return open(os.path.join(self.root, "pins/teknoir-desktop.yaml")).read()
 
     def test_council_sub_image_pins_by_tag(self):
         # the council image is the sub-image ghcr.io/teknoir/teknoir-desktop/council: a bare tag resolves to it
@@ -185,17 +198,19 @@ class PinFlow(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.pin(FakeSys()).pin("teknoir-desktop-agent", "ghcr.io/teknoir/teknoir-desktop:sha-9df98cbf-council", write=True)
 
-    def _ztna(self):
-        return open(os.path.join(self.root, "charts/ztna/values.yaml")).read()
+    def _ztna_pins(self):
+        return open(os.path.join(self.root, "pins/wg-tunnel.yaml")).read()
 
     def test_wg_hub_repin_leaves_the_leader_election_flag_unchanged(self):
-        # every wg-tunnel main build has leader election: a re-pin only changes the tag
+        # every wg-tunnel main build has leader election: a re-pin only changes the tag in the pins file, and
+        # hub.image.leaderElection stays in charts/ztna/values.yaml untouched
         self.pin(FakeSys()).pin("wg-hub", "sha-1234567", write=True)
-        text = self._ztna()
+        text = self._ztna_pins()
         self.assertEqual(PI.get_leaf(text, "hub.image.tag"), "sha-1234567@" + D)
-        self.assertEqual(PI.get_leaf(text, "hub.image.leaderElection"), "true")
         self.assertIn("    # confirmation", text)
-        self.assertEqual(PI.get_leaf(text, "hub.image.pullPolicy"), "IfNotPresent")
+        values = open(os.path.join(self.root, "charts/ztna/values.yaml")).read()
+        self.assertEqual(PI.get_leaf(values, "hub.image.leaderElection"), "true")
+        self.assertEqual(PI.get_leaf(values, "hub.image.pullPolicy"), "IfNotPresent")
 
     def test_refuses_an_image_without_linux_amd64(self):
         with self.assertRaises(SystemExit):
@@ -219,14 +234,14 @@ class PinFlow(unittest.TestCase):
         self.assertEqual(res["devstudio-controller"]["value"], "teknoir-cloud@sha256:" + "c" * 64)
         self.assertTrue(res["devstudio-controller"]["moved"])
         self.assertEqual(res["backstage-app"]["value"], "ghcr.io/teknoir/backstage-app:robot@sha256:" + "d" * 64)
-        text = open(os.path.join(self.root, "charts/devstudio-controller/values.yaml")).read()
+        text = open(os.path.join(self.root, "pins/devstudio-controller.yaml")).read()
         self.assertEqual(PI.get_leaf(text, "image.tag"), "teknoir-cloud@sha256:" + "c" * 64)
 
     def test_adopt_running_never_writes_without_the_flag_and_never_retags(self):
-        before = open(os.path.join(self.root, "charts/devstudio-controller/values.yaml")).read()
+        before = open(os.path.join(self.root, "pins/devstudio-controller.yaml")).read()
         sys_ = FakeSys(running={"ghcr.io/teknoir/devstudio-controller:teknoir-cloud": "ghcr.io/teknoir/devstudio-controller@sha256:" + "c" * 64})
         self.pin(sys_).adopt_running(write=False, context="r415")
-        self.assertEqual(open(os.path.join(self.root, "charts/devstudio-controller/values.yaml")).read(), before)
+        self.assertEqual(open(os.path.join(self.root, "pins/devstudio-controller.yaml")).read(), before)
         for call in sys_.calls:
             self.assertNotIn(call[1] if call[0] == "crane" else "", ("copy", "tag", "push", "delete", "cp"))
             if call[0] == "kubectl":
@@ -252,10 +267,24 @@ class PinFlow(unittest.TestCase):
         self.assertEqual(PI.current_ref("digest", "ghcr.io/teknoir/keycloak-theme", D, "latest"), "ghcr.io/teknoir/keycloak-theme:latest@" + D)
         self.assertIsNone(PI.current_ref("digest", "ghcr.io/teknoir/keycloak-theme", D, None))
 
+    def test_adopt_running_digest_style_reads_the_sibling_tag_from_the_chart_values(self):
+        # keycloak.image.tag does not live in pins/keycloak-theme.yaml: without reading it from the chart values
+        # the row has no ref and is skipped as "not set"
+        running = {"ghcr.io/teknoir/keycloak-theme:latest": "ghcr.io/teknoir/keycloak-theme@sha256:" + "c" * 64}
+        sys_ = FakeSys(digest="sha256:" + "e" * 64, running=running)          # the tag moved: the running digest is kept
+        res = {r["name"]: r for r in self.pin(sys_).adopt_running(write=True, context="r415")}
+        self.assertEqual(res["keycloak-theme"]["value"], "sha256:" + "c" * 64)
+        self.assertTrue(res["keycloak-theme"]["moved"])
+        pins = open(os.path.join(self.root, "pins/keycloak-theme.yaml")).read()
+        self.assertEqual(PI.get_leaf(pins, "keycloak.image.digest"), "sha256:" + "c" * 64)
+        self.assertIsNone(PI.get_leaf(pins, "keycloak.image.tag"))            # the sibling tag is not written to the pins file
+        values = open(os.path.join(self.root, "charts/auth/values.yaml")).read()
+        self.assertEqual(PI.get_leaf(values, "keycloak.image.tag"), "latest")  # ... and the chart values are untouched
+
     def test_adopt_skips_what_is_already_pinned(self):
         res = {r["name"]: r for r in self.pin(FakeSys()).adopt_running(write=False, context="r415")}
         self.assertNotIn("device-controller", res)        # file not copied into the fixture
-        text = open(os.path.join(self.root, "charts/devstudio-controller/values.yaml")).read()
+        text = open(os.path.join(self.root, "pins/devstudio-controller.yaml")).read()
         self.assertNotIn("@sha256", text)
 
 

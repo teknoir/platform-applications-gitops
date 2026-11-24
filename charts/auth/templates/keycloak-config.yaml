@@ -106,7 +106,7 @@ spec:
             - {name: state, mountPath: /state}
       containers:
         - name: bootstrap
-          image: "{{ .Values.keycloak.image.repository }}:{{ .Values.keycloak.image.tag }}{{ with .Values.keycloak.image.digest }}@{{ . }}{{ end }}"
+          image: "{{ .Values.keycloak.image.repository }}:{{ .Values.keycloak.image.tag }}@{{ required "keycloak.image.digest is pinned in pins/keycloak-theme.yaml (Kargo stage pin-keycloak-theme)" .Values.keycloak.image.digest }}"
           imagePullPolicy: {{ .Values.keycloak.image.pullPolicy }}
           command: ["/bin/bash", "-c"]
           args:

@@ -3,6 +3,13 @@ templates:
   - templates/configmap.yaml
   - templates/rbac.yaml
   - templates/virtual-devices-runtime.yaml
+# The pins the device-controller Application passes (charts/app-of-apps/templates/controllers.yaml): the chart
+# values carry empty image keys now that Kargo writes the pins (scripts/images.yaml). set: still overrides them.
+values:
+  - ../../../pins/device-controller.yaml
+  - ../../../pins/teknoir-desktop.yaml
+  - ../../../pins/web-terminal.yaml
+  - ../../../pins/wg-tunnel.yaml
 set:
   ztna.agentImage: "ghcr.io/teknoir/wg-agent:sha-0000000a@sha256:1111111111111111111111111111111111111111111111111111111111111111"
   ztna.terminalImage: "ghcr.io/teknoir/web-terminal:sha-0000000b@sha256:2222222222222222222222222222222222222222222222222222222222222222"
@@ -25,11 +32,11 @@ tests:
     set:
       ztna.enabled: true
       ztna.attestorEnabled: false
-      ztna.gatewayImage: ""
+      ztna.gatewayImage: "ghcr.io/teknoir/wg-gateway:sha-0000000c@sha256:4444444444444444444444444444444444444444444444444444444444444444"
     asserts:
       - equal:
           path: data.ZTNA
-          value: '{"agentImage":"ghcr.io/teknoir/wg-agent:sha-0000000a@sha256:1111111111111111111111111111111111111111111111111111111111111111","allowedPorts":[22],"enabled":true,"enrollWindowMinutes":15,"hubNamespace":"teknoir-ztna","ingressPrincipals":["cluster.local/ns/istio-system/sa/istio-ingressgateway"],"inspectPrincipals":["cluster.local/ns/teknoir-system/sa/backstage-api"],"terminalImage":"ghcr.io/teknoir/web-terminal:sha-0000000b@sha256:2222222222222222222222222222222222222222222222222222222222222222","terminalRunAsUser":65532}'
+          value: '{"agentImage":"ghcr.io/teknoir/wg-agent:sha-0000000a@sha256:1111111111111111111111111111111111111111111111111111111111111111","allowedPorts":[22],"enabled":true,"enrollWindowMinutes":15,"gatewayImage":"ghcr.io/teknoir/wg-gateway:sha-0000000c@sha256:4444444444444444444444444444444444444444444444444444444444444444","hubNamespace":"teknoir-ztna","ingressPrincipals":["cluster.local/ns/istio-system/sa/istio-ingressgateway"],"inspectPrincipals":["cluster.local/ns/teknoir-system/sa/backstage-api"],"terminalImage":"ghcr.io/teknoir/web-terminal:sha-0000000b@sha256:2222222222222222222222222222222222222222222222222222222222222222","terminalRunAsUser":65532}'
       - equal:
           path: data.DOMAIN
           value: teknoir.cloud
@@ -224,13 +231,11 @@ tests:
           path: data.ZTNA
           pattern: '"gatewayImage":"ghcr.io/teknoir/wg-gateway:sha-0000000c@sha256:4444'
 
-  - it: leaves attestorEnabled and gatewayImage out when off
+  - it: fails the render without the gateway image (an empty one is not an off switch while ztna is on)
     template: templates/configmap.yaml
     set:
       ztna.enabled: true
-      ztna.attestorEnabled: false
       ztna.gatewayImage: ""
     asserts:
-      - notMatchRegex:
-          path: data.ZTNA
-          pattern: 'attestorEnabled|gatewayImage'
+      - failedTemplate:
+          errorPattern: "ztna.gatewayImage is required when ztna.enabled"

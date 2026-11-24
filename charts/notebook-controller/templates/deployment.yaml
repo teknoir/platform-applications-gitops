@@ -34,7 +34,7 @@ spec:
           value: {{ index .Values.parameters "project-id" | quote }}
         - name: DOMAIN
           value: {{ .Values.parameters.domain | quote }}
-        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        image: "{{ .Values.image.repository }}:{{ required "image.tag is pinned in pins/notebook-controller.yaml (Kargo stage pin-notebook-controller)" .Values.image.tag }}"
         imagePullPolicy: {{ .Values.image.pullPolicy }}
         livenessProbe:
           httpGet:

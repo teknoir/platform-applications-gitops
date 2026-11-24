@@ -35,7 +35,7 @@ spec:
       - name: manager
         securityContext:
           {{- toYaml .Values.securityContext | nindent 10 }}
-        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+        image: "{{ .Values.image.repository }}:{{ required "image.tag is pinned in pins/user-controller.yaml (Kargo stage pin-user-controller)" .Values.image.tag }}"
         imagePullPolicy: {{ .Values.image.pullPolicy }}
         command:
         - /manager

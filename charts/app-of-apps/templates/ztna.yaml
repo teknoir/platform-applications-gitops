@@ -114,6 +114,13 @@ spec:
     path: charts/ztna
     repoURL: https://github.com/teknoir/platform-applications-gitops
     targetRevision: {{ include "app-of-apps.revision" . }}
+{{- if has .Values.project (list "teknoir-cloud") }}
+    helm:
+      # Pins of the image group (scripts/images.yaml); only teknoir-cloud has a pins/ directory.
+      valueFiles:
+        - values.yaml
+        - ../../pins/wg-tunnel.yaml
+{{- end }}
   project: {{ .Values.project }}
   syncPolicy:
     syncOptions:

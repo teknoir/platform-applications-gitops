@@ -65,9 +65,10 @@ After `make manifests` in the controller repo: `charts/teknoirbot-controller/hac
 
 ## Desktop
 
-A bot gets its browser desktop only when device-controller has the `DESKTOP` config: `desktop.enabled` and `desktop.image` in
-`charts/device-controller/values.yaml` (and `ztna.enabled`, the desktop is reached through Tunneling), and a Device CRD with
-`spec.desktop` in `charts/device-controller/crds/devices.yaml`.
+A bot gets its browser desktop only when device-controller has the `DESKTOP` config: `desktop.enabled` in
+`charts/device-controller/values.yaml` and `desktop.image` pinned in `pins/teknoir-desktop.yaml` (the chart values keep
+it empty and the template requires it; and `ztna.enabled`, the desktop is reached through Tunneling), and a Device CRD
+with `spec.desktop` in `charts/device-controller/crds/devices.yaml`.
 
 ## Tests
 

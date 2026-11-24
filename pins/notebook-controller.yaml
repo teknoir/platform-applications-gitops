@@ -1,0 +1,5 @@
+# Pins of the notebook-controller image group (scripts/images.yaml), read by the notebook-controller
+# Application (helm.valueFiles, charts/app-of-apps/templates/controllers.yaml). Written by the Kargo
+# stage pin-notebook-controller and by scripts/pin-image; do not edit by hand.
+image:
+  tag: "teknoir-cloud-20260522-055950@sha256:7a717c3bd14bfa8a1f4899d4902351148fa83ee5a07d75c9488c2d6508ae35ac"

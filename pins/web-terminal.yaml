@@ -1,0 +1,8 @@
+# Pins of the web-terminal image group (scripts/images.yaml), read by the device-controller Application
+# (helm.valueFiles, charts/app-of-apps/templates/controllers.yaml). Written by the Kargo stage
+# pin-web-terminal and by scripts/pin-image; do not edit by hand.
+#
+# The per-device WireGuard web terminal image (SSH_PROXY_MODE=wireguard), '<immutable tag>@sha256:<digest>';
+# required once ztna.enabled (the comment on the images is in pins/wg-tunnel.yaml).
+ztna:
+  terminalImage: "ghcr.io/teknoir/web-terminal:sha-360d7543@sha256:ae5df9f0daf9a96f35088ef63ae553a29c41400daea79a6b14e298bbddf709e1"

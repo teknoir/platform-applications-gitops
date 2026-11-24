@@ -3,6 +3,11 @@ templates:
   - templates/configmap-app-config.yaml
   - templates/deployment.yaml
   - templates/rbac.yaml
+
+# The pins the backstage Application passes (charts/app-of-apps/templates/backstage.yaml): the chart values
+# carry empty image keys now that Kargo writes the pins (scripts/images.yaml).
+values:
+  - ../../../pins/backstage.yaml
 tests:
   - it: puts the flag, presets and custom limits in the backend app-config
     template: templates/configmap-app-config.yaml

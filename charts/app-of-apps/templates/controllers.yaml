@@ -15,6 +15,13 @@ spec:
     path: charts/notebook-controller
     repoURL: https://github.com/teknoir/platform-applications-gitops
     targetRevision: {{ include "app-of-apps.revision" . }}
+{{- if has .Values.project (list "teknoir-cloud") }}
+    helm:
+      # Pins of the image group (scripts/images.yaml); only teknoir-cloud has a pins/ directory.
+      valueFiles:
+        - values.yaml
+        - ../../pins/notebook-controller.yaml
+{{- end }}
   project: {{ .Values.project }}
   syncPolicy:
     automated:
@@ -39,6 +46,13 @@ spec:
     path: charts/devstudio-controller
     repoURL: https://github.com/teknoir/platform-applications-gitops
     targetRevision: {{ include "app-of-apps.revision" . }}
+{{- if has .Values.project (list "teknoir-cloud") }}
+    helm:
+      # Pins of the image group (scripts/images.yaml); only teknoir-cloud has a pins/ directory.
+      valueFiles:
+        - values.yaml
+        - ../../pins/devstudio-controller.yaml
+{{- end }}
   project: {{ .Values.project }}
   syncPolicy:
     automated:
@@ -63,6 +77,13 @@ spec:
     path: charts/user-controller
     repoURL: https://github.com/teknoir/platform-applications-gitops
     targetRevision: {{ include "app-of-apps.revision" . }}
+{{- if has .Values.project (list "teknoir-cloud") }}
+    helm:
+      # Pins of the image group (scripts/images.yaml); only teknoir-cloud has a pins/ directory.
+      valueFiles:
+        - values.yaml
+        - ../../pins/user-controller.yaml
+{{- end }}
   project: {{ .Values.project }}
   syncPolicy:
     automated:
@@ -103,6 +124,13 @@ spec:
     path: charts/profile-controller
     repoURL: https://github.com/teknoir/platform-applications-gitops
     targetRevision: {{ include "app-of-apps.revision" . }}
+{{- if has .Values.project (list "teknoir-cloud") }}
+    helm:
+      # Pins of the image group (scripts/images.yaml); only teknoir-cloud has a pins/ directory.
+      valueFiles:
+        - values.yaml
+        - ../../pins/profile-controller.yaml
+{{- end }}
   project: {{ .Values.project }}
   syncPolicy:
     automated:
@@ -127,11 +155,19 @@ spec:
     path: charts/device-controller
     repoURL: https://github.com/teknoir/platform-applications-gitops
     targetRevision: {{ include "app-of-apps.revision" . }}
-{{- if include "app-of-apps.ztnaEnabled" . }}
+{{- if has .Values.project (list "teknoir-cloud") }}
     helm:
+      # Pins of the image group (scripts/images.yaml); only teknoir-cloud has a pins/ directory.
+      valueFiles:
+        - values.yaml
+        - ../../pins/device-controller.yaml
+        - ../../pins/teknoir-desktop.yaml
+        - ../../pins/web-terminal.yaml
+        - ../../pins/wg-tunnel.yaml
+{{- if include "app-of-apps.ztnaEnabled" . }}
       parameters:
         # One switch (app-of-apps values ztna.enabled) for the whole feature. The images
-        # (ztna.agentImage, ztna.terminalImage) are in charts/device-controller/values.yaml.
+        # (ztna.agentImage, ztna.terminalImage) are in pins/wg-tunnel.yaml and pins/web-terminal.yaml.
         - name: ztna.enabled
           value: "true"
         # Tunneling (WireGuard) on for every Device without the annotation; an admin's
@@ -142,6 +178,7 @@ spec:
         # Virtual devices may reach the TeknoirBot API (tb-api.<domain>:8085) on the public gateway pods.
         - name: teknoirbotApi.enabled
           value: "true"
+{{- end }}
 {{- end }}
 {{- end }}
   project: {{ .Values.project }}
