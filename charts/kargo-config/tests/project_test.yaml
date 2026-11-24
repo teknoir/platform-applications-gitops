@@ -103,7 +103,7 @@ tests:
       - equal: {path: metadata.name, value: platform}
       - equal: {path: metadata.namespace, value: platform}
 
-  - it: has a promotion policy for staging, staging-verified and every image group, all off
+  - it: has a promotion policy for staging, staging-verified and every image group; staging and staging-verified on (P5.2), pins off
     template: templates/project.yaml
     documentSelector:
       path: kind
@@ -112,10 +112,10 @@ tests:
       - lengthEqual: {path: spec.promotionPolicies, count: 13}
       - contains:
           path: spec.promotionPolicies
-          content: {stageSelector: {name: staging}, autoPromotionEnabled: false}
+          content: {stageSelector: {name: staging}, autoPromotionEnabled: true}
       - contains:
           path: spec.promotionPolicies
-          content: {stageSelector: {name: staging-verified}, autoPromotionEnabled: false}
+          content: {stageSelector: {name: staging-verified}, autoPromotionEnabled: true}
       - contains:
           path: spec.promotionPolicies
           content: {stageSelector: {name: pin-wg-tunnel}, autoPromotionEnabled: false}

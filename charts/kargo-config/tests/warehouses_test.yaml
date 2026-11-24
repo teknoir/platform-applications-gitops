@@ -1,17 +1,27 @@
 suite: Warehouses (git branch and image groups)
-# plans/cicd/v4/p42-spec.md section 4. Defaults: gitopsMain off, only wg-tunnel enabled (scripts/images.yaml).
+# plans/cicd/v4/p42-spec.md section 4. Defaults: gitopsMain on since the P5.2 cut-over, only wg-tunnel enabled
+# (scripts/images.yaml). The image-group tests turn gitopsMain off so they see only the image Warehouses.
 templates:
   - templates/warehouses.yaml
 tests:
-  - it: polls no git branch by default and one Warehouse for the one enabled group
+  - it: polls the gitops branch and one Warehouse for the one enabled group by default (since P5.2)
+    asserts:
+      - hasDocuments: {count: 2}
+      - isKind: {of: Warehouse}
+      - matchRegex: {path: metadata.name, pattern: ^(gitops-main|img-wg-tunnel)$}
+      - equal: {path: metadata.namespace, value: platform}
+
+  - it: one Warehouse for the one enabled group with the gitops branch off
+    set:
+      warehouses.gitopsMain.enabled: false
     asserts:
       - hasDocuments: {count: 1}
-      - isKind: {of: Warehouse}
       - equal: {path: metadata.name, value: img-wg-tunnel}
-      - equal: {path: metadata.namespace, value: platform}
       - equal: {path: spec.interval, value: 5m}
 
   - it: subscribes to every image of the group with the sha-<8> tag filter and cached tags
+    set:
+      warehouses.gitopsMain.enabled: false
     asserts:
       - lengthEqual: {path: spec.subscriptions, count: 3}
       - equal:
@@ -27,6 +37,8 @@ tests:
       - equal: {path: 'spec.subscriptions[2].image.repoURL', value: ghcr.io/teknoir/wg-gateway}
 
   - it: requires the same tag for every image of a same_commit group
+    set:
+      warehouses.gitopsMain.enabled: false
     asserts:
       - equal:
           path: spec.freightCreationCriteria.expression
@@ -57,6 +69,7 @@ tests:
 
   - it: renders no Warehouse at all with every group disabled and no git branch
     set:
+      warehouses.gitopsMain.enabled: false
       groups:
         - name: wg-tunnel
           enabled: false
@@ -69,6 +82,7 @@ tests:
 
   - it: gives a non-same_commit group no freightCreationCriteria
     set:
+      warehouses.gitopsMain.enabled: false
       groups:
         - name: device-controller
           enabled: true
@@ -86,6 +100,7 @@ tests:
 
   - it: a single-image group has no same_commit criterion
     set:
+      warehouses.gitopsMain.enabled: false
       groups:
         - name: device-controller
           enabled: true
@@ -106,6 +121,7 @@ tests:
 
   - it: a multi-image same_commit group requires one tag
     set:
+      warehouses.gitopsMain.enabled: false
       groups:
         - name: device-controller
           enabled: true

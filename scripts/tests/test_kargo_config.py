@@ -230,9 +230,9 @@ class KargoConfig(unittest.TestCase):
                     self.assertEqual(keys - allowed, set(), wh["metadata"]["name"])
                     self.assertIn("repoURL", keys)
 
-    def test_the_defaults_poll_no_branch_and_only_the_enabled_group(self):
+    def test_the_defaults_poll_the_branch_and_only_the_enabled_group(self):
         warehouses = self.warehouses(self.default_docs)
-        self.assertEqual(sorted(warehouses), ["img-wg-tunnel"])
+        self.assertEqual(sorted(warehouses), ["gitops-main", "img-wg-tunnel"])
         self.assertEqual(sorted(self.stages(self.default_docs)), ["pin-wg-tunnel", "staging", "staging-verified"])
 
     def test_every_enabled_group_gets_a_warehouse_and_a_pin_stage(self):
@@ -274,12 +274,16 @@ class KargoConfig(unittest.TestCase):
                 else:
                     self.assertEqual(value, '${{ imageFrom("%s").Digest }}' % img["poll"])
 
-    # -- inert by default, and the P4.3 (b) fallback
-    def test_all_auto_promotions_are_off_by_default(self):
+    # -- defaults (P5.2: staging auto-promotes, pins stay off), and the P4.3 (b) fallback
+    def test_only_staging_and_staging_verified_auto_promote_by_default(self):
+        # P5.2 cut-over: a merge to main is a release; every pin auto-promotion stays off until P6.1
         config = self.of_kind(self.default_docs, "ProjectConfig")[0]
         policies = config["spec"]["promotionPolicies"]
         self.assertEqual(len(policies), len(self.groups()) + 2)
-        self.assertTrue(all(p["autoPromotionEnabled"] is False for p in policies), policies)
+        on = {p["stageSelector"]["name"] for p in policies if p["autoPromotionEnabled"] is True}
+        self.assertEqual(on, {"staging", "staging-verified"}, policies)
+        self.assertTrue(all(p["autoPromotionEnabled"] is False for p in policies
+                            if p["stageSelector"]["name"].startswith("pin-")), policies)
 
     def test_the_release_parameter_is_only_set_with_setReleaseParam(self):
         staging = self.stages(self.default_docs)["staging"]

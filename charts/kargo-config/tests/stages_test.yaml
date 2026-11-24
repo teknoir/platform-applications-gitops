@@ -48,8 +48,19 @@ tests:
               - key: release
                 value: ${{ commitFrom("https://github.com/teknoir/platform-applications-gitops.git").ID }}
 
-  - it: staging verifies with revision-check only by default
+  - it: staging verifies with revision-check and the browser check by default (P5.2)
     template: templates/stage-staging.yaml
+    asserts:
+      - equal:
+          path: spec.verification.analysisTemplates
+          value:
+            - name: revision-check
+            - name: browser
+
+  - it: staging verifies with revision-check only without a browser image
+    template: templates/stage-staging.yaml
+    set:
+      verification.browser.image: ""
     asserts:
       - equal:
           path: spec.verification.analysisTemplates
