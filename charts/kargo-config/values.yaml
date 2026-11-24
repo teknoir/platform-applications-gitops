@@ -162,3 +162,15 @@ groups:
     images:
       - {component: teknoir-desktop, poll: ghcr.io/teknoir/teknoir-desktop, repository: ghcr.io/teknoir/teknoir-desktop, key: desktop.image, style: ref}
       - {component: teknoir-desktop-agent, poll: ghcr.io/teknoir/teknoir-desktop/council, repository: ghcr.io/teknoir/teknoir-desktop/council, key: desktop.agent.image, style: ref}
+
+# The Kargo UI and API at https://<ui.host> (Anders 2026-11-24): VirtualService kargo on the shared gateway
+# (templates/virtualservice.yaml) to Service kargo-api (plain HTTP on port 80: charts/kargo/values.yaml
+# api.tls.enabled false; the gateway terminates TLS with the *.teknoir.cloud wildcard). Kargo authenticates
+# against Keycloak itself (api.oidc), so charts/auth bypasses the edge login for this host when app-of-apps
+# passes kargo.enabled. ui.host must equal api.host in charts/kargo/values.yaml.
+ui:
+  enabled: true
+  host: kargo.teknoir.cloud
+  gateway: istio-system/teknoir-gateway
+  service: kargo-api.kargo.svc.cluster.local
+  port: 80

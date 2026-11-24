@@ -1,0 +1,25 @@
+{{- /*
+The Kargo UI and API at https://<ui.host>, see values.yaml `ui`. The VirtualService lives in the Project
+namespace (this Application's destination) and routes across namespaces to Service kargo-api: Istio resolves
+the destination by FQDN, and namespace kargo has no sidecar, so plain HTTP with no DestinationRule.
+No route timeout: the UI keeps server-streaming RPCs (Connect) open.
+*/ -}}
+{{- if .Values.ui.enabled }}
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: kargo
+  namespace: {{ .Values.project }}
+spec:
+  hosts:
+    - {{ required "ui.host" .Values.ui.host | quote }}
+  gateways:
+    - {{ .Values.ui.gateway }}
+  http:
+    - route:
+        - destination:
+            host: {{ .Values.ui.service }}
+            port:
+              number: {{ .Values.ui.port }}
+      timeout: 0s
+{{- end }}

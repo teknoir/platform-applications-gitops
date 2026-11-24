@@ -201,6 +201,46 @@ clients:
     webOrigins: ["https://harbor.{{ $d }}"]
     defaultClientScopes: {{ toJson $scopes }}
     optionalClientScopes: [offline_access]
+{{- if (.Values.kargo).enabled }}
+  # Kargo UI (gitops charts/kargo api.oidc clientID, https://kargo.{{ $d }}): public client, authorization code
+  # with PKCE S256, no secret. Kargo verifies the ID token's aud against this client id (Keycloak's default) and
+  # maps group admin to Kargo admin (api.oidc.admins). Turning kargo.enabled off does not delete the client
+  # (no-delete import): disable or delete it in Keycloak by hand.
+  - clientId: kargo
+    name: Kargo (kargo.{{ $d }})
+    enabled: true
+    protocol: openid-connect
+    publicClient: true
+    standardFlowEnabled: true
+    implicitFlowEnabled: false
+    directAccessGrantsEnabled: false
+    serviceAccountsEnabled: false
+    rootUrl: https://kargo.{{ $d }}
+    redirectUris: ["https://kargo.{{ $d }}/login"]
+    webOrigins: ["https://kargo.{{ $d }}"]
+    attributes:
+      pkce.code.challenge.method: S256
+      post.logout.redirect.uris: "https://kargo.{{ $d }}/*"
+    defaultClientScopes: {{ toJson $scopes }}
+    optionalClientScopes: [offline_access]
+  # Kargo CLI (api.oidc.cliClientID): `kargo login https://kargo.{{ $d }} --sso --port 8085`. The CLI listens on
+  # http://localhost:<port>/auth/callback; exactly port 8085 is registered, because Keycloak allows a wildcard only
+  # at the end of a URI, and a wildcard right after localhost would also match http://localhost.<any domain>.
+  - clientId: kargo-cli
+    name: Kargo CLI
+    enabled: true
+    protocol: openid-connect
+    publicClient: true
+    standardFlowEnabled: true
+    implicitFlowEnabled: false
+    directAccessGrantsEnabled: false
+    serviceAccountsEnabled: false
+    redirectUris: ["http://localhost:8085/auth/callback"]
+    attributes:
+      pkce.code.challenge.method: S256
+    defaultClientScopes: {{ toJson $scopes }}
+    optionalClientScopes: [offline_access]
+{{- end }}
   # The import's own identity (client credentials, realm role admin). keycloak-admin-bootstrap
   # creates it once with `kc.sh bootstrap-admin service`; from then on it is managed here.
   - clientId: keycloak-config-cli

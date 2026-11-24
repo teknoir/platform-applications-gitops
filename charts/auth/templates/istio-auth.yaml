@@ -531,6 +531,29 @@ spec:
               "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.LuaPerRoute
               disabled: true
 {{- end }}
+{{- if (.Values.kargo).enabled }}
+    # kargo.<domain> (Kargo UI and API, gitops charts/kargo and charts/kargo-config) signs users in against
+    # Keycloak itself (OIDC, public clients kargo and kargo-cli). The edge login would put an oauth2-proxy
+    # session in front of it and turn the API's 401s into redirects, so both the ext_authz check and the
+    # Lua login redirect are disabled here.
+    - applyTo: VIRTUAL_HOST
+      match:
+        context: GATEWAY
+        routeConfiguration:
+          gateway: "{{ .Values.istio.gateway.namespace }}/{{ .Values.istio.gateway.name }}"
+          vhost:
+            name: {{ printf "kargo.%s:443" $domain | quote }}
+      patch:
+        operation: MERGE
+        value:
+          typed_per_filter_config:
+            envoy.filters.http.ext_authz:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute
+              disabled: true
+            envoy.filters.http.lua:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.LuaPerRoute
+              disabled: true
+{{- end }}
 {{- if (.Values.ztna).enabled }}
     # wg.<domain> (charts/ztna, the WireGuard ZTNA hub) authenticates its callers itself: the hub
     # verifies the Keycloak bearer token (JWKS, azp, exp). The Lua login redirect would turn the
