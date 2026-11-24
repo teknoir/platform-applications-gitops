@@ -1,0 +1,16 @@
+{
+  "name": "gitops-verify",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Browser verification of a staging release: Keycloak sign-in, Backstage home, identity refresh (P4.2 section 6).",
+  "scripts": {
+    "test": "playwright test",
+    "list": "playwright test --list",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.1",
+    "typescript": "5.9.3",
+    "@types/node": "22.20.5"
+  }
+}

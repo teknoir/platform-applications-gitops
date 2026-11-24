@@ -11,6 +11,7 @@ Merging to `teknoir-cloud` queues a change; it is not live until a release.
 | `staging-render.sh` | renders a release like ArgoCD (root, children, profile-plugin charts); cached |
 | `check-pins.py` | the release lint over the rendered manifests; `release-policy.yaml` holds its rules and the dated exceptions |
 | `pin-image` | pins a Teknoir-built image as `tag@sha256:digest` (`images.tsv` lists them all); `--adopt-running`. A `wg-hub` pin changes only the tag (`hub.image.leaderElection` stays true) |
+| `watch.py` | the staging watch (`.github/workflows/watch.yml`, every 15 min once `vars.STAGING_WATCH` is `'true'`): an unverified default-branch commit older than 45 min, a `verified/*` tag without `freight=`, and `.github/rulesets/*.json` drifting from the live rulesets, each as one idempotent issue; `--dry-run` prints instead of calling gh |
 | `stagelib.py` | shared logic (tag numbering, candidate validation, plan, lease, convergence) |
 | `tests/` | `tests/run.sh` runs everything below |
 

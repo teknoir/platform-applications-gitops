@@ -1,0 +1,35 @@
+name: verify-image
+
+# Builds verify/ (the Playwright browser check) as gitops-verify through teknoir/ci-workflows' reusable image
+# workflow. ci-workflows image.yml builds refs/heads/main only, so nothing builds before the repository's rename to
+# main (P4.2 section 6); the P4.3 rehearsal builds the image locally and imports it into k3d.
+# Deliberately not a job of ci.yml: this repository's checks never touch a live URL (only `playwright test --list`).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - verify/**
+      - .github/workflows/verify-image.yml
+  workflow_dispatch:
+
+concurrency:
+  group: verify-image-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    name: image
+    uses: teknoir/ci-workflows/.github/workflows/image.yml@main
+    with:
+      image: gitops-verify
+      context: verify
+      file: verify/Dockerfile
+      # image.yml defaults to the self-hosted teknoir-push runner and a private Harbor push; this image is public
+      # and needs no runner of ours.
+      runs-on: ubuntu-latest
+      visibility: public
