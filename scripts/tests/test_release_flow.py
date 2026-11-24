@@ -26,7 +26,7 @@ class Base(unittest.TestCase):
         return "\n".join(self.out)
 
     def root_branch(self):
-        return H.root_app(target="teknoir-cloud", sync_rev=self.repo.sha("c2"))
+        return H.root_app(target="main", sync_rev=self.repo.sha("c2"))
 
     def root_pinned(self, sha="c2", tag="staging-20261017.1", prev=None):
         s = self.repo.sha(sha)
@@ -48,10 +48,10 @@ class Base(unittest.TestCase):
         return t, rc
 
     def add_commit(self, name, fname, content):
-        """A new head of origin/teknoir-cloud (the throwaway repo's working tree is on that branch)."""
+        """A new head of origin/main (the throwaway repo's working tree is on that branch)."""
         sha = self.repo.commit(name, fname, content)
         self.repo.c[name] = sha
-        H.git(self.repo.work, "push", "-q", "origin", "teknoir-cloud")
+        H.git(self.repo.work, "push", "-q", "origin", "main")
         H.git(self.repo.work, "fetch", "-q", "origin")
         return sha
 
@@ -82,6 +82,35 @@ class DryRun(Base):
         self.assertFalse([c for c in cmds if c[0] == "git" and any(x in c for x in ("push",))])
         self.assertEqual(self.remote_tags(), [])
         self.assertTrue(os.path.isfile(L.plan_path(self.cache, self.repo.sha("c4"))))
+
+    def test_the_gitops_branch_comes_from_origin_head_and_falls_back_to_main(self):
+        fake = H.FakeSys(self.root_branch())
+        # the fixture's bare origin has no HEAD: the tooling follows `main` (the branch since the CI v4 cut-over)
+        self.assertEqual(self.tool(fake).branch, "origin/main")
+        self.assertEqual(self.tool(fake).branch_name, "main")
+        H.git(self.repo.work, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+        self.assertEqual(self.tool(H.FakeSys(self.root_branch())).branch, "origin/main")
+        # a remote whose HEAD still names the old branch: the same code follows it, no constant to edit
+        H.git(self.repo.work, "push", "-q", "origin", "main:teknoir-cloud")
+        H.git(self.repo.work, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/teknoir-cloud")
+        H.git(self.repo.work, "fetch", "-q", "origin")
+        fake2 = H.FakeSys(self.root_branch())
+        self.plan(fake2, self.repo.sha("c4"))
+        self.assertIn(["git", "-C", self.repo.work, "fetch", "--tags", "--force", "origin", "teknoir-cloud"],
+                      [[x for x in c] for c, _ in fake2.calls], fake2.calls)
+
+    def test_a_branch_gone_from_the_remote_refuses_with_the_set_head_hint(self):
+        # origin/HEAD names a branch just fine locally, but the remote ref is gone: the fetch fails and a release
+        # must not proceed on what it could not refresh.
+        H.git(self.repo.work, "push", "-q", "origin", "main:teknoir-cloud")
+        H.git(self.repo.work, "fetch", "-q", "origin")
+        H.git(self.repo.work, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/teknoir-cloud")
+        # delete it on the bare remote only: the local origin/teknoir-cloud (and origin/HEAD) stay resolvable
+        H.git(self.repo.origin, "update-ref", "-d", "refs/heads/teknoir-cloud")
+        fake = H.FakeSys(self.root_pinned("c2"))
+        with self.assertRaisesRegex(L.Refuse, "cannot fetch teknoir-cloud.*set-head origin -a"):
+            self.tool(fake).fetch()
+        self.assertEqual(fake.verbs(), [])
 
     def test_teknoirbot_controller_gets_a_log_hint(self):
         fake = H.FakeSys(self.root_pinned("c2"))
@@ -501,14 +530,14 @@ class IdentityAndGuards(Base):
     def test_cutover_runs_the_convergence_guard_when_the_candidate_is_the_synced_revision(self):
         # at the cutover the candidate (branch head) == the commit the branch-following root has synced == 'live': noop
         c4 = self.repo.sha("c4")
-        root = H.root_app(target="teknoir-cloud", sync_rev=c4)
+        root = H.root_app(target="main", sync_rev=c4)
         fake = H.FakeSys(root, releaser_installed=False)
         fake.children["a"]["status"]["health"]["status"] = "Degraded"
         self.plan(fake, c4)
         with self.assertRaisesRegex(L.Refuse, "not converged"):
             self.tool(fake).cmd_yes(self.args(yes=c4, by="s", reason="first", bootstrap=True, timeout=30))
         self.assertEqual(self.remote_tags(), [])
-        self.assertEqual(fake.root["spec"]["source"]["targetRevision"], "teknoir-cloud")
+        self.assertEqual(fake.root["spec"]["source"]["targetRevision"], "main")
         # healthy: the same cutover goes through
         fake2 = H.FakeSys(root, releaser_installed=False)
         self.plan(fake2, c4)
@@ -652,7 +681,7 @@ class IdentityAndGuards(Base):
             self.tool(fake).cmd_rollback(self.args(rollback="staging-20261017.1", yes=self.repo.sha("c2"), by="s", reason="r"))
 
     def commit_local_scripts_change(self):
-        """A commit on the checkout that is NOT on origin/teknoir-cloud: the checkout's scripts/ tree differs."""
+        """A commit on the checkout that is NOT on origin/main: the checkout's scripts/ tree differs."""
         H.git(self.repo.work, "checkout", "-q", "-b", "local-tooling")
         self.repo.commit("local tooling", "scripts/release-policy.yaml",
                          open(os.path.join(self.repo.work, "scripts", "release-policy.yaml")).read() + "\n# local\n")
@@ -930,6 +959,52 @@ class VerifiedAndBreakGlass(Base):
     def test_main_refuses_a_branch_override_with_yes(self):
         rc = SR.main(["--branch", "release/tooling", "--yes", SHA("a"), "--by", "s", "--reason", "r"], sys_=H.FakeSys(self.root_pinned("c2")))
         self.assertEqual(rc, 2)
+
+    def test_main_refuses_a_release_when_origin_head_names_another_branch(self):
+        """A stale origin/HEAD must not let --yes/--rollback/--verified act on a branch that is not the gitops branch."""
+        import contextlib
+        import io
+        H.git(self.repo.work, "push", "-q", "origin", "main:release/tooling")
+        H.git(self.repo.work, "fetch", "-q", "origin")
+        H.git(self.repo.work, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/release/tooling")
+        fake = H.FakeSys(self.root_pinned("c2", "staging-20261017.1"))
+        fake.releases = [{"tagName": "staging-20261017.1", "isPrerelease": True, "name": "staging-20261017.1", "body": ""}]
+        real_root = L.repo_root_of
+        L.repo_root_of = lambda p: self.repo.work
+        err = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(err):
+                rc = SR.main(["--verified", "staging-20261017.1"], sys_=fake)
+        finally:
+            L.repo_root_of = real_root
+        self.assertEqual(rc, 2)
+        self.assertIn("not 'release/tooling'", err.getvalue())
+        self.assertEqual(fake.verbs(), [])
+
+    def test_branch_equal_to_origin_head_is_accepted_with_yes(self):
+        """--branch <origin/HEAD's branch> is the gitops branch itself: releases still work from it (the fetch uses
+        origin/HEAD, so a --branch stand-in never needed one)."""
+        fake = H.FakeSys(self.root_branch(), releaser_installed=False)
+        H.git(self.repo.work, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+        old = os.environ.get("XDG_CACHE_HOME")
+        os.environ["XDG_CACHE_HOME"] = os.path.join(self.repo.tmp, "xdg")
+        real_root = L.repo_root_of
+        L.repo_root_of = lambda p: self.repo.work
+        try:
+            t = SR.Tool(fake, self.repo.work, out=self.out.append, cache=L.cache_dir())   # what main() uses
+            self.assertEqual(t.cmd_plan(self.args(ref=self.repo.sha("c4"))), 0, "\n".join(self.out))
+            rc = SR.main(["--branch", "origin/main", "--bootstrap", "--yes", self.repo.sha("c4"),
+                          "--by", "s", "--reason", "r", "--timeout", "60"], sys_=fake)
+        finally:
+            L.repo_root_of = real_root
+            if old is None:
+                os.environ.pop("XDG_CACHE_HOME", None)
+            else:
+                os.environ["XDG_CACHE_HOME"] = old
+        self.assertEqual(rc, 0, "\n".join(self.out))
+        tags = self.remote_tags()
+        self.assertEqual(len(tags), 1, tags)
+        self.assertRegex(tags[0], r"^staging-20261017\.1$")
 
     def test_main_refuses_the_vpro_context(self):
         """vpro is the CI cluster now: staging-release must not act on it."""

@@ -33,7 +33,7 @@ Nothing listens on the internet: there are no webhooks. The UI is
 ## Adding or changing a repo's pipeline
 
 One file per repo in `files/repos/<repo>.yaml` (defaults in `values.yaml` `pipelines`).
-Merge to `teknoir-cloud`; the next poll uses it. A newly registered repo is only
+Merge to the gitops branch (`main`); the next poll uses it. A newly registered repo is only
 recorded on its first poll (nothing is rebuilt); its next push builds.
 
 ```yaml

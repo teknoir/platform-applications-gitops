@@ -23,6 +23,7 @@ spec:
           value: teknoir-cloud
         - name: release
           value: $ARGOCD_APP_REVISION
+          forceString: true
   destination:
     server: https://kubernetes.default.svc
     namespace: teknoir-system

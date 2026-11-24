@@ -2,7 +2,8 @@
 # Runs every test of the staging release tooling:
 #   - python unittest of scripts/ (pure logic, throwaway git repos, a fake cluster/GitHub/registry; no network), incl. test_ci_lfs.py (charts/ci plan.py lfs modes, clone.sh LFS pull/guard)
 #   - helm unittest of charts/app-of-apps (release helper, 19 replacements), charts/istio, charts/release-guard, charts/monitoring (mesh scrape), charts/profile-controller, charts/user-controller, charts/device-controller, charts/backstage and charts/teknoirbot-controller
-#   - the root render against a base ref (BASE=origin/teknoir-cloud, default): identical except for the removal of the
+#   - the root render against a base ref (BASE: origin/HEAD's branch, the gitops branch, `main` since the CI v4 cut-over;
+#     fallback origin/main when origin/HEAD is missing): identical except for the removal of the
 #     fields ArgoCD's Go types drop (`sources: [ ]` on every child, monitoring's `group: ""`), see EXPECTED below; ROOT_RENDER_EXPECTED="project ..." accepts an intended difference of a project (a mismatch fails the run).
 #   - K3D=1: charts/release-guard/tests/k3d-guard-test.sh (impersonated identities) and k3d-argocd-real-test.sh (a real
 #     ArgoCD v3.5.1, real CLI and REST calls) and charts/backstage/tests/k3d-rbac-test.sh (can-i matrix and the identity admission policy of the Backstage
@@ -49,7 +50,7 @@ bash charts/device-controller/tests/crd_guard_test.sh
 bash charts/teknoirbot-controller/tests/crd_guard_test.sh
 
 rc=0
-BASE="${BASE:-origin/teknoir-cloud}"
+BASE="${BASE:-$(git symbolic-ref --short -q refs/remotes/origin/HEAD || echo origin/main)}"
 if git rev-parse --verify -q "$BASE" >/dev/null; then
   echo "== root render with release unset equals $BASE, except the round-trip removals"
   TMP=$(mktemp -d)

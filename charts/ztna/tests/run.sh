@@ -81,7 +81,7 @@ for name, path, ns in (("gateway-api-crds", "charts/gateway-api-crds", "kube-sys
                        ("ztna", "charts/ztna", "teknoir-ztna")):
     a = on[name]
     # teknoir-cloud children carry the pins of their image group as helm valueFiles (CI/CD v4 P4.2)
-    want = {"path": path, "repoURL": repo, "targetRevision": "teknoir-cloud"}
+    want = {"path": path, "repoURL": repo, "targetRevision": "main"}   # the gitops branch since the CI v4 cut-over
     if name == "ztna":
         want["helm"] = {"valueFiles": ["values.yaml", "../../pins/wg-tunnel.yaml"]}
     assert a["spec"]["source"] == want, a["spec"]["source"]
@@ -168,7 +168,11 @@ for (k, ns, n), _ in sorted(c.items()): print(f"    {k:34} {ns:16} {n}")' "$TMP/
 done
 
 step "ztna.enabled=false renders byte-identical to the base branch for every chart"
-BASE_REF="${ZTNA_BASE_REF:-origin/teknoir-cloud}"
+# The base is the gitops branch the remote's HEAD names (`main` since the CI v4 cut-over), not a
+# branch name that the rename leaves behind. On the cut-over PR itself (origin/HEAD still the old
+# branch) app-of-apps differs in exactly its targetRevision fallback lines: run that one with
+# ZTNA_OFF_EXPECTED=app-of-apps. Once merged, the base has the change and it is byte-identical again.
+BASE_REF="${ZTNA_BASE_REF:-$(git -C "$REPO" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null || echo origin/main)}"
 if git -C "$REPO" rev-parse --verify -q "$BASE_REF" >/dev/null; then
   mkdir -p "$TMP/base" "$TMP/head"
   git -C "$REPO" archive "$BASE_REF" charts | tar -x -C "$TMP/base"

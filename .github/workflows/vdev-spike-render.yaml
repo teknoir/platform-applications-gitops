@@ -2,7 +2,8 @@ name: vdev-spike-render
 
 # Builds ghcr.io/teknoir/vdev-spike-render, the Job image of charts/virtual-device-spike
 # (hack/virtual-device-spike/renderer). A pull request only builds; a push to
-# teknoir-cloud builds and pushes. The digest in the job summary is what
+# main (the gitops branch since the CI v4 cut-over) builds and pushes. The
+# digest in the job summary is what
 # charts/virtual-device-spike/values.yaml (renderer.digest) pins in a follow-up PR.
 #
 # One-time, by an org owner: make the ghcr package public (r415 has no pull secret in
@@ -10,7 +11,7 @@ name: vdev-spike-render
 
 on:
   push:
-    branches: [teknoir-cloud]
+    branches: [main]
     paths:
       - hack/virtual-device-spike/renderer/**
       - hack/virtual-device-spike/lib/pins.sh

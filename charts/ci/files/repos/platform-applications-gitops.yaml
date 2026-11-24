@@ -1,8 +1,9 @@
 # platform-applications-gitops (public): advisory lint on every branch (plans/staging-releases.md WP9).
 # Commit status `teknoir-ci` only; nothing is built or released, and merging is not gated on it.
-# Merges to teknoir-cloud are not live anyway: staging follows released SHAs (scripts/staging-release).
+# Merges to the gitops branch (main since the CI v4 cut-over) are not live anyway: staging follows
+# released SHAs (scripts/staging-release).
 #   release-tooling: scripts/tests/run.sh (python unittest of scripts/, helm unittest of app-of-apps and
-#                    release-guard, root render vs origin/teknoir-cloud when that ref exists; the CI's
+#                    release-guard, root render vs origin/HEAD's branch when that ref exists; the CI's
 #                    shallow clone has none, so that part is skipped)
 #   chart-unittests: helm unittest of every chart with tests/*_test.yaml (dependencies built first: the monitoring
 #                    tests render kube-prometheus-stack subchart templates)

@@ -42,7 +42,7 @@ def git(repo, *args, env=None):
 
 
 class Repo:
-    """A throwaway clone with a bare 'origin' and a branch teknoir-cloud:
+    """A throwaway clone with a bare 'origin' and a branch main (the gitops branch since the CI v4 cut-over):
 
         c1 - c2 ---- m3 (merge of PR #3 'feature') - c4 (squash '(#4)')
               \\     /
@@ -54,7 +54,7 @@ class Repo:
         self.origin = os.path.join(self.tmp, "origin.git")
         self.work = os.path.join(self.tmp, "work")
         subprocess.run(["git", "init", "-q", "--bare", self.origin], check=True)
-        subprocess.run(["git", "init", "-q", "-b", "teknoir-cloud", self.work], check=True)
+        subprocess.run(["git", "init", "-q", "-b", "main", self.work], check=True)
         git(self.work, "remote", "add", "origin", self.origin)
         self.c = {}
         os.makedirs(os.path.join(self.work, "charts", "app-of-apps", "tests"))
@@ -71,11 +71,11 @@ class Repo:
         self.c["c2"] = self.commit("c2", "README", "2")
         git(self.work, "checkout", "-q", "-b", "feature")
         self.c["f3"] = self.commit("f3", "feature", "x")
-        git(self.work, "checkout", "-q", "teknoir-cloud")
+        git(self.work, "checkout", "-q", "main")
         git(self.work, "merge", "--no-ff", "-q", "-m", "Merge pull request #3 from teknoir/feature", "feature")
         self.c["m3"] = git(self.work, "rev-parse", "HEAD")
         self.c["c4"] = self.commit("squash change (#4)", "README", "4")
-        git(self.work, "push", "-q", "origin", "teknoir-cloud", "feature")
+        git(self.work, "push", "-q", "origin", "main", "feature")
         git(self.work, "fetch", "-q", "origin")
         self.sha = lambda name: self.c[name]
 

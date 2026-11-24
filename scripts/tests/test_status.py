@@ -53,7 +53,7 @@ class Main(unittest.TestCase):
     def test_reads_only_with_r415(self):
         repo = H.Repo()
         sha = repo.sha("c2")
-        root = H.root_app(target="teknoir-cloud", sync_rev=sha)
+        root = H.root_app(target="main", sync_rev=sha)
         fake = H.FakeSys(root, context="r415")
         real_root = L.repo_root_of
         L.repo_root_of = lambda p: repo.work
@@ -61,21 +61,69 @@ class Main(unittest.TestCase):
         buf = io.StringIO()
         try:
             with contextlib.redirect_stdout(buf):
-                ST.main(["--no-network", "--branch", "origin/teknoir-cloud", "--context", "r415"], sys_=fake)
+                ST.main(["--no-network", "--branch", "origin/main", "--context", "r415"], sys_=fake)
         finally:
             L.repo_root_of = real_root
         self.assertIn("context            r415", buf.getvalue())
         self.assertTrue(all(v == "get" for v in fake.verbs()), fake.verbs())
 
+    def test_the_branch_defaults_to_origin_heads_and_fetches_it(self):
+        """Without --branch the status follows origin/HEAD (main in the fixture, no origin/HEAD set) and fetches it."""
+        repo = H.Repo()
+        sha = repo.sha("c2")
+        fake = H.FakeSys(H.root_app(target="main", sync_rev=sha))
+        real_root = L.repo_root_of
+        L.repo_root_of = lambda p: repo.work
+        import contextlib, io
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                ST.main(["--no-network"], sys_=fake)
+        finally:
+            L.repo_root_of = real_root
+        out = buf.getvalue()
+        self.assertIn(["git", "-C", repo.work, "fetch", "--tags", "--force", "origin", "main"],
+                      [[x for x in c] for c, _ in fake.calls], fake.calls)
+        self.assertIn("pending commits    2 on origin/main not live", out)
+        self.assertTrue(all(v == "get" for v in fake.verbs()), fake.verbs())
+
+    def test_a_branch_gone_from_the_remote_is_attention_and_pending_is_unknown(self):
+        """origin/HEAD resolves locally but the remote branch is gone: the fetch fails, pending is not reported as current."""
+        repo = H.Repo()
+        H.git(repo.work, "push", "-q", "origin", "main:teknoir-cloud")
+        H.git(repo.work, "fetch", "-q", "origin")
+        H.git(repo.work, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/teknoir-cloud")
+        # delete it on the bare remote only: the local origin/teknoir-cloud (and origin/HEAD) stay resolvable
+        H.git(repo.origin, "update-ref", "-d", "refs/heads/teknoir-cloud")
+        self.assertEqual(H.git(repo.work, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/teknoir-cloud"), repo.sha("c4"))
+        sha = repo.sha("c2")
+        tag = "staging-20261017.1"
+        root = H.root_app(target=sha, release_name=tag, params=[{"name": "release", "value": sha}, {"name": "releaseName", "value": tag}])
+        fake = H.FakeSys(root)
+        real_root = L.repo_root_of
+        L.repo_root_of = lambda p: repo.work
+        import contextlib, io
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                rc = ST.main(["--no-network"], sys_=fake)
+        finally:
+            L.repo_root_of = real_root
+        out = buf.getvalue()
+        self.assertEqual(rc, 1)
+        self.assertIn("cannot fetch teknoir-cloud: origin/HEAD may be stale, run git remote set-head origin -a", out)
+        self.assertIn("pending commits    unknown", out)
+        self.assertNotIn("pending commits    2 on", out)
+
     def test_reads_only(self):
         repo = H.Repo()
         sha = repo.sha("c2")
-        root = H.root_app(target="teknoir-cloud", sync_rev=sha)
+        root = H.root_app(target="main", sync_rev=sha)
         fake = H.FakeSys(root)
         real_root = L.repo_root_of
         L.repo_root_of = lambda p: repo.work
         try:
-            ST.main(["--no-network", "--branch", "origin/teknoir-cloud"], sys_=fake)
+            ST.main(["--no-network", "--branch", "origin/main"], sys_=fake)
         finally:
             L.repo_root_of = real_root
         self.assertTrue(all(v == "get" for v in fake.verbs()), fake.verbs())
@@ -102,7 +150,7 @@ class GuardWarnings(unittest.TestCase):
         buf = io.StringIO()
         try:
             with contextlib.redirect_stdout(buf):
-                rc = ST.main(["--no-network", "--branch", "origin/teknoir-cloud"], sys_=fake)
+                rc = ST.main(["--no-network", "--branch", "origin/main"], sys_=fake)
         finally:
             L.repo_root_of = real
         return rc, buf.getvalue(), fake

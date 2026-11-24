@@ -21,11 +21,12 @@ environment from syncing. Add an environment only in its own reviewed commit.
 {{/*
 targetRevision of every Application that reads this repository (gitops release gate).
 
-  teknoir-cloud (staging): .Values.release (a full 40-hex commit SHA, passed by
-                           scripts/staging-release as a helm parameter of the root Application);
-                           falls back to the branch name while release is unset (before the cutover
-                           and when rendered locally), so the render is the same as before.
-  any other project:       .Values.project (the branch), exactly as before.
+  teknoir-cloud (staging): .Values.release (a full 40-hex commit SHA, passed as a helm parameter of
+                           the root Application: scripts/staging-release before the CI v4 cut-over,
+                           Kargo's argocd-update step after it); falls back to `main`, the gitops
+                           branch since the cut-over (the branch was `teknoir-cloud` before it), while
+                           release is unset (before the cut-over and when rendered locally).
+  any other project:       .Values.project (the branch: teknoir-online, teknoir-local), as before.
 
 The project allowlist is here, not in values, for the same reason as app-of-apps.ztnaEnabled: the
 environment branches are kept in step by cherry-pick, and a cherry-pick of this file together with a
@@ -38,7 +39,7 @@ does not enforce it.
 {{- define "app-of-apps.revision" -}}
 {{- $releaseProjects := list "teknoir-cloud" -}}
 {{- if has .Values.project $releaseProjects -}}
-{{- .Values.release | default .Values.project -}}
+{{- .Values.release | default "main" -}}
 {{- else -}}
 {{- .Values.project -}}
 {{- end -}}

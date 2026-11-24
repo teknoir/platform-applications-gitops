@@ -1,8 +1,9 @@
 suite: staging release revision (plans/staging-releases.md)
 # Every Application that reads platform-applications-gitops follows `release` (a full commit SHA)
-# on teknoir-cloud, and the branch (`project`) everywhere else. The document counts per template
-# make a missed replacement or a new Application without the helper fail here: add the new
-# Application to the count AND to the targetRevision asserts of its file.
+# on teknoir-cloud (staging), `main` (the gitops branch since the CI v4 cut-over) while release is
+# unset, and the branch (`project`) everywhere else. The document counts per template make a missed
+# replacement or a new Application without the helper fail here: add the new Application to the
+# count AND to the targetRevision asserts of its file.
 templates:
   - templates/argo.yaml
   - templates/auth.yaml
@@ -322,7 +323,7 @@ tests:
       - equal: {path: spec.source.targetRevision, value: "0123456789abcdef0123456789abcdef01234567", documentIndex: 0}
       - equal: {path: 'metadata.annotations["teknoir.org/release"]', value: staging-20261017.1, documentIndex: 0}
 
-  - it: "auth: follows the branch and has no release annotation while release is unset"
+  - it: "auth: follows main (the gitops branch) and has no release annotation while release is unset"
     template: templates/auth.yaml
     set:
       project: teknoir-cloud
@@ -330,10 +331,10 @@ tests:
       releaseGuard: {enabled: true}
       ztna: {enabled: true}
     asserts:
-      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 0}
+      - equal: {path: spec.source.targetRevision, value: main, documentIndex: 0}
       - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 0}
 
-  - it: "backstage: follows the branch and has no release annotation while release is unset"
+  - it: "backstage: follows main (the gitops branch) and has no release annotation while release is unset"
     template: templates/backstage.yaml
     set:
       project: teknoir-cloud
@@ -341,10 +342,10 @@ tests:
       releaseGuard: {enabled: true}
       ztna: {enabled: true}
     asserts:
-      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 0}
+      - equal: {path: spec.source.targetRevision, value: main, documentIndex: 0}
       - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 0}
 
-  - it: "backstage-next: follows the branch and has no release annotation while release is unset"
+  - it: "backstage-next: follows main (the gitops branch) and has no release annotation while release is unset"
     template: templates/backstage-next.yaml
     set:
       project: teknoir-cloud
@@ -354,10 +355,10 @@ tests:
       releaseGuard: {enabled: true}
       ztna: {enabled: true}
     asserts:
-      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 0}
+      - equal: {path: spec.source.targetRevision, value: main, documentIndex: 0}
       - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 0}
 
-  - it: "teknoirbot: follows the branch and has no release annotation while release is unset"
+  - it: "teknoirbot: follows main (the gitops branch) and has no release annotation while release is unset"
     template: templates/teknoirbot.yaml
     set:
       project: teknoir-cloud
@@ -366,10 +367,10 @@ tests:
       releaseGuard: {enabled: true}
       ztna: {enabled: true}
     asserts:
-      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 0}
+      - equal: {path: spec.source.targetRevision, value: main, documentIndex: 0}
       - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 0}
 
-  - it: "cert-manager: follows the branch and has no release annotation while release is unset"
+  - it: "cert-manager: follows main (the gitops branch) and has no release annotation while release is unset"
     template: templates/cert-manager.yaml
     set:
       project: teknoir-cloud
@@ -377,10 +378,10 @@ tests:
       releaseGuard: {enabled: true}
       ztna: {enabled: true}
     asserts:
-      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 0}
+      - equal: {path: spec.source.targetRevision, value: main, documentIndex: 0}
       - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 0}
 
-  - it: "ci: follows the branch and has no release annotation while release is unset"
+  - it: "ci: follows main (the gitops branch) and has no release annotation while release is unset"
     template: templates/ci.yaml
     set:
       project: teknoir-cloud
@@ -390,9 +391,9 @@ tests:
       harbor: {enabled: true}
       ci: {enabled: true}
     asserts:
-      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 0}
+      - equal: {path: spec.source.targetRevision, value: main, documentIndex: 0}
       - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 0}
-      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 1}
+      - equal: {path: spec.source.targetRevision, value: main, documentIndex: 1}
       - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 1}
 
   - it: "ci: harbor drops its CI robot while ci.enabled is false, and only the harbor Application renders"
@@ -427,7 +428,7 @@ tests:
           content: {name: harborConfig.ciRobot.enabled, value: "true"}
         documentIndex: 0
 
-  - it: "controllers: follows the branch and has no release annotation while release is unset"
+  - it: "controllers: follows main (the gitops branch) and has no release annotation while release is unset"
     template: templates/controllers.yaml
     set:
       project: teknoir-cloud
@@ -435,18 +436,18 @@ tests:
       releaseGuard: {enabled: true}
       ztna: {enabled: true}
     asserts:
-      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 0}
+      - equal: {path: spec.source.targetRevision, value: main, documentIndex: 0}
       - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 0}
-      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 1}
+      - equal: {path: spec.source.targetRevision, value: main, documentIndex: 1}
       - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 1}
-      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 2}
+      - equal: {path: spec.source.targetRevision, value: main, documentIndex: 2}
       - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 2}
-      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 3}
+      - equal: {path: spec.source.targetRevision, value: main, documentIndex: 3}
       - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 3}
-      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 4}
+      - equal: {path: spec.source.targetRevision, value: main, documentIndex: 4}
       - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 4}
 
-  - it: "istio: follows the branch and has no release annotation while release is unset"
+  - it: "istio: follows main (the gitops branch) and has no release annotation while release is unset"
     template: templates/istio.yaml
     set:
       project: teknoir-cloud
@@ -454,10 +455,10 @@ tests:
       releaseGuard: {enabled: true}
       ztna: {enabled: true}
     asserts:
-      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 0}
+      - equal: {path: spec.source.targetRevision, value: main, documentIndex: 0}
       - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 0}
 
-  - it: "monitoring: follows the branch and has no release annotation while release is unset"
+  - it: "monitoring: follows main (the gitops branch) and has no release annotation while release is unset"
     template: templates/monitoring.yaml
     set:
       project: teknoir-cloud
@@ -465,10 +466,10 @@ tests:
       releaseGuard: {enabled: true}
       ztna: {enabled: true}
     asserts:
-      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 0}
+      - equal: {path: spec.source.targetRevision, value: main, documentIndex: 0}
       - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 0}
 
-  - it: "platform-secrets: follows the branch and has no release annotation while release is unset"
+  - it: "platform-secrets: follows main (the gitops branch) and has no release annotation while release is unset"
     template: templates/platform-secrets.yaml
     set:
       project: teknoir-cloud
@@ -476,10 +477,10 @@ tests:
       releaseGuard: {enabled: true}
       ztna: {enabled: true}
     asserts:
-      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 0}
+      - equal: {path: spec.source.targetRevision, value: main, documentIndex: 0}
       - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 0}
 
-  - it: "argo: follows the branch and has no release annotation while release is unset"
+  - it: "argo: follows main (the gitops branch) and has no release annotation while release is unset"
     template: templates/argo.yaml
     set:
       project: teknoir-cloud
@@ -487,10 +488,10 @@ tests:
       releaseGuard: {enabled: true}
       ztna: {enabled: true}
     asserts:
-      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 0}
+      - equal: {path: spec.source.targetRevision, value: main, documentIndex: 0}
       - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 0}
 
-  - it: "virtual-device-spike: follows the branch and has no release annotation while release is unset"
+  - it: "virtual-device-spike: follows main (the gitops branch) and has no release annotation while release is unset"
     template: templates/virtual-device-spike.yaml
     set:
       project: teknoir-cloud
@@ -498,10 +499,10 @@ tests:
       releaseGuard: {enabled: true}
       ztna: {enabled: true}
     asserts:
-      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 0}
+      - equal: {path: spec.source.targetRevision, value: main, documentIndex: 0}
       - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 0}
 
-  - it: "virtual-devices: follows the branch and has no release annotation while release is unset"
+  - it: "virtual-devices: follows main (the gitops branch) and has no release annotation while release is unset"
     template: templates/virtual-devices.yaml
     set:
       project: teknoir-cloud
@@ -509,10 +510,10 @@ tests:
       releaseGuard: {enabled: true}
       ztna: {enabled: true}
     asserts:
-      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 0}
+      - equal: {path: spec.source.targetRevision, value: main, documentIndex: 0}
       - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 0}
 
-  - it: "ztna: follows the branch and has no release annotation while release is unset"
+  - it: "ztna: follows main (the gitops branch) and has no release annotation while release is unset"
     template: templates/ztna.yaml
     set:
       project: teknoir-cloud
@@ -520,14 +521,14 @@ tests:
       releaseGuard: {enabled: true}
       ztna: {enabled: true}
     asserts:
-      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 0}
+      - equal: {path: spec.source.targetRevision, value: main, documentIndex: 0}
       - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 0}
-      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 1}
+      - equal: {path: spec.source.targetRevision, value: main, documentIndex: 1}
       - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 1}
-      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 2}
+      - equal: {path: spec.source.targetRevision, value: main, documentIndex: 2}
       - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 2}
 
-  - it: "release-guard: follows the branch and has no release annotation while release is unset"
+  - it: "release-guard: follows main (the gitops branch) and has no release annotation while release is unset"
     template: templates/release-guard.yaml
     set:
       project: teknoir-cloud
@@ -535,7 +536,7 @@ tests:
       releaseGuard: {enabled: true}
       ztna: {enabled: true}
     asserts:
-      - equal: {path: spec.source.targetRevision, value: teknoir-cloud, documentIndex: 0}
+      - equal: {path: spec.source.targetRevision, value: main, documentIndex: 0}
       - notExists: {path: 'metadata.annotations["teknoir.org/release"]', documentIndex: 0}
 
   - it: "teknoir-online: auth follows the branch even when release and releaseName are set"

@@ -227,6 +227,6 @@ through `harbor.teknoir.cloud/<project>/<path>`, with the upstream as the fallba
 - `helm unittest charts/harbor` (`tests/*_test.yaml`): RBAC, credential volumes, guard.
   Both helm-based tests need the subchart: `helm dependency build charts/harbor` once.
 - `ROOT_RENDER_EXPECTED=teknoir-cloud scripts/tests/run.sh`: the root render must equal the base ref
-  (`origin/teknoir-cloud`); this chart's intended difference on teknoir-cloud (the harbor
+  (`origin/main`, the default; the gitops branch); this chart's intended difference on teknoir-cloud (the harbor
   Application `ignoreDifferences`) is accepted only with that variable, any other mismatch fails the
   run. Once this branch is merged the variable is no longer needed.

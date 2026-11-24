@@ -30,8 +30,13 @@ repository:
   # Either `true` to enable downloads for this repository, `false` to disable them.
   has_downloads: true
 
-  # Updates the default branch for this repository.
-  default_branch: teknoir-cloud
+  # Updates the default branch for this repository (`main`: the gitops branch since the CI v4 cut-over,
+  # renamed from teknoir-cloud).
+  default_branch: main
+
+  # Either `true` to allow merging pull requests with auto-merge (gh pr merge --auto), or `false` to
+  # prevent it.
+  allow_auto_merge: true
 
   # Either `true` to allow squash-merging pull requests, or `false` to prevent
   # squash-merging.
@@ -46,7 +51,7 @@ repository:
   allow_rebase_merge: true
 
   # Either `true` to enable automatic deletion of branches on merge, or `false` to disable
-  delete_branch_on_merge: false
+  delete_branch_on_merge: true
 
   # Either `true` to enable automated security fixes, or `false` to disable
   # automated security fixes.
@@ -92,7 +97,7 @@ teams:
 # Staging/dev branches have no required reviews so Claude Code can roll out continuously;
 # force pushes and deletions stay disabled. See ~/git/ai/plans/github-branch-protection.md
 branches:
-- name: teknoir-cloud
+- name: main
   protection:
     required_pull_request_reviews: null
     required_status_checks: null

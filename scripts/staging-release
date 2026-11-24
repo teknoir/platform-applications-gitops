@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""staging-release: tagged releases of staging (kubectl context r415, the default; --context or STAGING_CONTEXT; branch teknoir-cloud).
+"""staging-release: tagged releases of staging (kubectl context r415, the default; --context or STAGING_CONTEXT; the gitops branch, origin/HEAD: `main` since the CI v4 cut-over).
 
-Design: plans/staging-releases.md. Merging to origin/teknoir-cloud queues a change; staging runs only the
+Design: plans/staging-releases.md. Merging to the gitops branch queues a change; staging runs only the
 commit of the live `staging-YYYYMMDD.N` release, held as targetRevision of the hand-applied root
 Application app-of-apps. This script is the only thing that changes it.
 
@@ -16,10 +16,10 @@ Application app-of-apps. This script is the only thing that changes it.
   staging-status [--devices]                            (separate script) where staging is and what is pending
 
 Guards: kubectl context exactly 'r415' (default r415; --context or STAGING_CONTEXT; names with online|eks|prod are refused); the candidate must be on
-the first-parent history of origin/teknoir-cloud and descend from the live release (prefix releases only);
+the first-parent history of the gitops branch (origin/HEAD) and descend from the live release (prefix releases only);
 --yes SHA must equal the dry-run candidate (plan valid 30 min, live unchanged, the dry run checked the registry
 unless --skip-registry-check is repeated on --yes); the lint code and policy are the candidate's, the rollback
-floor is origin/teknoir-cloud's, and --yes/--rollback refuse to run unless scripts/ of the checkout is clean (no
+floor is the gitops branch's, and --yes/--rollback refuse to run unless scripts/ of the checkout is clean (no
 uncommitted change, no untracked file; __pycache__ aside) and its tree (git rev-parse HEAD:scripts, recorded in the
 plan) equals <candidate>:scripts (rollback: the branch head's, the live release's or the target's); the Lease
 teknoir-system/staging-release-lock is held from apply to converged and everything is checked again under it; an
@@ -222,7 +222,7 @@ def pod_problems(pods: list[dict], *, now: dt.datetime, since: dt.datetime, rend
 
 class Tool:
     def __init__(self, sys_: L.Sys, repo: str, *, out=print, cache: str | None = None, context: str = L.CONTEXT,
-                 branch: str = L.BRANCH):
+                 branch: str | None = None):
         self.sys = sys_
         self.repo = repo
         self.out = out
@@ -230,7 +230,24 @@ class Tool:
         self.git = L.Git(sys_, repo)
         self.kube = L.Kube(sys_, context)
         self.release_notes = ""
-        self.branch = branch
+        self._branch = branch
+
+    @property
+    def branch(self) -> str:
+        """origin/<gitops branch>, from origin/HEAD (stagelib.gitops_branch): `origin/main` since the cut-over.
+        Read on first use, so a refused context costs no git call."""
+        if self._branch is None:
+            self._branch = L.gitops_ref(self.sys, self.repo)
+        return self._branch
+
+    @branch.setter
+    def branch(self, value: str | None) -> None:
+        self._branch = value
+
+    @property
+    def branch_name(self) -> str:
+        """The branch without its remote prefix: the fetch ref, targetRevision and PR --base."""
+        return self.branch[len("origin/"):] if self.branch.startswith("origin/") else self.branch
 
     # ---- helpers ------------------------------------------------------------------------------
     def lint_tools(self, wt: str, sha: str) -> tuple[object, dict, list[str]]:
@@ -252,8 +269,8 @@ class Tool:
         return cp, cp.load_policy(pol_path), notes
 
     def rollback_floor(self) -> str | None:
-        """The rollback floor as merged on origin/teknoir-cloud (never from the working tree)."""
-        r = self.sys.run(["git", "-C", self.repo, "show", f"{L.BRANCH}:scripts/release-policy.yaml"], check=False)
+        """The rollback floor as merged on the gitops branch (never from the working tree)."""
+        r = self.sys.run(["git", "-C", self.repo, "show", f"{self.branch}:scripts/release-policy.yaml"], check=False)
         if r.rc != 0:
             return None
         return (yaml.safe_load(r.out) or {}).get("rollback_floor") or None
@@ -291,7 +308,11 @@ class Tool:
                        f"{hint} (the dry run created that worktree)")
 
     def fetch(self) -> None:
-        self.git.run("fetch", "--tags", "--force", "origin", "teknoir-cloud")
+        # The REAL gitops branch (origin/HEAD), not the --branch stand-in of a dry run: a stand-in has no remote ref.
+        name = L.gitops_branch(self.sys, self.repo)
+        r = self.sys.run(["git", "-C", self.repo, "fetch", "--tags", "--force", "origin", name], check=False)
+        if r.rc != 0:
+            raise L.Refuse(f"cannot fetch {name}: origin/HEAD may be stale, run git remote set-head origin -a")
 
     def worktree(self, sha: str) -> str:
         path = os.path.join(self.cache, "wt", sha[:12])
@@ -505,7 +526,7 @@ class Tool:
         self.fetch()
         live = self.live()
         cand = self.git.rev(args.ref) if args.ref else self.git.rev(self.branch)
-        kind = L.validate_candidate(self.git.first_parent(self.branch), self.git.is_ancestor, cand, live["sha"])
+        kind = L.validate_candidate(self.git.first_parent(self.branch), self.git.is_ancestor, cand, live["sha"], self.branch)
         tag = L.next_tag(self.git.tags(), self.sys.now().date())
         mode = "cutover" if live["cutover"] else ("noop" if kind == "noop" else "release")
         self.out(f"context        {self.kube.context}")
@@ -784,7 +805,7 @@ class Tool:
     def check_release(self, plan: dict, sha: str, args, live: dict) -> str:
         """The conditions under which a release may be applied. Run before the Lease and again under it."""
         L.plan_check(plan, sha, self.sys.now(), live["sha"])
-        kind = L.validate_candidate(self.git.first_parent(L.BRANCH), self.git.is_ancestor, sha, live["sha"])
+        kind = L.validate_candidate(self.git.first_parent(self.branch), self.git.is_ancestor, sha, live["sha"], self.branch)
         if live["cutover"] and not args.bootstrap:
             raise L.Refuse("the root still follows the branch (pre-cutover): the first release needs --bootstrap")
         if args.bootstrap and not live["cutover"]:
@@ -891,7 +912,7 @@ class Tool:
         else:
             self.out("\nthis was the cutover: roll back with (valid only now, no guard exists yet):\n  "
                      f"kubectl --context {self.kube.context} -n teknoir-system patch application app-of-apps --type merge -p "
-                     "'{\"spec\":{\"source\":{\"targetRevision\":\"teknoir-cloud\",\"helm\":{\"parameters\":null}}}}'")
+                     f"'{{\"spec\":{{\"source\":{{\"targetRevision\":\"{self.branch_name}\",\"helm\":{{\"parameters\":null}}}}}}}}'")
         return 3
 
     def report_unexpected_images(self, plan: dict) -> None:
@@ -936,7 +957,7 @@ class Tool:
                 return tag
             self.git.run("tag", "-d", tag)
             self.out(f"push of {tag} rejected ({(r.err or '').strip().splitlines()[-1:]}); the number is taken, retrying")
-            self.git.run("fetch", "--tags", "--force", "origin", "teknoir-cloud")
+            self.git.run("fetch", "--tags", "--force", "origin", self.branch_name)
         raise L.Refuse("could not push a release tag after 5 attempts")
 
     def guard_warn_count(self) -> int | None:
@@ -990,9 +1011,9 @@ class Tool:
         if args.yes != target_sha:
             raise L.Refuse(f"--yes {args.yes[:12]} does not match the rollback target {target_sha[:12]}")
         # A rollback applies an OLDER commit, whose own scripts/ may predate fixes of the tooling, so the tooling
-        # must match the newest reviewed release tooling instead: the head of origin/teknoir-cloud, the live
+        # must match the newest reviewed release tooling instead: the head of the gitops branch, the live
         # release or the target.
-        self.require_matching_scripts([("the head of " + L.BRANCH, self.git.rev(L.BRANCH)), ("the live release", live["sha"]),
+        self.require_matching_scripts([("the head of " + self.branch, self.git.rev(self.branch)), ("the live release", live["sha"]),
                                        ("the rollback target", target_sha)])
         tmp = os.path.join(self.cache, "out", "rb-" + target_sha[:12])
         shutil.rmtree(tmp, ignore_errors=True)
@@ -1138,7 +1159,7 @@ def controller_log_hints(plan: dict, context: str) -> str:
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="staging-release", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--ref", help="candidate commit (first-parent commit of origin/teknoir-cloud); default: the branch head")
+    ap.add_argument("--ref", help="candidate commit (first-parent commit of the gitops branch, origin/HEAD); default: the branch head")
     ap.add_argument("--yes", metavar="SHA", help="release this exact SHA (must equal the dry-run candidate); with --rollback: the target SHA")
     ap.add_argument("--rollback", nargs="?", const="-", metavar="TAG", help="return to an earlier release (default: newest verified)")
     ap.add_argument("--verified", metavar="TAG")
@@ -1153,7 +1174,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--timeout", type=int, default=600, help="seconds to wait for convergence (default 600)")
     ap.add_argument("--skip-registry-check", action="store_true", help="do not run crane manifest on the digest-pinned images")
     ap.add_argument("--context", default=L.CONTEXT, help=argparse.SUPPRESS)
-    ap.add_argument("--branch", default=L.BRANCH, help=argparse.SUPPRESS)   # dry run only: a stand-in for origin/teknoir-cloud
+    ap.add_argument("--branch", default=None, help=argparse.SUPPRESS)   # dry run only: a stand-in for origin/HEAD's branch
     return ap
 
 
@@ -1161,9 +1182,16 @@ def main(argv: list[str] | None = None, sys_: L.Sys | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         repo = L.repo_root_of(HERE)
-        if args.branch != L.BRANCH and (args.yes or args.rollback is not None or args.verified):
-            raise L.Refuse("--branch is for dry runs only; releases always come from origin/teknoir-cloud")
-        tool = Tool(sys_ or L.Sys(), repo, context=args.context, branch=args.branch)
+        # The context is checked first (Tool -> Kube), so a refused context costs no git call.
+        tool = Tool(sys_ or L.Sys(), repo, context=args.context)
+        if args.branch and args.branch != tool.branch and (args.yes or args.rollback is not None or args.verified):
+            raise L.Refuse(f"--branch is for dry runs only; releases always come from {tool.branch}")
+        tool.branch = args.branch or tool.branch
+        # Releases act on the gitops branch and nothing else: a stale origin/HEAD naming another branch (or a
+        # stand-in) must not tag, patch the root or flip a GitHub Release against it.
+        if (args.yes or args.rollback is not None or args.verified) and tool.branch_name not in ("main", "teknoir-cloud"):
+            raise L.Refuse(f"a release acts on the gitops branch main (or teknoir-cloud before the cut-over), not "
+                           f"'{tool.branch_name}': origin/HEAD may be stale, run git remote set-head origin -a")
         if args.verified:
             return tool.cmd_verified(args.verified)
         if args.break_glass_begin or args.break_glass_end:
