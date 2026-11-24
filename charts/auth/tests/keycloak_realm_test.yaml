@@ -81,3 +81,30 @@ tests:
       - matchRegex:
           path: data["master.yaml"]
           pattern: '(?m)^  - clientId: teknoir-cli\n(?: {4,}[^\n]*\n)*? {4}optionalClientScopes: \[offline_access\]\n'
+
+  # Kargo (gitops charts/kargo api.oidc): public PKCE clients, only while app-of-apps passes kargo.enabled.
+  - it: defines the public PKCE clients kargo (UI) and kargo-cli (fixed localhost port) with kargo.enabled
+    set:
+      kargo.enabled: true
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - matchRegex:
+          path: data["master.yaml"]
+          pattern: '(?m)^  - clientId: kargo\n    name: Kargo \(kargo\.teknoir\.cloud\)\n    enabled: true\n    protocol: openid-connect\n    publicClient: true\n    standardFlowEnabled: true\n    implicitFlowEnabled: false\n    directAccessGrantsEnabled: false\n    serviceAccountsEnabled: false\n    fullScopeAllowed: false\n    rootUrl: https://kargo\.teknoir\.cloud\n    redirectUris: \["https://kargo\.teknoir\.cloud/login"\]\n    webOrigins: \["https://kargo\.teknoir\.cloud"\]\n    attributes:\n      pkce\.code\.challenge\.method: S256\n'
+      - matchRegex:
+          path: data["master.yaml"]
+          pattern: '(?m)^  - clientId: kargo-cli\n(?: {4,}[^\n]*\n)*? {4}publicClient: true\n(?: {4,}[^\n]*\n)*? {4}fullScopeAllowed: false\n {4}redirectUris: \["http://localhost:8085/auth/callback"\]\n    attributes:\n      pkce\.code\.challenge\.method: S256\n'
+      # no wildcard redirect: http://localhost* would also match http://localhost.<any domain>
+      - notMatchRegex:
+          path: data["master.yaml"]
+          pattern: 'localhost\*'
+  - it: has no kargo client without kargo.enabled
+    documentSelector:
+      path: kind
+      value: ConfigMap
+    asserts:
+      - notMatchRegex:
+          path: data["master.yaml"]
+          pattern: 'clientId: kargo'

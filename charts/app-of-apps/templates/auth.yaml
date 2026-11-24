@@ -16,7 +16,7 @@ spec:
     repoURL: https://github.com/teknoir/platform-applications-gitops
     targetRevision: {{ include "app-of-apps.revision" . }}
 {{- $pins := has .Values.project (list "teknoir-cloud") }}
-{{- if or $pins (include "app-of-apps.ztnaEnabled" .) }}
+{{- if or $pins (include "app-of-apps.ztnaEnabled" .) (include "app-of-apps.kargoEnabled" .) }}
     helm:
 {{- if $pins }}
       # Pins of the image group (scripts/images.yaml); only teknoir-cloud has a pins/ directory.
@@ -24,10 +24,18 @@ spec:
         - values.yaml
         - ../../pins/keycloak-theme.yaml
 {{- end }}
-{{- if include "app-of-apps.ztnaEnabled" . }}
+{{- if or (include "app-of-apps.ztnaEnabled" .) (include "app-of-apps.kargoEnabled" .) }}
       parameters:
+{{- end }}
+{{- if include "app-of-apps.ztnaEnabled" . }}
         # The ZTNA switch (app-of-apps values ztna.enabled), wg.<domain> bypasses the edge login redirect (the hub validates tokens itself).
         - name: ztna.enabled
+          value: "true"
+{{- end }}
+{{- if include "app-of-apps.kargoEnabled" . }}
+        # Kargo is installed (templates/kargo.yaml): Keycloak clients kargo and kargo-cli, and kargo.<domain>
+        # bypasses the edge login (Kargo signs users in against Keycloak itself).
+        - name: kargo.enabled
           value: "true"
 {{- end }}
 {{- end }}
