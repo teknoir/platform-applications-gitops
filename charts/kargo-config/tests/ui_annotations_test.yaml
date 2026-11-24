@@ -1,0 +1,44 @@
+suite: Kargo UI legibility (project description, Stage colours)
+# The Kargo UI shows the Project annotation kargo.akuity.io/description in its project list and colours each
+# pipeline Stage by kargo.akuity.io/color (values ui.description and ui.colors).
+templates:
+  - templates/project.yaml
+  - templates/stage-staging.yaml
+  - templates/stage-staging-verified.yaml
+  - templates/stage-pins.yaml
+tests:
+  - it: the Project carries the UI description
+    template: templates/project.yaml
+    documentSelector: {path: kind, value: Project}
+    asserts:
+      - matchRegex: {path: 'metadata.annotations["kargo.akuity.io/description"]', pattern: '^Staging \(r415\): every merge to gitops main'}
+
+  - it: the Project has no description annotation without ui.description
+    template: templates/project.yaml
+    documentSelector: {path: kind, value: Project}
+    set:
+      ui.description: ""
+    asserts:
+      - notExists: {path: 'metadata.annotations["kargo.akuity.io/description"]'}
+
+  - it: staging is blue in the pipeline view
+    template: templates/stage-staging.yaml
+    asserts:
+      - equal: {path: 'metadata.annotations["kargo.akuity.io/color"]', value: blue}
+
+  - it: staging-verified is green in the pipeline view
+    template: templates/stage-staging-verified.yaml
+    asserts:
+      - equal: {path: 'metadata.annotations["kargo.akuity.io/color"]', value: green}
+
+  - it: every pin Stage is amber
+    template: templates/stage-pins.yaml
+    asserts:
+      - equal: {path: 'metadata.annotations["kargo.akuity.io/color"]', value: amber}
+
+  - it: a Stage without a colour has no annotations block
+    template: templates/stage-staging.yaml
+    set:
+      ui.colors.staging: ""
+    asserts:
+      - notExists: {path: metadata.annotations}

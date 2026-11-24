@@ -16,6 +16,11 @@ kind: Stage
 metadata:
   name: staging-verified
   namespace: {{ .Values.project }}
+{{- with (dig "staging-verified" "" .Values.ui.colors) }}
+  annotations:
+    # The Stage's colour in the Kargo UI pipeline (a name of the UI's palette).
+    kargo.akuity.io/color: {{ . | quote }}
+{{- end }}
 spec:
   requestedFreight:
     - origin:

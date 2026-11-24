@@ -17,6 +17,10 @@ kind: Stage
 metadata:
   name: pin-{{ $g.name }}
   namespace: {{ $.Values.project }}
+{{- with (dig "pins" "" $.Values.ui.colors) }}
+  annotations:
+    kargo.akuity.io/color: {{ . | quote }}
+{{- end }}
 spec:
   requestedFreight:
     - origin:
