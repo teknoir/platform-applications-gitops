@@ -89,8 +89,8 @@ backstageNext:
 # renders nothing.
 argoRollouts:
   # Application argo-rollouts. On its own, one release before Kargo: Kargo looks for the Rollouts CRDs once, at
-  # startup, and never again (see the template header).
-  enabled: false
+  # startup, and never again (see the template header). On since P4.5 (2026-11-24, after the P4.3 rehearsal).
+  enabled: true
 
 # Kargo and kargo-config (charts/kargo-config: the Project, Warehouses, Stages and AnalysisTemplates). Off:
 # nothing renders until P4.3 rehearses the stack on k3d and a later release turns it on. teknoir-cloud only
