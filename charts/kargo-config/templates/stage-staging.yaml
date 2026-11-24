@@ -41,7 +41,7 @@ spec:
                 sources:
                   # This repository's source of the root Application: the only one that moves. The desired
                   # revision is the Freight's commit; targetRevision is rewritten to it.
-                  - repoURL: {{ .Values.gitops.repoURL }}
+                  - repoURL: {{ .Values.verification.rootApp.repoURL | default .Values.gitops.repoURL }}
                     updateTargetRevision: true
                     desiredRevision: {{ include "kargo-config.commitFromID" .Values.gitops.repoURL | squote }}
 {{- if .Values.staging.setReleaseParam }}

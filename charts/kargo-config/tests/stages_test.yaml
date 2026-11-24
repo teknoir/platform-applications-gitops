@@ -27,7 +27,7 @@ tests:
             - name: app-of-apps
               namespace: teknoir-system
               sources:
-                - repoURL: https://github.com/teknoir/platform-applications-gitops.git
+                - repoURL: https://github.com/teknoir/platform-applications-gitops   # the root's spelling (verification.rootApp.repoURL), not the Warehouse's
                   updateTargetRevision: true
                   desiredRevision: ${{ commitFrom("https://github.com/teknoir/platform-applications-gitops.git").ID }}
 

@@ -14,7 +14,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/teknoir/platform-applications-gitops.git
+    repoURL: https://github.com/teknoir/platform-applications-gitops   # the r415 root's spelling; kargo-config verification.rootApp.repoURL must match it exactly
     targetRevision: rehearsal/kargo
     path: charts/app-of-apps
     helm:
