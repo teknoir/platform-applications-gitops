@@ -15,4 +15,3 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].envFrom
           content: {configMapRef: {name: RELEASE-NAME-device-controller-parameters}}
-

@@ -71,7 +71,7 @@ tests:
       - contains: {path: spec.source.helm.parameters, content: {name: ztna.defaultOn, value: "true"}}
 
   - it: passes only it with ZTNA off
-    set: {project: teknoir-cloud, ztna.enabled: false}
+    set: {project: teknoir-cloud, ztna.enabled: false, deviceController.retainedConfigRepublish: "off"}
     documentSelector: {path: metadata.name, value: device-controller}
     asserts:
       - equal:
