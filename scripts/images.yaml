@@ -23,7 +23,7 @@ groups:
   backstage: {same_commit: true, enabled: true}
   device-controller: {same_commit: false, enabled: false}
   profile-controller: {same_commit: false, enabled: true}
-  devstudio-controller: {same_commit: false, enabled: false}
+  devstudio-controller: {same_commit: false, enabled: true}
   user-controller: {same_commit: false, enabled: true}
   notebook-controller: {same_commit: false, enabled: true}
   teknoirbot-controller: {same_commit: false, enabled: true}
