@@ -35,9 +35,8 @@ until those values are turned on.
   in the three ARC scale-set values files (`charts/ci-runners/arc/teknoir-{ci,land,push}.yaml`), so it has no
   `pins/ci-runner.yaml`. A digit key segment indexes a list item (`template.spec.containers.0.image`); Kargo's
   `yaml-update` handles any YAML shape, while `scripts/pin-image` reads only a list indented under its key whose
-  pinned key is not on the item's `- ` line. The group is off (`enabled: false`, no
-  `autoPromotion.pins` entry) until the first `sha-<8>` build of `ghcr.io/teknoir/ci-runner` exists; until then
-  `scripts/pin-image` writes the same three files.
+  pinned key is not on the item's `- ` line. The group is on and auto-promoted since the first `sha-<8>` build
+  of `ghcr.io/teknoir/ci-runner` (2026-11-25, P6.4).
 - `pinStages.enabled: false` renders the staging Stages only (the drill).
 - `staging.setReleaseParam` sets the root Application's Helm parameter `release` besides its
   targetRevision. `argocd-update` has no dedicated Helm-parameter field in Kargo 1.12.6; its

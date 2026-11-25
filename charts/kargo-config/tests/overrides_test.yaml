@@ -46,7 +46,7 @@ tests:
           value:
             - {branch: rehearsal/kargo, path: ./src}
       - equal:
-          path: 'spec.promotionTemplate.spec.steps[3].config.targetBranch'
+          path: "spec.promotionTemplate.spec.steps[?(@.as=='push')].config.targetBranch"
           value: kargo/rehearsal/${{ ctx.promotion }}
 
   # Both overrides watch their own branch: the git Warehouse that makes the Freight a Stage promotes is on.
