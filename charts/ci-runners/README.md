@@ -5,8 +5,8 @@ The cluster-side half of CI on the dev-host CI cluster `devhost-ci` (single-node
 GitHub Actions runners from Actions Runner Controller (ARC) 0.15.1, a rootless BuildKit daemon, and the policies
 that keep CI from reaching the LAN or starving an agent session.
 
-This chart is installed by hand on `devhost-ci` today; from v4 step P6.3 the ArgoCD on r415 can own it and the
-ARC releases instead (see "Under ArgoCD" below), off by default.
+Since 2026-11-25 (v4 step P6.3) the ArgoCD on r415 owns this chart and the ARC releases on `devhost-ci` (see
+"Under ArgoCD" below); the hand install is the bootstrap and break-glass path.
 
 ## What lives where
 
@@ -143,8 +143,8 @@ helm unittest charts/ci-runners
 
 The ArgoCD on r415 manages the five releases - `ci-runners`, `arc`, `teknoir-ci`, `teknoir-land` and
 `teknoir-push` - as Applications of charts/app-of-apps (`templates/ci-runners.yaml`), with destination server
-devhost-ci. It is inert until `ciRunners` is enabled in the staging values (`charts/app-of-apps/values.yaml`) and
-the matching `verification.devhostCiServer` is set in charts/kargo-config, which is what makes the staging
+devhost-ci. `ciRunners.enabled` is on in the staging values (`charts/app-of-apps/values.yaml`, since 2026-11-25)
+and the matching `verification.devhostCiServer` is set in charts/kargo-config, which is what makes the staging
 revision check treat them as dev-host children. This chart and `arc/*.yaml` stay the source: the Applications
 render exactly these charts with the release names pinned.
 
