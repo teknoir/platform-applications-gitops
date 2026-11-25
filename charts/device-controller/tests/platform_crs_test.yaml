@@ -8,8 +8,12 @@ values:
   - ../../../pins/teknoir-desktop.yaml
   - ../../../pins/web-terminal.yaml
   - ../../../pins/wg-tunnel.yaml
+  # The fleet pointers of the hardware classes (fleet/README.md), as the device-controller Application passes them.
+  - ../../../fleet/jetson-orin.yaml
+  - ../../../fleet/nvidia-rtx.yaml
+  - ../../../fleet/raspberry-pi.yaml
 tests:
-  - it: keeps the three default DAS documents with only the fixed annotation and label, and no priority
+  - it: keeps the six default DAS documents with only the fixed annotation and label, and no priority
     templates:
       - templates/platform-device-application-sets.yaml
     documentSelector:
@@ -24,6 +28,17 @@ tests:
           path: metadata.labels
           value: {teknoir.org/managed-by: gitops}
       - notExists: {path: spec.priority}
+
+  - it: keeps demo-test's two per-application revisions and adds no fleet label
+    templates:
+      - templates/platform-device-application-sets.yaml
+    documentSelector:
+      path: metadata.name
+      value: demo-test
+    asserts:
+      - equal: {path: 'spec.applications[0].revision', value: b35465914439f74af8d540645c339e3773092d69}
+      - equal: {path: 'spec.applications[1].revision', value: 2140e79c8d8815da3bb2bd1a186187322b2d0362}
+      - notExists: {path: 'metadata.labels["teknoir.org/fleet"]'}
 
   - it: emits spec.priority 0 when the entry sets priority 0 explicitly
     templates:
@@ -151,6 +166,99 @@ tests:
       - equal: {path: 'spec.applications[0].node_role', value: io}
       - equal: {path: 'spec.applications[0].revision', value: 1ea24b5f3ce479f6afa092c64c2e9240bde1e742}
       - notExists: {path: spec.priority}
+
+  # The class DAS take their commit from fleet/<class>.yaml (fleet: <class>), not from each application
+  # (CI v4 P8.5, flow 3.5).
+  - it: renders gpu-jetson as the jetson-orin class DAS from its fleet pointer
+    templates:
+      - templates/platform-device-application-sets.yaml
+    documentSelector: {path: metadata.name, value: gpu-jetson}
+    asserts:
+      - equal: {path: spec.selector.matchLabels, value: {teknoir.org/hw-class: jetson-orin}}
+      - equal: {path: 'metadata.labels["teknoir.org/fleet"]', value: jetson-orin}
+      - equal: {path: 'metadata.labels["teknoir.org/managed-by"]', value: gitops}
+      - equal: {path: 'spec.applications[0].path', value: fleets/gpu-metrics/prometheus.yaml}
+      - equal: {path: 'spec.applications[0].revision', value: 2140e79c8d8815da3bb2bd1a186187322b2d0362}
+      - equal: {path: 'spec.applications[1].path', value: fleets/gpu-jetson/gpu-metrics.yaml}
+      - equal: {path: 'spec.applications[1].revision', value: 2140e79c8d8815da3bb2bd1a186187322b2d0362}
+
+  - it: renders gpu-nvidia as the nvidia-rtx class DAS from its fleet pointer
+    templates:
+      - templates/platform-device-application-sets.yaml
+    documentSelector: {path: metadata.name, value: gpu-nvidia}
+    asserts:
+      - equal: {path: spec.selector.matchLabels, value: {teknoir.org/hw-class: nvidia-rtx}}
+      - equal: {path: 'metadata.labels["teknoir.org/fleet"]', value: nvidia-rtx}
+      - equal: {path: 'metadata.labels["teknoir.org/managed-by"]', value: gitops}
+      - equal: {path: 'spec.applications[0].path', value: fleets/gpu-metrics/prometheus.yaml}
+      - equal: {path: 'spec.applications[0].revision', value: 2140e79c8d8815da3bb2bd1a186187322b2d0362}
+      - equal: {path: 'spec.applications[1].path', value: fleets/gpu-nvidia/gpu-metrics.yaml}
+      - equal: {path: 'spec.applications[1].revision', value: 2140e79c8d8815da3bb2bd1a186187322b2d0362}
+
+  - it: renders the fleet revision on every application of an entry with fleet
+    templates:
+      - templates/platform-device-application-sets.yaml
+    set:
+      platformDeviceApplicationSets:
+        - name: fleetly
+          namespace: teknoir-demo
+          fleet: x
+          selector: {matchLabels: {a: b}}
+          applications:
+            - {repo_url: "https://github.com/teknoir/x", path: p1}
+            - {repo_url: "https://github.com/teknoir/x", path: p2}
+      fleets:
+        x: {revision: 0123456789abcdef0123456789abcdef01234567}
+    documentSelector: {path: metadata.name, value: fleetly}
+    asserts:
+      - equal: {path: 'metadata.labels["teknoir.org/fleet"]', value: x}
+      - equal: {path: 'spec.applications[0].revision', value: 0123456789abcdef0123456789abcdef01234567}
+      - equal: {path: 'spec.applications[1].revision', value: 0123456789abcdef0123456789abcdef01234567}
+      - equal: {path: 'spec.applications[1].path', value: p2}
+
+  - it: fails the render when the fleet class has no revision
+    templates:
+      - templates/platform-device-application-sets.yaml
+    set:
+      platformDeviceApplicationSets:
+        - name: fleetly
+          namespace: teknoir-demo
+          fleet: x
+          selector: {matchLabels: {a: b}}
+          applications: []
+    asserts:
+      - failedTemplate: {errorPattern: "has no revision"}
+
+  - it: fails the render when the fleet revision is not a 40-hex commit
+    templates:
+      - templates/platform-device-application-sets.yaml
+    set:
+      platformDeviceApplicationSets:
+        - name: fleetly
+          namespace: teknoir-demo
+          fleet: x
+          selector: {matchLabels: {a: b}}
+          applications: []
+      fleets:
+        x: {revision: main}
+    asserts:
+      - failedTemplate: {errorPattern: "not a 40-character lowercase hex commit"}
+
+  - it: fails the render when a fleet entry's application sets its own revision
+    templates:
+      - templates/platform-device-application-sets.yaml
+    set:
+      platformDeviceApplicationSets:
+        - name: fleetly
+          namespace: teknoir-demo
+          fleet: x
+          selector: {matchLabels: {a: b}}
+          applications:
+            - {repo_url: "https://github.com/teknoir/x", path: p, revision: 0123456789abcdef0123456789abcdef01234567}
+      fleets:
+        x: {revision: 0123456789abcdef0123456789abcdef01234567}
+    asserts:
+      - failedTemplate: {errorPattern: "sets revision"}
 
   - it: renders a RobotType with its spec verbatim and the fixed annotation and label
     templates:

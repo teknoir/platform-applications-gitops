@@ -201,6 +201,10 @@ ztna:
   inspectPrincipals:
     - cluster.local/ns/teknoir-system/sa/backstage-api
 
+# Hardware fleet pointers (fleet/README.md, CI v4 P8.5): class -> {revision}. Filled by the fleet/<class>.yaml
+# values files the device-controller Application passes; empty in a bare render.
+fleets: {}
+
 # DeviceApplicationSets every install gets (templates/platform-device-application-sets.yaml).
 # An entry may also set optional labels and annotations maps and an integer priority; they
 # are merged under the fixed label and annotation (which always win), and priority is
@@ -219,26 +223,29 @@ platformDeviceApplicationSets:
       # devstudio chart 0.1.0: Node-RED 5.0.10, Teknoir theme (teknoir-demo-gitops #7, 2026-11-23).
       - {repo_url: "https://github.com/teknoir/teknoir-demo-gitops", path: common/devstudio.yaml, revision: b35465914439f74af8d540645c339e3773092d69}
       - {repo_url: "https://github.com/teknoir/teknoir-demo-gitops", path: common/notebook.yaml, revision: 2140e79c8d8815da3bb2bd1a186187322b2d0362}
-  # GPU metrics on the platform: the on-device Prometheus, the GPU exporter and gpu-metrics-app
-  # (publishes to MQTT). Device label gpu=nvidia (discrete GPU, dcgm-exporter) or gpu=jetson
-  # (jetson-exporter). An inline app of the same name on a device (prometheus, nvidia-exporter)
-  # takes precedence over these.
+  # The class DAS of the hardware classes nvidia-rtx and jetson-orin: GPU metrics on the platform, the on-device
+  # Prometheus, the GPU exporter and gpu-metrics-app (publishes to MQTT). They select on the Robot label
+  # teknoir.org/hw-class (copied onto the Device), and their commit lives in fleet/<class>.yaml (fleet: <class>),
+  # not in each application. An inline app of the same name on a device (prometheus, nvidia-exporter) takes
+  # precedence over these.
   - name: gpu-nvidia
     namespace: teknoir-demo
+    fleet: nvidia-rtx
     selector:
       matchLabels:
-        gpu: nvidia
+        teknoir.org/hw-class: nvidia-rtx
     applications:
-      - {repo_url: "https://github.com/teknoir/teknoir-demo-gitops", path: fleets/gpu-metrics/prometheus.yaml, revision: 2140e79c8d8815da3bb2bd1a186187322b2d0362}
-      - {repo_url: "https://github.com/teknoir/teknoir-demo-gitops", path: fleets/gpu-nvidia/gpu-metrics.yaml, revision: 2140e79c8d8815da3bb2bd1a186187322b2d0362}
+      - {repo_url: "https://github.com/teknoir/teknoir-demo-gitops", path: fleets/gpu-metrics/prometheus.yaml}
+      - {repo_url: "https://github.com/teknoir/teknoir-demo-gitops", path: fleets/gpu-nvidia/gpu-metrics.yaml}
   - name: gpu-jetson
     namespace: teknoir-demo
+    fleet: jetson-orin
     selector:
       matchLabels:
-        gpu: jetson
+        teknoir.org/hw-class: jetson-orin
     applications:
-      - {repo_url: "https://github.com/teknoir/teknoir-demo-gitops", path: fleets/gpu-metrics/prometheus.yaml, revision: 2140e79c8d8815da3bb2bd1a186187322b2d0362}
-      - {repo_url: "https://github.com/teknoir/teknoir-demo-gitops", path: fleets/gpu-jetson/gpu-metrics.yaml, revision: 2140e79c8d8815da3bb2bd1a186187322b2d0362}
+      - {repo_url: "https://github.com/teknoir/teknoir-demo-gitops", path: fleets/gpu-metrics/prometheus.yaml}
+      - {repo_url: "https://github.com/teknoir/teknoir-demo-gitops", path: fleets/gpu-jetson/gpu-metrics.yaml}
   # The mock apps of the next-gen robot pages (teknoir-demo-gitops apps/mock-*), simulated sensors, telemetry
   # and cameras on every Robot. Hand-applied on 2026-10-19 at branch nextgen; since CI v4 P8.1 pinned at
   # 1ea24b5f (nextgen's head then, archive/nextgen-20261125), the same content.
