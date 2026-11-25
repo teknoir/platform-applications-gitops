@@ -96,8 +96,15 @@ teknoir.emqx.aclFile in emqxConfig), where "." is the emqx subchart's context. R
 wins; anything unmatched falls to authorization.no_match:
   - the platform user (emqx.username) may do anything under /devices/;
   - nobody may subscribe to $SYS/# or to the bare wildcards # and +/#;
+  - a TeknoirBot's computer (username tb-<bot>; tb- is reserved for them in every teamspace of
+    an environment) may not publish its own events/peripheral-manager/# or events/inference/#,
+    the two event families the platform acts on (T12); this deny comes before the device rules;
   - a device (a DNS-1123 name, so ${username} never holds +, # or /) may subscribe to its own
-    config and commands/#, and publish its own state/# and events/#, never retained.
+    config and commands/#, and publish its own state/# and events/#, never retained;
+  - the closing rule denies a TeknoirBot's computer everything else, so the bot fence holds
+    whatever no_match says. Its topic term is all, not ["#"]: "#" never matches a topic that
+    starts with "$". Usernames without the tb- prefix never match the two tb- rules, so they
+    behave exactly as in 0.0.113.
 There is deliberately no {allow, all}, no ipaddr rule (a port-forward is 127.0.0.1) and no
 dashboard rule.
 */}}
@@ -105,10 +112,15 @@ dashboard rule.
 %% Teknoir MQTT ACL (profile-plugin-emqx). First match wins; the rest falls to authorization.no_match.
 {allow, {username, {{ include "emqx.username" . | quote }}}, all, ["/devices/#"]}.
 {deny, all, subscribe, ["$SYS/#", {eq, "#"}, {eq, "+/#"}]}.
+%% A TeknoirBot's computer (username tb-<bot>) never publishes the two event families the platform acts on.
+{deny, {username, {re, "^tb-"}}, publish,
+    ["/devices/${username}/events/peripheral-manager/#", "/devices/${username}/events/inference/#"]}.
 {allow, {username, {re, "^[a-z0-9][a-z0-9.-]*$"}}, subscribe,
     ["/devices/${username}/config", "/devices/${username}/commands/#"]}.
 {allow, {username, {re, "^[a-z0-9][a-z0-9.-]*$"}}, {publish, [{retain, false}]},
     ["/devices/${username}/state/#", "/devices/${username}/events/#"]}.
+%% A TeknoirBot's computer has its own topics and nothing else. The topic term is all, not ["#"]: "#" never matches a topic that starts with "$".
+{deny, {username, {re, "^tb-"}}, all, all}.
 {{ end -}}
 
 {{/*

@@ -4,10 +4,13 @@
 #      EMQX_AUTHORIZATION__SOURCES__1__PATH in the upstream env ConfigMap (the include of the
 #      parent helper inside the upstream chart's tpl works), the name carries the first 12 hex
 #      digits of the content's sha256, the StatefulSet mounts emqx-acl at the path's directory,
-#      and the content has no {allow, all}, no ipaddr and no dashboard rule;
+#      the content has no {allow, all}, no ipaddr and no dashboard rule, the TeknoirBot (tb-)
+#      publish deny of T12 comes before the two device rules, and the closing tb- deny
+#      ({deny, {username, {re, "^tb-"}}, all, all}) is the last rule;
 #   2. docker (emqx/emqx:5.8.9): the file parses (file:consult), every rule compiles with EMQX's
 #      own emqx_authz_rule:compile, and a matrix of username/action/topic cases gives the expected
-#      allow / deny / nomatch (nomatch falls to authorization.no_match).
+#      allow / deny / nomatch (nomatch falls to authorization.no_match). The rows for usernames
+#      without the tb- prefix are those of 0.0.113 unchanged; the tb-neg-c rows are the fence.
 #
 #   tests/acl-check.sh           render + docker checks
 #   tests/acl-check.sh --check   render checks only (no docker)
@@ -76,6 +79,17 @@ check(re.search(r"\{\s*allow\s*,\s*all\b", content) is None, "no {allow, all} ru
 check("ipaddr" not in content, "no ipaddr rule")
 check("dashboard" not in content, "no dashboard rule")
 check(env["data"].get("EMQX_AUTHORIZATION__SOURCES__1__TYPE") == "file", "source 1 is type file")
+# Rules in file order: comment lines dropped, whitespace collapsed, split at the closing "}.".
+body = " ".join(l for l in content.splitlines() if not l.lstrip().startswith("%%"))
+rules = [re.sub(r"\s+", " ", r).strip() for r in re.split(r"\}\.(?=\s|$)", body) if r.strip()]
+TB_RE = '{username, {re, "^tb-"}}'
+DEV_RE = '{username, {re, "^[a-z0-9][a-z0-9.-]*$"}}'
+t12 = [i for i, r in enumerate(rules) if r.startswith("{deny, " + TB_RE + ", publish,")]
+dev = [i for i, r in enumerate(rules) if r.startswith("{allow, " + DEV_RE + ",")]
+check(len(t12) == 1 and len(dev) == 2 and t12[0] < min(dev),
+      f"the T12 deny comes before the device rules (tb- publish deny at {t12}, device rules at {dev})")
+check(bool(rules) and rules[-1] == "{deny, " + TB_RE + ", all, all",
+      f"the closing tb- deny is the last rule ({len(rules)} rules)")
 open(sys.argv[2], "w").write(content)
 sys.exit(1 if fails else 0)
 PY
@@ -127,7 +141,40 @@ Cases = [
   {<<"#">>, subscribe, false, <<"/devices/#/config">>, nomatch},
   {<<"a/b">>, subscribe, false, <<"/devices/a/b/config">>, nomatch},
   {<<"NEG-A">>, subscribe, false, <<"/devices/NEG-A/config">>, nomatch},
-  {<<"+">>, publish, false, <<"/devices/+/events">>, nomatch}
+  {<<"+">>, publish, false, <<"/devices/+/events">>, nomatch},
+  %% TeknoirBot computer (tb-): its own config, commands, state and events (never retained) ...
+  {<<"tb-neg-c">>, subscribe, false, <<"/devices/tb-neg-c/config">>, allow},
+  {<<"tb-neg-c">>, subscribe, false, <<"/devices/tb-neg-c/commands/#">>, allow},
+  {<<"tb-neg-c">>, publish, false, <<"/devices/tb-neg-c/state">>, allow},
+  {<<"tb-neg-c">>, publish, false, <<"/devices/tb-neg-c/state/x">>, allow},
+  {<<"tb-neg-c">>, publish, false, <<"/devices/tb-neg-c/events">>, allow},
+  {<<"tb-neg-c">>, publish, false, <<"/devices/tb-neg-c/events/alerts">>, allow},
+  %% ... never the two event families the platform acts on (T12) ...
+  {<<"tb-neg-c">>, publish, false, <<"/devices/tb-neg-c/events/inference">>, deny},
+  {<<"tb-neg-c">>, publish, false, <<"/devices/tb-neg-c/events/inference/x">>, deny},
+  {<<"tb-neg-c">>, publish, false, <<"/devices/tb-neg-c/events/peripheral-manager">>, deny},
+  {<<"tb-neg-c">>, publish, false, <<"/devices/tb-neg-c/events/peripheral-manager/x">>, deny},
+  %% ... and nothing else, $-topics included (the closing deny, whatever no_match says)
+  {<<"tb-neg-c">>, publish, true, <<"/devices/tb-neg-c/events">>, deny},
+  {<<"tb-neg-c">>, publish, false, <<"/devices/tb-neg-c/config">>, deny},
+  {<<"tb-neg-c">>, publish, true, <<"/devices/neg-a/config">>, deny},
+  {<<"tb-neg-c">>, publish, false, <<"/devices/neg-a/commands/x">>, deny},
+  {<<"tb-neg-c">>, publish, false, <<"/devices/neg-a/state">>, deny},
+  {<<"tb-neg-c">>, publish, false, <<"/devices/neg-a/events">>, deny},
+  {<<"tb-neg-c">>, publish, false, <<"negtest/free">>, deny},
+  {<<"tb-neg-c">>, publish, false, <<"$negtest/x">>, deny},
+  {<<"tb-neg-c">>, subscribe, false, <<"/devices/neg-a/config">>, deny},
+  {<<"tb-neg-c">>, subscribe, false, <<"/devices/#">>, deny},
+  {<<"tb-neg-c">>, subscribe, false, <<"/devices/+/events/#">>, deny},
+  {<<"tb-neg-c">>, subscribe, false, <<"/devices/tb-neg-c/state">>, deny},
+  {<<"tb-neg-c">>, subscribe, false, <<"negtest/free">>, deny},
+  {<<"tb-neg-c">>, subscribe, false, <<"$negtest/x">>, deny},
+  {<<"tb-neg-c">>, subscribe, false, <<"$SYS/#">>, deny},
+  {<<"tb-neg-c">>, subscribe, false, <<"#">>, deny},
+  %% the tb- prefix is anchored and case-sensitive
+  {<<"tbx">>, publish, false, <<"/devices/neg-a/events">>, nomatch},
+  {<<"rig-tb-x">>, subscribe, false, <<"/devices/#">>, nomatch},
+  {<<"TB-X">>, publish, true, <<"/devices/neg-a/config">>, nomatch}
 ],
 Fails = lists:foldl(fun({U, A, Ret, T, Want}, N) ->
     Client = #{username => U, clientid => U, peerhost => {127,0,0,1}},

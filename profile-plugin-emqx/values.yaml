@@ -88,7 +88,10 @@ emqx:
     EMQX_AUTHENTICATION__3__ENABLE: "true"                 # legacy union JWKS, fallback only; removed in 0.0.115
     EMQX_AUTHENTICATION__3__MECHANISM: "jwt"
     EMQX_AUTHENTICATION__3__USE_JWKS: "true"
-    EMQX_AUTHENTICATION__3__ENDPOINT: "http://jwks:8083/api/v1/keys"
+    # The legacy key set: /api/v1/keys without the ids of profile-plugin-jwks
+    # mqttAuth.legacyExcludePrefixes (tb-), so TeknoirBot keys never pass the legacy fallback.
+    # Needs profile-plugin-jwks 0.0.113-p1 or later, live first: an older jwks answers 404 here.
+    EMQX_AUTHENTICATION__3__ENDPOINT: "http://jwks:8083/api/v1/keys/legacy"
     EMQX_AUTHENTICATION__3__FROM: "password"
     EMQX_AUTHENTICATION__3__REFRESH_INTERVAL: "60"
     EMQX_AUTHENTICATION__3__SSL__ENABLE: "false"
@@ -108,6 +111,14 @@ emqx:
     EMQX_AUTHORIZATION__SOURCES__2__URL: "http://jwks:8083/api/v1/mqtt/authz-audit"
     EMQX_AUTHORIZATION__SOURCES__2__REQUEST_TIMEOUT: "2s"
     EMQX_AUTHORIZATION__SOURCES__2__BODY: {username: "${username}", clientid: "${clientid}", topic: "${topic}", action: "${action}", qos: "${qos}", retain: "${retain}"}
+    # Retained messages are stored on disc (the emqx-data volume at /opt/emqx/data), so they
+    # survive an EMQX restart. device-controller publishes each device's config as a retained
+    # message on /devices/<device>/config and republishes it only when the config changes.
+    # EMQX converts its retainer tables to disc at the first boot with this value. ram or disc.
+    EMQX_RETAINER__BACKEND__STORAGE_TYPE: "disc"
+    # The largest retained payload, the same as EMQX_MQTT__MAX_PACKET_SIZE below. The EMQX
+    # default is 1MB: a larger config would be delivered once but never retained.
+    EMQX_RETAINER__MAX_PAYLOAD_SIZE: "3MB"
     # Do not set EMQX_MQTT__USE_USERNAME_AS_CLIENTID: platform clients share the user teknoir with
     # distinct clientids and would take over each other's sessions.
     # EMQX 5 name of the intended 3 MB limit (the former EMQX_MAX_PACKET_SIZE is not an

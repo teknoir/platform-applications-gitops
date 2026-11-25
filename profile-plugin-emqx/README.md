@@ -35,10 +35,12 @@ the next one, anything else is final):
    In `observe` mode (profile-plugin-jwks `mqttAuth.authnMode`) a failure answers "ignore" and
    logs `mqtt_authn decision=would_deny`; in `enforce` it answers "deny". A pass is never a
    superuser and carries no ACL.
-3. Legacy JWT (`use_jwks`, the union key set at `/api/v1/keys`, `aud` checked): a temporary
-   fallback for clients that authenticator 2 answers "ignore" (every observe failure at 0.0.112,
-   and a jwks error or timeout at 0.0.113 and 0.0.114). 0.0.115 removes it, after which the chain
-   fails closed.
+3. Legacy JWT (`use_jwks`, `aud` checked): a temporary fallback for clients that authenticator 2
+   answers "ignore" (every observe failure at 0.0.112, and a jwks error or timeout from 0.0.113 on).
+   Up to 0.0.113-p1 it reads the union key set at `/api/v1/keys`. From 0.0.113-p2 it reads
+   `/api/v1/keys/legacy`: the same set without the device ids that start with a prefix of
+   profile-plugin-jwks `mqttAuth.legacyExcludePrefixes` (`tb-`), so a TeknoirBot's key never passes
+   the fallback (below). 0.0.115 removes it, after which the chain fails closed.
 
 Only the EMQX pod's mTLS principal (`<trustDomain>/ns/<ns>/sa/emqx`) may call
 `/api/v1/mqtt/*` on jwks (profile-plugin-jwks `jwks-mqtt-auth` DENY); EMQX is not a key writer.
@@ -47,9 +49,12 @@ Only the EMQX pod's mTLS principal (`<trustDomain>/ns/<ns>/sa/emqx`) may call
 `teknoir.emqx.aclConf`), keyed on the username. First match wins:
 - `teknoir`: everything under `/devices/#`;
 - nobody subscribes `$SYS/#`, `#` or `+/#`;
+- from 0.0.113-p2, a TeknoirBot's computer (username `tb-<bot>`) may not publish its own
+  `events/peripheral-manager/#` or `events/inference/#` (this deny comes before the device rules);
 - a device (username matching `^[a-z0-9][a-z0-9.-]*$`, so it never contains `+`, `#` or `/`):
   subscribe `/devices/<name>/config` and `/devices/<name>/commands/#`; publish
-  `/devices/<name>/state/#` and `/devices/<name>/events/#`, never retained.
+  `/devices/<name>/state/#` and `/devices/<name>/events/#`, never retained;
+- from 0.0.113-p2, the last rule: a `tb-` username is denied everything else.
 Everything else falls to `authorization.no_match`. The file has no allow-all line, no `127.0.0.1`
 (`ipaddr`) rule and no dashboard rule. EMQX reads it only when the source is created (boot), and
 only a change of the env ConfigMap rolls the pod, so the file name carries the first 12 hex
@@ -68,6 +73,7 @@ distinct clientids and would take over each other's sessions.
 | 0.0.112 observe | `observe` | `allow` | yes | yes | EMQX, jwks |
 | 0.0.113 authn enforce | `enforce` | `allow` | yes | yes | jwks |
 | 0.0.113-p1 legacy key set | `enforce` | `allow` | yes | yes, still `/api/v1/keys`; jwks adds `/api/v1/keys/legacy` without `tb-` ids (`mqttAuth.legacyExcludePrefixes`) | jwks (EMQX renders as 0.0.113) |
+| 0.0.113-p2 TeknoirBot fence | `enforce` | `allow` | yes | yes, `/api/v1/keys/legacy` (no `tb-` keys) | EMQX (ACL file with the `tb-` rules, authenticator 3 endpoint, retainer on disc with a 3MB payload limit) |
 | 0.0.114 authz enforce | `enforce` | `deny` | removed | yes | EMQX |
 | 0.0.115 fail closed | `enforce` | `deny` | removed | removed | EMQX |
 
@@ -81,10 +87,91 @@ next restart, so the chart is the only rollback path. A device locked out by an 
 recovers on its next connect after the rollback (TOE mints a fresh token per connect) or after a
 TOE restart.
 
-Tests: `helm unittest` (`tests/mqtt_auth_test.yaml`), and `tests/acl-check.sh` (helm template,
-then docker `emqx/emqx:5.8.9`: the file parses, every rule compiles with EMQX's own rule compiler,
-and a username/action/topic matrix gives the expected allow, deny or no-match; `--check` skips
-docker).
+Tests: `helm unittest` (`tests/mqtt_auth_test.yaml`, `tests/retainer_test.yaml`), and
+`tests/acl-check.sh` (helm template, then docker `emqx/emqx:5.8.9`: the file parses, every rule
+compiles with EMQX's own rule compiler, and a username/action/topic matrix gives the expected
+allow, deny or no-match; `--check` skips docker). The matrix rows for usernames without the `tb-`
+prefix are those of 0.0.113, unchanged; the `tb-neg-c` rows test the fence.
+
+### TeknoirBot fence (0.0.113-p2)
+
+Plan: `plans/teknoirbot/root-in-vm.md` (3.2, Phase 1). A TeknoirBot's computer is a virtual
+Device named `tb-<bot>`, and the device key in its VM logs in to MQTT as `tb-<bot>`. The fence
+makes that key worth the bot's own topics only, whatever `authorization.no_match` says:
+
+- It may subscribe its own `config` and `commands/#`, and publish its own `state/#` and
+  `events/#`, never retained (the device rules).
+- It may not publish its own `events/peripheral-manager/#` or `events/inference/#`, the two event
+  families the platform acts on. That deny comes before the device rules.
+- The closing rule `{deny, {username, {re, "^tb-"}}, all, all}` denies it everything else, other
+  devices' topics and topics outside `/devices/` included. Its topic term is `all`, not `["#"]`:
+  `#` never matches a topic that starts with `$`.
+- Authenticator 3 reads `/api/v1/keys/legacy`, which holds no `tb-` key: while jwks does not
+  answer, a bot is refused under any username, and real devices keep the fallback they had.
+- Usernames without the `tb-` prefix (the regex is anchored and case-sensitive) match neither
+  `tb-` rule, so devices and the platform user behave as in 0.0.113.
+
+**`tb-` is reserved, and shared by every teamspace of an environment.** The ACL is one literal
+for every teamspace, and teknoirbot-controller's admission reserves the prefix only where it is
+installed. A real Device named `tb-*` would keep its own `config` and `commands`, but lose its
+`inference` and `peripheral-manager` events, every other topic, and the legacy fallback. Before
+an environment adopts this version, check that no real Device is named `tb-*`: every row below
+must be a bot's computer, its `TEKNOIRBOT` label equal to the name without `tb-`.
+
+    kubectl --context <ctx> get devices.teknoir.org -A -L teknoir.org/teknoirbot | awk 'NR==1 || $2 ~ /^tb-/'
+
+**Rollout order.** profile-plugin-jwks 0.0.113-p1 (or later, with a jwks-server image that
+serves `/api/v1/keys/legacy`) is live first, as its own release; only jwks restarts. Then
+0.0.113-p2: EMQX restarts once in every teamspace (the ACL file name and the env change). In the
+other order a restarted EMQX gets 404 for its legacy key set, so a jwks error or timeout of
+authenticator 2 leaves a device with no fallback. Before the EMQX restart: device-controller
+republishes a missing retained config (`RETAINED_CONFIG_REPUBLISH` on), because the restart that
+switches the retainer to disc still loses what was only in memory (below).
+
+**Rollback order: B before A.** Pin 0.0.113-p1 first (EMQX restarts with the 0.0.113 ACL and
+`/api/v1/keys`), then, if needed, 0.0.113 (jwks restarts). Never run a jwks older than 0.0.113-p1
+under an EMQX on 0.0.113-p2. A rollback of 0.0.113-p2 is a second EMQX restart: check the
+retained configs after it as after the rollout.
+
+## Retained messages
+
+From 0.0.113-p2 the retainer stores retained messages on disc
+(`emqx.emqxConfig.EMQX_RETAINER__BACKEND__STORAGE_TYPE: "disc"`) in `/opt/emqx/data` on the
+`emqx-data` PersistentVolumeClaim, so they survive a restart of `emqx-0`. Before, they were in
+memory and every restart dropped them; device-controller republishes a device's config only when
+it changes, so devices that reconnected after a restart got no config until the next change.
+
+The first boot with `disc` converts the retainer tables in place. Messages that were only in
+memory before that restart are gone once more (one-time).
+
+No count limit and no expiry are set: device configs never expire, and only the platform user
+publishes retained messages (devices may not retain, see the ACL), so there is about one retained
+topic per device. The config of a deleted device stays until it is removed (below).
+
+The largest retained payload is 3MB (`EMQX_RETAINER__MAX_PAYLOAD_SIZE`), the same as the largest
+packet (`EMQX_MQTT__MAX_PACKET_SIZE`). EMQX's default is 1MB: a config between 1MB and 3MB was
+delivered to a connected device but never retained, so the device lost it at its next connect.
+`GET /api/v5/mqtt/retainer/message/<topic>` leaves the payload out of a message that large (seen
+in the rig at 2 and 3 MB); the list (`/api/v5/mqtt/retainer/messages?topic=<topic>`) still
+shows it.
+
+Inspect:
+
+    kubectl -n <ns> exec emqx-0 -c emqx -- emqx ctl retainer info
+    kubectl -n <ns> exec emqx-0 -c emqx -- emqx ctl retainer topics
+
+Remove one:
+
+    kubectl -n <ns> exec emqx-0 -c emqx -- emqx ctl retainer clean <topic>
+
+**Rollback.** An older chart (no `EMQX_RETAINER__BACKEND__STORAGE_TYPE`, 0.0.113-p1 and before)
+boots with `ram` again: EMQX converts the tables back, and the retained messages are lost at the
+next restart after that. The payload limit goes back to 1MB too: a stored config over 1MB is
+still delivered until that restart, but a new one over 1MB is not retained (EMQX logs
+`retain_failed_for_payload_size_exceeded_limit`). Do not change the retainer through the EMQX
+API or dashboard: a runtime change is saved in `cluster.hocon` on the volume and would outlive a
+chart rollback that only removes the env var; to force `ram`, set the env var to `"ram"`
+explicitly.
 
 ## Dashboard: no EMQX login, owners only
 

@@ -57,7 +57,7 @@ tests:
       - notExists:
           path: data.EMQX_AUTHENTICATION__2__FROM
 
-  - it: authenticator 3 is the legacy JWT fallback, its acl claim ignored
+  - it: authenticator 3 is the legacy JWT fallback on the filtered key set, its acl claim ignored
     template: charts/emqx/templates/configmap.yaml
     asserts:
       - equal:
@@ -68,7 +68,7 @@ tests:
           value: "true"
       - equal:
           path: data.EMQX_AUTHENTICATION__3__ENDPOINT
-          value: http://jwks:8083/api/v1/keys
+          value: http://jwks:8083/api/v1/keys/legacy
       - equal:
           path: data.EMQX_AUTHENTICATION__3__ACL_CLAIM_NAME
           value: x_teknoir_unused_acl
@@ -150,7 +150,7 @@ tests:
           path: data.*
           pattern: 'dashboard'
 
-  - it: the ACL holds exactly the platform, wildcard and device rules
+  - it: the ACL holds exactly the platform, wildcard, TeknoirBot fence and device rules
     template: templates/acl-configmap.yaml
     asserts:
       - equal:
@@ -159,7 +159,19 @@ tests:
             %% Teknoir MQTT ACL (profile-plugin-emqx). First match wins; the rest falls to authorization.no_match.
             {allow, {username, "teknoir"}, all, ["/devices/#"]}.
             {deny, all, subscribe, ["$SYS/#", {eq, "#"}, {eq, "+/#"}]}.
+            %% A TeknoirBot's computer (username tb-<bot>) never publishes the two event families the platform acts on.
+            {deny, {username, {re, "^tb-"}}, publish,
+                ["/devices/${username}/events/peripheral-manager/#", "/devices/${username}/events/inference/#"]}.
             {allow, {username, {re, "^[a-z0-9][a-z0-9.-]*$"}}, subscribe,
                 ["/devices/${username}/config", "/devices/${username}/commands/#"]}.
             {allow, {username, {re, "^[a-z0-9][a-z0-9.-]*$"}}, {publish, [{retain, false}]},
                 ["/devices/${username}/state/#", "/devices/${username}/events/#"]}.
+            %% A TeknoirBot's computer has its own topics and nothing else. The topic term is all, not ["#"]: "#" never matches a topic that starts with "$".
+            {deny, {username, {re, "^tb-"}}, all, all}.
+
+  - it: the last rule of the ACL is the closing tb- deny
+    template: templates/acl-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data.*
+          pattern: '\{deny, \{username, \{re, "\^tb-"\}\}, all, all\}\.\n$'
