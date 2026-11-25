@@ -112,6 +112,16 @@ tests:
           path: 'spec.promotionTemplate.spec.steps[3].if'
           pattern: "^\\$\\{\\{ success\\(\\) && status\\('commit'\\) == 'Succeeded' \\}\\}$"
 
+  - it: retries only the push (GitHub may reject one of several simultaneous pushes)
+    documentSelector:
+      path: metadata.name
+      value: pin-wg-tunnel
+    asserts:
+      - equal: {path: 'spec.promotionTemplate.spec.steps[3].as', value: push}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[3].retry', value: {errorThreshold: 3}}
+      - notExists: {path: 'spec.promotionTemplate.spec.steps[4].retry'}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[5].retry', value: {timeout: 30m}}
+
   - it: maps the style to the value written into the pins file (tag and ref)
     documentSelector:
       path: metadata.name
