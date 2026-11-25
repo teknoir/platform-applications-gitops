@@ -150,4 +150,4 @@ tests:
           content: {stageSelector: {name: pin-wg-tunnel}, autoPromotionEnabled: true}
       - contains:
           path: spec.promotionPolicies
-          content: {stageSelector: {name: pin-backstage}, autoPromotionEnabled: false}
+          content: {stageSelector: {name: pin-device-controller}, autoPromotionEnabled: false}
