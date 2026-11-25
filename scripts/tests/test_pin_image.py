@@ -4,6 +4,8 @@ import shutil
 import sys
 import unittest
 
+import yaml
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import helpers as H  # noqa: E402
 from helpers import L  # noqa: E402
@@ -29,6 +31,20 @@ backstageNext:
 quoted:
   image:
     tag: "old"
+'''
+
+
+LIST_VALUES = '''# top comment
+template:
+  spec:
+    containers:
+      # ARC requires the runner container to be named "runner"
+      - name: runner
+        # pinned below
+        image: ghcr.io/teknoir/ci-runner:2.338.2-3@sha256:''' + "e" * 64 + '''
+        imagePullPolicy: IfNotPresent
+      - name: sidecar
+        image: docker.io/library/postgres:16-alpine
 '''
 
 
@@ -61,6 +77,33 @@ class Yaml(unittest.TestCase):
     def test_set_without_a_parent_fails(self):
         with self.assertRaises(ValueError):
             PI.set_leaf(VALUES, "nope.child.leaf", "x")
+
+    def test_the_real_arc_scale_set_values_keep_the_indexed_shape(self):
+        # Kargo's pin-ci-runner and scripts/pin-image rewrite these three files at an indexed key. _find_path only
+        # reads a list indented under its key whose pinned key is not on the item's `- ` line, so a reformat into
+        # any other shape fails here as well as in pin-image; the values must also match PyYAML's own reading.
+        root = os.path.dirname(H.SCRIPTS)
+        for name in ("teknoir-ci", "teknoir-land", "teknoir-push"):
+            rel = os.path.join("charts", "ci-runners", "arc", name + ".yaml")
+            with open(os.path.join(root, rel)) as fh:
+                text = fh.read()
+            doc = yaml.safe_load(text)
+            self.assertEqual(PI.get_leaf(text, "template.spec.containers.0.image"),
+                             doc["template"]["spec"]["containers"][0]["image"], rel)
+
+    def test_a_digit_segment_indexes_a_list(self):
+        key = "template.spec.containers.0.image"
+        self.assertEqual(PI.get_leaf(LIST_VALUES, key), "ghcr.io/teknoir/ci-runner:2.338.2-3@sha256:" + "e" * 64)
+        out = PI.set_leaf(LIST_VALUES, key, "ghcr.io/teknoir/ci-runner:sha-abcdef12@" + D)
+        self.assertIn('image: "ghcr.io/teknoir/ci-runner:sha-abcdef12@' + D + '"', out)
+        self.assertIn("        # pinned below", out)
+        self.assertEqual(PI.get_leaf(out, "template.spec.containers.1.image"), "docker.io/library/postgres:16-alpine")
+        self.assertEqual(len(out.split("\n")), len(LIST_VALUES.split("\n")))
+
+    def test_a_missing_list_item_is_never_created(self):
+        with self.assertRaises(ValueError):
+            PI.set_leaf(LIST_VALUES, "template.spec.containers.2.image", "x")
+        self.assertIsNone(PI.get_leaf(LIST_VALUES, "template.spec.containers.2.image"))
 
     def test_real_values_files_round_trip_for_every_component(self):
         root = os.path.dirname(H.SCRIPTS)
@@ -97,7 +140,12 @@ class Refs(unittest.TestCase):
         for c in imgs.values():
             self.assertTrue(c["key_path"] and c["repository"] and c["chart"])
             if c["group"]:
-                self.assertTrue(PI.image_path(c).startswith("pins/"), c)        # a grouped row pins in pins/<group>.yaml
+                if c.get("values_files"):                                       # a grouped row pinned in chart values
+                    self.assertIsNone(c["pins_file"], c)
+                    for f in PI.image_paths(c):
+                        self.assertTrue(f.startswith("charts/"), c)
+                else:
+                    self.assertTrue(PI.image_path(c).startswith("pins/"), c)    # a grouped row pins in pins/<group>.yaml
                 self.assertFalse(c.get("values_file"), c)
             else:
                 self.assertTrue(PI.image_path(c).startswith("charts/"), c)      # a third party row pins in its chart values
@@ -155,7 +203,25 @@ class PinFlow(unittest.TestCase):
             os.makedirs(os.path.dirname(os.path.join(self.root, f)), exist_ok=True)
             with open(os.path.join(self.root, f), "w") as fh:
                 fh.write(text)
+        # ci-runner is pinned in the three ARC scale-set values files (values_files in scripts/images.yaml): the
+        # copies carry the real shape (a list item under template.spec.containers) with its comment line.
+        arc = os.path.join(os.path.dirname(H.SCRIPTS), "charts", "ci-runners", "arc")
+        self.arc_files = [f"charts/ci-runners/arc/{name}.yaml" for name in ("teknoir-ci", "teknoir-land", "teknoir-push")]
+        for rel in self.arc_files:
+            with open(os.path.join(arc, os.path.basename(rel))) as fh:
+                self.write(rel, fh.read())
         self.out = []
+
+    def write(self, rel, text):
+        os.makedirs(os.path.dirname(os.path.join(self.root, rel)), exist_ok=True)
+        with open(os.path.join(self.root, rel), "w") as fh:
+            fh.write(text)
+
+    def read(self, rel):
+        with open(os.path.join(self.root, rel)) as fh:
+            return fh.read()
+
+    ARC_KEY = "template.spec.containers.0.image"
 
     def pin(self, sys_):
         return PI.Pin(sys_, self.root, out=self.out.append)
@@ -179,6 +245,83 @@ class PinFlow(unittest.TestCase):
 
     def _device_controller(self):
         return open(os.path.join(self.root, "pins/teknoir-desktop.yaml")).read()
+
+    def test_a_values_files_row_pins_every_file(self):
+        res = self.pin(FakeSys()).pin("ci-runner", "sha-abcdef12", write=True)
+        want = "ghcr.io/teknoir/ci-runner:sha-abcdef12@" + D
+        self.assertEqual(res["new"], want)
+        self.assertEqual(res["files"], self.arc_files)
+        for rel in self.arc_files:
+            text = self.read(rel)
+            self.assertEqual(PI.get_leaf(text, self.ARC_KEY), want, rel)
+            # the comment block above the pinned line and the neighbouring keys stay as written
+            self.assertIn("Pinned by Kargo Stage pin-ci-runner", text)
+            self.assertIn("imagePullPolicy: IfNotPresent", text)
+
+    def test_a_values_files_row_keeps_the_index_paths_comments_and_line_count(self):
+        before = {rel: self.read(rel) for rel in self.arc_files}
+        self.pin(FakeSys()).pin("ci-runner", "sha-abcdef12", write=True)
+        for rel in self.arc_files:
+            self.assertEqual(len(self.read(rel).split("\n")), len(before[rel].split("\n")), rel)
+            self.assertEqual(self.read(rel).replace(
+                'image: "ghcr.io/teknoir/ci-runner:sha-abcdef12@' + D + '"',
+                'image: ghcr.io/teknoir/ci-runner:2.338.2-3@sha256:9248ca3c6947c4666847603672d6c02b09527ccf8d04aabd1bcee99c6b2718eb'), before[rel], rel)
+
+    def test_a_missing_key_is_an_error_naming_the_file_and_writes_nothing(self):
+        broken = self.arc_files[1]
+        text = self.read(broken).replace("        image: ghcr.io/teknoir/ci-runner",
+                                         "        notimage: ghcr.io/teknoir/ci-runner", 1)
+        self.write(broken, text)
+        before = {rel: self.read(rel) for rel in self.arc_files}
+        with self.assertRaises(SystemExit) as cm:
+            self.pin(FakeSys()).pin("ci-runner", "sha-abcdef12", write=True)
+        self.assertIn(broken, str(cm.exception))
+        self.assertIn(self.ARC_KEY, str(cm.exception))
+        for rel in self.arc_files:
+            self.assertEqual(self.read(rel), before[rel], rel)
+
+    def test_a_grouped_row_without_the_key_adds_it_under_the_existing_parent(self):
+        # Only a values_files row requires the key. A grouped pins file (and a third party chart values file) keeps
+        # set_leaf's behaviour: the missing leaf is added under its existing parent.
+        rel = "pins/devstudio-controller.yaml"
+        self.write(rel, "# fixture\nimage:\n  pullPolicy: Always\n")
+        res = self.pin(FakeSys()).pin("devstudio-controller", "sha-abcdef12", write=True)
+        self.assertEqual(res["new"], "sha-abcdef12@" + D)
+        text = self.read(rel)
+        self.assertIn('  tag: "sha-abcdef12@' + D + '"', text)
+        self.assertEqual(PI.get_leaf(text, "image.tag"), "sha-abcdef12@" + D)
+        self.assertEqual(PI.get_leaf(text, "image.pullPolicy"), "Always")
+
+    RUNNER_REF = "ghcr.io/teknoir/ci-runner:2.338.2-3"
+
+    def _write_arc(self, rel, ref):
+        self.write(rel, "template:\n  spec:\n    containers:\n      - name: runner\n        image: " + ref + "\n")
+
+    def test_adopt_running_writes_every_values_file_that_agrees(self):
+        for rel in self.arc_files:
+            self._write_arc(rel, self.RUNNER_REF)
+        want = self.RUNNER_REF + "@sha256:" + "c" * 64
+        running = {self.RUNNER_REF: want}
+        res = {r["name"]: r for r in self.pin(FakeSys(running=running)).adopt_running(write=True, context="r415")}
+        self.assertEqual(res["ci-runner"]["value"], want)
+        for rel in self.arc_files:
+            self.assertEqual(PI.get_leaf(self.read(rel), self.ARC_KEY), want, rel)
+
+    def test_adopt_running_skips_values_files_that_disagree(self):
+        # file 0 differs from files 1 and 2: nothing is written for the row, one line per file prints its value
+        other = "ghcr.io/teknoir/ci-runner:sha-aaaaaaaa"
+        self._write_arc(self.arc_files[0], other)
+        for rel in self.arc_files[1:]:
+            self._write_arc(rel, self.RUNNER_REF)
+        before = {rel: self.read(rel) for rel in self.arc_files}
+        running = {other: "ghcr.io/teknoir/ci-runner@sha256:" + "c" * 64}
+        pin = self.pin(FakeSys(running=running))
+        res = {r["name"]: r for r in pin.adopt_running(write=True, context="r415")}
+        self.assertEqual(res["ci-runner"]["status"], "disagree")
+        self.assertIn("ci-runner: values_files disagree; pin by hand", self.out)
+        for rel in self.arc_files:
+            self.assertIn(f"ci-runner: {self.ARC_KEY} is {PI.get_leaf(before[rel], self.ARC_KEY)} in {rel}", self.out)
+            self.assertEqual(self.read(rel), before[rel], rel)
 
     def test_council_sub_image_pins_by_tag(self):
         # the council image is the sub-image ghcr.io/teknoir/teknoir-desktop/council: a bare tag resolves to it

@@ -2,9 +2,10 @@
 # A Helm template (Go template actions), not a YAML document.
 {{/*
 One Stage pin-<group> per ENABLED group (scripts/images.yaml): a new image build of the group becomes Freight,
-and the Stage's promotion pins it in pins/<group>.yaml through a pull request that it merges itself. Merging the
-PR is the promotion; the next staging release renders the new pins. Disabled groups (every private group until
-P6.2) have no Warehouse, so no Stage either.
+and the Stage's promotion pins it through a pull request that it merges itself: in pins/<group>.yaml, or in the
+chart values files an image names in `files` (ci-runner: the ARC scale-set values). Merging the PR is the
+promotion; the next staging release renders the new pins. Disabled groups (every private group until P6.2) have
+no Warehouse, so no Stage either.
 
 The steps live in templates/_pin-steps.tpl.
 */}}

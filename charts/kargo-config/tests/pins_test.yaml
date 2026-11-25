@@ -149,6 +149,61 @@ tests:
           value:
             - {key: keycloak.image.digest, value: '${{ imageFrom("ghcr.io/teknoir/keycloak-theme").Digest }}'}
 
+  - it: writes a group pinned in chart values files into one yaml-update step per file
+    set:
+      groups:
+        - name: ci-runner
+          enabled: true
+          sameCommit: false
+          images:
+            - {component: ci-runner, poll: ghcr.io/teknoir/ci-runner, repository: ghcr.io/teknoir/ci-runner, key: template.spec.containers.0.image, style: ref, files: [charts/ci-runners/arc/teknoir-ci.yaml, charts/ci-runners/arc/teknoir-land.yaml, charts/ci-runners/arc/teknoir-push.yaml]}
+    documentSelector:
+      path: metadata.name
+      value: pin-ci-runner
+    asserts:
+      - lengthEqual: {path: spec.promotionTemplate.spec.steps, count: 8}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[1].uses', value: yaml-update}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[1].as', value: update}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[1].config.path', value: ./src/charts/ci-runners/arc/teknoir-ci.yaml}
+      - lengthEqual: {path: 'spec.promotionTemplate.spec.steps[1].config.updates', count: 1}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[1].config.updates[0].key', value: template.spec.containers.0.image}
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[1].config.updates[0].value'
+          value: 'ghcr.io/teknoir/ci-runner:${{ imageFrom("ghcr.io/teknoir/ci-runner").Tag }}@${{ imageFrom("ghcr.io/teknoir/ci-runner").Digest }}'
+      - equal: {path: 'spec.promotionTemplate.spec.steps[2].uses', value: yaml-update}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[2].as', value: update2}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[2].config.path', value: ./src/charts/ci-runners/arc/teknoir-land.yaml}
+      - lengthEqual: {path: 'spec.promotionTemplate.spec.steps[2].config.updates', count: 1}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[2].config.updates[0].key', value: template.spec.containers.0.image}
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[2].config.updates[0].value'
+          value: 'ghcr.io/teknoir/ci-runner:${{ imageFrom("ghcr.io/teknoir/ci-runner").Tag }}@${{ imageFrom("ghcr.io/teknoir/ci-runner").Digest }}'
+      - equal: {path: 'spec.promotionTemplate.spec.steps[3].uses', value: yaml-update}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[3].as', value: update3}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[3].config.path', value: ./src/charts/ci-runners/arc/teknoir-push.yaml}
+      - lengthEqual: {path: 'spec.promotionTemplate.spec.steps[3].config.updates', count: 1}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[3].config.updates[0].key', value: template.spec.containers.0.image}
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[3].config.updates[0].value'
+          value: 'ghcr.io/teknoir/ci-runner:${{ imageFrom("ghcr.io/teknoir/ci-runner").Tag }}@${{ imageFrom("ghcr.io/teknoir/ci-runner").Digest }}'
+      - equal: {path: 'spec.promotionTemplate.spec.steps[4].uses', value: git-commit}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[4].as', value: commit}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[5].uses', value: git-push}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[5].as', value: push}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[5].retry', value: {errorThreshold: 3}}
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[5].if'
+          value: "${{ success() && status('commit') == 'Succeeded' }}"
+      - equal: {path: 'spec.promotionTemplate.spec.steps[6].uses', value: git-open-pr}
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[6].if'
+          value: "${{ success() && status('push') == 'Succeeded' }}"
+      - equal: {path: 'spec.promotionTemplate.spec.steps[7].uses', value: git-merge-pr}
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[7].if'
+          value: "${{ success() && status('openpr') == 'Succeeded' }}"
+      - equal: {path: 'spec.promotionTemplate.spec.steps[7].retry', value: {timeout: 30m}}
+
   - it: names the components, not the group, in the commit message (plan 7.1)
     documentSelector:
       path: metadata.name

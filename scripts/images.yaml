@@ -1,24 +1,33 @@
 # Every Teknoir-built image, its pin and where the pin lives (CI/CD v4 P4.2,
 # plans/cicd/v4/p42-spec.md section 1). Replaces scripts/images.tsv.
 #
-# groups  the Kargo image groups: one pins/<group>.yaml, one Warehouse img-<group> and, when enabled,
-#         one Stage pin-<group> (charts/kargo-config values groups[], asserted against this file).
+# groups  the Kargo image groups: one pins/<group>.yaml (unless its rows pin into chart values files, see
+#         values_files), one Warehouse img-<group> and, when enabled, one Stage pin-<group> (charts/kargo-config
+#         values groups[], asserted against this file).
 #         same_commit: the group makes freight only when every image carries the same sha tag.
 #         enabled:     the kargo-config default (auto-promotion and by-hand pin Stages); nothing else.
 # images  component: the pin-image name; group: a group above, or null for a third party image;
-#         pins_file: pins/<group>.yaml for a grouped row (null for a third party row);
+#         pins_file: pins/<group>.yaml for a grouped row (null for a third party row, and for a grouped row
+#         whose pin lives in chart values files);
+#         values_files: for a grouped row whose pin lives in chart values files instead of pins/<group>.yaml:
+#         the list of files, each holding the same key_path (Kargo's pin Stage and scripts/pin-image write all
+#         of them). Such a row has pins_file null and no values_file. Other grouped rows do not set it;
 #         values_file: the chart values file of a third-party row (null for a grouped row);
 #         chart: the chart directory under charts/ (the child Application has the same name but for
 #         auth (keycloak-theme) and ztna (wg-tunnel));
-#         key_path: the nested values key that holds the pin;
+#         key_path: the nested values key that holds the pin. A segment of digits indexes a list item (e.g.
+#         template.spec.containers.0.image), but scripts/pin-image reads only a list indented under its key whose
+#         pinned key is not the item's first key (i.e. not on the `- ` line): any other shape is an error, not a
+#         silent edit. Kargo's yaml-update has no such limit (scripts/tests/test_pin_image.py locks the real
+#         shape of the ci-runner files);
 #         style: ref = repo:tag@sha256:…, tag = tag@sha256:…, digest = sha256:… (the sibling tag stays);
 #         repository: the registry repository the image is pinned from: Harbor for a private image (built and
 #         pushed to Harbor since CI v4 P6.2, 2026-11-25), ghcr for a public one;
 #         poll: the repository a Kargo Warehouse polls (equal to repository: Harbor for a private image, ghcr for a
 #         public one).
 #
-# scripts/pin-image reads this file: it writes the pins file of a grouped component and the chart values
-# of a third-party one. Kargo's pin Stages write the grouped pins files too (one pull request per pin).
+# scripts/pin-image reads this file: it writes the pins file (or every values_files file) of a grouped component
+# and the chart values of a third-party one. Kargo's pin Stages write the same files too (one pull request per pin).
 groups:
   backstage: {same_commit: true, enabled: true}
   device-controller: {same_commit: false, enabled: true}
@@ -32,6 +41,8 @@ groups:
   wg-tunnel: {same_commit: true, enabled: true}
   web-terminal: {same_commit: false, enabled: true}
   teknoir-desktop: {same_commit: true, enabled: true}
+  # Off until the first sha-<8> build of the runner image exists (teknoir/ci-workflows runner-image.yml).
+  ci-runner: {same_commit: false, enabled: false}
 
 images:
   - component: backstage-app
@@ -193,6 +204,20 @@ images:
     repository: ghcr.io/teknoir/teknoir-desktop/council
     poll: ghcr.io/teknoir/teknoir-desktop/council
     note: "the TeknoirBot council image (target council, linux/amd64), built by teknoir-desktop image.yml job council as the sub-image council:sha-<8>; its tnctl is the job's TNCTL_REF and TNCTL_VERSION build-args (was teknoir-desktop:sha-<8>-council from the local-ci script until 2026-11-23)"
+
+  - component: ci-runner
+    group: ci-runner
+    pins_file: null
+    values_files:
+      - charts/ci-runners/arc/teknoir-ci.yaml
+      - charts/ci-runners/arc/teknoir-land.yaml
+      - charts/ci-runners/arc/teknoir-push.yaml
+    chart: ci-runners
+    key_path: template.spec.containers.0.image
+    style: ref
+    repository: ghcr.io/teknoir/ci-runner
+    poll: ghcr.io/teknoir/ci-runner
+    note: "the dev-host ARC runner image (teknoir/ci-workflows runner-image/); pinned in the three scale-set values files"
 
   # Third party images: no group, pinned by hand into the chart values file with scripts/pin-image.
   - component: postgres

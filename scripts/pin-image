@@ -8,12 +8,16 @@
 images.yaml names every image: component, group, key path, style (tag: the key holds the tag and a sibling
 `repository` is the repo; ref: the key holds repo:tag), repository. A grouped component is written to the
 group's pins file (pins/<group>.yaml, passed to the child Application's chart as a Helm value file), a third
-party component (group: null) to its chart values file. For REF the script
+party component (group: null) to its chart values file, and a grouped row with `values_files` to every one of
+those files (the ARC scale-set values, one key path in each; a segment of digits in the key path indexes a
+list, e.g. template.spec.containers.0.image). For REF the script
 
   1. runs `crane digest`           (the index digest for a multi-arch image)
   2. checks that a linux/amd64 manifest exists
   3. reads the org.opencontainers.image.revision label and prints the source commit
-  4. rewrites the value in that file, keeping comments and quoting (only with --write; else prints it)
+  4. rewrites the value in that file (or in every values_files file), keeping comments and quoting (only with
+     --write; else prints it); a values_files file that does not have the key is an error, never created (the
+     other rows add a missing leaf under an existing parent, as before)
   5. with --pr: branch pin/<component>-<tag>, commit, push, `gh pr create` (base: --base, default the gitops
      branch read from origin/HEAD: `main` since the CI v4 cut-over; a merged pin PR is shipped by Kargo)
 
@@ -50,7 +54,8 @@ SCALAR_RE = re.compile(r"""^(?P<indent>\s*)(?P<key>[A-Za-z0-9_.\-]+)\s*:\s*(?P<v
 # images.yaml
 # ---------------------------------------------------------------------------------------------
 def parse_images_yaml(text: str) -> dict[str, dict]:
-    """{component: row} of scripts/images.yaml; a row's pin lives in pins_file (grouped) or values_file."""
+    """{component: row} of scripts/images.yaml; a row's pin lives in pins_file, values_files (a grouped row pinned
+    in chart values files) or values_file (a third party row)."""
     doc = yaml.safe_load(text) or {}
     out = {}
     for d in doc.get("images") or []:
@@ -58,32 +63,46 @@ def parse_images_yaml(text: str) -> dict[str, dict]:
         if d.get("style") not in ("tag", "ref", "digest"):
             raise ValueError(f"images.yaml: style of {name} must be tag, ref or digest")
         if d.get("group"):
-            if not str(d.get("pins_file") or "").startswith("pins/"):
-                raise ValueError(f"images.yaml: {name} is in group {d['group']} but has no pins_file under pins/")
+            if d.get("values_files"):
+                if d.get("pins_file"):
+                    raise ValueError(f"images.yaml: {name} has both pins_file and values_files; use one")
+                if not isinstance(d["values_files"], list):
+                    raise ValueError(f"images.yaml: values_files of {name} must be a list")
+            elif not str(d.get("pins_file") or "").startswith("pins/"):
+                raise ValueError(f"images.yaml: {name} is in group {d['group']} but has no pins_file under pins/ "
+                                 f"and no values_files")
         elif not d.get("values_file"):
             raise ValueError(f"images.yaml: third party {name} (group: null) has no values_file")
         out[name] = d
     return out
 
 
+def image_paths(comp: dict) -> list[str]:
+    """Every file the pin is written to: the row's values_files, else the group's pins file or the chart values
+    file of a third party row."""
+    return list(comp.get("values_files") or [comp.get("pins_file") or comp["values_file"]])
+
+
 def image_path(comp: dict) -> str:
-    """The file the pin is written to: the group's pins file, or the chart values file of a third party row."""
-    return comp.get("pins_file") or comp["values_file"]
+    """The first file the pin is written to (see image_paths)."""
+    return image_paths(comp)[0]
 
 
 # ---------------------------------------------------------------------------------------------
 # Comment-preserving edit of a nested scalar
 # ---------------------------------------------------------------------------------------------
 def _find_path(lines: list[str], path: list[str]) -> tuple[int, int] | tuple[None, int]:
-    """Index of the line holding the last key of `path`, or (None, index of the last parent line's block end)."""
+    """Index of the line holding the last key of `path`, or (None, index of the last parent line's block end).
+    A segment of digits indexes a list: `template.spec.containers.0.image` is the image of the first container."""
     start, indent_min, depth = 0, -1, 0
-    i = 0
     parent_line = -1
     while depth < len(path):
         key = path[depth]
+        is_index = key.isdigit()
         found = None
         j = start
         base_indent = None
+        item = -1
         while j < len(lines):
             line = lines[j]
             if not line.strip() or line.lstrip().startswith("#"):
@@ -94,9 +113,16 @@ def _find_path(lines: list[str], path: list[str]) -> tuple[int, int] | tuple[Non
                 break
             if base_indent is None:
                 base_indent = ind
-            if ind == base_indent and re.match(rf"^\s*{re.escape(key)}\s*:", line):
-                found = j
-                break
+            if ind == base_indent:
+                if is_index:
+                    if re.match(r"^-\s", line.lstrip()):
+                        item += 1
+                        if item == int(key):
+                            found = j
+                            break
+                elif re.match(rf"^{re.escape(key)}\s*:", line.lstrip()):
+                    found = j
+                    break
             j += 1
         if found is None:
             return None, parent_line
@@ -136,6 +162,8 @@ def set_leaf(text: str, keypath: str, value: str) -> str:
         comment = f"  {m.group('comment')}" if m.group("comment") else ""
         lines[idx] = f"{m.group('indent')}{m.group('key')}: {new}{comment}"
         return "\n".join(lines)
+    if any(seg.isdigit() for seg in path):
+        raise ValueError(f"{keypath}: no such list item or key (a list item is never created)")
     # add under the parent
     pidx, _ = _find_path(lines, path[:-1]) if len(path) > 1 else (None, -1)
     if len(path) == 1:
@@ -231,6 +259,14 @@ class Pin:
     def path_of(self, comp: dict) -> str:
         return os.path.join(self.root, image_path(comp))
 
+    def _require_key(self, rel: str, text: str, key_path: str) -> str | None:
+        """The current value at key_path; a missing key is an error (a pin never creates one in a values_files file)."""
+        lines = text.split("\n")
+        idx, _ = _find_path(lines, key_path.split("."))
+        if idx is None:
+            raise SystemExit(f"{rel} has no key {key_path} (pin-image never creates one)")
+        return get_leaf(text, key_path)
+
     def pin(self, name: str, ref: str, write: bool) -> dict:
         if name not in self.images:
             raise SystemExit(f"unknown component '{name}' (pin-image --list)")
@@ -244,25 +280,29 @@ class Pin:
         if not info["amd64"]:
             raise SystemExit(f"{repo}:{tag} has no linux/amd64 manifest (staging is amd64)")
         value = build_value(comp["style"], repo, tag, info["digest"])
-        path = self.path_of(comp)
-        text = open(path).read()
-        old = get_leaf(text, comp["key_path"])
-        rel = image_path(comp)
-        self.out(f"{name}: {rel} {comp['key_path']}")
-        self.out(f"  old  {old}")
+        rels = image_paths(comp)
+        texts = {rel: open(os.path.join(self.root, rel)).read() for rel in rels}
+        # Only a values_files row needs the key present: every one of its files is written. A grouped or third
+        # party row keeps set_leaf's behaviour and adds a missing leaf under an existing parent.
+        olds = {rel: (self._require_key(rel, texts[rel], comp["key_path"]) if comp.get("values_files")
+                      else get_leaf(texts[rel], comp["key_path"])) for rel in rels}
+        self.out(f"{name}: {' '.join(rels)} {comp['key_path']}")
+        for rel in rels:
+            self.out(f"  old  {olds[rel]}   ({rel})")
         self.out(f"  new  {value}")
         self.out(f"  source commit {info['revision'] or '(no org.opencontainers.image.revision label)'}")
         if write:
-            new_text = set_leaf(text, comp["key_path"], value)
-            open(path, "w").write(new_text)
-            self.out(f"  written to {rel}")
-        return {"name": name, "old": old, "new": value, "revision": info["revision"], "tag": tag, "file": rel}
+            for rel in rels:
+                open(os.path.join(self.root, rel), "w").write(set_leaf(texts[rel], comp["key_path"], value))
+                self.out(f"  written to {rel}")
+        return {"name": name, "old": olds[rels[0]], "new": value, "revision": info["revision"], "tag": tag,
+                "file": rels[0], "files": rels}
 
     def open_pr(self, res: dict, base: str | None = None) -> None:
         git = L.Git(self.sys, self.root)
         branch = f"pin/{res['name']}-{re.sub(r'[^A-Za-z0-9._-]', '-', res['tag'])}"
         git.run("checkout", "-b", branch)
-        git.run("add", res["file"])
+        git.run("add", *res.get("files") or [res["file"]])
         msg = (f"pin {res['name']} {res['tag']}\n\nvalue: {res['new']}\nsource commit: {res['revision'] or 'unknown'}\n\n"
                "Merging this pin is shipped to staging by Kargo.\n\n"
                "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>")
@@ -281,11 +321,22 @@ class Pin:
         pods = json.loads(kube.run(["get", "pods", "-A", "-o", "json"]).out).get("items", [])
         results = []
         for name, comp in self.images.items():
-            path = self.path_of(comp)
-            if not os.path.isfile(path):
+            paths = [os.path.join(self.root, rel) for rel in image_paths(comp)]
+            paths = [p for p in paths if os.path.isfile(p)]
+            if not paths:
                 continue
-            text = open(path).read()
-            raw = get_leaf(text, comp["key_path"])
+            texts = {p: open(p).read() for p in paths}
+            raws = {p: get_leaf(texts[p], comp["key_path"]) for p in paths}
+            if len(set(raws.values())) > 1:
+                # A values_files row is written to every file: writing one value over files that disagree would
+                # silently drop a pin someone made by hand, so the row is skipped with its per-file values.
+                for p in paths:
+                    self.out(f"{name}: {comp['key_path']} is {raws[p]} in {os.path.relpath(p, self.root)}")
+                self.out(f"{name}: values_files disagree; pin by hand")
+                results.append({"name": name, "status": "disagree"})
+                continue
+            text = texts[paths[0]]
+            raw = raws[paths[0]]
             sib = get_leaf(text, sibling_tag_path(comp["key_path"])) if comp["style"] == "digest" else None
             if comp["style"] == "digest" and sib is None:
                 # A digest-style pin holds only the digest: its sibling tag (keycloak.image.tag) stays in the
@@ -322,7 +373,11 @@ class Pin:
             value = build_value(comp["style"], repo, tag, running)
             self.out(f"{name}: {raw} -> {value}" + (f"   (the tag now points to {now.out.strip()[:19]}: the running digest is kept)" if moved else ""))
             if write:
-                open(path, "w").write(set_leaf(text, comp["key_path"], value))
+                if comp.get("values_files"):        # every file is written: all must carry the key before any is
+                    for p in paths:
+                        self._require_key(os.path.relpath(p, self.root), texts[p], comp["key_path"])
+                for p in paths:
+                    open(p, "w").write(set_leaf(texts[p], comp["key_path"], value))
             results.append({"name": name, "status": "adopted", "value": value, "moved": moved})
         return results
 
@@ -347,7 +402,7 @@ def main(argv: list[str] | None = None, sys_: L.Sys | None = None) -> int:
     try:
         if a.list:
             for n, c in pin.images.items():
-                print(f"{n:<22} {image_path(c)}  {c['key_path']}  [{c['style']}]  {c['repository']}")
+                print(f"{n:<22} {' '.join(image_paths(c))}  {c['key_path']}  [{c['style']}]  {c['repository']}")
             return 0
         if a.adopt_running:
             pin.adopt_running(a.write, a.context)

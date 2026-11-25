@@ -220,20 +220,26 @@ class KargoConfig(unittest.TestCase):
     def test_the_pin_steps_skip_push_pr_and_merge_without_a_new_commit(self):
         # git-commit is Skipped (output commit = HEAD) when the Freight is already pinned; the `if` guards on the
         # next three steps then skip them too, and the Promotion succeeds (Kargo counts Skipped as Succeeded).
+        # Addressed by alias: a group pinned in chart values files has one yaml-update per file, so a group's step
+        # count is not fixed.
         expected = {
-            3: "${{ success() && status('commit') == 'Succeeded' }}",
-            4: "${{ success() && status('push') == 'Succeeded' }}",
-            5: "${{ success() && status('openpr') == 'Succeeded' }}",
+            "push": "${{ success() && status('commit') == 'Succeeded' }}",
+            "openpr": "${{ success() && status('push') == 'Succeeded' }}",
+            "merge": "${{ success() && status('openpr') == 'Succeeded' }}",
         }
         checked = 0
         for name, stage in self.stages(self.full_docs).items():
             if not name.startswith("pin-"):
                 continue
             steps = stage["spec"]["promotionTemplate"]["spec"]["steps"]
-            for i in range(3):
-                self.assertNotIn("if", steps[i], name)
-            for i, expression in expected.items():
-                self.assertEqual(steps[i]["if"], expression, name)
+            by_alias = {s["as"]: s for s in steps}
+            for alias in ("clone", "commit"):
+                self.assertNotIn("if", by_alias[alias], name)
+            for step in steps:
+                if step["uses"] == "yaml-update":
+                    self.assertNotIn("if", step, name)
+            for alias, expression in expected.items():
+                self.assertEqual(by_alias[alias]["if"], expression, name)
             checked += 1
         self.assertEqual(checked, len(self.groups()))
 
@@ -279,23 +285,62 @@ class KargoConfig(unittest.TestCase):
                     self.assertIn('imageFrom("%s").Tag' % img["poll"], expression, name)
 
     # -- the pins files get the right value for every style
+    @staticmethod
+    def _expected_pin_updates(group):
+        """{config.path: {key: value}} the pin Stage of `group` must render: one yaml-update step per target file
+        (an image's `files`, else pins/<group>.yaml), holding that file's images with their styled values."""
+        def value(img):
+            if img["style"] == "ref":
+                return ('%s:${{ imageFrom("%s").Tag }}@${{ imageFrom("%s").Digest }}'
+                        % (img["repository"], img["poll"], img["poll"]))
+            if img["style"] == "tag":
+                return '${{ imageFrom("%s").Tag }}@${{ imageFrom("%s").Digest }}' % (img["poll"], img["poll"])
+            return '${{ imageFrom("%s").Digest }}' % img["poll"]
+        expected = {}
+        for img in group["images"]:
+            for f in img.get("files") or ["pins/%s.yaml" % group["name"]]:
+                expected.setdefault("./src/" + f, {})[img["key"]] = value(img)
+        return expected
+
+    def _rendered_pin_updates(self, docs, group):
+        """{config.path: {key: value}} of every yaml-update step of the group's pin Stage (one step per file)."""
+        stage = self.stages(docs)["pin-" + group["name"]]
+        steps = [s for s in stage["spec"]["promotionTemplate"]["spec"]["steps"] if s["uses"] == "yaml-update"]
+        rendered = {}
+        for step in steps:
+            self.assertNotIn(step["config"]["path"], rendered, group["name"])      # one step per target file
+            rendered[step["config"]["path"]] = {u["key"]: u["value"] for u in step["config"]["updates"]}
+        return rendered
+
     def test_pin_values_follow_the_style_of_each_image(self):
-        groups = {g["name"]: g for g in self.groups()}
-        stages = self.stages(self.full_docs)
-        for name, group in groups.items():
-            updates = {u["key"]: u["value"] for u in
-                       stages["pin-" + name]["spec"]["promotionTemplate"]["spec"]["steps"][1]["config"]["updates"]}
-            self.assertEqual(sorted(updates), sorted(i["key"] for i in group["images"]), name)
-            for img in group["images"]:
-                value = updates[img["key"]]
-                if img["style"] == "ref":
-                    self.assertTrue(value.startswith(img["repository"] + ":"), f"{name}: {value}")
-                    self.assertIn('imageFrom("%s").Tag' % img["poll"], value)
-                elif img["style"] == "tag":
-                    self.assertEqual(value, '${{ imageFrom("%s").Tag }}@${{ imageFrom("%s").Digest }}'
-                                     % (img["poll"], img["poll"]))
-                else:
-                    self.assertEqual(value, '${{ imageFrom("%s").Digest }}' % img["poll"])
+        for group in self.groups():
+            self.assertEqual(self._rendered_pin_updates(self.full_docs, group),
+                             self._expected_pin_updates(group), group["name"])
+
+    def test_a_group_mixing_files_and_pins_steps_one_step_per_file(self):
+        # One image with `files`, one without: the file image gets its own step, the other goes to
+        # pins/<group>.yaml, each step carrying only its own image's key.
+        path = enabled_values(os.path.join(self.tmp, "mixed.yaml"))
+        with open(path) as fh:
+            values = yaml.safe_load(fh)
+        mixed = {
+            "name": "mixed", "enabled": True, "sameCommit": False,
+            "images": [
+                {"component": "mixed-a", "poll": "ghcr.io/teknoir/mixed-a",
+                 "repository": "ghcr.io/teknoir/mixed-a", "key": "a.image", "style": "ref",
+                 "files": ["charts/ci-runners/arc/teknoir-ci.yaml"]},
+                {"component": "mixed-b", "poll": "ghcr.io/teknoir/mixed-b",
+                 "repository": "ghcr.io/teknoir/mixed-b", "key": "b.image", "style": "ref"},
+            ],
+        }
+        values["groups"].append(mixed)
+        with open(path, "w") as fh:
+            yaml.safe_dump(values, fh, sort_keys=False)
+        rendered = self._rendered_pin_updates(documents(render(path)), mixed)
+        self.assertEqual(rendered, self._expected_pin_updates(mixed))
+        self.assertEqual(sorted(rendered), ["./src/charts/ci-runners/arc/teknoir-ci.yaml", "./src/pins/mixed.yaml"])
+        self.assertEqual(list(rendered["./src/charts/ci-runners/arc/teknoir-ci.yaml"]), ["a.image"])
+        self.assertEqual(list(rendered["./src/pins/mixed.yaml"]), ["b.image"])
 
     # -- defaults (P5.2: staging auto-promotes; pins follow values.yaml), and the P4.3 (b) fallback
     def test_auto_promotion_follows_values(self):
