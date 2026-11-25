@@ -72,6 +72,8 @@ autoPromotion:
     notebook-controller: true
     # profile-controller: reconciles every teamspace (Profiles); its own PR.
     profile-controller: true
+    # devstudio-controller: DEVSTUDIO_IMAGE support (#40), inert until the chart sets it (P6.6).
+    devstudio-controller: true
 
 staging:
   # P4.3 (b) fallback: also set the root Application's Helm parameter `release` to the Freight commit (besides
@@ -148,7 +150,7 @@ groups:
     images:
       - {component: profile-controller, poll: harbor.teknoir.cloud/teknoir/profile-controller, repository: harbor.teknoir.cloud/teknoir/profile-controller, key: image.tag, style: tag}
   - name: devstudio-controller
-    enabled: false
+    enabled: true
     sameCommit: false
     images:
       - {component: devstudio-controller, poll: harbor.teknoir.cloud/teknoir/devstudio-controller, repository: harbor.teknoir.cloud/teknoir/devstudio-controller, key: image.tag, style: tag}
