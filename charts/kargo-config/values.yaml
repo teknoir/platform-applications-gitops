@@ -57,6 +57,10 @@ autoPromotion:
   pins:
     # P6.1 (2026-11-25), one group per PR: web-terminal first (public ghcr; per-device terminal pods).
     web-terminal: true
+    # keycloak-theme: the staging Keycloak StatefulSet and keycloak-config Job (a pin restarts Keycloak).
+    keycloak-theme: true
+    # teknoir-desktop: the desktop and council images on the devices (device-controller ConfigMap).
+    teknoir-desktop: true
 
 staging:
   # P4.3 (b) fallback: also set the root Application's Helm parameter `release` to the Freight commit (besides
@@ -149,7 +153,7 @@ groups:
     images:
       - {component: teknoirbot-controller, poll: harbor.teknoir.cloud/teknoir/teknoirbot-controller, repository: ghcr.io/teknoir/teknoirbot-controller, key: image.tag, style: tag}
   - name: keycloak-theme
-    enabled: false
+    enabled: true
     sameCommit: false
     images:
       - {component: keycloak-theme, poll: ghcr.io/teknoir/keycloak-theme, repository: ghcr.io/teknoir/keycloak-theme, key: keycloak.image.digest, style: digest}
@@ -166,7 +170,7 @@ groups:
     images:
       - {component: web-terminal, poll: ghcr.io/teknoir/web-terminal, repository: ghcr.io/teknoir/web-terminal, key: ztna.terminalImage, style: ref}
   - name: teknoir-desktop
-    enabled: false
+    enabled: true
     sameCommit: true
     images:
       - {component: teknoir-desktop, poll: ghcr.io/teknoir/teknoir-desktop, repository: ghcr.io/teknoir/teknoir-desktop, key: desktop.image, style: ref}
