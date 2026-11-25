@@ -119,6 +119,9 @@ tests:
           pattern: '"template": "latestPushedK",\s*"untagged": true,\s*"value": 3'
       - matchRegex:
           path: data["config.json"]
+          pattern: '"tags": "\{[^"]*,sha-\*,[^"]*\}",\s*"template": "always"'
+      - matchRegex:
+          path: data["config.json"]
           pattern: '"teamspaceRobots"'
       - matchRegex:
           path: data["config.json"]

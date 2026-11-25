@@ -168,14 +168,17 @@ harborConfig:
     retentionPolicies:
       # CI images (rules are OR-ed; anything no rule retains is deleted, including
       # untagged digests):
-      #   - release tags (v1.2.3, 1.2.3), adopted-* (staging-release backups) and
+      #   - release tags (v1.2.3, 1.2.3), adopted-* (staging-release backups), sha-* (the
+      #     immutable CI build tags that gitops pins as tag@digest: pods with IfNotPresent never
+      #     pull again, so a pinned digest shows no pulls, and from CI v4 P6.2 there is no ghcr
+      #     fallback; first-party builds only, ~31 GiB of the 250 GiB quota on 2026-11-25) and
       #     environment/default-branch tags forever,
       #   - the 15 most recently pushed artifacts of every repository,
       #   - anything pulled in the last 30 days (in use).
       ci:
         schedule: "0 0 2 * * *"
         rules:
-          - {template: always, tags: "{v[0-9]*,[0-9]*,adopted-*,latest,main,master,teknoir-cloud,teknoir-online,teknoir-local,robot}"}
+          - {template: always, tags: "{v[0-9]*,[0-9]*,adopted-*,sha-*,latest,main,master,teknoir-cloud,teknoir-online,teknoir-local,robot}"}
           - {template: latestPushedK, value: 15}
           - {template: nDaysSinceLastPull, value: 30}
       # Proxy caches (rules are OR-ed): keep what was pulled in the last 7 days, and the 3 most
