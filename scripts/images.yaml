@@ -24,6 +24,7 @@ groups:
   device-controller: {same_commit: false, enabled: true}
   profile-controller: {same_commit: false, enabled: true}
   devstudio-controller: {same_commit: false, enabled: true}
+  devstudio-cloud: {same_commit: false, enabled: true}
   user-controller: {same_commit: false, enabled: true}
   notebook-controller: {same_commit: false, enabled: true}
   teknoirbot-controller: {same_commit: false, enabled: true}
@@ -82,6 +83,16 @@ images:
     repository: harbor.teknoir.cloud/teknoir/devstudio-controller
     poll: harbor.teknoir.cloud/teknoir/devstudio-controller
     note: "dormant; production pulls :teknoir-cloud of this repo"
+
+  - component: devstudio-cloud
+    group: devstudio-cloud
+    pins_file: pins/devstudio-cloud.yaml
+    chart: devstudio-controller
+    key_path: devstudio.image
+    style: ref
+    repository: harbor.teknoir.cloud/teknoir/devstudio-cloud
+    poll: harbor.teknoir.cloud/teknoir/devstudio-cloud
+    note: "the Devstudio workload image (DEVSTUDIO_IMAGE); CRs keep :latest, the controller substitutes the pin"
 
   - component: user-controller
     group: user-controller

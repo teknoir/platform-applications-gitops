@@ -55,6 +55,14 @@ spec:
           value: {{ .Values.config.projectId | quote }}
         - name: DOMAIN
           value: {{ .Values.config.domain | quote }}
+        {{- with .Values.devstudio.image }}
+        - name: DEVSTUDIO_IMAGE
+          value: {{ . | quote }}
+        {{- end }}
+        {{- with .Values.devstudio.imageReplaces }}
+        - name: DEVSTUDIO_IMAGE_REPLACES
+          value: {{ . | quote }}
+        {{- end }}
         ports:
         - containerPort: 8080
           name: metrics

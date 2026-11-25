@@ -1,0 +1,6 @@
+# Pins of the devstudio-cloud image group (scripts/images.yaml), read by the devstudio-controller
+# Application (helm.valueFiles, charts/app-of-apps/templates/controllers.yaml). Written by the Kargo
+# stage pin-devstudio-cloud and by scripts/pin-image; do not edit by hand.
+# devstudio-cloud main b9ca6074 (CI-only after 63662e5f, the digest staging ran as :latest), CI v4 P6.6 2026-11-25.
+devstudio:
+  image: harbor.teknoir.cloud/teknoir/devstudio-cloud:sha-b9ca6074@sha256:2cfc71858bef67e267e3fc8cfaa9fc6b73cf8789a51fd7649a02e6643e36b110

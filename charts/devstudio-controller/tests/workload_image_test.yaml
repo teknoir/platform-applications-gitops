@@ -1,0 +1,43 @@
+suite: the Devstudio workload image pin (DEVSTUDIO_IMAGE, DEVSTUDIO_IMAGE_REPLACES)
+templates:
+  - templates/deployment.yaml
+# The chart values keep devstudio.image and devstudio.imageReplaces empty; on staging pins/devstudio-cloud.yaml
+# fills them (charts/app-of-apps/templates/controllers.yaml, Kargo stage pin-devstudio-cloud). Without them the
+# controller runs the Devstudio CR's spec.image as is.
+set:
+  image.tag: "sha-00000000@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+tests:
+  - it: sets neither env by default
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: {name: DEVSTUDIO_IMAGE}
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: {name: DEVSTUDIO_IMAGE_REPLACES}
+
+  - it: passes DEVSTUDIO_IMAGE when devstudio.image is set
+    set:
+      devstudio.image: "harbor.teknoir.cloud/teknoir/devstudio-cloud:sha-63662e5f@sha256:c5acb0931f60b7f7c678fa2163b8721ad0afede9dd8d95a783a9025a5fb7dcde"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEVSTUDIO_IMAGE
+            value: "harbor.teknoir.cloud/teknoir/devstudio-cloud:sha-63662e5f@sha256:c5acb0931f60b7f7c678fa2163b8721ad0afede9dd8d95a783a9025a5fb7dcde"
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: {name: DEVSTUDIO_IMAGE_REPLACES}
+
+  - it: passes DEVSTUDIO_IMAGE_REPLACES when devstudio.imageReplaces is set
+    set:
+      devstudio.imageReplaces: "ghcr.io/teknoir/devstudio-cloud,ghcr.io/teknoir/devstudio"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEVSTUDIO_IMAGE_REPLACES
+            value: "ghcr.io/teknoir/devstudio-cloud,ghcr.io/teknoir/devstudio"
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: {name: DEVSTUDIO_IMAGE}

@@ -40,9 +40,10 @@ spec:
     targetRevision: {{ include "app-of-apps.revision" . }}
 {{- if has .Values.project (list "teknoir-cloud") }}
     helm:
-      # Pins of the image group (scripts/images.yaml); only teknoir-cloud has a pins/ directory.
+      # Pins of the image groups (scripts/images.yaml); only teknoir-cloud has a pins/ directory.
       valueFiles:
         - values.yaml
+        - ../../pins/devstudio-cloud.yaml
         - ../../pins/devstudio-controller.yaml
 {{- end }}
   project: {{ .Values.project }}

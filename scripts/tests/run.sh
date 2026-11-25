@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs every test of the gitops tooling:
 #   - python unittest of scripts/ (pure logic, throwaway git repos, a fake Sys; no network)
-#   - helm unittest of charts/app-of-apps (release helper), charts/istio, charts/monitoring (mesh scrape), charts/profile-controller, charts/user-controller, charts/device-controller, charts/backstage and charts/teknoirbot-controller
+#   - helm unittest of charts/app-of-apps (release helper), charts/istio, charts/monitoring (mesh scrape), charts/profile-controller, charts/user-controller, charts/device-controller, charts/backstage, charts/teknoirbot-controller and charts/devstudio-controller
 #   - the root render against a base ref (BASE: origin/HEAD's branch, the gitops branch, `main` since the CI v4 cut-over;
 #     fallback origin/main when origin/HEAD is missing): identical except for the removal of the
 #     fields ArgoCD's Go types drop (`sources: [ ]` on every child, monitoring's `group: ""`), see EXPECTED below; ROOT_RENDER_EXPECTED="project ..." accepts an intended difference of a project (a mismatch fails the run).
@@ -44,7 +44,7 @@ python3 -W ignore -m unittest discover -s scripts/tests -p 'test_*.py' 2>&1
 echo "== helm unittest"
 # charts/monitoring renders its kube-prometheus-stack dependency (git-ignored charts/; ArgoCD builds it itself): build it once
 compgen -G "charts/monitoring/charts/kube-prometheus-stack-*.tgz" >/dev/null || helm dependency build charts/monitoring >/dev/null 2>&1 || echo "WARN: helm dependency build charts/monitoring failed (offline?)"
-helm unittest charts/app-of-apps charts/istio charts/monitoring charts/profile-controller charts/user-controller charts/device-controller charts/backstage charts/teknoirbot-controller 2>&1
+helm unittest charts/app-of-apps charts/istio charts/monitoring charts/profile-controller charts/user-controller charts/device-controller charts/backstage charts/teknoirbot-controller charts/devstudio-controller 2>&1
 echo "== CRD guards (Prune=false,Delete=false; spec.desktop when desktop.enabled)"
 bash charts/device-controller/tests/crd_guard_test.sh
 bash charts/teknoirbot-controller/tests/crd_guard_test.sh
