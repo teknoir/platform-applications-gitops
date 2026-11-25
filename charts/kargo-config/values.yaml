@@ -65,6 +65,11 @@ autoPromotion:
     wg-tunnel: true
     # backstage (first private group, Harbor since P6.2): backstage-app and backstage-api from one commit.
     backstage: true
+    # Private controllers whose main HEAD is the pinned source rebuilt (CI v4 P6.1 batch, 2026-11-25): one
+    # restart each on the first pin.
+    user-controller: true
+    teknoirbot-controller: true
+    notebook-controller: true
 
 staging:
   # P4.3 (b) fallback: also set the root Application's Helm parameter `release` to the Freight commit (besides
@@ -146,17 +151,17 @@ groups:
     images:
       - {component: devstudio-controller, poll: harbor.teknoir.cloud/teknoir/devstudio-controller, repository: harbor.teknoir.cloud/teknoir/devstudio-controller, key: image.tag, style: tag}
   - name: user-controller
-    enabled: false
+    enabled: true
     sameCommit: false
     images:
       - {component: user-controller, poll: harbor.teknoir.cloud/teknoir/user-controller, repository: harbor.teknoir.cloud/teknoir/user-controller, key: image.tag, style: tag}
   - name: notebook-controller
-    enabled: false
+    enabled: true
     sameCommit: false
     images:
       - {component: notebook-controller, poll: harbor.teknoir.cloud/teknoir/notebook-controller, repository: harbor.teknoir.cloud/teknoir/notebook-controller, key: image.tag, style: tag}
   - name: teknoirbot-controller
-    enabled: false
+    enabled: true
     sameCommit: false
     images:
       - {component: teknoirbot-controller, poll: harbor.teknoir.cloud/teknoir/teknoirbot-controller, repository: harbor.teknoir.cloud/teknoir/teknoirbot-controller, key: image.tag, style: tag}
