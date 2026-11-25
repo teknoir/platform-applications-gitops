@@ -4,13 +4,13 @@ suite: device-controller Application, retainedConfigRepublish (R0, plans/teknoir
 templates:
   - templates/controllers.yaml
 tests:
-  - it: passes this chart's staging value (values.yaml, R0 stage "log")
+  - it: passes this chart's staging value (values.yaml, R0 stage "on")
     set: {project: teknoir-cloud}
     documentSelector: {path: metadata.name, value: device-controller}
     asserts:
       - contains:
           path: spec.source.helm.parameters
-          content: {name: retainedConfigRepublish, value: "log", forceString: true}
+          content: {name: retainedConfigRepublish, value: "on", forceString: true}
 
   - it: passes off when deviceController is absent
     set: {project: teknoir-cloud, deviceController: null}
