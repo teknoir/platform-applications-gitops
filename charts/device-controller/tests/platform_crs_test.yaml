@@ -230,7 +230,7 @@ tests:
       - templates/platform-robots.yaml
     documentSelector: {path: metadata.name, value: vision-station-02}
     asserts:
-      - equal: {path: metadata.labels, value: {gpu: jetson, site: karlstad}}
+      - equal: {path: metadata.labels, value: {gpu: jetson, site: karlstad, teknoir.org/hw-class: jetson-orin}}
       - equal: {path: 'metadata.annotations["teknoir.org/managed-by"]', value: gitops}
 
   - it: refuses a Robot entry that sets teknoir.org/managed-by as a label
