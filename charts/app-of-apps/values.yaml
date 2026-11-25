@@ -95,3 +95,16 @@ kargo:
     # Needs kargo.enabled too: the Kargo CRDs must exist before its Project and Stages sync. On since P4.5
     # (2026-11-24), one release after kargo.
     enabled: true
+
+# The dev-host CI cluster's five Helm releases under ArgoCD (CI v4 P6.3, templates/ci-runners.yaml):
+# ci-runners, arc, teknoir-ci, teknoir-land and teknoir-push, destination devhost-ci. teknoir-cloud only
+# (allowlist in the template), so a cherry-pick onto another environment branch renders nothing. On since
+# 2026-11-25: ArgoCD on r415 owns them. Off again orphans them (no finalizer): the releases keep running as they
+# are and charts/ci-runners/README.md's hand install takes over.
+ciRunners:
+  enabled: true
+  # The devhost-ci API server as registered in the r415 ArgoCD cluster Secret (teknoir-system, name
+  # devhost-ci). destination.server, never destination.name. It must equal charts/kargo-config
+  # verification.devhostCiServer: the staging revision check skips sync and health only for a child whose
+  # destination.server is exactly this value.
+  server: https://192.168.2.181:6443

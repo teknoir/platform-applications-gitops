@@ -1,0 +1,163 @@
+suite: the devhost-ci releases under ArgoCD (ci-runners, arc, the three scale sets)
+# CI v4 P6.3 (plans/cicd/proposal-v4.md section 5). Inert: ciRunners.enabled is false in values.yaml, so the root
+# render is unchanged until one reviewed PR flips it. The allowlist in templates/ci-runners.yaml keeps production
+# and the airgapped line empty whatever the flag says.
+templates:
+  - templates/ci-runners.yaml
+tests:
+  - it: renders the five Applications on staging (the flag is on in values.yaml since 2026-11-25)
+    asserts:
+      - hasDocuments: {count: 5}
+
+  - it: renders nothing with the flag off
+    set:
+      ciRunners: {enabled: false}
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: renders nothing on teknoir-online even when enabled
+    set:
+      project: teknoir-online
+      ciRunners: {enabled: true}
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: renders nothing on the airgapped line even when enabled
+    set:
+      project: teknoir-local
+      ciRunners: {enabled: true}
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: renders exactly the five Applications, all on devhost-ci, with no finalizer
+    set:
+      ciRunners: {enabled: true}
+    asserts:
+      - hasDocuments: {count: 5}
+      - isKind: {of: Application}
+      - equal: {path: spec.project, value: teknoir-cloud}
+      - equal: {path: spec.destination.server, value: https://192.168.2.181:6443}
+      - notExists: {path: metadata.finalizers}
+      - notExists: {path: spec.destination.name}
+
+  - it: ci-runners is a single-source Application of this repository in default
+    set:
+      ciRunners: {enabled: true}
+    documentSelector:
+      path: metadata.name
+      value: ci-runners
+    asserts:
+      - equal: {path: spec.destination.namespace, value: default}
+      - notExists: {path: spec.sources}
+      - equal: {path: spec.source.repoURL, value: https://github.com/teknoir/platform-applications-gitops}
+      - equal: {path: spec.source.path, value: charts/ci-runners}
+      - equal: {path: spec.source.targetRevision, value: main}
+      - equal: {path: spec.source.helm.releaseName, value: ci-runners}
+      - contains: {path: spec.syncPolicy.syncOptions, content: ServerSideApply=true}
+      - contains: {path: spec.syncPolicy.syncOptions, content: SkipDryRunOnMissingResource=true}
+      - equal:
+          path: spec.syncPolicy.retry
+          value: {limit: 10, backoff: {duration: 30s, factor: 2, maxDuration: 5m}}
+
+  - it: arc is the controller OCI chart plus this repository as the values source, in arc-systems
+    set:
+      ciRunners: {enabled: true}
+    documentSelector:
+      path: metadata.name
+      value: arc
+    asserts:
+      - equal: {path: spec.destination.namespace, value: arc-systems}
+      - notExists: {path: spec.source}
+      - equal: {path: 'spec.sources[0].repoURL', value: ghcr.io/actions/actions-runner-controller-charts}
+      - equal: {path: 'spec.sources[0].chart', value: gha-runner-scale-set-controller}
+      - equal: {path: 'spec.sources[0].targetRevision', value: 0.15.1}
+      - equal: {path: 'spec.sources[0].helm.releaseName', value: arc}
+      - equal:
+          path: 'spec.sources[0].helm.valueFiles'
+          value:
+            - $values/charts/ci-runners/arc/controller.yaml
+      - equal: {path: 'spec.sources[1].repoURL', value: https://github.com/teknoir/platform-applications-gitops}
+      - equal: {path: 'spec.sources[1].ref', value: values}
+      - equal: {path: 'spec.sources[1].targetRevision', value: main}
+      - contains: {path: spec.syncPolicy.syncOptions, content: CreateNamespace=true}
+      - contains: {path: spec.syncPolicy.syncOptions, content: ServerSideApply=true}
+      - contains: {path: spec.syncPolicy.syncOptions, content: SkipDryRunOnMissingResource=true}
+
+  - it: teknoir-ci is scale set 0.15.1, release-named, in arc-runners
+    set:
+      ciRunners: {enabled: true}
+    documentSelector:
+      path: metadata.name
+      value: teknoir-ci
+    asserts:
+      - equal: {path: spec.destination.namespace, value: arc-runners}
+      - equal: {path: 'spec.sources[0].chart', value: gha-runner-scale-set}
+      - equal: {path: 'spec.sources[0].targetRevision', value: 0.15.1}
+      - equal: {path: 'spec.sources[0].helm.releaseName', value: teknoir-ci}
+      - equal:
+          path: 'spec.sources[0].helm.valueFiles'
+          value:
+            - $values/charts/ci-runners/arc/teknoir-ci.yaml
+      - equal: {path: 'spec.sources[1].ref', value: values}
+      - contains: {path: spec.syncPolicy.syncOptions, content: ServerSideApply=true}
+      - contains: {path: spec.syncPolicy.syncOptions, content: SkipDryRunOnMissingResource=true}
+      - notExists: {path: metadata.finalizers}
+
+  - it: teknoir-land is scale set 0.15.1, release-named, in arc-runners
+    set:
+      ciRunners: {enabled: true}
+    documentSelector:
+      path: metadata.name
+      value: teknoir-land
+    asserts:
+      - equal: {path: spec.destination.namespace, value: arc-runners}
+      - equal: {path: 'spec.sources[0].chart', value: gha-runner-scale-set}
+      - equal: {path: 'spec.sources[0].targetRevision', value: 0.15.1}
+      - equal: {path: 'spec.sources[0].helm.releaseName', value: teknoir-land}
+      - equal:
+          path: 'spec.sources[0].helm.valueFiles'
+          value:
+            - $values/charts/ci-runners/arc/teknoir-land.yaml
+      - equal: {path: 'spec.sources[1].ref', value: values}
+      - contains: {path: spec.syncPolicy.syncOptions, content: ServerSideApply=true}
+      - contains: {path: spec.syncPolicy.syncOptions, content: SkipDryRunOnMissingResource=true}
+      - notExists: {path: metadata.finalizers}
+
+  - it: teknoir-push is scale set 0.15.1, release-named, in arc-runners
+    set:
+      ciRunners: {enabled: true}
+    documentSelector:
+      path: metadata.name
+      value: teknoir-push
+    asserts:
+      - equal: {path: spec.destination.namespace, value: arc-runners}
+      - equal: {path: 'spec.sources[0].chart', value: gha-runner-scale-set}
+      - equal: {path: 'spec.sources[0].targetRevision', value: 0.15.1}
+      - equal: {path: 'spec.sources[0].helm.releaseName', value: teknoir-push}
+      - equal:
+          path: 'spec.sources[0].helm.valueFiles'
+          value:
+            - $values/charts/ci-runners/arc/teknoir-push.yaml
+      - equal: {path: 'spec.sources[1].ref', value: values}
+      - contains: {path: spec.syncPolicy.syncOptions, content: ServerSideApply=true}
+      - contains: {path: spec.syncPolicy.syncOptions, content: SkipDryRunOnMissingResource=true}
+      - notExists: {path: metadata.finalizers}
+
+  - it: the values source follows the release SHA
+    set:
+      ciRunners: {enabled: true}
+      release: "0123456789abcdef0123456789abcdef01234567"
+    documentSelector:
+      path: metadata.name
+      value: arc
+    asserts:
+      - equal: {path: 'spec.sources[1].targetRevision', value: "0123456789abcdef0123456789abcdef01234567"}
+
+  - it: the destination server comes from values (it must equal kargo-config verification.devhostCiServer)
+    set:
+      ciRunners: {enabled: true, server: https://192.168.2.182:6443}
+    documentSelector:
+      path: metadata.name
+      value: ci-runners
+    asserts:
+      - equal: {path: spec.destination.server, value: https://192.168.2.182:6443}

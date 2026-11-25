@@ -120,7 +120,7 @@ tests:
     asserts:
       - matchRegex:
           path: spec.template.spec.containers[0].image
-          pattern: "^ghcr\\.io/teknoir/device-controller:sha-[0-9a-f]{8}@sha256:[0-9a-f]{64}$"
+          pattern: "^harbor\\.teknoir\\.cloud/teknoir/device-controller:sha-[0-9a-f]{8}@sha256:[0-9a-f]{64}$"
 
   - it: grants the manager role only the virtual device reads (admission, VM cache); VM, Secret and DataVolume writes are not cluster-wide
     template: templates/rbac.yaml

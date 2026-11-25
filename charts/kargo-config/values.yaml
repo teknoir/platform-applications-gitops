@@ -4,8 +4,9 @@
 #
 # Since the P5.2 cut-over (2026-11-24) Kargo ships staging: the gitops-main Warehouse polls `main`, and the
 # Stages staging and staging-verified auto-promote every new commit (argocd-update on the root, verification,
-# then the verified/* tag). Every pin group is still disabled in scripts/images.yaml (only wg-tunnel's public
-# images are on) and every pin auto-promotion is off: P6.1/P6.2 turn them on, one reviewed PR each.
+# then the verified/* tag). P6.1/P6.2 (from 2026-11-25) turn the pin groups on, one reviewed PR each: a group
+# enabled in scripts/images.yaml gets a Warehouse and a pin Stage, and autoPromotion.pins.<group> lets Kargo pin
+# every new build by pull request on its own. See groups[] and autoPromotion.pins for which are on.
 
 # The Kargo project: the cluster-scoped Project and the namespace every object below lives in.
 project: platform
@@ -53,7 +54,17 @@ autoPromotion:
   staging: true
   staging-verified: true
   # group -> bool. A missing group is off (P6.1 enables one group per reviewed PR).
-  pins: {}
+  pins:
+    # P6.1 (2026-11-25), one group per PR: web-terminal first (public ghcr; per-device terminal pods).
+    web-terminal: true
+    # keycloak-theme: the staging Keycloak StatefulSet and keycloak-config Job (a pin restarts Keycloak).
+    keycloak-theme: true
+    # teknoir-desktop: the desktop and council images on the devices (device-controller ConfigMap).
+    teknoir-desktop: true
+    # wg-tunnel: wg-hub/wg-flags, the per-device wgt-* gateways, and wg-agent on every Tunneling device.
+    wg-tunnel: true
+    # backstage (first private group, Harbor since P6.2): backstage-app and backstage-api from one commit.
+    backstage: true
 
 staging:
   # P4.3 (b) fallback: also set the root Application's Helm parameter `release` to the Freight commit (besides
@@ -74,8 +85,12 @@ verification:
   # release: cliproxyapi is the CLI proxy, deployed on its own).
   excludeApps: [cliproxyapi]
   # Destination server of the devhost-ci Applications (they run on the dev-host cluster, not on r415): their
-  # revision is checked, their sync status and health are not. Empty: no such Application.
-  devhostCiServer: ""
+  # revision is checked, their sync status and health are not, and while the dev host is unreachable or not
+  # comparable (sync Unknown or a ComparisonError condition) a wrong or missing revision is only a warning. These
+  # are the ci-runners, arc, teknoir-ci, teknoir-land and teknoir-push Applications of charts/app-of-apps
+  # (templates/ci-runners.yaml). It must equal app-of-apps ciRunners.server (the API server in the r415 ArgoCD
+  # cluster Secret devhost-ci): on a mismatch every staging promotion fails whenever the dev host is down.
+  devhostCiServer: "https://192.168.2.181:6443"
   # The profile-controller ConfigMap in rootApp.namespace whose PLUGIN_CHART_VERSION every profile-plugin
   # Application must follow. The revision-check Role may read this one ConfigMap (resourceNames) and nothing
   # else, and the script gets the same name as env PLUGIN_CONFIGMAP: one value, both places.
@@ -110,43 +125,43 @@ verification:
 # scripts/tests/test_images_yaml.py asserts this block equals scripts/images.yaml.
 groups:
   - name: backstage
-    enabled: false
+    enabled: true
     sameCommit: true
     images:
-      - {component: backstage-app, poll: harbor.teknoir.cloud/teknoir/backstage-app, repository: ghcr.io/teknoir/backstage-app, key: backstage.image, style: ref}
-      - {component: backstage-api, poll: harbor.teknoir.cloud/teknoir/backstage, repository: ghcr.io/teknoir/backstage, key: backstageApi.image, style: ref}
+      - {component: backstage-app, poll: harbor.teknoir.cloud/teknoir/backstage-app, repository: harbor.teknoir.cloud/teknoir/backstage-app, key: backstage.image, style: ref}
+      - {component: backstage-api, poll: harbor.teknoir.cloud/teknoir/backstage, repository: harbor.teknoir.cloud/teknoir/backstage, key: backstageApi.image, style: ref}
   - name: device-controller
     enabled: false
     sameCommit: false
     images:
-      - {component: device-controller, poll: harbor.teknoir.cloud/teknoir/device-controller, repository: ghcr.io/teknoir/device-controller, key: image.tag, style: tag}
+      - {component: device-controller, poll: harbor.teknoir.cloud/teknoir/device-controller, repository: harbor.teknoir.cloud/teknoir/device-controller, key: image.tag, style: tag}
   - name: profile-controller
     enabled: false
     sameCommit: false
     images:
-      - {component: profile-controller, poll: harbor.teknoir.cloud/teknoir/profile-controller, repository: ghcr.io/teknoir/profile-controller, key: image.tag, style: tag}
+      - {component: profile-controller, poll: harbor.teknoir.cloud/teknoir/profile-controller, repository: harbor.teknoir.cloud/teknoir/profile-controller, key: image.tag, style: tag}
   - name: devstudio-controller
     enabled: false
     sameCommit: false
     images:
-      - {component: devstudio-controller, poll: harbor.teknoir.cloud/teknoir/devstudio-controller, repository: ghcr.io/teknoir/devstudio-controller, key: image.tag, style: tag}
+      - {component: devstudio-controller, poll: harbor.teknoir.cloud/teknoir/devstudio-controller, repository: harbor.teknoir.cloud/teknoir/devstudio-controller, key: image.tag, style: tag}
   - name: user-controller
     enabled: false
     sameCommit: false
     images:
-      - {component: user-controller, poll: harbor.teknoir.cloud/teknoir/user-controller, repository: ghcr.io/teknoir/user-controller, key: image.tag, style: tag}
+      - {component: user-controller, poll: harbor.teknoir.cloud/teknoir/user-controller, repository: harbor.teknoir.cloud/teknoir/user-controller, key: image.tag, style: tag}
   - name: notebook-controller
     enabled: false
     sameCommit: false
     images:
-      - {component: notebook-controller, poll: harbor.teknoir.cloud/teknoir/notebook-controller, repository: ghcr.io/teknoir/notebook-controller, key: image.tag, style: tag}
+      - {component: notebook-controller, poll: harbor.teknoir.cloud/teknoir/notebook-controller, repository: harbor.teknoir.cloud/teknoir/notebook-controller, key: image.tag, style: tag}
   - name: teknoirbot-controller
     enabled: false
     sameCommit: false
     images:
-      - {component: teknoirbot-controller, poll: harbor.teknoir.cloud/teknoir/teknoirbot-controller, repository: ghcr.io/teknoir/teknoirbot-controller, key: image.tag, style: tag}
+      - {component: teknoirbot-controller, poll: harbor.teknoir.cloud/teknoir/teknoirbot-controller, repository: harbor.teknoir.cloud/teknoir/teknoirbot-controller, key: image.tag, style: tag}
   - name: keycloak-theme
-    enabled: false
+    enabled: true
     sameCommit: false
     images:
       - {component: keycloak-theme, poll: ghcr.io/teknoir/keycloak-theme, repository: ghcr.io/teknoir/keycloak-theme, key: keycloak.image.digest, style: digest}
@@ -158,12 +173,12 @@ groups:
       - {component: wg-agent, poll: ghcr.io/teknoir/wg-agent, repository: ghcr.io/teknoir/wg-agent, key: ztna.agentImage, style: ref}
       - {component: wg-gateway, poll: ghcr.io/teknoir/wg-gateway, repository: ghcr.io/teknoir/wg-gateway, key: ztna.gatewayImage, style: ref}
   - name: web-terminal
-    enabled: false
+    enabled: true
     sameCommit: false
     images:
       - {component: web-terminal, poll: ghcr.io/teknoir/web-terminal, repository: ghcr.io/teknoir/web-terminal, key: ztna.terminalImage, style: ref}
   - name: teknoir-desktop
-    enabled: false
+    enabled: true
     sameCommit: true
     images:
       - {component: teknoir-desktop, poll: ghcr.io/teknoir/teknoir-desktop, repository: ghcr.io/teknoir/teknoir-desktop, key: desktop.image, style: ref}

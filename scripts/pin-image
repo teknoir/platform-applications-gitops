@@ -24,6 +24,9 @@ with leader election sets).
 --adopt-running reads .status.containerStatuses[].imageID of the pods whose image is the value in the file
 and cross-checks it with `crane digest`; it writes staging values only and never retags, re-pushes or deletes
 a registry tag (production pulls some of these tags).
+
+Pinning a private image (a Harbor repository) needs a Harbor login first: `crane auth login harbor.teknoir.cloud`,
+because Harbor project teknoir is private. Public images (ghcr) need a ghcr login with package read.
 """
 from __future__ import annotations
 

@@ -8,6 +8,14 @@ imported into the rehearsal cluster; until then the staging Stage verifies with 
 gets the deployed revision, the site's base URL and the staging test user from the hand-piped Secret
 (verification.browser.secretName, keys username and password): no credential in this repository. The suite
 itself decides what "the release works" means (sign-in, home page, no console errors).
+
+Kargo runs the Stage's AnalysisTemplates in one AnalysisRun, all metrics at once, so the browser would start
+while workloads still roll out (2026-11-25: it loaded the home page mid-rollout of backstage and timed out on a
+page that never re-rendered). The init container wait-converged therefore runs files/revision-check.sh first,
+with the revision-check Job's environment: the browser starts only once every Application is Synced and
+Healthy at the revision. Only that container gets kargo-verify's token (projected volume; the pod mounts none),
+so the browser and its test user never hold a cluster credential. activeDeadlineSeconds covers the wait
+(REVISION_CHECK_TIMEOUT, 480 s) plus the suite (playwright timeout 180 s) and image pulls.
 */}}
 {{- if .Values.verification.browser.image }}
 apiVersion: argoproj.io/v1alpha1
@@ -25,11 +33,26 @@ spec:
       provider:
         job:
           spec:
-            activeDeadlineSeconds: 600
+            activeDeadlineSeconds: 900
             backoffLimit: 0
             template:
               spec:
                 restartPolicy: Never
+                serviceAccountName: kargo-verify
+                automountServiceAccountToken: false
+                initContainers:
+                  - name: wait-converged
+                    image: {{ .Values.verification.kubectlImage }}
+                    command: ["/bin/sh", "/scripts/revision-check.sh"]
+                    env:
+{{ include "kargo-config.revisionCheckEnv" . | indent 22 }}
+                    volumeMounts:
+                      - name: script
+                        mountPath: /scripts
+                        readOnly: true
+                      - name: kargo-verify-token
+                        mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+                        readOnly: true
                 containers:
                   - name: browser
                     image: {{ .Values.verification.browser.image }}
@@ -48,4 +71,22 @@ spec:
                           secretKeyRef:
                             name: {{ .Values.verification.browser.secretName }}
                             key: password
+                volumes:
+                  - name: script
+                    configMap:
+                      name: revision-check-script
+                  - name: kargo-verify-token
+                    projected:
+                      sources:
+                        - serviceAccountToken:
+                            path: token
+                            expirationSeconds: 3607
+                        - configMap:
+                            name: kube-root-ca.crt
+                            items:
+                              - {key: ca.crt, path: ca.crt}
+                        - downwardAPI:
+                            items:
+                              - path: namespace
+                                fieldRef: {fieldPath: metadata.namespace}
 {{- end }}

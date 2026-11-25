@@ -12,24 +12,25 @@
 #         auth (keycloak-theme) and ztna (wg-tunnel));
 #         key_path: the nested values key that holds the pin;
 #         style: ref = repo:tag@sha256:…, tag = tag@sha256:…, digest = sha256:… (the sibling tag stays);
-#         repository: the registry repository the image is built and pinned from;
-#         poll: the repository a Kargo Warehouse polls (Harbor for a private image, ghcr for a public one;
-#         equal to repository while every group is still pinned from ghcr).
+#         repository: the registry repository the image is pinned from: Harbor for a private image (built and
+#         pushed to Harbor since CI v4 P6.2, 2026-11-25), ghcr for a public one;
+#         poll: the repository a Kargo Warehouse polls (equal to repository: Harbor for a private image, ghcr for a
+#         public one).
 #
 # scripts/pin-image reads this file: it writes the pins file of a grouped component and the chart values
 # of a third-party one. Kargo's pin Stages write the grouped pins files too (one pull request per pin).
 groups:
-  backstage: {same_commit: true, enabled: false}
+  backstage: {same_commit: true, enabled: true}
   device-controller: {same_commit: false, enabled: false}
   profile-controller: {same_commit: false, enabled: false}
   devstudio-controller: {same_commit: false, enabled: false}
   user-controller: {same_commit: false, enabled: false}
   notebook-controller: {same_commit: false, enabled: false}
   teknoirbot-controller: {same_commit: false, enabled: false}
-  keycloak-theme: {same_commit: false, enabled: false}
+  keycloak-theme: {same_commit: false, enabled: true}
   wg-tunnel: {same_commit: true, enabled: true}
-  web-terminal: {same_commit: false, enabled: false}
-  teknoir-desktop: {same_commit: true, enabled: false}
+  web-terminal: {same_commit: false, enabled: true}
+  teknoir-desktop: {same_commit: true, enabled: true}
 
 images:
   - component: backstage-app
@@ -38,7 +39,7 @@ images:
     chart: backstage
     key_path: backstage.image
     style: ref
-    repository: ghcr.io/teknoir/backstage-app
+    repository: harbor.teknoir.cloud/teknoir/backstage-app
     poll: harbor.teknoir.cloud/teknoir/backstage-app
     note: "the staging UI: next-gen (backstage branch nextgen) since the UI cut-over a2 (2026-10-17); was classic :robot"
 
@@ -48,7 +49,7 @@ images:
     chart: backstage
     key_path: backstageApi.image
     style: ref
-    repository: ghcr.io/teknoir/backstage
+    repository: harbor.teknoir.cloud/teknoir/backstage
     poll: harbor.teknoir.cloud/teknoir/backstage
     note: "the staging UI API: next-gen (nextgen) since the UI cut-over a2; was classic :robot"
 
@@ -58,7 +59,7 @@ images:
     chart: device-controller
     key_path: image.tag
     style: tag
-    repository: ghcr.io/teknoir/device-controller
+    repository: harbor.teknoir.cloud/teknoir/device-controller
     poll: harbor.teknoir.cloud/teknoir/device-controller
     note: "already tag@digest"
 
@@ -68,7 +69,7 @@ images:
     chart: profile-controller
     key_path: image.tag
     style: tag
-    repository: ghcr.io/teknoir/profile-controller
+    repository: harbor.teknoir.cloud/teknoir/profile-controller
     poll: harbor.teknoir.cloud/teknoir/profile-controller
     note: "already tag@digest; production pulls :latest of this repo"
 
@@ -78,7 +79,7 @@ images:
     chart: devstudio-controller
     key_path: image.tag
     style: tag
-    repository: ghcr.io/teknoir/devstudio-controller
+    repository: harbor.teknoir.cloud/teknoir/devstudio-controller
     poll: harbor.teknoir.cloud/teknoir/devstudio-controller
     note: "dormant; production pulls :teknoir-cloud of this repo"
 
@@ -88,7 +89,7 @@ images:
     chart: user-controller
     key_path: image.tag
     style: tag
-    repository: ghcr.io/teknoir/user-controller
+    repository: harbor.teknoir.cloud/teknoir/user-controller
     poll: harbor.teknoir.cloud/teknoir/user-controller
     note: "timestamp tag, built by legacy GitHub Actions"
 
@@ -98,7 +99,7 @@ images:
     chart: notebook-controller
     key_path: image.tag
     style: tag
-    repository: ghcr.io/teknoir/notebook-controller
+    repository: harbor.teknoir.cloud/teknoir/notebook-controller
     poll: harbor.teknoir.cloud/teknoir/notebook-controller
     note: "timestamp tag, built by legacy GitHub Actions"
 
@@ -108,7 +109,7 @@ images:
     chart: teknoirbot-controller
     key_path: image.tag
     style: tag
-    repository: ghcr.io/teknoir/teknoirbot-controller
+    repository: harbor.teknoir.cloud/teknoir/teknoirbot-controller
     poll: harbor.teknoir.cloud/teknoir/teknoirbot-controller
     note: "TeknoirBot controller (private repo, local-ci builds)"
 

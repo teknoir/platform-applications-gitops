@@ -3,13 +3,13 @@
 replicaCount: 1
 
 image:
-  repository: ghcr.io/teknoir/devstudio-controller
+  repository: harbor.teknoir.cloud/teknoir/devstudio-controller
   # pinned in pins/devstudio-controller.yaml (Kargo stage pin-devstudio-controller)
   tag: ""
   pullPolicy: Always
 
-imagePullSecrets:
-  - name: ghcr-token
+# The image is pulled from Harbor with the node credential (CI v4 P6.2), so no pull secret.
+imagePullSecrets: []
 
 nameOverride: ""
 fullnameOverride: ""

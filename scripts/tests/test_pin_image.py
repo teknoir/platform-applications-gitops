@@ -142,7 +142,7 @@ class PinFlow(unittest.TestCase):
                 "# fixture\nhub:\n  image:\n    tag: \"sha-9c9bdae@sha256:" + "c" * 64 + "\"\n"
                 "    # confirmation\n",
             "pins/backstage.yaml":
-                "# fixture\nbackstage:\n  image: ghcr.io/teknoir/backstage-app:robot\nbackstageApi:\n  image: ghcr.io/teknoir/backstage:robot\n",
+                "# fixture\nbackstage:\n  image: harbor.teknoir.cloud/teknoir/backstage-app:robot\nbackstageApi:\n  image: harbor.teknoir.cloud/teknoir/backstage:robot\n",
             "pins/teknoir-desktop.yaml":
                 "# fixture\ndesktop:\n  agent:\n    image: \"ghcr.io/teknoir/teknoir-desktop:sha-ca46a99c-council@" + D + "\"\n",
             # digest style: the pin holds only the digest; its sibling tag stays in the chart values
@@ -174,8 +174,8 @@ class PinFlow(unittest.TestCase):
         self.assertEqual(PI.get_leaf(text, "image.tag"), "teknoir-cloud@" + D)
 
     def test_ref_style_keeps_the_repository_in_the_value(self):
-        res = self.pin(FakeSys()).pin("backstage-app", "ghcr.io/teknoir/backstage-app:robot", write=True)
-        self.assertEqual(res["new"], "ghcr.io/teknoir/backstage-app:robot@" + D)
+        res = self.pin(FakeSys()).pin("backstage-app", "harbor.teknoir.cloud/teknoir/backstage-app:robot", write=True)
+        self.assertEqual(res["new"], "harbor.teknoir.cloud/teknoir/backstage-app:robot@" + D)
 
     def _device_controller(self):
         return open(os.path.join(self.root, "pins/teknoir-desktop.yaml")).read()
@@ -227,19 +227,19 @@ class PinFlow(unittest.TestCase):
             self.pin(FakeSys()).pin("nope", "t", write=True)
 
     def test_adopt_running_pins_the_running_digest_even_if_the_tag_moved(self):
-        running = {"ghcr.io/teknoir/devstudio-controller:teknoir-cloud": "ghcr.io/teknoir/devstudio-controller@sha256:" + "c" * 64,
-                   "ghcr.io/teknoir/backstage-app:robot": "ghcr.io/teknoir/backstage-app@sha256:" + "d" * 64}
+        running = {"harbor.teknoir.cloud/teknoir/devstudio-controller:teknoir-cloud": "harbor.teknoir.cloud/teknoir/devstudio-controller@sha256:" + "c" * 64,
+                   "harbor.teknoir.cloud/teknoir/backstage-app:robot": "harbor.teknoir.cloud/teknoir/backstage-app@sha256:" + "d" * 64}
         sys_ = FakeSys(digest="sha256:" + "e" * 64, running=running)         # the tag moved: crane says e..., the pod runs c...
         res = {r["name"]: r for r in self.pin(sys_).adopt_running(write=True, context="r415")}
         self.assertEqual(res["devstudio-controller"]["value"], "teknoir-cloud@sha256:" + "c" * 64)
         self.assertTrue(res["devstudio-controller"]["moved"])
-        self.assertEqual(res["backstage-app"]["value"], "ghcr.io/teknoir/backstage-app:robot@sha256:" + "d" * 64)
+        self.assertEqual(res["backstage-app"]["value"], "harbor.teknoir.cloud/teknoir/backstage-app:robot@sha256:" + "d" * 64)
         text = open(os.path.join(self.root, "pins/devstudio-controller.yaml")).read()
         self.assertEqual(PI.get_leaf(text, "image.tag"), "teknoir-cloud@sha256:" + "c" * 64)
 
     def test_adopt_running_never_writes_without_the_flag_and_never_retags(self):
         before = open(os.path.join(self.root, "pins/devstudio-controller.yaml")).read()
-        sys_ = FakeSys(running={"ghcr.io/teknoir/devstudio-controller:teknoir-cloud": "ghcr.io/teknoir/devstudio-controller@sha256:" + "c" * 64})
+        sys_ = FakeSys(running={"harbor.teknoir.cloud/teknoir/devstudio-controller:teknoir-cloud": "harbor.teknoir.cloud/teknoir/devstudio-controller@sha256:" + "c" * 64})
         self.pin(sys_).adopt_running(write=False, context="r415")
         self.assertEqual(open(os.path.join(self.root, "pins/devstudio-controller.yaml")).read(), before)
         for call in sys_.calls:
@@ -248,7 +248,7 @@ class PinFlow(unittest.TestCase):
                 self.assertIn("get", call)
 
     def test_adopt_running_accepts_r415_and_sets_its_context(self):
-        sys_ = FakeSys(running={"ghcr.io/teknoir/devstudio-controller:teknoir-cloud": "ghcr.io/teknoir/devstudio-controller@sha256:" + "c" * 64})
+        sys_ = FakeSys(running={"harbor.teknoir.cloud/teknoir/devstudio-controller:teknoir-cloud": "harbor.teknoir.cloud/teknoir/devstudio-controller@sha256:" + "c" * 64})
         res = {r["name"]: r for r in self.pin(sys_).adopt_running(write=False, context="r415")}
         self.assertEqual(res["devstudio-controller"]["value"], "teknoir-cloud@sha256:" + "c" * 64)
         kube = [c for c in sys_.calls if c[0] == "kubectl"]

@@ -5,8 +5,8 @@ The cluster-side half of CI on the dev-host CI cluster `devhost-ci` (single-node
 GitHub Actions runners from Actions Runner Controller (ARC) 0.15.1, a rootless BuildKit daemon, and the policies
 that keep CI from reaching the LAN or starving an agent session.
 
-Nothing on staging renders this chart; it is installed by hand on `devhost-ci` until v4 step P6.3 moves it under
-ArgoCD on r415.
+Since 2026-11-25 (v4 step P6.3) the ArgoCD on r415 owns this chart and the ARC releases on `devhost-ci` (see
+"Under ArgoCD" below); the hand install is the bootstrap and break-glass path.
 
 ## What lives where
 
@@ -30,7 +30,8 @@ Created by infra `clusters/devhost-ci/install.sh` on the host, outside Kubernete
 
 ## Bootstrap
 
-All commands take `--kube-context devhost-ci`; the context is `devhost-ci` and is never the default one.
+All commands take `--kube-context devhost-ci`; the context is `devhost-ci` and is never the default one. The
+commands are the bootstrap reference, and the break-glass path once ArgoCD owns these releases (below).
 
 ```sh
 # 1. namespaces, quota, policies, push guard, cache PV/PVCs, buildkitd
@@ -138,7 +139,22 @@ the name Backstage's TestDatabases looks for (`..._POSTGRES16_...`).
 helm unittest charts/ci-runners
 ```
 
-## Later
+## Under ArgoCD (CI v4 P6.3)
 
-From v4 step P6.3, ArgoCD on r415 manages these objects (an app-of-apps Application with destination `devhost-ci`,
-ServerSideApply for the ARC CRDs) instead of hand-run `helm upgrade`. This chart and `arc/*.yaml` stay the source.
+The ArgoCD on r415 manages the five releases - `ci-runners`, `arc`, `teknoir-ci`, `teknoir-land` and
+`teknoir-push` - as Applications of charts/app-of-apps (`templates/ci-runners.yaml`), with destination server
+devhost-ci. `ciRunners.enabled` is on in the staging values (`charts/app-of-apps/values.yaml`, since 2026-11-25)
+and the matching `verification.devhostCiServer` is set in charts/kargo-config, which is what makes the staging
+revision check treat them as dev-host children. This chart and `arc/*.yaml` stay the source: the Applications
+render exactly these charts with the release names pinned.
+
+- Once `ciRunners.enabled` is true, r415's ArgoCD owns the five releases. Do not run `helm upgrade` by hand any
+  more: a second writer only fights the sync.
+- `helm upgrade --install --take-ownership` on devhost-ci is break-glass only (ArgoCD broken), and the change that
+  was made by hand must then land here, or the next sync reverts it.
+- After adoption the Helm release records are removed (ArgoCD tracks the objects, not Helm's Secrets), and never
+  with `helm uninstall`: that would delete the objects and, through the namespaces' `resource-policy: keep` and
+  `Prune=false,Delete=false`, leave a half-deleted cluster. `kubectl delete secret -n <ns> -l owner=helm` after a
+  successful sync, if the records are in the way.
+- Turning it off never cascades: the Applications carry no `resources-finalizer`, so disabling orphans them and
+  leaves what they installed in place; a person then decides what happens on the dev host.

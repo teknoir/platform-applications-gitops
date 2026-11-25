@@ -289,6 +289,45 @@ class RevisionCheck(unittest.TestCase):
         s.application(app("devhost-ci", server=DEVHOST, revision=OTHER))
         self.assertFails(s.run(DEVHOST_CI_SERVER=DEVHOST), f"devhost-ci: revision {OTHER}")
 
+    def test_a_devhost_ci_application_that_cannot_be_compared_warns_and_passes(self):
+        """The dev host is down: ArgoCD leaves the sync Unknown (and an unreachable host also sets a
+        ComparisonError condition), so a stale revision must not stall a staging promotion."""
+        s = Scenario(self)
+        s.application(root(["devhost-ci"]))
+        s.application(app("devhost-ci", server=DEVHOST, revision=OTHER, sync="Unknown"))
+        run = s.run(DEVHOST_CI_SERVER=DEVHOST)
+        self.assertPasses(run)
+        self.assertIn("revision-check: WARN devhost-ci: devhost-ci unreachable or not comparable (sync Unknown);"
+                      " not blocking", run.stdout)
+
+    def test_a_devhost_ci_application_with_a_comparison_error_warns_and_passes(self):
+        """OutOfSync with a ComparisonError condition: the comparison never ran, so the revision is stale."""
+        s = Scenario(self)
+        s.application(root(["devhost-ci"]))
+        child = app("devhost-ci", server=DEVHOST, revision=OTHER, sync="OutOfSync")
+        child["status"]["conditions"] = [{"type": "ComparisonError", "message": "connection refused"}]
+        s.application(child)
+        run = s.run(DEVHOST_CI_SERVER=DEVHOST)
+        self.assertPasses(run)
+        self.assertIn("WARN devhost-ci: devhost-ci unreachable or not comparable (sync OutOfSync); not blocking",
+                      run.stdout)
+
+    def test_a_comparable_devhost_ci_application_at_another_revision_still_fails(self):
+        """Synced, no error condition: the dev host was reached and reports another revision, which is a real
+        failure."""
+        s = Scenario(self)
+        s.application(root(["devhost-ci"]))
+        s.application(app("devhost-ci", server=DEVHOST, revision=OTHER, sync="Synced"))
+        self.assertFails(s.run(DEVHOST_CI_SERVER=DEVHOST), f"devhost-ci: revision {OTHER}")
+
+    def test_a_non_devhost_application_that_cannot_be_compared_still_fails(self):
+        """The warning is only for a child whose destination.server is DEVHOST_CI_SERVER: an Unknown sync on
+        r415 itself is a failure."""
+        s = Scenario(self)
+        s.application(root(["backstage"]))
+        s.application(app("backstage", revision=OTHER, sync="Unknown"))
+        self.assertFails(s.run(DEVHOST_CI_SERVER=DEVHOST), "backstage: sync Unknown")
+
     def test_without_a_devhost_ci_server_that_application_is_health_checked(self):
         s = Scenario(self)
         s.application(root(["devhost-ci"]))

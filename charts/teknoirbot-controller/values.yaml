@@ -1,10 +1,11 @@
 # GitOps values for teknoirbot-controller.
 image:
-  repository: ghcr.io/teknoir/teknoirbot-controller
+  repository: harbor.teknoir.cloud/teknoir/teknoirbot-controller
   # pinned in pins/teknoirbot-controller.yaml (Kargo stage pin-teknoirbot-controller)
   tag: ""
   pullPolicy: IfNotPresent
-imagePullSecrets: [{name: ghcr-token}]   # private repo; the secret exists in teknoir-system
+# The image is pulled from Harbor with the node credential (CI v4 P6.2), so no pull secret.
+imagePullSecrets: []
 serviceAccount: {name: teknoirbot-controller}
 leaderElection: true
 resources: {requests: {cpu: 10m, memory: 64Mi}, limits: {cpu: 500m, memory: 256Mi}}

@@ -89,6 +89,11 @@ tests:
       - contains:
           path: 'spec.metrics[0].provider.job.spec.template.spec.containers[0].env'
           content: {name: EXCLUDE_APPS, value: cliproxyapi}
+      # P6.3: the ci-runners Applications' destination.server (app-of-apps ciRunners.server, the r415 cluster
+      # Secret devhost-ci). On a mismatch the revision check treats them as children on r415.
+      - contains:
+          path: 'spec.metrics[0].provider.job.spec.template.spec.containers[0].env'
+          content: {name: DEVHOST_CI_SERVER, value: "https://192.168.2.181:6443"}
       - matchRegex: {path: 'spec.metrics[0].provider.job.spec.template.spec.containers[0].env[0].value', pattern: '^\{\{args\.revision\}\}$'}
 
   - it: renders no browser AnalysisTemplate without a verification image
@@ -108,7 +113,7 @@ tests:
       - equal: {path: spec.args, value: [{name: revision}]}
       - equal: {path: 'spec.metrics[0].count', value: 1}
       - equal: {path: 'spec.metrics[0].failureLimit', value: 0}
-      - equal: {path: 'spec.metrics[0].provider.job.spec.activeDeadlineSeconds', value: 600}
+      - equal: {path: 'spec.metrics[0].provider.job.spec.activeDeadlineSeconds', value: 900}
       - equal: {path: 'spec.metrics[0].provider.job.spec.backoffLimit', value: 0}
       - contains:
           path: 'spec.metrics[0].provider.job.spec.template.spec.containers[0].env'
@@ -126,6 +131,28 @@ tests:
       - contains:
           path: 'spec.metrics[0].provider.job.spec.template.spec.containers[0].env'
           content: {name: REVISION, value: "{{args.revision}}"}
+
+  - it: the browser waits for the revision check in an init container that alone holds kargo-verify's token
+    template: templates/analysis-browser.yaml
+    set:
+      verification.browser.image: ghcr.io/teknoir/gitops-verify:sha-0000000a@sha256:1111111111111111111111111111111111111111111111111111111111111111
+    asserts:
+      - equal: {path: 'spec.metrics[0].provider.job.spec.template.spec.serviceAccountName', value: kargo-verify}
+      - equal: {path: 'spec.metrics[0].provider.job.spec.template.spec.automountServiceAccountToken', value: false}
+      - equal: {path: 'spec.metrics[0].provider.job.spec.template.spec.initContainers[0].name', value: wait-converged}
+      - equal:
+          path: 'spec.metrics[0].provider.job.spec.template.spec.initContainers[0].command'
+          value: ["/bin/sh", "/scripts/revision-check.sh"]
+      - contains:
+          path: 'spec.metrics[0].provider.job.spec.template.spec.initContainers[0].env'
+          content: {name: REVISION, value: "{{args.revision}}"}
+      - contains:
+          path: 'spec.metrics[0].provider.job.spec.template.spec.initContainers[0].env'
+          content: {name: ROOT_APP_NAME, value: app-of-apps}
+      - contains:
+          path: 'spec.metrics[0].provider.job.spec.template.spec.initContainers[0].volumeMounts'
+          content: {name: kargo-verify-token, mountPath: /var/run/secrets/kubernetes.io/serviceaccount, readOnly: true}
+      - notExists: {path: 'spec.metrics[0].provider.job.spec.template.spec.containers[0].volumeMounts'}
 
   - it: renders no soak AnalysisTemplate without a Prometheus address
     template: templates/analysis-soak.yaml
