@@ -36,6 +36,10 @@ spec:
               value: {{ include "jwks.authnMode" . | quote }}
             - name: MQTT_AUDIENCE
               value: {{ .Values.mqttAuth.audience | quote }}
+            {{- with include "jwks.legacyExcludePrefixes" . }}
+            - name: LEGACY_KEYS_EXCLUDE_PREFIXES
+              value: {{ . | quote }}
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /healthz

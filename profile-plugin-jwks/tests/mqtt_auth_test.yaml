@@ -46,6 +46,77 @@ tests:
           path: spec.template.spec.containers[0].image
           pattern: '^ghcr\.io/teknoir/jwks-server:sha-[0-9a-f]{8}@sha256:[0-9a-f]{64}$'
 
+  # Release gate for 0.0.113-p1: sha-de5c5ed8 has no GET /api/v1/keys/legacy, so with
+  # profile-plugin-emqx 0.0.113-p2 a restarted EMQX would get 404 for its legacy key set. This
+  # test fails until jwks.image.version pins the image built from jwks-server branch
+  # tb-fence-legacy-keys; do not merge while it fails.
+  - it: "RELEASE GATE: pins a jwks-server image with GET /api/v1/keys/legacy (not sha-de5c5ed8)"
+    template: templates/deployment.yaml
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: 'sha-de5c5ed8|403771123fa3486a10fee3ac7dcd60a9ef4d1d3d8b63b13299afd09eb5525437'
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: '^ghcr\.io/teknoir/jwks-server:sha-[0-9a-f]{8}@sha256:[0-9a-f]{64}$'
+
+  - it: renders LEGACY_KEYS_EXCLUDE_PREFIXES tb- by default
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LEGACY_KEYS_EXCLUDE_PREFIXES
+            value: tb-
+
+  - it: leaves LEGACY_KEYS_EXCLUDE_PREFIXES out for an empty list
+    template: templates/deployment.yaml
+    set:
+      mqttAuth.legacyExcludePrefixes: []
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name == "LEGACY_KEYS_EXCLUDE_PREFIXES")]
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MQTT_AUDIENCE
+            value: teknoir
+
+  - it: joins several prefixes with a comma
+    template: templates/deployment.yaml
+    set:
+      mqttAuth.legacyExcludePrefixes: ["tb-", "vm-"]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LEGACY_KEYS_EXCLUDE_PREFIXES
+            value: tb-,vm-
+
+  - it: fails the render on a capitalised prefix
+    template: templates/deployment.yaml
+    set:
+      mqttAuth.legacyExcludePrefixes: ["TB-"]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'mqttAuth.legacyExcludePrefixes: "TB-" must match'
+
+  - it: fails the render on a prefix with an underscore
+    template: templates/deployment.yaml
+    set:
+      mqttAuth.legacyExcludePrefixes: ["tb_"]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'mqttAuth.legacyExcludePrefixes: "tb_" must match'
+
+  - it: fails the render on an empty prefix
+    template: templates/deployment.yaml
+    set:
+      mqttAuth.legacyExcludePrefixes: [""]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'mqttAuth.legacyExcludePrefixes: "" must match'
+
   - it: fails the render on any other mode
     template: templates/deployment.yaml
     set:

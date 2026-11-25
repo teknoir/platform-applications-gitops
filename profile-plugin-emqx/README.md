@@ -67,6 +67,7 @@ distinct clientids and would take over each other's sessions.
 |---|---|---|---|---|---|
 | 0.0.112 observe | `observe` | `allow` | yes | yes | EMQX, jwks |
 | 0.0.113 authn enforce | `enforce` | `allow` | yes | yes | jwks |
+| 0.0.113-p1 legacy key set | `enforce` | `allow` | yes | yes, still `/api/v1/keys`; jwks adds `/api/v1/keys/legacy` without `tb-` ids (`mqttAuth.legacyExcludePrefixes`) | jwks (EMQX renders as 0.0.113) |
 | 0.0.114 authz enforce | `enforce` | `deny` | removed | yes | EMQX |
 | 0.0.115 fail closed | `enforce` | `deny` | removed | removed | EMQX |
 
