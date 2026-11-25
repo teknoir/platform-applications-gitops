@@ -77,6 +77,14 @@ affinity: {}
 # LEGACY_TUNNEL_CLEANUP (an older image ignores it and always runs the cleanup, which then gets 403).
 legacyTunnelCleanup: false
 
+# Retained config republish (plans/teknoirbot/root-in-vm.md, R0). The controller republishes a Device's
+# unchanged config when the teamspace's EMQX holds no retained message for it (an EMQX restart with the
+# retainer in RAM loses them). "off" (default): no check; "log": only logs what it would publish; "on":
+# publishes. Keep the quotes: YAML reads a bare off or on as a boolean (the chart maps false to "off" and
+# true to "on"). Needs a device-controller image that reads RETAINED_CONFIG_REPUBLISH (an older image
+# ignores it).
+retainedConfigRepublish: "off"
+
 # Virtual devices (KubeVirt VMs that run the real Robot bootstrap). Everything in
 # this block is inert when enabled is false or the block is absent: no runtime
 # namespaces are rendered and the VIRTUAL_DEVICES key is left out of the controller

@@ -1,0 +1,92 @@
+suite: device-controller Application, retainedConfigRepublish (R0, plans/teknoirbot/root-in-vm.md)
+# Staging passes app-of-apps values deviceController.retainedConfigRepublish as a helm parameter; production and
+# airgapped pass nothing and keep the chart default "off" (charts/device-controller values.yaml).
+templates:
+  - templates/controllers.yaml
+tests:
+  - it: passes off on staging by default (this chart's values.yaml)
+    set: {project: teknoir-cloud}
+    documentSelector: {path: metadata.name, value: device-controller}
+    asserts:
+      - contains:
+          path: spec.source.helm.parameters
+          content: {name: retainedConfigRepublish, value: "off", forceString: true}
+
+  - it: passes off when deviceController is absent
+    set: {project: teknoir-cloud, deviceController: null}
+    documentSelector: {path: metadata.name, value: device-controller}
+    asserts:
+      - contains:
+          path: spec.source.helm.parameters
+          content: {name: retainedConfigRepublish, value: "off", forceString: true}
+
+  - it: passes log
+    set: {project: teknoir-cloud, deviceController.retainedConfigRepublish: log}
+    documentSelector: {path: metadata.name, value: device-controller}
+    asserts:
+      - contains:
+          path: spec.source.helm.parameters
+          content: {name: retainedConfigRepublish, value: "log", forceString: true}
+
+  - it: passes on
+    set: {project: teknoir-cloud, deviceController.retainedConfigRepublish: "on"}
+    documentSelector: {path: metadata.name, value: device-controller}
+    asserts:
+      - contains:
+          path: spec.source.helm.parameters
+          content: {name: retainedConfigRepublish, value: "on", forceString: true}
+
+  - it: reads a boolean true (a bare on) as on
+    set: {project: teknoir-cloud, deviceController.retainedConfigRepublish: true}
+    documentSelector: {path: metadata.name, value: device-controller}
+    asserts:
+      - contains:
+          path: spec.source.helm.parameters
+          content: {name: retainedConfigRepublish, value: "on", forceString: true}
+
+  - it: reads a boolean false (a bare off) as off
+    set: {project: teknoir-cloud, deviceController.retainedConfigRepublish: false}
+    documentSelector: {path: metadata.name, value: device-controller}
+    asserts:
+      - contains:
+          path: spec.source.helm.parameters
+          content: {name: retainedConfigRepublish, value: "off", forceString: true}
+
+  - it: passes any other value through (the device-controller chart fails its own render, never the root)
+    set: {project: teknoir-cloud, deviceController.retainedConfigRepublish: verbose}
+    documentSelector: {path: metadata.name, value: device-controller}
+    asserts:
+      - contains:
+          path: spec.source.helm.parameters
+          content: {name: retainedConfigRepublish, value: "verbose", forceString: true}
+
+  - it: keeps the ZTNA parameters after it
+    set: {project: teknoir-cloud, ztna.enabled: true, deviceController.retainedConfigRepublish: log}
+    documentSelector: {path: metadata.name, value: device-controller}
+    asserts:
+      - equal:
+          path: spec.source.helm.parameters[0]
+          value: {name: retainedConfigRepublish, value: "log", forceString: true}
+      - contains: {path: spec.source.helm.parameters, content: {name: ztna.enabled, value: "true"}}
+      - contains: {path: spec.source.helm.parameters, content: {name: ztna.defaultOn, value: "true"}}
+
+  - it: passes only it with ZTNA off
+    set: {project: teknoir-cloud, ztna.enabled: false, deviceController.retainedConfigRepublish: "off"}
+    documentSelector: {path: metadata.name, value: device-controller}
+    asserts:
+      - equal:
+          path: spec.source.helm.parameters
+          value:
+            - {name: retainedConfigRepublish, value: "off", forceString: true}
+
+  - it: passes nothing on teknoir-online (production), even with the value set
+    set: {project: teknoir-online, deviceController.retainedConfigRepublish: "on"}
+    documentSelector: {path: metadata.name, value: device-controller}
+    asserts:
+      - notExists: {path: spec.source.helm}
+
+  - it: passes nothing on teknoir-local (airgapped), even with the value set
+    set: {project: teknoir-local, deviceController.retainedConfigRepublish: "on"}
+    documentSelector: {path: metadata.name, value: device-controller}
+    asserts:
+      - notExists: {path: spec.source.helm}
