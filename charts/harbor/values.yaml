@@ -110,7 +110,11 @@ harborConfig:
     enabled: true
   image: docker.io/library/python:3.14-alpine
   imagePullPolicy: IfNotPresent
-  schedule: "17 * * * *"
+  # Every 10 minutes: a new teamspace (Profile) gets its pull robot and its keys in
+  # teknoir-system/harbor-teamspace-pull within about 10 minutes (plus pod start), so a device
+  # bootstrapped soon after gets the registry mirror. A run that finds nothing to change takes
+  # about 2 s; concurrencyPolicy Forbid keeps runs from overlapping.
+  schedule: "*/10 * * * *"
   adminPasswordSecret:
     name: harbor-secret
     key: HARBOR_ADMIN_PASSWORD
@@ -174,12 +178,22 @@ harborConfig:
           - {template: always, tags: "{v[0-9]*,[0-9]*,adopted-*,latest,main,master,teknoir-cloud,teknoir-online,teknoir-local,robot}"}
           - {template: latestPushedK, value: 15}
           - {template: nDaysSinceLastPull, value: 30}
-      # Proxy caches: keep what was pulled in the last 30 days. `untagged` includes digest-pinned
-      # pulls (name@sha256:...), which are cached without a tag.
+      # Proxy caches (rules are OR-ed): keep what was pulled in the last 7 days, and the 3 most
+      # recently cached artifacts of every repository as a floor. The floor keeps an image a node
+      # already holds (containerd never pulls it again, so Harbor sees no pulls) and artifacts
+      # whose pull time Harbor never recorded (a first cache fill sets none). `untagged`
+      # includes digest-pinned pulls (name@sha256:...), which are cached without a tag.
+      # Per environment: a cluster with internet keeps a short window (anything deleted is
+      # fetched again from upstream on the next pull). An airgapped Harbor has no upstream and
+      # sites may not pull for weeks, so it must never use nDaysSinceLastPull: keep images until
+      # newer ones replace them, e.g.
+      #   rules: [{template: latestPushedK, value: 3, untagged: true}]
+      # or set no retention on its projects (the teknoir-local line today has none).
       proxy:
         schedule: "0 30 2 * * *"
         rules:
-          - {template: nDaysSinceLastPull, value: 30, untagged: true}
+          - {template: nDaysSinceLastPull, value: 7, untagged: true}
+          - {template: latestPushedK, value: 3, untagged: true}
     # Blob GC after retention (Sunday). deleteUntagged is false on purpose: Harbor's GC would
     # delete EVERY untagged artifact in every project, including the digest-pinned pulls the
     # proxy retention rule keeps (wg-agent sha, TOE digest). Untagged artifacts go through the
