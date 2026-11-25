@@ -54,6 +54,16 @@ teknoirbot:
 ztna:
   enabled: true
 
+# device-controller settings passed to the device-controller Application as helm parameters (templates/controllers.yaml),
+# teknoir-cloud only (allowlist in the template), so a cherry-pick onto another environment branch passes nothing and
+# that environment keeps the chart default.
+deviceController:
+  # Retained config republish (plans/teknoirbot/root-in-vm.md R0, D13): device-controller republishes a Device's
+  # unchanged config when the teamspace's EMQX holds no retained message for it. "off" (the chart default), "log" (only
+  # logs what it would publish) or "on" (publishes); keep the quotes. Staged one release at a time: off -> log -> on, and
+  # "log" or "on" only with a pins/device-controller.yaml image that reads RETAINED_CONFIG_REPUBLISH.
+  retainedConfigRepublish: "on"
+
 # CI/CD on the cluster (plans/ci-argo-workflows.md), teknoir-cloud only (allowlist in
 # templates/harbor.yaml): Harbor as the registry (harbor.teknoir.cloud), which staging pulls its
 # first-party images through. The vpro-era on-cluster CI (Argo Workflows) is retired.

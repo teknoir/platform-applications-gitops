@@ -145,8 +145,14 @@ spec:
         - ../../pins/teknoir-desktop.yaml
         - ../../pins/web-terminal.yaml
         - ../../pins/wg-tunnel.yaml
-{{- if include "app-of-apps.ztnaEnabled" . }}
       parameters:
+        # Retained config republish (plans/teknoirbot/root-in-vm.md R0): app-of-apps values
+        # deviceController.retainedConfigRepublish, staged off -> log -> on. Staging only (this allowlist): every other
+        # environment keeps the chart default "off". forceString: a string, never a YAML boolean.
+        - name: retainedConfigRepublish
+          value: {{ include "app-of-apps.retainedConfigRepublish" . | quote }}
+          forceString: true
+{{- if include "app-of-apps.ztnaEnabled" . }}
         # One switch (app-of-apps values ztna.enabled) for the whole feature. The images
         # (ztna.agentImage, ztna.terminalImage) are in pins/wg-tunnel.yaml and pins/web-terminal.yaml.
         - name: ztna.enabled

@@ -188,7 +188,9 @@ class PinsWiring(unittest.TestCase):
         names = lambda app: [p["name"] for p in (source(app).get("helm") or {}).get("parameters") or []]
         self.assertEqual(names(cloud["backstage"])[0], "fleet.prometheusUrlTemplate")
         self.assertIn("ztna.enabled", names(cloud["backstage"]))
-        self.assertEqual(names(cloud["device-controller"]), ["ztna.enabled", "ztna.defaultOn", "teknoirbotApi.enabled"])
+        # retainedConfigRepublish (R0, plans/teknoirbot/root-in-vm.md) comes first and always on teknoir-cloud
+        self.assertEqual(names(cloud["device-controller"]),
+                         ["retainedConfigRepublish", "ztna.enabled", "ztna.defaultOn", "teknoirbotApi.enabled"])
 
     def test_no_pins_path_reaches_the_other_projects(self):
         for project in (ONLINE, LOCAL):

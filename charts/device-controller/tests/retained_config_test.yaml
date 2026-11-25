@@ -1,0 +1,52 @@
+suite: retained config republish switch (R0, plans/teknoirbot/root-in-vm.md)
+templates:
+  - templates/configmap.yaml
+# The pins the device-controller Application passes (charts/app-of-apps/templates/controllers.yaml).
+values:
+  - ../../../pins/device-controller.yaml
+  - ../../../pins/teknoir-desktop.yaml
+  - ../../../pins/web-terminal.yaml
+  - ../../../pins/wg-tunnel.yaml
+tests:
+  - it: renders RETAINED_CONFIG_REPUBLISH off by default
+    asserts:
+      - equal: {path: 'data.RETAINED_CONFIG_REPUBLISH', value: "off"}
+
+  - it: passes log through
+    set:
+      retainedConfigRepublish: log
+    asserts:
+      - equal: {path: 'data.RETAINED_CONFIG_REPUBLISH', value: "log"}
+
+  - it: passes on through
+    set:
+      retainedConfigRepublish: "on"
+    asserts:
+      - equal: {path: 'data.RETAINED_CONFIG_REPUBLISH', value: "on"}
+
+  - it: reads a boolean false (an unquoted off) as off
+    set:
+      retainedConfigRepublish: false
+    asserts:
+      - equal: {path: 'data.RETAINED_CONFIG_REPUBLISH', value: "off"}
+
+  - it: reads a boolean true (an unquoted on) as on
+    set:
+      retainedConfigRepublish: true
+    asserts:
+      - equal: {path: 'data.RETAINED_CONFIG_REPUBLISH', value: "on"}
+
+  - it: fails the render for any other value
+    set:
+      retainedConfigRepublish: verbose
+    asserts:
+      - failedTemplate:
+          errorPattern: 'retainedConfigRepublish must be "off", "log" or "on" \(got "verbose"\)'
+
+  # What staging passes (charts/app-of-apps templates/controllers.yaml): --set-string retainedConfigRepublish=<value>.
+  - it: takes the string the staging Application passes (forceString)
+    set:
+      retainedConfigRepublish: "log"
+    asserts:
+      - equal: {path: 'data.RETAINED_CONFIG_REPUBLISH', value: "log"}
+      - equal: {path: metadata.name, value: RELEASE-NAME-device-controller-parameters}
