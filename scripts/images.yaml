@@ -21,7 +21,7 @@
 # of a third-party one. Kargo's pin Stages write the grouped pins files too (one pull request per pin).
 groups:
   backstage: {same_commit: true, enabled: true}
-  device-controller: {same_commit: false, enabled: false}
+  device-controller: {same_commit: false, enabled: true}
   profile-controller: {same_commit: false, enabled: true}
   devstudio-controller: {same_commit: false, enabled: true}
   devstudio-cloud: {same_commit: false, enabled: true}
