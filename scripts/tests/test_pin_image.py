@@ -263,9 +263,11 @@ class PinFlow(unittest.TestCase):
         self.pin(FakeSys()).pin("ci-runner", "sha-abcdef12", write=True)
         for rel in self.arc_files:
             self.assertEqual(len(self.read(rel).split("\n")), len(before[rel].split("\n")), rel)
+            # the files are copies of the real ones, whose pin Kargo rewrites: take the old line from the copy
+            old = [l for l in before[rel].split("\n") if l.lstrip().startswith("image: ghcr.io/teknoir/ci-runner:")]
+            self.assertEqual(len(old), 1, rel)
             self.assertEqual(self.read(rel).replace(
-                'image: "ghcr.io/teknoir/ci-runner:sha-abcdef12@' + D + '"',
-                'image: ghcr.io/teknoir/ci-runner:2.338.2-3@sha256:9248ca3c6947c4666847603672d6c02b09527ccf8d04aabd1bcee99c6b2718eb'), before[rel], rel)
+                '        image: "ghcr.io/teknoir/ci-runner:sha-abcdef12@' + D + '"', old[0]), before[rel], rel)
 
     def test_a_missing_key_is_an_error_naming_the_file_and_writes_nothing(self):
         broken = self.arc_files[1]
