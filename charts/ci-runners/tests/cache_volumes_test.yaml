@@ -55,6 +55,9 @@ tests:
       - equal:
           path: metadata.annotations["helm.sh/resource-policy"]
           value: keep
+      - equal:
+          path: metadata.annotations["argocd.argoproj.io/sync-options"]
+          value: Prune=false,Delete=false
 
   - it: renders the teknoir-ci PVC bound to its PV by volumeName
     documentIndex: 1
@@ -82,6 +85,9 @@ tests:
       - equal:
           path: metadata.annotations["helm.sh/resource-policy"]
           value: keep
+      - equal:
+          path: metadata.annotations["argocd.argoproj.io/sync-options"]
+          value: Prune=false,Delete=false
 
   - it: renders the teknoir-land PV/PVC pair
     asserts:

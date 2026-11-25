@@ -89,6 +89,11 @@ tests:
       - contains:
           path: 'spec.metrics[0].provider.job.spec.template.spec.containers[0].env'
           content: {name: EXCLUDE_APPS, value: cliproxyapi}
+      # P6.3: the ci-runners Applications' destination.server (app-of-apps ciRunners.server, the r415 cluster
+      # Secret devhost-ci). On a mismatch the revision check treats them as children on r415.
+      - contains:
+          path: 'spec.metrics[0].provider.job.spec.template.spec.containers[0].env'
+          content: {name: DEVHOST_CI_SERVER, value: "https://192.168.2.181:6443"}
       - matchRegex: {path: 'spec.metrics[0].provider.job.spec.template.spec.containers[0].env[0].value', pattern: '^\{\{args\.revision\}\}$'}
 
   - it: renders no browser AnalysisTemplate without a verification image

@@ -31,12 +31,13 @@ tests:
           path: metadata.name
           value: buildkit
 
-  - it: never deletes a namespace on uninstall (keep on all three)
+  - it: never deletes a namespace on uninstall, by Helm or by ArgoCD (keep + Prune=false,Delete=false)
     asserts:
       - equal:
           path: metadata.annotations
           value:
             helm.sh/resource-policy: keep
+            argocd.argoproj.io/sync-options: Prune=false,Delete=false
 
   - it: lets runners enforce baseline and warn on restricted
     documentIndex: 1

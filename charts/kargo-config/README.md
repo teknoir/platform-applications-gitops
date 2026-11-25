@@ -74,7 +74,10 @@ comments in `pins/*.yaml` go on their own lines above the key, never at the end 
 The Job polls every 15 s for up to 8 minutes and exits 0 only when the root Application is Synced at
 the promoted revision, every child Application listed in it exists and is Synced and Healthy at that
 revision (sources of other repositories and Helm charts are not revision-checked; a child whose
-destination server is `devhostCiServer` is revision-checked only), and every `profile-plugin-*`
+destination server is `devhostCiServer` is revision-checked only, and a wrong or missing revision there is a
+`WARN` line instead of a failure while the Application is not comparable - sync `Unknown` or a
+`ComparisonError` condition, i.e. the dev host is down - so it never stalls a staging promotion), and every
+`profile-plugin-*`
 Application in `teknoir-system` follows `PLUGIN_CHART_VERSION` of the live `profile-controller-config`
 ConfigMap. Otherwise it prints one line per failing Application and exits 1.
 `scripts/tests/test_revision_check.py` runs it against a fake `kubectl`.
