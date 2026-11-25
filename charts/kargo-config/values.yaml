@@ -78,6 +78,8 @@ autoPromotion:
     device-controller: true
     # devstudio-cloud (P6.6): the Devstudio workload image (DEVSTUDIO_IMAGE); a pin rolls every unpinned Devstudio.
     devstudio-cloud: true
+    # ci-runner (P6.4): the runner image of the three ARC scale sets on devhost-ci; a pin rolls the runner pods.
+    ci-runner: true
 
 staging:
   # P4.3 (b) fallback: also set the root Application's Helm parameter `release` to the Freight commit (besides
@@ -204,10 +206,10 @@ groups:
     images:
       - {component: teknoir-desktop, poll: ghcr.io/teknoir/teknoir-desktop, repository: ghcr.io/teknoir/teknoir-desktop, key: desktop.image, style: ref}
       - {component: teknoir-desktop-agent, poll: ghcr.io/teknoir/teknoir-desktop/council, repository: ghcr.io/teknoir/teknoir-desktop/council, key: desktop.agent.image, style: ref}
-  # Off until the first sha-<8> build of the runner image exists (teknoir/ci-workflows runner-image.yml). The pin
+  # The ARC runner image (teknoir/ci-workflows runner-image.yml, first sha-<8> build 2026-11-25, P6.4). The pin
   # lives in the three ARC scale-set values files, not in pins/ci-runner.yaml.
   - name: ci-runner
-    enabled: false
+    enabled: true
     sameCommit: false
     images:
       - {component: ci-runner, poll: ghcr.io/teknoir/ci-runner, repository: ghcr.io/teknoir/ci-runner, key: template.spec.containers.0.image, style: ref, files: [charts/ci-runners/arc/teknoir-ci.yaml, charts/ci-runners/arc/teknoir-land.yaml, charts/ci-runners/arc/teknoir-push.yaml]}

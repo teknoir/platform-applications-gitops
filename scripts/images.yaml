@@ -41,8 +41,8 @@ groups:
   wg-tunnel: {same_commit: true, enabled: true}
   web-terminal: {same_commit: false, enabled: true}
   teknoir-desktop: {same_commit: true, enabled: true}
-  # Off until the first sha-<8> build of the runner image exists (teknoir/ci-workflows runner-image.yml).
-  ci-runner: {same_commit: false, enabled: false}
+  # The ARC runner image (teknoir/ci-workflows runner-image.yml, first sha-<8> build 2026-11-25, P6.4).
+  ci-runner: {same_commit: false, enabled: true}
 
 images:
   - component: backstage-app
