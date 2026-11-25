@@ -145,6 +145,10 @@ spec:
         - ../../pins/teknoir-desktop.yaml
         - ../../pins/web-terminal.yaml
         - ../../pins/wg-tunnel.yaml
+        # Fleet pointers of the hardware classes (fleet/README.md): the commit each class DAS sends.
+        - ../../fleet/jetson-orin.yaml
+        - ../../fleet/nvidia-rtx.yaml
+        - ../../fleet/raspberry-pi.yaml
       parameters:
         # Retained config republish (plans/teknoirbot/root-in-vm.md R0): app-of-apps values
         # deviceController.retainedConfigRepublish, staged off -> log -> on. Staging only (this allowlist): every other

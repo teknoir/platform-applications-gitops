@@ -7,6 +7,7 @@ Checks the rendered manifests of a release (scripts/staging-render.sh output, or
     revision-not-release   a gitops Application whose targetRevision is not the release SHA (release given only)
     release-invalid        the release given is not a 40-hex commit SHA
     chart-dependency-range a chart dependency that is a range, not an exact version
+    fleet-pointer          a fleet/<class>.yaml that is not one class named after its file with a 40-hex revision
     exception-expired      an exception of release-policy.yaml past its date
     app-not-roundtrip-stable  a rendered Application with a field that ArgoCD's Go types drop when they write the
                            object back (an empty `sources: []`, an empty-string/null/empty-list omitempty field)
@@ -375,6 +376,44 @@ def check_chart_deps(repo_root: str) -> list[Finding]:
     return out
 
 
+def check_fleet_pointers(repo_root: str) -> list[Finding]:
+    """Every fleet/<class>.yaml (fleet/README.md, CI v4 P8.5 flow 3.5) is one class named after its file, with a
+    40-hex commit: the device-controller templates fail a render otherwise, and a wrong pointer would reach
+    devices only after a promotion."""
+    out = []
+    d = os.path.join(repo_root, "fleet")
+    if not os.path.isdir(d):
+        return out
+    for name in sorted(os.listdir(d)):
+        if not name.endswith((".yaml", ".yml")):
+            continue
+        path = os.path.join(d, name)
+        cls = name.rsplit(".", 1)[0]
+        where = f"fleet/{name}"
+        try:
+            with open(path) as fh:
+                doc = yaml.safe_load(fh) or {}
+        except yaml.YAMLError as e:
+            out.append(Finding("error", "fleet-pointer", f"not valid YAML: {e}", where))
+            continue
+        fleets = doc.get("fleets") if isinstance(doc, dict) else None
+        if not isinstance(fleets, dict) or len(fleets) != 1:
+            out.append(Finding("error", "fleet-pointer",
+                               f"must hold exactly one class under fleets, not {list(fleets) if isinstance(fleets, dict) else fleets!r}",
+                               where))
+            continue
+        (found, entry), = fleets.items()
+        if found != cls:
+            out.append(Finding("error", "fleet-pointer",
+                               f"holds class '{found}', but the file is named {cls}.yaml", where))
+            continue
+        rev = (entry or {}).get("revision") if isinstance(entry, dict) else None
+        if not isinstance(rev, str) or not SHA40.match(rev):
+            out.append(Finding("error", "fleet-pointer",
+                               f"fleets.{found}.revision is {rev!r}, not a 40-hex commit", where))
+    return out
+
+
 def _walk_revisions(obj, path=""):
     if isinstance(obj, dict):
         for k, v in obj.items():
@@ -451,6 +490,7 @@ def lint(docs, *, policy: dict, release: str | None, project: str, repo_root: st
     out += check_exceptions(policy, today)
     if repo_root:
         out += check_chart_deps(repo_root)
+        out += check_fleet_pointers(repo_root)
     out += check_images(collect_images(docs), policy, today, verbose)
     out += check_crs(docs, "error" if policy.get("cr_revisions") == "deny" else "warn")
     out += check_profiles(docs)
@@ -463,7 +503,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--policy", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "release-policy.yaml"))
     ap.add_argument("--release", help="the release commit SHA every gitops Application must follow")
     ap.add_argument("--project", default="teknoir-cloud")
-    ap.add_argument("--repo-root", help="checkout whose charts/*/Chart.yaml dependencies are checked")
+    ap.add_argument("--repo-root", help="checkout whose charts/*/Chart.yaml dependencies and fleet/*.yaml pointers are checked")
     ap.add_argument("--today", help="YYYY-MM-DD (default: today, for the exception expiry)")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--quiet", action="store_true", help="only errors")

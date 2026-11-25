@@ -1,0 +1,5 @@
+# Fleet pointer of hardware class jetson-orin (CI v4 P8.5, flow 3.5): the teknoir-demo-gitops commit the class
+# DAS of this class send to its robots. Change it by PR; Kargo ships and verifies it like any other gitops change.
+fleets:
+  jetson-orin:
+    revision: 2140e79c8d8815da3bb2bd1a186187322b2d0362

@@ -145,13 +145,25 @@ class PinsWiring(unittest.TestCase):
             if not files:
                 continue
             self.assertEqual(files[0], "values.yaml", name)
-            pins = files[1:]
+            rest = files[1:]
+            # The fleet pointers (fleet/README.md) follow the pins files, themselves alphabetical.
+            fleet_at = next((i for i, f in enumerate(rest) if f.startswith("../../fleet/")), len(rest))
+            pins, fleet = rest[:fleet_at], rest[fleet_at:]
             self.assertEqual(pins, sorted(pins), f"{name}: pins files alphabetical")
             chart = source(app).get("path") or ""
             for f in pins:
                 self.assertRegex(f, r"^\.\./\.\./pins/[a-z0-9-]+\.yaml$", name)
                 # ArgoCD resolves a value file against the chart in the repository
                 self.assertTrue(os.path.isfile(os.path.join(ROOT, chart, f)), f"{name}: {f}")
+            self.assertEqual(fleet, sorted(fleet), f"{name}: fleet files alphabetical")
+            for f in fleet:
+                self.assertRegex(f, r"^\.\./\.\./fleet/[a-z0-9-]+\.yaml$", name)
+                self.assertTrue(os.path.isfile(os.path.join(ROOT, chart, f)), f"{name}: {f}")
+
+    def test_the_device_controller_lists_the_fleet_pointers_of_the_three_classes(self):
+        files = (source(self.cloud["device-controller"]).get("helm") or {}).get("valueFiles") or []
+        self.assertEqual(files[-3:], ["../../fleet/jetson-orin.yaml", "../../fleet/nvidia-rtx.yaml",
+                                      "../../fleet/raspberry-pi.yaml"])
 
     def test_the_affected_applications_are_exactly_the_ones_with_a_group(self):
         # a values_files row (ci-runner) has no valueFiles Application: the scale sets read it through `$values`

@@ -4,30 +4,61 @@ pushed to the devices that match a label selector, as created in Backstage. Neve
 or deleted by ArgoCD (removing an entry leaves the set; delete it by hand to stop it).
 An entry may also set labels, annotations and priority; they are merged under the fixed
 label and annotation, which always win, and priority is emitted only when the key is set.
+An entry may set fleet: <class> instead of a revision on each application: the commit then comes
+from values fleets.<class>.revision (the fleet/<class>.yaml values file the device-controller
+Application passes, fleet/README.md), and the DAS carries the label teknoir.org/fleet: <class>.
 Removing an entry later leaves the object in the cluster and the Application OutOfSync (Prune=false):
 delete it by hand in the same window as the removal PR.
 */ -}}
+{{- $fleets := $.Values.fleets | default dict }}
 {{- range .Values.platformDeviceApplicationSets }}
+{{- $entry := . }}
+{{- $class := "" }}
+{{- $rev := "" }}
+{{- if hasKey $entry "fleet" }}
+{{- $class = toString $entry.fleet }}
+{{- if kindIs "map" (get $fleets $class) }}{{ $rev = toString ((get $fleets $class).revision | default "") }}{{ end }}
+{{- if not $rev }}
+{{- fail (printf "platformDeviceApplicationSets %s: fleet %s has no revision (fleet/%s.yaml, passed by the device-controller Application)" $entry.name $class $class) }}
+{{- end }}
+{{- if not (regexMatch "^[0-9a-f]{40}$" $rev) }}
+{{- fail (printf "platformDeviceApplicationSets %s: fleet %s revision '%s' is not a 40-character lowercase hex commit (fleet/%s.yaml)" $entry.name $class $rev $class) }}
+{{- end }}
+{{- end }}
 ---
 apiVersion: teknoir.org/v1
 kind: DeviceApplicationSet
 metadata:
-  name: {{ .name }}
-  namespace: {{ .namespace }}
+  name: {{ $entry.name }}
+  namespace: {{ $entry.namespace }}
   annotations:
     {{- $ann := dict "argocd.argoproj.io/sync-options" "Prune=false,Delete=false" }}
-    {{- if .annotations }}{{ $ann = mergeOverwrite (deepCopy .annotations) $ann }}{{ end }}
+    {{- if $entry.annotations }}{{ $ann = mergeOverwrite (deepCopy $entry.annotations) $ann }}{{ end }}
     {{- toYaml $ann | nindent 4 }}
   labels:
     {{- $lab := dict "teknoir.org/managed-by" "gitops" }}
-    {{- if .labels }}{{ $lab = mergeOverwrite (deepCopy .labels) $lab }}{{ end }}
+    {{- if $class }}{{ $lab = dict "teknoir.org/managed-by" "gitops" "teknoir.org/fleet" $class }}{{ end }}
+    {{- if $entry.labels }}{{ $lab = mergeOverwrite (deepCopy $entry.labels) $lab }}{{ end }}
     {{- toYaml $lab | nindent 4 }}
 spec:
-  {{- if hasKey . "priority" }}
-  priority: {{ .priority }}
+  {{- if hasKey $entry "priority" }}
+  priority: {{ $entry.priority }}
   {{- end }}
   selector:
-    {{- toYaml .selector | nindent 4 }}
+    {{- toYaml $entry.selector | nindent 4 }}
   applications:
-    {{- toYaml .applications | nindent 4 }}
+  {{- if $class }}
+    {{- $apps := list }}
+    {{- range $entry.applications }}
+    {{- $item := deepCopy . }}
+    {{- if hasKey $item "revision" }}
+    {{- fail (printf "platformDeviceApplicationSets %s: application %s sets revision, but the entry uses fleet %s: the commit comes from fleet/%s.yaml" $entry.name (toString (get $item "path" | default "<no path>")) $class $class) }}
+    {{- end }}
+    {{- $_ := set $item "revision" $rev }}
+    {{- $apps = append $apps $item }}
+    {{- end }}
+    {{- toYaml $apps | nindent 4 }}
+  {{- else }}
+    {{- toYaml $entry.applications | nindent 4 }}
+  {{- end }}
 {{- end }}
