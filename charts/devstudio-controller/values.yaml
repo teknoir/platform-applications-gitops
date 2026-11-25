@@ -60,3 +60,11 @@ config:
   projectId: "teknoir"
   domain: "teknoir.cloud"
   addFsgroup: "false"
+
+# The Devstudio workload image (CI v4 P6.6). image: the pinned ref every unpinned (untagged or :latest)
+# Devstudio CR of a replaced repository runs; filled from pins/devstudio-cloud.yaml on staging (Kargo stage
+# pin-devstudio-cloud). Empty: the CR's spec.image is used as is. imageReplaces: comma list of repositories the
+# pin stands in for; empty: the controller default ghcr.io/teknoir/devstudio-cloud.
+devstudio:
+  image: ""
+  imageReplaces: ""

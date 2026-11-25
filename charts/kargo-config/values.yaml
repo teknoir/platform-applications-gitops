@@ -74,6 +74,8 @@ autoPromotion:
     profile-controller: true
     # devstudio-controller: DEVSTUDIO_IMAGE support (#40), inert until the chart sets it (P6.6).
     devstudio-controller: true
+    # devstudio-cloud (P6.6): the Devstudio workload image (DEVSTUDIO_IMAGE); a pin rolls every unpinned Devstudio.
+    devstudio-cloud: true
 
 staging:
   # P4.3 (b) fallback: also set the root Application's Helm parameter `release` to the Freight commit (besides
@@ -154,6 +156,11 @@ groups:
     sameCommit: false
     images:
       - {component: devstudio-controller, poll: harbor.teknoir.cloud/teknoir/devstudio-controller, repository: harbor.teknoir.cloud/teknoir/devstudio-controller, key: image.tag, style: tag}
+  - name: devstudio-cloud
+    enabled: true
+    sameCommit: false
+    images:
+      - {component: devstudio-cloud, poll: harbor.teknoir.cloud/teknoir/devstudio-cloud, repository: harbor.teknoir.cloud/teknoir/devstudio-cloud, key: devstudio.image, style: ref}
   - name: user-controller
     enabled: true
     sameCommit: false
