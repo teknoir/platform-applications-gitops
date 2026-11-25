@@ -5,4 +5,4 @@ image:
   # Pinned by tag@digest: profile-controller teknoir-cloud (59523f59), r5 release line.
   # profile-controller 2b54db9 (teknoir-cloud #211: Deadend plugin off by default, plans/ssh-tunnel-removal.md
   # step 8). Previous pin: sha-59523f59@sha256:6d67f83d05da3f043f4a1382798830773d72fe721addef5919fd4d1c393b0fcf
-  tag: "sha-f31a3fbd@sha256:ce635c2fe93dc57b38a8038241c3d72e961a41c74dc38941974459fafa7694f0"
+  tag: sha-68f1b2bf@sha256:c738341b220e058f41f0d30ab2b48f985970fbab9c90f50c0b4ba2fb0efb65a6
