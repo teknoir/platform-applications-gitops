@@ -14,10 +14,10 @@ hub:
     # and planned handover, the KEYCLOAK_AUDIENCE* (audience) check, zero-touch activation, revoke notice, k3s
     # Service discovery and the agent race fixes. Re-pin with scripts/pin-image wg-hub=sha-<commit>.
     # Previous pin: sha-37fe475@sha256:4a405ccced8b389e254d3f9965b0c2ea35ca1b0a77bb6c42c17b076b7b27f58b
-    tag: sha-2818ed65@sha256:f50984e25de926022f03ab210f16dfd93b1dd75b14f9e5960cc5e1fa0936d211
+    tag: sha-28c38567@sha256:d96f2133f28a874525af4800eae61efacb90660a588527a4e18f2fb86db4aa28
 ztna:
   # REQUIRED once enabled (the render fails without them): the wg-agent image that the controller
   # injects into a device, and the per-device WireGuard web terminal image
   # (SSH_PROXY_MODE=wireguard). '<immutable tag>@sha256:<digest>'.
-  agentImage: ghcr.io/teknoir/wg-agent:sha-2818ed65@sha256:3bd39e8d5922830ed9d667b566fc0846d4c0e17865da6645b939cfe65b6d6e70
-  gatewayImage: ghcr.io/teknoir/wg-gateway:sha-2818ed65@sha256:ef37d785ec8a194e45f05ebae82da60f4b4ffa2c1e9da64ecc4613ae5806ec31
+  agentImage: ghcr.io/teknoir/wg-agent:sha-28c38567@sha256:7af3acc3b892b9c57cd338c71626e230a9592a00a40be35544ca4e5dde25322b
+  gatewayImage: ghcr.io/teknoir/wg-gateway:sha-28c38567@sha256:7a58e045d978df40c67cea29ab32cd2f6accba4be8878692c919fc0e9a930d2d
