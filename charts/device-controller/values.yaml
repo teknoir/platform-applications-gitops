@@ -194,6 +194,9 @@ ztna:
     - cluster.local/ns/teknoir-system/sa/backstage-api
 
 # DeviceApplicationSets every install gets (templates/platform-device-application-sets.yaml).
+# An entry may also set optional labels and annotations maps and an integer priority; they
+# are merged under the fixed label and annotation (which always win), and priority is
+# emitted only when the key is present.
 # teknoir-demo: the starter apps of teknoir-demo-gitops on the test devices (label
 # device-group=test), as on r415 before the move to vpro (2026-10-16).
 # Revisions are commit SHAs (teknoir-demo-gitops main on 2026-10-17), so a push to that repo
@@ -228,3 +231,181 @@ platformDeviceApplicationSets:
     applications:
       - {repo_url: "https://github.com/teknoir/teknoir-demo-gitops", path: fleets/gpu-metrics/prometheus.yaml, revision: 2140e79c8d8815da3bb2bd1a186187322b2d0362}
       - {repo_url: "https://github.com/teknoir/teknoir-demo-gitops", path: fleets/gpu-jetson/gpu-metrics.yaml, revision: 2140e79c8d8815da3bb2bd1a186187322b2d0362}
+  # The mock apps of the next-gen robot pages (teknoir-demo-gitops apps/mock-*), simulated sensors, telemetry
+  # and cameras on every Robot. Hand-applied on 2026-10-19 at branch nextgen; since CI v4 P8.1 pinned at
+  # 1ea24b5f (nextgen's head then, archive/nextgen-20261125), the same content.
+  - name: mock-io
+    namespace: teknoir-demo
+    annotations:
+      teknoir.org/description: Simulated IMU, odometry, motors, environment and e-stop on the io node (mock data, replace with ROS2 later)
+      teknoir.org/display-name: Mock sensors and control
+    selector:
+      matchExpressions:
+        - key: teknoir.org/robot-type
+          operator: In
+          values:
+            - mobile-robot
+            - sensor-unit
+    applications:
+      - node_role: io
+        path: apps/mock-io
+        repo_url: https://github.com/teknoir/teknoir-demo-gitops
+        revision: 1ea24b5f3ce479f6afa092c64c2e9240bde1e742
+  - name: mock-telemetry
+    namespace: teknoir-demo
+    annotations:
+      teknoir.org/description: Simulated battery, pose, speed, task and faults on every robot (mock data, replace with ROS2 later)
+      teknoir.org/display-name: Mock robot telemetry
+    selector:
+      matchExpressions:
+        - key: teknoir.org/robot
+          operator: Exists
+    applications:
+      - path: apps/mock-robot-telemetry
+        repo_url: https://github.com/teknoir/teknoir-demo-gitops
+        revision: 1ea24b5f3ce479f6afa092c64c2e9240bde1e742
+  - name: mock-vision
+    namespace: teknoir-demo
+    annotations:
+      teknoir.org/description: A simulated NVR camera and vision model results on the vision node (mock data, replace with the NVR later)
+      teknoir.org/display-name: Mock cameras and vision
+    selector:
+      matchExpressions:
+        - key: teknoir.org/robot-type
+          operator: In
+          values:
+            - vision-station
+            - mobile-robot
+    applications:
+      - node_role: vision
+        path: apps/mock-camera
+        repo_url: https://github.com/teknoir/teknoir-demo-gitops
+        revision: 1ea24b5f3ce479f6afa092c64c2e9240bde1e742
+      - node_role: vision
+        path: apps/mock-vision
+        repo_url: https://github.com/teknoir/teknoir-demo-gitops
+        revision: 1ea24b5f3ce479f6afa092c64c2e9240bde1e742
+
+# RobotTypes every install gets (templates/platform-robot-types.yaml): name, namespace, optional labels and
+# annotations, and spec (copied verbatim). Every applications[].revision is a 40-hex commit (CI v4 P8.1).
+# Transcribed from the hand-applied objects in teknoir-demo on 2026-11-25 (CI v4 P8.1), with branch revisions
+# replaced by the commit they pointed at: main -> b3546591 (the devstudio 0.1.0 merge), nextgen -> 1ea24b5f.
+platformRobotTypes:
+  - name: mobile-robot
+    namespace: teknoir-demo
+    spec:
+      applications:
+        - node_role: vision
+          path: test/notebook.yaml
+          repo_url: https://github.com/teknoir/teknoir-demo-gitops
+          revision: b35465914439f74af8d540645c339e3773092d69
+        - node_role: vision
+          path: common/devstudio.yaml
+          repo_url: https://github.com/teknoir/teknoir-demo-gitops
+          revision: b35465914439f74af8d540645c339e3773092d69
+      capabilities:
+        - vision
+        - nvr
+        - navigation
+        - io
+      description: Jetson for perception and the NVR, plus a Raspberry Pi for sensors and control
+      displayName: Mobile robot
+      nodes:
+        - description: Jetson for on-robot vision models and the NVR
+          hardware: nv-jetson-agx-orin-devkit-32Gb-l4tr35.4.1
+          k3s: server
+          labels:
+            teknoir.org/gpu: jetson
+          role: vision
+        - description: Sensors, cameras, motor control and ROS2 I/O
+          hardware: raspberry-pi
+          k3s: agent
+          role: io
+  - name: sensor-unit
+    namespace: teknoir-demo
+    spec:
+      capabilities:
+        - sensors
+        - io
+      description: Single Raspberry Pi with sensors and cameras
+      displayName: Sensor unit
+      nodes:
+        - description: Sensors, cameras and MQTT
+          hardware: raspberry-pi
+          k3s: server
+          role: io
+  - name: vision-station
+    namespace: teknoir-demo
+    spec:
+      capabilities:
+        - vision
+        - nvr
+        - recording
+      description: Fixed station that runs vision models and records cameras (NVR) on an NVIDIA GPU
+      displayName: Vision station
+      nodes:
+        - description: GPU computer for vision models, the NVR and recordings
+          hardware: nvidia-rtx
+          k3s: server
+          labels:
+            teknoir.org/gpu: nvidia
+          role: vision
+# Robots every install gets (templates/platform-robots.yaml), same shape; spec.type names a RobotType.
+# The four Robots of the Karlstad lab (vision-station-02 on orin-agx-64gb-se since 2026-11-24, no own apps).
+platformRobots:
+  - name: mobile-01
+    namespace: teknoir-demo
+    labels:
+      site: karlstad
+    spec:
+      applications:
+        - path: robots/mobile-01
+          repo_url: https://github.com/teknoir/teknoir-demo-gitops
+          revision: 1ea24b5f3ce479f6afa092c64c2e9240bde1e742
+      device: orin-agx-32gb-se
+      nodes:
+        - nodeName: teknoir-master
+          role: vision
+        - nodeName: mobile-01-io
+          role: io
+      serverAddress: 192.168.2.51
+      type: mobile-robot
+  - name: sensor-unit-01
+    namespace: teknoir-demo
+    labels:
+      site: karlstad
+    spec:
+      applications:
+        - path: robots/sensor-unit-01
+          repo_url: https://github.com/teknoir/teknoir-demo-gitops
+          revision: 1ea24b5f3ce479f6afa092c64c2e9240bde1e742
+      device: rpi4-white-se
+      nodes:
+        - nodeName: teknoir-master
+          role: io
+      type: sensor-unit
+  - name: vision-station-01
+    namespace: teknoir-demo
+    labels:
+      site: karlstad
+    spec:
+      applications:
+        - path: robots/vision-station-01
+          repo_url: https://github.com/teknoir/teknoir-demo-gitops
+          revision: 1ea24b5f3ce479f6afa092c64c2e9240bde1e742
+      device: rtx2000-ada-128gb-se
+      nodes:
+        - nodeName: teknoir-master
+          role: vision
+      type: vision-station
+  - name: vision-station-02
+    namespace: teknoir-demo
+    labels:
+      gpu: jetson
+      site: karlstad
+    spec:
+      device: orin-agx-64gb-se
+      nodes:
+        - nodeName: vision-station-02-vision
+          role: vision
+      type: vision-station

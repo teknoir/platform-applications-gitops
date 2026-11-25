@@ -1,0 +1,265 @@
+suite: platform DeviceApplicationSets, RobotTypes and Robots
+# The optional labels/annotations/priority keys of the DAS entries, and the two new CR templates
+# (CI v4 P8.1). Every test names the one template it tests, so the rest of the chart is not rendered.
+# helm renders the whole chart even when a test asserts one template, and deployment.yaml requires the image pins
+# the device-controller Application passes (charts/app-of-apps/templates/controllers.yaml).
+values:
+  - ../../../pins/device-controller.yaml
+  - ../../../pins/teknoir-desktop.yaml
+  - ../../../pins/web-terminal.yaml
+  - ../../../pins/wg-tunnel.yaml
+tests:
+  - it: keeps the three default DAS documents with only the fixed annotation and label, and no priority
+    templates:
+      - templates/platform-device-application-sets.yaml
+    documentSelector:
+      path: metadata.name
+      value: demo-test
+    asserts:
+      - hasDocuments: {count: 6}
+      - equal:
+          path: metadata.annotations
+          value: {argocd.argoproj.io/sync-options: "Prune=false,Delete=false"}
+      - equal:
+          path: metadata.labels
+          value: {teknoir.org/managed-by: gitops}
+      - notExists: {path: spec.priority}
+
+  - it: emits spec.priority 0 when the entry sets priority 0 explicitly
+    templates:
+      - templates/platform-device-application-sets.yaml
+    set:
+      platformDeviceApplicationSets:
+        - name: zero
+          namespace: teknoir-demo
+          priority: 0
+          selector: {matchLabels: {device-group: test}}
+          applications: []
+    documentSelector:
+      path: metadata.name
+      value: zero
+    asserts:
+      - equal: {path: spec.priority, value: 0}
+
+  - it: emits spec.priority 7 when the entry sets it
+    templates:
+      - templates/platform-device-application-sets.yaml
+    set:
+      platformDeviceApplicationSets:
+        - name: seven
+          namespace: teknoir-demo
+          priority: 7
+          selector: {matchLabels: {device-group: test}}
+          applications: []
+    documentSelector:
+      path: metadata.name
+      value: seven
+    asserts:
+      - equal: {path: spec.priority, value: 7}
+
+  - it: merges the entry's annotations and labels under the fixed ones, which always win
+    templates:
+      - templates/platform-device-application-sets.yaml
+    set:
+      platformDeviceApplicationSets:
+        - name: merged
+          namespace: teknoir-demo
+          annotations:
+            teknoir.org/display-name: X
+            argocd.argoproj.io/sync-options: Prune=true
+          labels:
+            site: k
+            teknoir.org/managed-by: hand
+          selector: {matchLabels: {device-group: test}}
+          applications: []
+    documentSelector:
+      path: metadata.name
+      value: merged
+    asserts:
+      - equal:
+          path: metadata.annotations["teknoir.org/display-name"]
+          value: X
+      - equal:
+          path: metadata.annotations["argocd.argoproj.io/sync-options"]
+          value: "Prune=false,Delete=false"
+      - equal: {path: metadata.labels.site, value: k}
+      - equal:
+          path: metadata.labels["teknoir.org/managed-by"]
+          value: gitops
+
+  - it: renders no RobotType documents when platformRobotTypes is empty
+    templates:
+      - templates/platform-robot-types.yaml
+    set:
+      platformRobotTypes: []
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: renders no Robot documents when platformRobots is empty
+    templates:
+      - templates/platform-robots.yaml
+    set:
+      platformRobots: []
+    asserts:
+      - hasDocuments: {count: 0}
+
+  # The shipped entries (transcribed from teknoir-demo on 2026-11-25): every one in teknoir-demo, pinned to a commit.
+  - it: ships the three RobotTypes of teknoir-demo
+    templates:
+      - templates/platform-robot-types.yaml
+    asserts:
+      - hasDocuments: {count: 3}
+      - equal: {path: metadata.namespace, value: teknoir-demo}
+      - matchRegex: {path: 'metadata.name', pattern: '^(mobile-robot|sensor-unit|vision-station)$'}
+
+  - it: pins mobile-robot's notebook and devstudio apps to the devstudio 0.1.0 commit
+    templates:
+      - templates/platform-robot-types.yaml
+    documentSelector: {path: metadata.name, value: mobile-robot}
+    asserts:
+      - equal: {path: 'spec.applications[0].path', value: test/notebook.yaml}
+      - equal: {path: 'spec.applications[0].revision', value: b35465914439f74af8d540645c339e3773092d69}
+      - equal: {path: 'spec.applications[1].path', value: common/devstudio.yaml}
+      - equal: {path: 'spec.applications[1].revision', value: b35465914439f74af8d540645c339e3773092d69}
+
+  - it: ships the four Robots, each bound to its device
+    templates:
+      - templates/platform-robots.yaml
+    asserts:
+      - hasDocuments: {count: 4}
+      - equal: {path: metadata.namespace, value: teknoir-demo}
+      - equal: {path: 'metadata.labels.site', value: karlstad}
+      - matchRegex: {path: 'spec.device', pattern: '^(orin-agx-32gb-se|rpi4-white-se|rtx2000-ada-128gb-se|orin-agx-64gb-se)$'}
+
+  - it: pins the Robot apps to nextgen's head as of the move (1ea24b5f)
+    templates:
+      - templates/platform-robots.yaml
+    documentSelector: {path: metadata.name, value: vision-station-01}
+    asserts:
+      - equal: {path: 'spec.applications[0].path', value: robots/vision-station-01}
+      - equal: {path: 'spec.applications[0].revision', value: 1ea24b5f3ce479f6afa092c64c2e9240bde1e742}
+
+  - it: keeps the mock DAS selector, node role and Backstage annotations
+    templates:
+      - templates/platform-device-application-sets.yaml
+    documentSelector: {path: metadata.name, value: mock-io}
+    asserts:
+      - equal: {path: 'metadata.annotations["teknoir.org/display-name"]', value: Mock sensors and control}
+      - equal: {path: 'metadata.annotations["argocd.argoproj.io/sync-options"]', value: 'Prune=false,Delete=false'}
+      - equal: {path: 'metadata.labels["teknoir.org/managed-by"]', value: gitops}
+      - equal: {path: 'spec.selector.matchExpressions[0].values', value: [mobile-robot, sensor-unit]}
+      - equal: {path: 'spec.applications[0].node_role', value: io}
+      - equal: {path: 'spec.applications[0].revision', value: 1ea24b5f3ce479f6afa092c64c2e9240bde1e742}
+      - notExists: {path: spec.priority}
+
+  - it: renders a RobotType with its spec verbatim and the fixed annotation and label
+    templates:
+      - templates/platform-robot-types.yaml
+    set:
+      platformRobotTypes:
+        - name: rt
+          namespace: ns
+          spec:
+            displayName: D
+            applications:
+              - {repo_url: "https://github.com/teknoir/x", path: p, revision: 0123456789abcdef0123456789abcdef01234567}
+    documentSelector:
+      path: metadata.name
+      value: rt
+    asserts:
+      - isKind: {of: RobotType}
+      - equal: {path: apiVersion, value: teknoir.org/v1alpha1}
+      - equal: {path: metadata.namespace, value: ns}
+      - exists: {path: metadata.labels}
+      - equal:
+          path: spec
+          value:
+            displayName: D
+            applications:
+              - {repo_url: "https://github.com/teknoir/x", path: p, revision: 0123456789abcdef0123456789abcdef01234567}
+      - matchRegex: {path: 'spec.applications[0].revision', pattern: '^[0-9a-f]{40}$'}
+      - equal:
+          path: metadata.annotations["argocd.argoproj.io/sync-options"]
+          value: "Prune=false,Delete=false"
+      - equal:
+          path: metadata.labels["teknoir.org/managed-by"]
+          value: gitops
+
+  - it: renders a Robot with its spec verbatim and the gitops marker as an annotation, with no labels
+    templates:
+      - templates/platform-robots.yaml
+    set:
+      platformRobots:
+        - name: r1
+          namespace: ns
+          spec:
+            type: rt
+            device: d1
+            nodes:
+              - {nodeName: n1, role: vision}
+            applications:
+              - {repo_url: "https://github.com/teknoir/x", path: p, revision: 0123456789abcdef0123456789abcdef01234567}
+    documentSelector:
+      path: metadata.name
+      value: r1
+    asserts:
+      - isKind: {of: Robot}
+      - equal: {path: apiVersion, value: teknoir.org/v1alpha1}
+      - equal: {path: metadata.namespace, value: ns}
+      - equal:
+          path: spec
+          value:
+            type: rt
+            device: d1
+            nodes:
+              - {nodeName: n1, role: vision}
+            applications:
+              - {repo_url: "https://github.com/teknoir/x", path: p, revision: 0123456789abcdef0123456789abcdef01234567}
+      - equal:
+          path: metadata.annotations["argocd.argoproj.io/sync-options"]
+          value: "Prune=false,Delete=false"
+      - equal:
+          path: metadata.annotations["teknoir.org/managed-by"]
+          value: gitops
+      - notExists: {path: metadata.labels}
+
+  # device-controller copies Robot labels onto the Device (robot_controller.go copiedLabels): the gitops marker
+  # must never become a Device label.
+  - it: keeps a Robot's own labels and never adds teknoir.org/managed-by as a label
+    templates:
+      - templates/platform-robots.yaml
+    documentSelector: {path: metadata.name, value: vision-station-02}
+    asserts:
+      - equal: {path: metadata.labels, value: {gpu: jetson, site: karlstad}}
+      - equal: {path: 'metadata.annotations["teknoir.org/managed-by"]', value: gitops}
+
+  - it: refuses a Robot entry that sets teknoir.org/managed-by as a label
+    templates:
+      - templates/platform-robots.yaml
+    set:
+      platformRobots:
+        - {name: r1, namespace: ns, labels: {teknoir.org/managed-by: gitops}, spec: {type: rt}}
+    asserts:
+      - failedTemplate: {errorPattern: 'must not set teknoir.org/managed-by'}
+
+  - it: fails the render for a RobotType without a namespace
+    templates:
+      - templates/platform-robot-types.yaml
+    set:
+      platformRobotTypes:
+        - name: rt
+          spec: {displayName: D}
+    asserts:
+      - failedTemplate:
+          errorPattern: "platformRobotTypes\\[\\]\\.namespace is required"
+
+  - it: fails the render for a Robot without a spec
+    templates:
+      - templates/platform-robots.yaml
+    set:
+      platformRobots:
+        - name: r1
+          namespace: ns
+    asserts:
+      - failedTemplate:
+          errorPattern: "platformRobots\\[\\]\\.spec is required"
