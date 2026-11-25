@@ -92,3 +92,29 @@ The verified tag name, computed once by the compose-output step (Kargo cannot ev
 {{- end -}}
 {{- printf "chore(pins): %s ${{ imageFrom(%q).Tag }} [kargo]" (join " " $names) (index .images 0).poll -}}
 {{- end -}}
+
+{{/*
+The revision check's environment (files/revision-check.sh): the revision-check Job and the browser Job's
+wait-converged init container run the same script with it.
+*/}}
+{{- define "kargo-config.revisionCheckEnv" -}}
+- name: REVISION
+  value: {{ include "kargo-config.analysisArg.revision" "" | squote }}
+- name: ROOT_APP_NAME
+  value: {{ .Values.verification.rootApp.name | quote }}
+- name: ROOT_APP_NAMESPACE
+  value: {{ .Values.verification.rootApp.namespace | quote }}
+- name: EXCLUDE_APPS
+  value: {{ join " " .Values.verification.excludeApps | quote }}
+- name: DEVHOST_CI_SERVER
+  value: {{ .Values.verification.devhostCiServer | quote }}
+- name: GITOPS_REPO_URL
+  value: {{ .Values.gitops.repoURL | quote }}
+# The profile-controller ConfigMap in the root Application's namespace; its
+# PLUGIN_CHART_VERSION key (charts/profile-controller templates/configmap.yaml) is the
+# version every profile-plugin Application must follow.
+- name: PLUGIN_CONFIGMAP
+  value: {{ .Values.verification.pluginConfigMap.name | quote }}
+- name: PLUGIN_NAMESPACE
+  value: {{ .Values.verification.rootApp.namespace | quote }}
+{{- end -}}
