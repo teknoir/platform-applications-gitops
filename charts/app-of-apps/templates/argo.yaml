@@ -25,9 +25,6 @@ kind: Application
 metadata:
   name: argo
   annotations:
-{{- if .Values.releaseName }}
-    teknoir.org/release: {{ .Values.releaseName | quote }}
-{{- end }}
     argocd.argoproj.io/sync-wave: "-5"
 spec:
   destination:

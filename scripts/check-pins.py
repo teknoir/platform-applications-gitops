@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Release lint for staging releases (plans/staging-releases.md, "enforcement" 1).
+"""Release lint for the gitops render (plans/cicd/proposal-v4.md).
 
 Checks the rendered manifests of a release (scripts/staging-render.sh output, or any YAML files):
 
@@ -113,8 +113,7 @@ def load_policy(path: str | None) -> dict:
     # Unknown keys (e.g. the removed audience_hub_tags/portal_profile_controller_tags of an older checkout) are
     # ignored: images are built from main only since CI v4, so every new wg-hub and profile-controller tag contains
     # the audience check and the portal code, and the old allowlists would fail closed on every machine-written pin.
-    pol = {"images": "warn", "cr_revisions": "warn", "first_party_prefixes": DEFAULT_PREFIXES, "exceptions": [],
-           "rollback_floor": ""}
+    pol = {"images": "warn", "cr_revisions": "warn", "first_party_prefixes": DEFAULT_PREFIXES, "exceptions": []}
     known = set(pol)
     if path:
         with open(path) as fh:
@@ -336,8 +335,8 @@ def _roundtrip_unstable(node, path: str, key: str = "") -> list[str]:
 def check_roundtrip(docs: list[tuple[str, dict]]) -> list[Finding]:
     """argocd-server writes Sync and Terminate as a full Update of the Application through its Go types, so every
     omitempty field that is stored empty is dropped by the first UI/CLI sync. That changes spec on the wire, and
-    the release guard (charts/release-guard) would judge such a sync as a spec change. Hence the rendered
-    Applications must already be what ArgoCD would write back."""
+    so such an Application changes spec on its first UI sync. Hence the rendered Applications must already
+    be what ArgoCD would write back."""
     out = []
     for _, d in docs:
         if d.get("kind") != "Application":

@@ -1,86 +1,34 @@
-# Staging release tooling
+# GitOps tooling
 
-Design: `plans/staging-releases.md` (workspace). Staging (context `r415`, default `r415`, override with `--context` or `STAGING_CONTEXT`; the gitops branch, read from `origin/HEAD`: `main` since the CI v4 cut-over, `teknoir-cloud` before it) runs only the commit of the
-live `staging-YYYYMMDD.N` release, held as `targetRevision` of the hand-applied root Application `app-of-apps`.
-Merging to the gitops branch (`main`) queues a change; it is not live until a release.
+The gitops branch (`main`) is what staging renders. Kargo ships it: a merge to `main` is picked up by
+the `staging` Stage, which sets the root Application `app-of-apps` (`targetRevision`, and the helm
+parameter `release=$ARGOCD_APP_REVISION`) to that commit, verifies it, and tags `verified/<stamp>-<sha8>`.
+Rollback is a revert PR to `main`, which Kargo ships the same way.
 
 | Script | What |
 |---|---|
-| `staging-release` | dry run (default), `--yes SHA`, `--rollback`, `--verified TAG`, `--break-glass-begin/-end`, `--bootstrap`. `--help` has the details |
-| `staging-status` | where staging is and what is pending; read-only. `--devices` adds device-side revisions |
-| `staging-render.sh` | renders a release like ArgoCD (root, children with their `helm.valueFiles` and parameters, profile-plugin charts); cached by chart tree and value-file content |
-| `check-pins.py` | the release lint over the rendered manifests; `release-policy.yaml` holds its rules and the dated exceptions |
+| `staging-render.sh` | renders a release like ArgoCD (root, children with their `helm.valueFiles` and parameters, profile-plugin charts); cached by chart tree and value-file content under `~/.cache/gitops-render` |
+| `check-pins.py` | the lint over the rendered manifests (revision, digest pins, CR revisions, round-trip stability); `release-policy.yaml` holds its rules and the dated exceptions |
 | `pin-image` | pins a Teknoir-built image as `tag@sha256:digest` in the group's `pins/<group>.yaml` (or the chart values of a third party image; `scripts/images.yaml` lists them all); `--adopt-running`. A `wg-hub` pin changes only the tag (`hub.image.leaderElection` stays true) |
 | `watch.py` | the staging watch (`.github/workflows/watch.yml`, every 15 min once `vars.STAGING_WATCH` is `'true'`): an unverified default-branch commit older than 45 min, a `verified/*` tag without `freight=`, and `.github/rulesets/*.json` drifting from the live rulesets, each as one idempotent issue; `--dry-run` prints instead of calling gh |
-| `stagelib.py` | shared logic (tag numbering, candidate validation, plan, lease, convergence) |
 | `tests/` | `tests/run.sh` runs everything below |
 
 ```
-scripts/staging-release                       # dry run: pending commits, diff, lint, plan (valid 30 min)
-scripts/staging-release --yes <sha> --by <session> --reason "<why>"
-# browser check (CLAUDE.md), then
-scripts/staging-release --verified staging-YYYYMMDD.N
-scripts/staging-release --rollback            # newest verified earlier release; add --yes <target sha> to apply
+scripts/staging-render.sh --tree . --release <sha> --out /path/to/render
+python3 scripts/check-pins.py --release <sha> --repo-root . /path/to/render
+scripts/pin-image <component>=<tag> --pr        # a merged pin PR is shipped by Kargo
 ```
 
-Cutover (once): `scripts/staging-release --bootstrap` (the dry run must show no workload diff), then
-`--bootstrap --yes <sha>`.
+## Pins
 
-## Guards
+An image is pinned as `tag@sha256:<digest>`; `scripts/images.yaml` names every image, its group, key path
+and file. A grouped component is written to `pins/<group>.yaml`, a third-party one to its chart values.
+Groups that Kargo pins (`charts/kargo-config` pin Stages) get their pins as Kargo PRs; the rest, and the
+three third-party images, stay with `scripts/pin-image`.
 
-Context exactly `r415` (default `r415`, override with `--context` or `STAGING_CONTEXT`; names with online|eks|prod are refused); the tag is `staging-YYYYMMDD.N`
-(`^staging-[0-9]{8}\.[1-9][0-9]*$`, the same expression as the guard policy); the candidate is a first-parent commit of
-the gitops branch (`origin/HEAD`) that descends from the live release; `--yes` equals the dry-run SHA and the plan is fresh and
-live has not moved; the Lease `teknoir-system/staging-release-lock` is held from apply to converged; an existing tag is
-refused (push rejection retries with N+1); children must be converged on live (rollback and a re-run of the live SHA are
-exempt); removing Applications needs `--allow-remove`; the lint, `helm unittest charts/app-of-apps`, kubeconform and
-`crane manifest` of every `@sha256` image must pass.
-
-- **Which tooling decides.** The lint code (`check-pins.py`) and the image policy (`release-policy.yaml`) are those of
-  the CANDIDATE commit (its worktree), the rollback floor is read from the gitops branch (`origin/HEAD`).
-- **Tooling identity.** The tooling is the tree `git rev-parse HEAD:scripts` of the checkout that runs. `--yes` and
-  `--rollback --yes` refuse unless `scripts/` of the checkout is CLEAN (no uncommitted or staged change and no
-  untracked file, `__pycache__` aside; a file `git diff` cannot see is still a difference) and that tree equals
-  `git rev-parse <candidate>:scripts`. `--rollback --yes` accepts the head of the gitops branch (`origin/HEAD`), the live release or
-  the target instead of the candidate. The dry run records the tree (and any dirty paths) in the plan as `tooling`;
-  `--yes` refuses a plan whose tooling is not the one it runs. The message names the worktree to run it from.
-- **Who applies.** The releaser identity (`staging-releaser`) is used only when the release-guard chart installed it
-  (ServiceAccount, RoleBinding, `auth can-i`). Before that (the cutover and release .2, which switches the guard on)
-  the release is applied as the operator's own admin identity and the script says `guard not installed: applying as admin`.
-- **Portal bindings (backstage-sa).** A render in which a portal service account (`config.portal.serviceAccounts` of
-  `charts/profile-controller`) has no `teknoir-admin` ClusterRoleBinding left depends on profile-controller writing the
-  RoleBinding `teknoir-portal` into every teamspace. When the release diff removes a
-  `<name>-api-teknoir-admin-rolebinding`, the dry run and
-  `--yes` (before and under the Lease) read every `profiles.teknoir.org` and the `teknoir-portal` RoleBindings (read-only)
-  and refuse unless each teamspace has one with the ClusterRole and service accounts of the candidate's config.
-- **Under the Lease** the live release is read again and the plan, the candidate and the convergence guard are checked
-  again. At the cutover the convergence guard runs too (the candidate then equals the synced revision).
-- **Watching.** Only pods of workloads in the render, or pods (re)started after the patch, count; Argo Workflow pods do
-  not; Pending beyond 3 minutes is a failure. Deviation from the design (watch, step 7): the logs of the changed
-  controllers are NOT scanned by the script (the six Go controllers in CONTROLLER_APPS share no error format; a regex would roll good
-  releases back). The success output prints the `kubectl logs` commands for the controllers whose render changed.
-- **Release markers** (contract with `teknoir/infra` `staging-root.sh`, matched EXACTLY, nothing is trimmed): a GitHub
-  Release is `[rolled back] <tag>` (title starts with `[rolled back] `) and its body has the line `Rolled-Back: true`
-  after a rollback; `[not applied] <tag>` with `Not-Applied: true` when the root patch failed after the tag and Release
-  were created (the tag stays; it never went live). Either the title prefix or a body line that equals the trailer
-  marks it (` [rolled back] x`, `[rolled back]x`, an indented or trailing-space trailer do not); rollback targets, the
-  bootstrap pick and `--verified` skip marked releases.
-- **A failed root patch** is not taken at its word: the root is read again. Only when neither its release annotation nor
-  its `targetRevision` is the new release is the Release marked `[not applied]`. When both are the new ones the apiserver
-  did apply it and the watch continues; when the root cannot be read, or only one of them is new, the script reports the
-  ambiguity and marks nothing.
-- **`--verified`** needs staging converged on the release and a root exactly as the release writes it.
-- **`--skip-registry-check`** on the dry run makes the plan unusable for `--yes` unless it is repeated on `--yes`; the
-  tag message then says `registry check: SKIPPED`. The tag message also records `guard warn count at release`, the
-  baseline `staging-status` uses to report guard warnings since the release.
-
-## Notes for operators
-
-- The dry run is read-only on the cluster (`kubectl get` only); the only writes are `git fetch`, the worktrees and the
-  render cache under `~/.cache/staging-release/`.
-- `release-policy.yaml`: `images: warn` until the plugin pins are done (rollout step 8), then `deny`. The backstage-next
-  `:nextgen` exceptions expire 2026-11-30 (the planned Nextgen cut-over): extend the date in a reviewed PR or pin the image.
-  `rollback_floor` stays empty until the first release with the guard (release 2) exists.
-- Images that are not in `scripts/images.yaml` because they are not in this repo: the teamspace plugin images
-  (profile-plugins-helm chart defaults) and `devstudio-configure-devices` (rendered by the controllers).
+- `release-policy.yaml`: `images: deny` (first-party images must be digest-pinned); an exception is dated
+  and fails the lint once it expires. `cr_revisions: deny` (rendered teknoir.org CRs carry a 40-hex commit).
+- Images that are not in `scripts/images.yaml` because they are not in this repo: the teamspace plugin
+  images (profile-plugins-helm chart defaults) and `devstudio-configure-devices` (rendered by the
+  controllers).
 - Needs: kubectl, helm (+ the unittest plugin), git, crane, gh, kubeconform, dyff, curl, python3 + PyYAML.

@@ -15,7 +15,7 @@ party component (group: null) to its chart values file. For REF the script
   3. reads the org.opencontainers.image.revision label and prints the source commit
   4. rewrites the value in that file, keeping comments and quoting (only with --write; else prints it)
   5. with --pr: branch pin/<component>-<tag>, commit, push, `gh pr create` (base: --base, default the gitops
-     branch read from origin/HEAD: `main` since the CI v4 cut-over; merge, then the next release)
+     branch read from origin/HEAD: `main` since the CI v4 cut-over; a merged pin PR is shipped by Kargo)
 
 A wg-hub pin changes only the tag: every wg-tunnel main build has leader election, so hub.image.leaderElection stays
 true (the chart needs it while hub.leaderElection.enabled is on, as the leader Service selects a label only an image
@@ -40,7 +40,7 @@ import yaml
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-import stagelib as L  # noqa: E402
+import pinlib as L  # noqa: E402
 
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 SCALAR_RE = re.compile(r"""^(?P<indent>\s*)(?P<key>[A-Za-z0-9_.\-]+)\s*:\s*(?P<val>"[^"]*"|'[^']*'|[^\s#][^#]*?)?(?P<sp>\s*)(?P<comment>#.*)?$""")
@@ -264,7 +264,7 @@ class Pin:
         git.run("checkout", "-b", branch)
         git.run("add", res["file"])
         msg = (f"pin {res['name']} {res['tag']}\n\nvalue: {res['new']}\nsource commit: {res['revision'] or 'unknown'}\n\n"
-               "Merging this queues the pin; staging changes only with the next scripts/staging-release.\n\n"
+               "Merging this pin is shipped to staging by Kargo.\n\n"
                "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>")
         git.run("commit", "-m", msg)
         git.run("push", "-u", "origin", branch)
@@ -272,7 +272,7 @@ class Pin:
                       "--head", branch,
                       "--title", f"pin {res['name']} {res['tag']}",
                       "--body", f"Pins `{res['name']}` to `{res['new']}` (source commit {res['revision'] or 'unknown'}).\n\n"
-                                "Merging queues the change. Release it with `scripts/staging-release`.\n\n"
+                                "Merging this pin is shipped to staging by Kargo.\n\n"
                                 "🤖 Generated with [Claude Code](https://claude.com/claude-code)"])
 
     # ---- adopt what runs now -------------------------------------------------------------------

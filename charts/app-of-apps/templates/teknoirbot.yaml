@@ -27,10 +27,6 @@ metadata:
   # and teknoirbot-device-guard; the CRD and the bot fence policies are Delete=false, so every TeknoirBot stays, still fenced.
   finalizers:
     - resources-finalizer.argocd.argoproj.io
-{{- if .Values.releaseName }}
-  annotations:
-    teknoir.org/release: {{ .Values.releaseName | quote }}
-{{- end }}
 spec:
   destination:
     namespace: teknoir-system

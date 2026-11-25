@@ -44,7 +44,7 @@ class RenderWithoutKubectl(unittest.TestCase):
         # the fixture tree: a root chart rendering two gitops children (one with a helm parameter), one foreign Application
         tree = self.tree = os.path.join(self.tmp, "tree")
         write(os.path.join(tree, "charts/app-of-apps/Chart.yaml"), "apiVersion: v2\nname: app-of-apps\nversion: 0.1.0\n")
-        write(os.path.join(tree, "charts/app-of-apps/values.yaml"), "release: ''\nreleaseName: ''\n")
+        write(os.path.join(tree, "charts/app-of-apps/values.yaml"), "release: ''\n")
         write(os.path.join(tree, "charts/app-of-apps/templates/apps.yaml"), """\
 {{- range $n := list "alpha" "beta" }}
 ---
@@ -96,8 +96,8 @@ spec:
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def render(self, out, *extra):
-        return subprocess.run([os.path.join(self.bin, "bash"), SCRIPT, "--tree", self.tree, "--release", SHA, "--release-name",
-                               "staging-20261017.1", "--out", out, "--plugins", "none", *extra],
+        return subprocess.run([os.path.join(self.bin, "bash"), SCRIPT, "--tree", self.tree, "--release", SHA,
+                               "--out", out, "--plugins", "none", *extra],
                               capture_output=True, text=True, env=self.env)
 
     def test_kubectl_is_really_absent(self):

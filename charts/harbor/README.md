@@ -99,8 +99,8 @@ Create them in the Harbor UI under **Robot Accounts** or at the Project level.
 The initial implementation uses `hostPath`. For production, it is recommended to override the `harbor.persistence` values to use an S3-compatible backend (e.g., MinIO, GCS, AWS S3).
 
 ## teknoir-cloud (staging)
-Staging runs this chart as the `harbor` Application (`charts/app-of-apps/templates/ci.yaml`),
-as the registry of the on-cluster CI (`charts/ci`). Differences from the airgap values:
+Staging runs this chart as the `harbor` Application (`charts/app-of-apps/templates/harbor.yaml`),
+as the registry staging pulls its first-party images through. Differences from the airgap values:
 `harbor.teknoir.cloud`, public Let's Encrypt certificates (no CA bundle), OIDC off (realm
 master has no `harbor` client; admin + robot accounts), and `harbor-token-service` comes
 from cert-manager (`tokenServiceCert`, templates/token-service-cert.yaml).
@@ -120,8 +120,8 @@ from cert-manager (`tokenServiceCert`, templates/token-service-cert.yaml).
   Harbor (no upstream to fetch from again) keeps images until newer ones replace them
   (`latestPushedK` only, never `nDaysSinceLastPull`), see the comment in values.yaml;
 - weekly GC (blobs only; `deleteUntagged: false`, untagged artifacts go through the retention rules), audit-log purge (30 days), weekly scan-all;
-- robot `robot$ci`, written as `teknoir-ci/harbor-ci-robot` (charts/ci grants the Job that
-  Secret), robot `robot$nodes` (pull-only on the six proxies, never on `teknoir`), written as
+- robot `robot$ci`, written as `teknoir-ci/harbor-ci-robot` (only with `ciRobot.enabled`: the
+  retired on-cluster CI chart granted the Job that Secret; staging sets it to `false`), robot `robot$nodes` (pull-only on the six proxies, never on `teknoir`), written as
   `teknoir-system/harbor-nodes-pull`, and one pull-only robot per teamspace (below). A missing
   or stale Secret (or empty one, in teknoir-system) gets a fresh robot secret; delete `harbor-ci-robot` or empty the data of the other two to rotate.
 The Job only changes what differs and never prints a credential.
@@ -141,8 +141,8 @@ secret no longer logs in, gets its stored password back, seeded or not: delete t
 teamspace that will not get a Profile to end that.
 
 **No CI on the cluster.** `harborConfig.ciRobot.enabled: false` drops the robots whose Secret lives
-in `teknoir-ci` from the rendered config; app-of-apps sets it from `ci.enabled`. A value of `false`
-as a string (`--set-string`, or a `forceString: true` parameter) works too.
+in `teknoir-ci` from the rendered config; the harbor Application of app-of-apps sets it to the literal
+`false` (`harborConfig.ciRobot.enabled`), since the vpro-era on-cluster CI is retired (CI v4 P7.2).
 
 ### Pull-through cache for the cluster and the robots
 Design: `plans/harbor-proxy-staging.md`. Every image the staging nodes and robots pull can go
@@ -197,8 +197,8 @@ through `harbor.teknoir.cloud/<project>/<path>`, with the upstream as the fallba
   `.data` in the harbor Application), and harbor-config only updates them (Secret `type` is
   immutable, so get/update cannot turn them into a token Secret). Rotate by deleting the data
   keys, never the Secret; if it is deleted anyway, ArgoCD renders it again and the next job run
-  fills it (until then the job logs `may not create it`). `teknoir-ci/harbor-ci-robot` is
-  created by harbor-config as before (the ci chart grants that Role).
+  fills it (until then the job logs `may not create it`). `teknoir-ci/harbor-ci-robot` is only
+  written while `ciRobot.enabled` is on (the retired ci chart granted that Role).
 - **Path guard.** The ghcr credential can read every package its owner can read, but robots need
   only `ghcr.io/teknoir/*`. `templates/harbor-proxy-guard.yaml` is an EnvoyFilter on
   harbor-core's inbound listener (port 8080, before the router) that runs

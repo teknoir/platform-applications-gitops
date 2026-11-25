@@ -1,12 +1,11 @@
-# Release policy of the staging releases (plans/staging-releases.md, "enforcement" 1).
-# Read by scripts/check-pins.py (which scripts/staging-release runs on every dry run and --yes) and by
-# scripts/staging-release for the rollback floor.
+# Release policy of the gitops render (plans/cicd/proposal-v4.md).
+# Read by scripts/check-pins.py, which CI runs over the render of every pull request.
 
 # How a first-party image that is not '<tag>@sha256:<digest>' counts:
-#   warn  listed in the output, the release goes ahead (until the pins are adopted, rollout step 4/8)
-#   deny  fails the release lint
+#   warn  listed in the output, the merge goes ahead
+#   deny  fails the lint
 # Third-party images without a digest are always only a warning.
-images: deny   # since 2026-10-17 (all first-party images pinned; plans/staging-releases.md step 8)
+images: deny   # since 2026-10-17 (all first-party images pinned)
 
 # First-party registries. An image under one of these prefixes must be pinned by digest once
 # `images: deny` is set: repo:<tag>@sha256:<64 hex>.
@@ -15,15 +14,10 @@ first_party_prefixes:
   - harbor.teknoir.cloud/
   - docker.io/tekn0ir/
 
-# Roll back no further than this release (the first release containing the release guard and the
-# helper). Empty until that release exists (rollout step 4); set it in the PR that follows. Rolling
-# back before the floor is a break-glass action for Anders.
 # Rendered teknoir.org CRs (the gitops-rendered DeviceApplicationSets) must pin a 40-hex commit of their
 # repo: deny since 2026-10-17 (staging-20261017.6 pinned demo-test, gpu-nvidia, gpu-jetson; Nextgen).
-# Hand-applied CRs (mock-* DAS, Robots, RobotTypes) are not rendered here; staging-status --devices lists them.
+# Hand-applied CRs (mock-* DAS, Robots, RobotTypes) are not rendered here.
 cr_revisions: deny
-
-rollback_floor: "staging-20261105.1"   # first release on r415 (earlier tags are vpro releases)
 
 # Dated exceptions to the first-party digest rule. An expired exception fails the lint from day 1.
 #   image    exact image reference without digest, or a prefix ending in *

@@ -30,20 +30,19 @@ kargo and kargo-cli and the edge-login bypass for kargo.<domain> exist only whil
 {{/*
 targetRevision of every Application that reads this repository (gitops release gate).
 
-  teknoir-cloud (staging): .Values.release (a full 40-hex commit SHA, passed as a helm parameter of
-                           the root Application: scripts/staging-release before the CI v4 cut-over,
-                           Kargo's argocd-update step after it); falls back to `main`, the gitops
-                           branch since the cut-over (the branch was `teknoir-cloud` before it), while
-                           release is unset (before the cut-over and when rendered locally).
-  any other project:       .Values.project (the branch: teknoir-online, teknoir-local), as before.
+  teknoir-cloud (staging): .Values.release (a full 40-hex commit SHA). Kargo sets the root
+                           Application's targetRevision to the main commit it verified and passes
+                           release=$ARGOCD_APP_REVISION as a helm parameter, so every child follows
+                           that commit too; while release is unset (a local render) it falls back to
+                           `main`, the gitops branch.
+  any other project:       .Values.project (the branch: teknoir-online, teknoir-local).
 
 The project allowlist is here, not in values, for the same reason as app-of-apps.ztnaEnabled: the
 environment branches are kept in step by cherry-pick, and a cherry-pick of this file together with a
 release value onto teknoir-online (production) or teknoir-local (airgapped) must still follow the
 branch there. There is deliberately NO `required` anywhere: a failed render of the root would stop
-every Application of the environment from syncing. The release lint (scripts/check-pins.py) checks the
-release only when --release is given (scripts/staging-release and CI always give it); the template
-does not enforce it.
+every Application of the environment from syncing. The lint (scripts/check-pins.py) checks the
+release only when --release is given (CI always gives it); the template does not enforce it.
 */}}
 {{- define "app-of-apps.revision" -}}
 {{- $releaseProjects := list "teknoir-cloud" -}}
@@ -52,17 +51,6 @@ does not enforce it.
 {{- else -}}
 {{- .Values.project -}}
 {{- end -}}
-{{- end -}}
-
-{{/*
-Release guard gate (charts/release-guard: ValidatingAdmissionPolicy + releaser ServiceAccount). Renders
-"true" or "" (use with `if include`). Two gates, both required: releaseGuard.enabled: true AND the
-project is in the allowlist (teknoir-cloud only, staging). Add an environment only in its own reviewed
-commit.
-*/}}
-{{- define "app-of-apps.releaseGuardEnabled" -}}
-{{- $allowedProjects := list "teknoir-cloud" -}}
-{{- if and (.Values.releaseGuard).enabled (has .Values.project $allowedProjects) -}}true{{- end -}}
 {{- end -}}
 
 {{/*

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# helm unittest of every chart with tests/*_test.yaml (the chart-unittests test of charts/ci/files/repos/
-# platform-applications-gitops.yaml, run by .github/workflows/ci.yml). Dependencies are built first where the
-# chart has them: the monitoring tests render kube-prometheus-stack subchart templates.
+# helm unittest of every chart with tests/*_test.yaml (the helm-unittest job of .github/workflows/ci.yml).
+# Dependencies are built first where the chart has them: the monitoring tests render kube-prometheus-stack
+# subchart templates.
 #
 #   scripts/ci/helm-unittest.sh        from the repository root
 #

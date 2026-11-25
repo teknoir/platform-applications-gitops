@@ -1,14 +1,8 @@
 # GitOps values
 project: teknoir-cloud
 
-# Staging releases (plans/staging-releases.md). On teknoir-cloud every Application that reads this
-# repository follows `release` (a full commit SHA) instead of the branch; with `release` empty they
-# follow `main`, the gitops branch since the CI v4 cut-over (see app-of-apps.revision in
-# templates/_helpers.tpl). Both values are set ONLY on the root Application, as helm parameters, by
-# scripts/staging-release (before the cut-over) or Kargo's argocd-update step (after it); never commit them here.
-# releaseName is the tag (staging-YYYYMMDD.N) and is rendered as annotation teknoir.org/release.
+# A commit SHA Kargo pins every Application of teknoir-cloud to (release=$ARGOCD_APP_REVISION); empty = main.
 release: ""
-releaseName: ""
 
 # Virtual-device runtime (charts/virtual-devices: KubeVirt, CDI) for the S1 spike on
 # r415. The Application also needs this project in the allowlist in
@@ -61,13 +55,10 @@ ztna:
   enabled: true
 
 # CI/CD on the cluster (plans/ci-argo-workflows.md), teknoir-cloud only (allowlist in
-# templates/ci.yaml): Harbor as the registry (harbor.teknoir.cloud) and Argo Workflows +
-# BuildKit pipelines (ci.teknoir.cloud). charts/ci harbor.enabled pushes CI images there too.
+# templates/harbor.yaml): Harbor as the registry (harbor.teknoir.cloud), which staging pulls its
+# first-party images through. The vpro-era on-cluster CI (Argo Workflows) is retired.
 harbor:
   enabled: true
-ci:
-  # Off on r415 (staging since 2026-11): CI stays on vpro (plans/staging-on-r415.md).
-  enabled: false
 
 # Next-gen robot fleet platform (plans/nextgen-fleet-platform.md): a second Backstage instance at
 # next.teknoir.cloud (templates/backstage-next.yaml), teknoir-cloud only (allowlist in the
@@ -117,15 +108,3 @@ ciRunners:
   # verification.devhostCiServer: the staging revision check skips sync and health only for a child whose
   # destination.server is exactly this value.
   server: https://192.168.2.181:6443
-
-# Staging release guard (charts/release-guard, templates/release-guard.yaml): a
-# ValidatingAdmissionPolicy that lets only scripts/staging-release (ServiceAccount
-# teknoir-system/staging-releaser), ArgoCD and profile-controller write ArgoCD Applications.
-# teknoir-cloud only (allowlist in templates/_helpers.tpl).
-releaseGuard:
-  # Off since CI v4 P4.6 (2026-11-24): Kargo writes the root Application from P5 on, which the guard would
-  # flag. The Application has no resources-finalizer, so turning this off leaves the policy and binding in
-  # the cluster; plans/cicd/v4/remove-release-guard.sh (Anders) deletes them under break-glass afterwards.
-  enabled: false
-  # Warn | Deny, passed to the chart as guard.mode.
-  mode: Warn

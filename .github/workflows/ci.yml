@@ -1,7 +1,6 @@
 name: ci
 
-# The required checks of this repository (they replace the in-cluster CI of
-# charts/ci/files/repos/platform-applications-gitops.yaml on GitHub):
+# The required checks of this repository (they replaced the retired vpro-era in-cluster CI):
 #   render         scripts/staging-render.sh of the PR head (or the pushed commit)
 #   helm-unittest  every charts/*/tests suite (scripts/ci/helm-unittest.sh)
 #   check-pins     scripts/check-pins.py over the render, with RELEASE set

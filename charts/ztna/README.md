@@ -274,8 +274,9 @@ with in-memory sessions: a restart drops every tunnel and clients re-establish t
   refuses it; any other value fails the render. The `azp` pin (`hub.allowedAZP`) stays.
 - The hub image must contain the audience check (wg-tunnel `ztna-audience` merge commit or later). An older pin ignores
   both env vars, so `enforce` would only look enforced. Images are built from wg-tunnel `main` only since CI v4, so every
-  new tag contains the check; re-pin the hub to the ztna-audience merge commit or a descendant. After the release, the negative test (a downscoped main token POSTed to `wg.<domain>/v1/client/session` must give 401) is a hard
-  gate before `staging-release --verified`.
+  new tag contains the check; re-pin the hub to the ztna-audience merge commit or a descendant. The negative test (a
+  downscoped main token POSTed to `wg.<domain>/v1/client/session` must give 401) is a hard gate: run it on staging once
+  Kargo has cut the `verified/*` tag for the change; if it fails, revert in a PR to main.
 - Rollback: set `audienceMode: transition` (or re-pin the previous image). Reverting the realm change alone is not
   enough: `teknoir-cli` must keep `teknoir-ztna` in `optionalClientScopes` while tnctl >= 0.1.2 is in use (the scope
   stays in the realm; keycloak-config-cli syncs the client's scope list to the file). tnctl falls back without the

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Runs every test of the staging release tooling:
-#   - python unittest of scripts/ (pure logic, throwaway git repos, a fake cluster/GitHub/registry; no network), incl. test_ci_lfs.py (charts/ci plan.py lfs modes, clone.sh LFS pull/guard)
-#   - helm unittest of charts/app-of-apps (release helper, 19 replacements), charts/istio, charts/release-guard, charts/monitoring (mesh scrape), charts/profile-controller, charts/user-controller, charts/device-controller, charts/backstage and charts/teknoirbot-controller
+# Runs every test of the gitops tooling:
+#   - python unittest of scripts/ (pure logic, throwaway git repos, a fake Sys; no network)
+#   - helm unittest of charts/app-of-apps (release helper), charts/istio, charts/monitoring (mesh scrape), charts/profile-controller, charts/user-controller, charts/device-controller, charts/backstage and charts/teknoirbot-controller
 #   - the root render against a base ref (BASE: origin/HEAD's branch, the gitops branch, `main` since the CI v4 cut-over;
 #     fallback origin/main when origin/HEAD is missing): identical except for the removal of the
 #     fields ArgoCD's Go types drop (`sources: [ ]` on every child, monitoring's `group: ""`), see EXPECTED below; ROOT_RENDER_EXPECTED="project ..." accepts an intended difference of a project (a mismatch fails the run).
-#   - K3D=1: charts/release-guard/tests/k3d-guard-test.sh (impersonated identities) and k3d-argocd-real-test.sh (a real
-#     ArgoCD v3.5.1, real CLI and REST calls) and charts/backstage/tests/k3d-rbac-test.sh (can-i matrix and the identity admission policy of the Backstage
-#     API service account) and charts/teknoirbot-controller/tests/k3d-vap-test.sh and k3d-fence-test.sh (the device guard and the bot fence) against the throwaway cluster k3d-teknoir-dev
+#   - K3D=1: charts/backstage/tests/k3d-rbac-test.sh (can-i matrix and the identity admission policy of the
+#     Backstage API service account) and charts/teknoirbot-controller/tests/k3d-vap-test.sh and k3d-fence-test.sh
+#     (the device guard and the bot fence) against the throwaway cluster k3d-teknoir-dev
 #   Output: verbose for humans and CI. Under a coding agent (CLAUDECODE, AI_AGENT, Codex) it prints only the section
 #   totals, plus the end of the log on failure; the full log is always written to .test-logs/ (git-ignored).
 set -euo pipefail
@@ -44,7 +44,7 @@ python3 -W ignore -m unittest discover -s scripts/tests -p 'test_*.py' 2>&1
 echo "== helm unittest"
 # charts/monitoring renders its kube-prometheus-stack dependency (git-ignored charts/; ArgoCD builds it itself): build it once
 compgen -G "charts/monitoring/charts/kube-prometheus-stack-*.tgz" >/dev/null || helm dependency build charts/monitoring >/dev/null 2>&1 || echo "WARN: helm dependency build charts/monitoring failed (offline?)"
-helm unittest charts/app-of-apps charts/istio charts/release-guard charts/monitoring charts/profile-controller charts/user-controller charts/device-controller charts/backstage charts/teknoirbot-controller 2>&1
+helm unittest charts/app-of-apps charts/istio charts/monitoring charts/profile-controller charts/user-controller charts/device-controller charts/backstage charts/teknoirbot-controller 2>&1
 echo "== CRD guards (Prune=false,Delete=false; spec.desktop when desktop.enabled)"
 bash charts/device-controller/tests/crd_guard_test.sh
 bash charts/teknoirbot-controller/tests/crd_guard_test.sh
@@ -88,10 +88,6 @@ PY
 fi
 
 if [[ "${K3D:-}" == "1" ]]; then
-  echo "== release guard on k3d-teknoir-dev"
-  charts/release-guard/tests/k3d-guard-test.sh
-  echo "== release guard against a real ArgoCD on k3d-teknoir-dev (installs ArgoCD v3.5.1, removes it again)"
-  charts/release-guard/tests/k3d-argocd-real-test.sh
   echo "== Backstage API service account RBAC on k3d-teknoir-dev (rendered RBAC + a teknoir-portal RoleBinding, can-i matrix)"
   charts/backstage/tests/k3d-rbac-test.sh
   echo "== TeknoirBot device guard and bot fence on k3d-teknoir-dev (impersonated identities)"

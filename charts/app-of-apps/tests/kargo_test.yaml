@@ -114,13 +114,11 @@ tests:
       argoRollouts: {enabled: true}
       kargo: {enabled: true}
       release: "0123456789abcdef0123456789abcdef01234567"
-      releaseName: staging-20261017.1
     documentSelector:
       path: metadata.name
       value: kargo
     asserts:
       - equal: {path: 'spec.sources[1].targetRevision', value: "0123456789abcdef0123456789abcdef01234567"}
-      - equal: {path: 'metadata.annotations["teknoir.org/release"]', value: staging-20261017.1}
 
   - it: renders kargo-config with kargo.enabled and kargo.config.enabled (and Rollouts)
     set:

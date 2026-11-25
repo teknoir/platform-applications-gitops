@@ -13,8 +13,7 @@ Enabling it needs the API service account teknoir-system/backstage-next-api in c
 charts/profile-controller (values.yaml) with a matching config.portal.clusterRole (one role for every listed account:
 backstage-api-teamspace from the main backstage chart, or this instance's backstage-next-api-teamspace). profile-controller
 then writes the RoleBinding teknoir-portal into every teamspace; without it the instance has no rights there once its
-teknoir-admin ClusterRoleBinding is removed (backstage-sa R2; the check in scripts/staging-release only covers a release
-that removes such a binding).
+teknoir-admin ClusterRoleBinding is removed (backstage-sa R2).
 */ -}}
 {{- $allowedProjects := list "teknoir-cloud" }}
 {{- if and (.Values.backstageNext).enabled (has .Values.project $allowedProjects) }}
@@ -27,10 +26,6 @@ metadata:
   # workloads, PVC claims aside (plans/nextgen/ui-cutover.md section 10).
   finalizers:
     - resources-finalizer.argocd.argoproj.io
-{{- if .Values.releaseName }}
-  annotations:
-    teknoir.org/release: {{ .Values.releaseName | quote }}
-{{- end }}
 spec:
   destination:
     namespace: teknoir-system

@@ -197,7 +197,7 @@ ztna:
 # teknoir-demo: the starter apps of teknoir-demo-gitops on the test devices (label
 # device-group=test), as on r415 before the move to vpro (2026-10-16).
 # Revisions are commit SHAs (teknoir-demo-gitops main on 2026-10-17), so a push to that repo
-# does not change staging by itself; move them with a PR + staging release (staging-releases.md).
+# does not change staging by itself; move them with a PR to main, which Kargo then ships (staging-releases.md).
 platformDeviceApplicationSets:
   - name: demo-test
     namespace: teknoir-demo

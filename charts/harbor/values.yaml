@@ -168,11 +168,11 @@ harborConfig:
     retentionPolicies:
       # CI images (rules are OR-ed; anything no rule retains is deleted, including
       # untagged digests):
-      #   - release tags (v1.2.3, 1.2.3), adopted-* (staging-release backups), sha-* (the
-      #     immutable CI build tags that gitops pins as tag@digest: pods with IfNotPresent never
-      #     pull again, so a pinned digest shows no pulls, and from CI v4 P6.2 there is no ghcr
-      #     fallback; first-party builds only, ~31 GiB of the 250 GiB quota on 2026-11-25) and
-      #     environment/default-branch tags forever,
+      #   - release tags (v1.2.3, 1.2.3), adopted-* (backups of digests the retired release tooling
+      #     took before moving a tag), sha-* (the immutable CI build tags that gitops pins as
+      #     tag@digest: pods with IfNotPresent never pull again, so a pinned digest shows no pulls,
+      #     and from CI v4 P6.2 there is no ghcr fallback; first-party builds only, ~31 GiB of the
+      #     250 GiB quota on 2026-11-25) and environment/default-branch tags forever,
       #   - the 15 most recently pushed artifacts of every repository,
       #   - anything pulled in the last 30 days (in use).
       ci:
@@ -211,10 +211,11 @@ harborConfig:
                    create_robot, delete_robot, update_configuration, other]
     scanAll: {schedule: "0 0 5 * * 6"}
     robots:
-      # CI push/pull (charts/ci). The Secret is a dockerconfigjson with extra
-      # username/password keys; charts/ci grants this Job's ServiceAccount write access
-      # to it. Delete the Secret to rotate the credential (teknoir-ci only; in teknoir-system the chart
-      # renders the Secrets, see templates/harbor-config-rbac.yaml: empty the data instead).
+      # CI push/pull. The Secret is a dockerconfigjson with extra username/password keys. The on-cluster
+      # CI chart that granted this Job's ServiceAccount write access to it is retired (CI v4 P7.2), and
+      # ciRobot.enabled is off, so this robot renders nothing; the definition stays for a cluster that
+      # runs CI again. Delete the Secret to rotate the credential (teknoir-ci only; in teknoir-system the
+      # chart renders the Secrets, see templates/harbor-config-rbac.yaml: empty the data instead).
       - name: ci
         secret: {namespace: teknoir-ci, name: harbor-ci-robot}
         permissions:

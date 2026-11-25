@@ -51,10 +51,6 @@ metadata:
   name: argo-rollouts
   finalizers:
     - resources-finalizer.argocd.argoproj.io
-{{- if .Values.releaseName }}
-  annotations:
-    teknoir.org/release: {{ .Values.releaseName | quote }}
-{{- end }}
 spec:
   destination:
     namespace: argo-rollouts
@@ -104,10 +100,6 @@ metadata:
   name: kargo
   finalizers:
     - resources-finalizer.argocd.argoproj.io
-{{- if .Values.releaseName }}
-  annotations:
-    teknoir.org/release: {{ .Values.releaseName | quote }}
-{{- end }}
 spec:
   destination:
     namespace: kargo
@@ -151,10 +143,6 @@ metadata:
   name: kargo-config
   finalizers:
     - resources-finalizer.argocd.argoproj.io
-{{- if .Values.releaseName }}
-  annotations:
-    teknoir.org/release: {{ .Values.releaseName | quote }}
-{{- end }}
 spec:
   destination:
     namespace: platform
