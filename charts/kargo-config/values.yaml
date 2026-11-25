@@ -4,8 +4,9 @@
 #
 # Since the P5.2 cut-over (2026-11-24) Kargo ships staging: the gitops-main Warehouse polls `main`, and the
 # Stages staging and staging-verified auto-promote every new commit (argocd-update on the root, verification,
-# then the verified/* tag). Every pin group is still disabled in scripts/images.yaml (only wg-tunnel's public
-# images are on) and every pin auto-promotion is off: P6.1/P6.2 turn them on, one reviewed PR each.
+# then the verified/* tag). P6.1/P6.2 (from 2026-11-25) turn the pin groups on, one reviewed PR each: a group
+# enabled in scripts/images.yaml gets a Warehouse and a pin Stage, and autoPromotion.pins.<group> lets Kargo pin
+# every new build by pull request on its own. See groups[] and autoPromotion.pins for which are on.
 
 # The Kargo project: the cluster-scoped Project and the namespace every object below lives in.
 project: platform
@@ -53,7 +54,9 @@ autoPromotion:
   staging: true
   staging-verified: true
   # group -> bool. A missing group is off (P6.1 enables one group per reviewed PR).
-  pins: {}
+  pins:
+    # P6.1 (2026-11-25), one group per PR: web-terminal first (public ghcr; per-device terminal pods).
+    web-terminal: true
 
 staging:
   # P4.3 (b) fallback: also set the root Application's Helm parameter `release` to the Freight commit (besides
@@ -158,7 +161,7 @@ groups:
       - {component: wg-agent, poll: ghcr.io/teknoir/wg-agent, repository: ghcr.io/teknoir/wg-agent, key: ztna.agentImage, style: ref}
       - {component: wg-gateway, poll: ghcr.io/teknoir/wg-gateway, repository: ghcr.io/teknoir/wg-gateway, key: ztna.gatewayImage, style: ref}
   - name: web-terminal
-    enabled: false
+    enabled: true
     sameCommit: false
     images:
       - {component: web-terminal, poll: ghcr.io/teknoir/web-terminal, repository: ghcr.io/teknoir/web-terminal, key: ztna.terminalImage, style: ref}
