@@ -4,7 +4,7 @@
 # image are built from the same teknoir-desktop commit (same_commit).
 desktop:
   # required when enabled: ghcr.io/teknoir/teknoir-desktop:<tag>@sha256:<digest> (scripts/pin-image teknoir-desktop ...)
-  image: "ghcr.io/teknoir/teknoir-desktop:sha-941e5155@sha256:2ba734a737d15738a17cd7725dce1be92242b3277fafa703b22d717203b5b9f6"
+  image: ghcr.io/teknoir/teknoir-desktop:sha-17010edc@sha256:0b70f8a30b652ccd3b7de2cb8bf62674c11c0322e76a1878778943964936baa7
   agent:
     # The TeknoirBot council image, built by teknoir-desktop image.yml (job council) from main 941e5155 as the sub-image
     # council:sha-<8>: `tnctl council serve` (tnctl v0.3.0-rc.5, cli 8bdae2f: council v2 Stage 1, proto 2, the no-tool
@@ -17,4 +17,4 @@ desktop:
     # before that sha-ca46a99c-council (rc.4), sha-32f6fc91-council (rc.3), sha-bb362914-council (rc.2),
     # and ghcr.io/teknoir/teknoir-desktop:sha-dec806c1-agent.
     # the teknoir-desktop council image (make image-council, with the released tnctl)
-    image: "ghcr.io/teknoir/teknoir-desktop/council:sha-941e5155@sha256:2a1eba90d5405d7c37c1fbb98d4b58db16b5482bd88235db45c4e52223ea7347"
+    image: ghcr.io/teknoir/teknoir-desktop/council:sha-17010edc@sha256:d50c67c590d4a95a0eefad2abb06f686db4a56d3022b2cfee57346cf78e5df19
