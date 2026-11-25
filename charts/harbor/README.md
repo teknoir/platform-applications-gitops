@@ -113,7 +113,7 @@ from cert-manager (`tokenServiceCert`, templates/token-service-cert.yaml).
 - project `teknoir` (CI images) and the proxies with storage quotas and tag retention. Harbor's
   data is on vpro's root filesystem (1.8 TB, 1.2 TB free on 2026-10-22) and kubelet image GC
   starts at 75 % use, so the quotas total 700 GiB: `teknoir` 250, `ghcr` 150, `dockerhub` 100,
-  `nvcr` 100, `quay` 40, `gcr` 30, `k8s` 30. Retention: `ci` keeps release/environment tags,
+  `nvcr` 100, `quay` 40, `gcr` 30, `k8s` 30. Retention: `ci` keeps release/environment tags and every `sha-*` build tag (pinned digests),
   the 15 newest pushes per repository and anything pulled in 30 days; `proxy` keeps what was
   pulled in 7 days plus the 3 most recently cached artifacts per repository, digest-pinned
   (untagged) pulls included. Set the rules per environment in `retentionPolicies`: an airgapped
