@@ -62,6 +62,25 @@ Create the name of the service account to use
 {{- end }}
 
 {{/*
+Retained config republish (R0, plans/teknoirbot/root-in-vm.md): the RETAINED_CONFIG_REPUBLISH value, off,
+log or on. An unquoted off or on arrives as a boolean (YAML 1.1), so false (and an absent or empty value)
+means off and true means on. Anything else fails the render.
+*/}}
+{{- define "device-controller.retainedConfigRepublish" -}}
+{{- $raw := .Values.retainedConfigRepublish -}}
+{{- $v := ternary "" (toString $raw) (kindIs "invalid" $raw) -}}
+{{- if or (eq $v "false") (eq $v "") -}}
+{{- $v = "off" -}}
+{{- else if eq $v "true" -}}
+{{- $v = "on" -}}
+{{- end -}}
+{{- if not (has $v (list "off" "log" "on")) -}}
+{{- fail (printf "retainedConfigRepublish must be \"off\", \"log\" or \"on\" (got %q)" $v) -}}
+{{- end -}}
+{{- $v -}}
+{{- end }}
+
+{{/*
 Virtual devices: whole-number parsing for the allowance and maxPerDevice values.
 Called with a dict: value (the raw value), unit ("" or "Gi"), what (for the error).
 Returns the digits as a string; fails the render, naming the field, if malformed.
