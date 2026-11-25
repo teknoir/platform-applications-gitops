@@ -5,4 +5,4 @@
 # The per-device WireGuard web terminal image (SSH_PROXY_MODE=wireguard), '<immutable tag>@sha256:<digest>';
 # required once ztna.enabled (the comment on the images is in pins/wg-tunnel.yaml).
 ztna:
-  terminalImage: "ghcr.io/teknoir/web-terminal:sha-360d7543@sha256:ae5df9f0daf9a96f35088ef63ae553a29c41400daea79a6b14e298bbddf709e1"
+  terminalImage: ghcr.io/teknoir/web-terminal:sha-d7848d92@sha256:9f1aad0d69c83c5ed544237d5db17dea044c8b5694c5f8abd4162a1ec07c476c
