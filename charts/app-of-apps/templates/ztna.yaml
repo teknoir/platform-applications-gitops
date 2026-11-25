@@ -26,9 +26,6 @@ kind: Application
 metadata:
   name: gateway-api-crds
   annotations:
-{{- if .Values.releaseName }}
-    teknoir.org/release: {{ .Values.releaseName | quote }}
-{{- end }}
     argocd.argoproj.io/compare-options: ServerSideDiff=true
 spec:
   destination:
@@ -62,9 +59,6 @@ kind: Application
 metadata:
   name: stunner
   annotations:
-{{- if .Values.releaseName }}
-    teknoir.org/release: {{ .Values.releaseName | quote }}
-{{- end }}
     argocd.argoproj.io/compare-options: ServerSideDiff=true
 spec:
   destination:
@@ -102,10 +96,6 @@ apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: ztna
-{{- if .Values.releaseName }}
-  annotations:
-    teknoir.org/release: {{ .Values.releaseName | quote }}
-{{- end }}
 spec:
   destination:
     namespace: teknoir-ztna

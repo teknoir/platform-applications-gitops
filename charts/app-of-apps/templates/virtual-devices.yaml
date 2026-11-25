@@ -29,9 +29,6 @@ kind: Application
 metadata:
   name: virtual-devices
   annotations:
-{{- if .Values.releaseName }}
-    teknoir.org/release: {{ .Values.releaseName | quote }}
-{{- end }}
     # Diff with a server-side dry-run apply, matching ServerSideApply: fields the
     # API server or the CRD schema default (KubeVirt/CDI CRs, CRDs) are not
     # reported as drift.

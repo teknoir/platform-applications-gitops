@@ -36,8 +36,7 @@ from urllib.parse import quote, unquote
 # --- thresholds, labels and formats -------------------------------------------------------------------------
 ALERT_LABEL = "staging-alert"             # unverified commit, missing freight=
 DRIFT_LABEL = "ruleset-drift"             # live ruleset missing or different
-# The tag prefix Kargo's staging-verified stage cuts once its browser analysis passes. (staging-release
-# --verified only marks the GitHub Release; it creates no tag.)
+# The tag prefix Kargo's staging-verified stage cuts once its browser analysis passes.
 VERIFIED_TAG_PREFIX = "verified/"
 FREIGHT_KEY = "freight"                   # the tag message annotation that records the Kargo freight (plan 7.3)
 VERIFY_DEADLINE_MINUTES = 45              # a commit on the default branch older than this, with no verified/ tag
@@ -343,9 +342,9 @@ class Watcher:
             f"- subject: {subject}",
             f"- committed: {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(committed))}",
             "",
-            "Ship it with `scripts/staging-release` and verify it in the browser, then "
-            "`scripts/staging-release --verified` (plan 7.3). Kargo's `staging-verified` stage cuts the "
-            f"`{VERIFIED_TAG_PREFIX}*` tag that closes this issue; until that tag exists, this issue is the staging "
+            "Kargo ships it once its verification passes and cuts the "
+            f"`{VERIFIED_TAG_PREFIX}*` tag that closes this issue; if the verification fails, the fix is a revert PR "
+            "to the gitops branch, which Kargo ships the same way. Until the tag exists, this issue is the staging "
             "line's only signal that a release was never verified.",
             "",
             marker("unverified", commit=sha),

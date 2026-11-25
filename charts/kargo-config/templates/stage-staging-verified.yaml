@@ -7,7 +7,7 @@ Stage `staging-verified`: tag the commit the `staging` Stage verified.
     (sources.stages); a Freight that failed verification never reaches this Stage.
   - steps: clone this repository at the Freight commit, compute the tag name ONCE (compose-output, so a second
     evaluation of now() cannot produce a different name), tag that commit and push the tag.
-  - The tag is the provenance the watcher and staging-release read: verified/<UTC stamp>-<sha8>, or
+  - The tag is the provenance the watcher reads (scripts/watch.py): verified/<UTC stamp>-<sha8>, or
     verified/<sha8> with verifiedTagStamp: none (P4.3 (e)). The tag ruleset allows creation of verified/* only
     from the Kargo PAT's user (P4.2 section 6); a rejection fails the Promotion, which is the intended signal.
 */}}

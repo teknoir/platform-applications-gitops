@@ -279,7 +279,7 @@ class Roundtrip(unittest.TestCase):
         chart = os.path.join(os.path.dirname(H.SCRIPTS), "charts", "app-of-apps")
         for project in ("teknoir-cloud", "teknoir-online", "teknoir-local"):
             out = subprocess.run(["helm", "template", "app-of-apps", chart, "--set", f"project={project}", "--set-string", f"release={SHA}",
-                                  "--set", "releaseGuard.enabled=true", "--set", "virtualDevices.spike.enabled=true"],
+                                  "--set", "virtualDevices.spike.enabled=true"],
                                  capture_output=True, text=True, check=True).stdout
             d = H.tmpdir()
             with open(os.path.join(d, "root.yaml"), "w") as fh:

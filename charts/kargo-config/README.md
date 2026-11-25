@@ -17,7 +17,7 @@ until those values are turned on.
 | `project.yaml` | `Project` `platform` (with `kargo.akuity.io/keep-namespace: "true"`: deleting it does not delete the namespace); `ProjectConfig` `platform` with one promotion policy per Stage, all auto-promotions off by default |
 | `warehouses.yaml` | `gitops-main` (when enabled) and one `img-<group>` Warehouse per enabled group of `scripts/images.yaml`; image subscriptions accept only the CI's immutable `sha-<8>` tags |
 | `stage-staging.yaml` | Stage `staging`: `argocd-update` of the root Application to the Freight commit, verification with `revision-check` (plus `browser` / `prometheus-soak` when configured) |
-| `stage-staging-verified.yaml` | Stage `staging-verified`: tags the commit the `staging` Stage verified (`verified/<stamp>`), the provenance `scripts/watch.py` and `scripts/staging-release` read |
+| `stage-staging-verified.yaml` | Stage `staging-verified`: tags the commit the `staging` Stage verified (`verified/<stamp>`), the provenance `scripts/watch.py` reads |
 | `stage-pins.yaml`, `_pin-steps.tpl` | One Stage `pin-<group>` per enabled group: rewrite `pins/<group>.yaml`, commit, push a branch, open a PR and merge it. When the Freight's images are already pinned the commit step is Skipped, and push, PR and merge are skipped too (the Promotion succeeds, no branch, no PR) |
 | `analysis-revision-check.yaml` | ServiceAccount, Role and RoleBinding, the script ConfigMap and the `revision-check` AnalysisTemplate |
 | `analysis-browser.yaml` | `browser` AnalysisTemplate (only when `verification.browser.image` is set) |

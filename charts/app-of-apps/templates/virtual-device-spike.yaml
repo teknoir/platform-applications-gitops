@@ -23,9 +23,6 @@ kind: Application
 metadata:
   name: virtual-device-spike
   annotations:
-{{- if .Values.releaseName }}
-    teknoir.org/release: {{ .Values.releaseName | quote }}
-{{- end }}
     # Server-side dry-run diff, matching ServerSideApply: fields KubeVirt's and CDI's
     # webhooks default on the VirtualMachine are not reported as drift.
     argocd.argoproj.io/compare-options: ServerSideDiff=true

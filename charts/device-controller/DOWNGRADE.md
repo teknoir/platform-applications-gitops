@@ -32,7 +32,7 @@ rollback the older image ignores it; delete the ConfigMaps by hand if they are u
 `device-disable` change, for example sha-0a8c2c7c) ignores `teknoir.org/disabled`: within one
 reconcile every disabled Device gets its JWKS key back, its WireGuard revocation tombstone is
 cleared and Tunneling is restored if it was on, and `subresources.status.access` is dropped.
-`scripts/staging-release --auto-rollback` can do this without a human. Before a manual rollback,
+Roll back by reverting the newer change in a PR to the gitops branch (Kargo ships the revert), then
 list the disabled devices:
 
     kubectl --context <ctx> get devices.teknoir.org -A -o json | jq -r '.items[]

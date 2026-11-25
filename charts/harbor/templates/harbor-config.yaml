@@ -16,7 +16,7 @@
 ---
 # Harbor configuration as code: files/harbor-config.py reconciles Harbor to
 # harborConfig.config. Robot Secrets in other namespaces are written with RBAC that
-# the consuming chart grants to this ServiceAccount (charts/ci for teknoir-ci).
+# the retired vpro CI chart granted to this ServiceAccount (teknoir-ci).
 apiVersion: v1
 kind: ServiceAccount
 metadata:

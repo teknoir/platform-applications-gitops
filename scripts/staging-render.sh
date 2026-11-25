@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Render a release of platform-applications-gitops the way ArgoCD does (plans/staging-releases.md,
-# "enforcement" 1): the root chart with release=<sha>, then every gitops child Application with its own
-# helm valueFiles and parameters, then the profile-plugin charts at the pluginChartVersion of profile-controller.
+# Render a release of platform-applications-gitops the way ArgoCD does: the root chart with
+# release=<sha> (the helm parameter Kargo passes as release=$ARGOCD_APP_REVISION), then every gitops
+# child Application with its own helm valueFiles and parameters, then the profile-plugin charts at the
+# pluginChartVersion of profile-controller.
 # Read-only: it never talks to a cluster; the only network use is `helm dependency build/update`, the
 # plugin chart repository and (with --plugins) its index.
 #
@@ -9,7 +10,7 @@
 # a relative entry against the chart's path in --tree, an absolute one (leading /) against the repository root.
 # Each must be a file inside the tree, and its content is part of the cache key.
 #
-#   staging-render.sh --tree DIR --release SHA --out DIR [--release-name TAG] [--cache DIR]
+#   staging-render.sh --tree DIR --release SHA --out DIR [--cache DIR]
 #                     [--plugins auto|none|VERSION] [--plugin-repo URL]
 #
 #   DIR/root.yaml            the rendered root chart
@@ -21,13 +22,13 @@
 #
 # Children whose chart content is unchanged since an earlier render (the same hash of the chart directory's
 # files, tracked or untracked-but-not-ignored, and the same parameters) are copied from the cache (default
-# ~/.cache/staging-release/render), so a warm run renders only what changed: an uncommitted template edit
+# ~/.cache/gitops-render), so a warm run renders only what changed: an uncommitted template edit
 # invalidates it. Plugin charts are immutable per version and cached by name@version.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TREE="" RELEASE="" RELEASE_NAME="" OUT="" PLUGINS="auto"
-CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/staging-release/render"
+TREE="" RELEASE="" OUT="" PLUGINS="auto"
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/gitops-render"
 PLUGIN_REPO="https://teknoir.github.io/profile-plugins-helm"
 
 usage() { sed -n '2,/^set -euo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; }
@@ -35,7 +36,6 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --tree) TREE=$2; shift 2 ;;
     --release) RELEASE=$2; shift 2 ;;
-    --release-name) RELEASE_NAME=$2; shift 2 ;;
     --out) OUT=$2; shift 2 ;;
     --cache) CACHE=$2; shift 2 ;;
     --plugins) PLUGINS=$2; shift 2 ;;
@@ -55,7 +55,6 @@ rm -f "$OUT"/apps/*.yaml "$OUT"/plugins/*.yaml "$OUT/failed" "$OUT/apps.tsv"
 # --- the root --------------------------------------------------------------------------------
 ROOT_ARGS=()
 [[ -n "$RELEASE" ]] && ROOT_ARGS+=(--set-string "release=$RELEASE")
-[[ -n "$RELEASE_NAME" ]] && ROOT_ARGS+=(--set-string "releaseName=$RELEASE_NAME")
 helm template app-of-apps "$TREE/charts/app-of-apps" --namespace teknoir-system "${ROOT_ARGS[@]}" > "$OUT/root.yaml"
 
 # name<TAB>path<TAB>namespace<TAB>release-name<TAB>json-params<TAB>json-valueFiles for every gitops child
