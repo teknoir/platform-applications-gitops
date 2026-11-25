@@ -352,10 +352,13 @@ platformRobotTypes:
           role: vision
 # Robots every install gets (templates/platform-robots.yaml), same shape; spec.type names a RobotType.
 # The four Robots of the Karlstad lab (vision-station-02 on orin-agx-64gb-se since 2026-11-24, no own apps).
+# teknoir.org/hw-class (CI v4 P8.5): the hardware class of the Robot's device. device-controller copies Robot labels
+# onto the Device, and the class DAS (gpu-jetson, gpu-nvidia) select on it. Classes: jetson-orin, nvidia-rtx, raspberry-pi.
 platformRobots:
   - name: mobile-01
     namespace: teknoir-demo
     labels:
+      teknoir.org/hw-class: jetson-orin
       site: karlstad
     spec:
       applications:
@@ -373,6 +376,7 @@ platformRobots:
   - name: sensor-unit-01
     namespace: teknoir-demo
     labels:
+      teknoir.org/hw-class: raspberry-pi
       site: karlstad
     spec:
       applications:
@@ -387,6 +391,7 @@ platformRobots:
   - name: vision-station-01
     namespace: teknoir-demo
     labels:
+      teknoir.org/hw-class: nvidia-rtx
       site: karlstad
     spec:
       applications:
@@ -401,6 +406,7 @@ platformRobots:
   - name: vision-station-02
     namespace: teknoir-demo
     labels:
+      teknoir.org/hw-class: jetson-orin
       gpu: jetson
       site: karlstad
     spec:
