@@ -218,6 +218,57 @@ class ChartDeps(unittest.TestCase):
         self.assertEqual(CP.check_chart_deps(root), [])
 
 
+class FleetPointers(unittest.TestCase):
+    """fleet/<class>.yaml (fleet/README.md, CI v4 P8.5 flow 3.5): one class named after the file, 40-hex."""
+
+    def repo(self, **files):
+        d = H.tmpdir()
+        os.makedirs(os.path.join(d, "fleet"))
+        for name, text in files.items():
+            with open(os.path.join(d, "fleet", name), "w") as fh:
+                fh.write(text)
+        return d
+
+    @staticmethod
+    def pointer(cls, rev=SHA):
+        return f"fleets:\n  {cls}:\n    revision: {rev}\n"
+
+    def test_a_good_pointer_passes(self):
+        self.assertEqual(CP.check_fleet_pointers(self.repo(**{"jetson-orin.yaml": self.pointer("jetson-orin")})), [])
+
+    def test_a_class_that_does_not_match_the_file_name_fails(self):
+        f = CP.check_fleet_pointers(self.repo(**{"jetson-orin.yaml": self.pointer("nvidia-rtx")}))
+        self.assertEqual(codes(f), ["fleet-pointer"])
+        self.assertEqual(f[0].level, "error")
+        self.assertIn("fleet/jetson-orin.yaml", f[0].where)
+
+    def test_a_branch_revision_fails(self):
+        self.assertEqual(codes(CP.check_fleet_pointers(self.repo(**{"raspberry-pi.yaml": self.pointer("raspberry-pi", "main")}))),
+                         ["fleet-pointer"])
+
+    def test_a_missing_revision_fails(self):
+        f = CP.check_fleet_pointers(self.repo(**{"nvidia-rtx.yaml": "fleets:\n  nvidia-rtx: {}\n"}))
+        self.assertEqual(codes(f), ["fleet-pointer"])
+
+    def test_two_classes_in_one_file_fail(self):
+        text = f"fleets:\n  jetson-orin:\n    revision: {SHA}\n  nvidia-rtx:\n    revision: {SHA}\n"
+        f = CP.check_fleet_pointers(self.repo(**{"jetson-orin.yaml": text}))
+        self.assertEqual(codes(f), ["fleet-pointer"])
+        self.assertIn("exactly one class", f[0].message)
+
+    def test_readme_and_other_files_are_ignored(self):
+        d = self.repo(**{"jetson-orin.yaml": self.pointer("jetson-orin")})
+        with open(os.path.join(d, "fleet", "README.md"), "w") as fh:
+            fh.write("# not a fleet pointer\n")
+        self.assertEqual(CP.check_fleet_pointers(d), [])
+
+    def test_a_checkout_without_a_fleet_directory_passes(self):
+        self.assertEqual(CP.check_fleet_pointers(H.tmpdir()), [])
+
+    def test_the_real_fleet_pointers_pass(self):
+        self.assertEqual(CP.check_fleet_pointers(os.path.dirname(H.SCRIPTS)), [])
+
+
 class Crs(unittest.TestCase):
     def cr(self, kind, rev, api="teknoir.org/v1alpha1"):
         return ("f", {"kind": kind, "apiVersion": api, "metadata": {"name": "n"}, "spec": {"applications": [{"revision": rev}]}})

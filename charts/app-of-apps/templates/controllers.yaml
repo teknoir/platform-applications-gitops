@@ -145,6 +145,10 @@ spec:
         - ../../pins/teknoir-desktop.yaml
         - ../../pins/web-terminal.yaml
         - ../../pins/wg-tunnel.yaml
+        # Fleet pointers of the hardware classes (fleet/README.md): the commit each class DAS sends.
+        - ../../fleet/jetson-orin.yaml
+        - ../../fleet/nvidia-rtx.yaml
+        - ../../fleet/raspberry-pi.yaml
 {{- if include "app-of-apps.ztnaEnabled" . }}
       parameters:
         # One switch (app-of-apps values ztna.enabled) for the whole feature. The images
