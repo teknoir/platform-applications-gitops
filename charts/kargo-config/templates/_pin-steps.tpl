@@ -47,6 +47,12 @@ Aliases have no hyphens (Kargo expressions address step outputs as outputs.<alia
 - uses: git-push
   as: push
   if: {{ include "kargo-config.expr" "success() && status('commit') == 'Succeeded'" | quote }}
+  # GitHub sometimes rejects one of several pushes that arrive at once ("remote rejected ... (failed)", 2026-11-25:
+  # three groups pinned together and pin-notebook-controller errored). Kargo then never re-promotes that Freight
+  # on its own (a non-successful last Promotion stops auto-promotion), so retry here. Re-pushing the same commit
+  # to the same per-promotion branch is idempotent. Only push: a retried openpr or merge could act twice.
+  retry:
+    errorThreshold: 3
   config:
     path: ./src
     # One branch per promotion name: two promotions of one group never race on the same branch.
