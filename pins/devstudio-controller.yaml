@@ -2,4 +2,4 @@
 # Application (helm.valueFiles, charts/app-of-apps/templates/controllers.yaml). Written by the Kargo
 # stage pin-devstudio-controller and by scripts/pin-image; do not edit by hand.
 image:
-  tag: "sha-5de07259@sha256:acc5fa56866fe666ce4c8372b5a991dbf4016747aff21af6935240a2486be94d"
+  tag: sha-85dccfbb@sha256:aaeee9a5f3a91c81800a61a7ce2b23f3f25f7f75832319739c02c195d751449f
