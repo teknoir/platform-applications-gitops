@@ -82,7 +82,7 @@ template:
       - name: runner
         # actions-runner + make, gcc, gh, yq, helm, ... (teknoir/ci-workflows runner-image/), public ghcr. Pinned by Kargo Stage pin-ci-runner
         # (scripts/images.yaml group ci-runner) once the group is on; until then by scripts/pin-image.
-        image: ghcr.io/teknoir/ci-runner:2.338.2-3@sha256:9248ca3c6947c4666847603672d6c02b09527ccf8d04aabd1bcee99c6b2718eb
+        image: ghcr.io/teknoir/ci-runner:sha-1af3ada5@sha256:e08df04301e0dbaeb9634fd9c40ca57af5d6a5722e54f0e7f95192483878cba8
         imagePullPolicy: IfNotPresent
         # No sudo or root inside jobs: the runner image ships passwordless sudo, which this turns off.
         securityContext:
