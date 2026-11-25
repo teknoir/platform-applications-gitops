@@ -231,6 +231,32 @@ class Crs(unittest.TestCase):
     def test_other_groups_and_kinds_are_ignored(self):
         self.assertEqual(CP.check_crs([self.cr("DeviceApplicationSet", "main", api="other.io/v1"), self.cr("Profile", "main")]), [])
 
+    def app_cr(self, kind, **item):
+        return ("f", {"kind": kind, "apiVersion": "teknoir.org/v1alpha1", "metadata": {"name": "n"},
+                      "spec": {"applications": [item]}})
+
+    def test_robot_application_with_a_branch_revision_fails(self):
+        self.assertEqual(codes(CP.check_crs([self.cr("Robot", "nextgen")])), ["cr-revision"])
+
+    def test_robot_type_with_a_sha_revision_is_fine(self):
+        self.assertEqual(CP.check_crs([self.cr("RobotType", SHA)]), [])
+
+    def test_a_robot_type_application_without_a_revision_key_fails(self):
+        f = CP.check_crs([self.app_cr("RobotType", repo_url="https://github.com/teknoir/x", path="p")])
+        self.assertEqual(codes(f), ["cr-revision"])
+        self.assertIn("no revision", f[0].message)
+
+    def test_an_empty_revision_is_reported_once(self):
+        self.assertEqual(len(CP.check_crs([self.app_cr("DeviceApplicationSet", revision="")])), 1)
+
+    def test_device_applications_without_a_revision_are_not_checked(self):
+        # a Device has its own applications; the missing-revision rule is for the rendered CRs only
+        self.assertEqual(CP.check_crs([self.app_cr("Device", repo_url="https://github.com/teknoir/x", path="p")]), [])
+
+    def test_the_missing_revision_finding_takes_the_lint_level(self):
+        doc = self.app_cr("Robot", repo_url="https://github.com/teknoir/x", path="p")
+        self.assertEqual(codes(CP.check_crs([doc], "error"), "error"), ["cr-revision"])
+
     def test_profile_version_keys(self):
         prof = ("f", {"kind": "Profile", "apiVersion": "teknoir.org/v1", "metadata": {"name": "p"}, "spec": {"plugins": [
             {"name": "jwks", "spec": {"version": "0.0.1"}, "values": {"jwksVersion": "main", "imageTag": "x", "ok": 1}}]}})

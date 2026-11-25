@@ -1,0 +1,27 @@
+{{- /*
+RobotTypes every install gets (values platformRobotTypes): the robot models the fleet uses.
+The spec is copied verbatim. Never pruned or deleted by ArgoCD (Prune=false,Delete=false).
+Every applications[].revision must be a 40-hex commit (scripts/check-pins.py, cr_revisions:
+deny), so a push to the content repo changes no device until a gitops PR moves the commit
+(CI v4 P8.1).
+Removing an entry later leaves the object in the cluster and the Application OutOfSync (Prune=false):
+delete it by hand in the same window as the removal PR.
+*/ -}}
+{{- range .Values.platformRobotTypes }}
+---
+apiVersion: teknoir.org/v1alpha1
+kind: RobotType
+metadata:
+  name: {{ required "platformRobotTypes[].name is required" .name }}
+  namespace: {{ required "platformRobotTypes[].namespace is required" .namespace }}
+  annotations:
+    {{- $ann := dict "argocd.argoproj.io/sync-options" "Prune=false,Delete=false" }}
+    {{- if .annotations }}{{ $ann = mergeOverwrite (deepCopy .annotations) $ann }}{{ end }}
+    {{- toYaml $ann | nindent 4 }}
+  labels:
+    {{- $lab := dict "teknoir.org/managed-by" "gitops" }}
+    {{- if .labels }}{{ $lab = mergeOverwrite (deepCopy .labels) $lab }}{{ end }}
+    {{- toYaml $lab | nindent 4 }}
+spec:
+  {{- required "platformRobotTypes[].spec is required" .spec | toYaml | nindent 2 }}
+{{- end }}

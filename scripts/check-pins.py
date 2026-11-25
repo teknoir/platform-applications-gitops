@@ -389,14 +389,30 @@ def _walk_revisions(obj, path=""):
 
 def check_crs(docs: list[tuple[str, dict]], level: str = "warn") -> list[Finding]:
     """Rendered teknoir.org CRs (DeviceApplicationSet, Device, Robot, RobotType) must name a 40-hex commit.
-    level is "warn" or "error" (policy cr_revisions: deny). Hand-applied CRs are not in the render."""
+    For DeviceApplicationSet, Robot and RobotType (not Device, which follows its own applications) every
+    spec.applications item must also carry a revision: a missing or non-string one follows the repository's
+    default branch, so a push there changes devices without a gitops PR (an empty string is left to the
+    walker above, which reports it as not 40-hex). level is "warn" or "error" (policy cr_revisions: deny).
+    Hand-applied CRs are not in the render."""
     out = []
     for _, d in docs:
-        if d.get("kind") in CR_KINDS and str(d.get("apiVersion", "")).startswith("teknoir.org/"):
+        kind = d.get("kind")
+        if kind in CR_KINDS and str(d.get("apiVersion", "")).startswith("teknoir.org/"):
             for p, rev in _walk_revisions(d.get("spec") or {}):
                 if not SHA40.match(rev):
                     out.append(Finding(level, "cr-revision", f"revision '{rev}' at spec{p} is not a 40-hex commit",
                                        f"{d['kind']}/{d['metadata'].get('name')}"))
+            if kind in ("DeviceApplicationSet", "Robot", "RobotType"):
+                apps = (d.get("spec") or {}).get("applications")
+                for i, item in enumerate(apps if isinstance(apps, list) else []):
+                    if isinstance(item, dict) and isinstance(item.get("revision"), str):
+                        continue  # "" is still reported as not 40-hex by the walker above
+                    item = item if isinstance(item, dict) else {}
+                    what = item.get("path") or item.get("repo_url")
+                    out.append(Finding(level, "cr-revision",
+                                       f"application {i} ({what}) at spec.applications[{i}] has no revision: "
+                                       f"it follows the repository's default branch",
+                                       f"{kind}/{d['metadata'].get('name')}"))
     return out
 
 

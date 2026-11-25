@@ -2,6 +2,10 @@
 DeviceApplicationSets every install gets (values platformDeviceApplicationSets): GitOps apps
 pushed to the devices that match a label selector, as created in Backstage. Never pruned
 or deleted by ArgoCD (removing an entry leaves the set; delete it by hand to stop it).
+An entry may also set labels, annotations and priority; they are merged under the fixed
+label and annotation, which always win, and priority is emitted only when the key is set.
+Removing an entry later leaves the object in the cluster and the Application OutOfSync (Prune=false):
+delete it by hand in the same window as the removal PR.
 */ -}}
 {{- range .Values.platformDeviceApplicationSets }}
 ---
@@ -11,10 +15,17 @@ metadata:
   name: {{ .name }}
   namespace: {{ .namespace }}
   annotations:
-    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+    {{- $ann := dict "argocd.argoproj.io/sync-options" "Prune=false,Delete=false" }}
+    {{- if .annotations }}{{ $ann = mergeOverwrite (deepCopy .annotations) $ann }}{{ end }}
+    {{- toYaml $ann | nindent 4 }}
   labels:
-    teknoir.org/managed-by: gitops
+    {{- $lab := dict "teknoir.org/managed-by" "gitops" }}
+    {{- if .labels }}{{ $lab = mergeOverwrite (deepCopy .labels) $lab }}{{ end }}
+    {{- toYaml $lab | nindent 4 }}
 spec:
+  {{- if hasKey . "priority" }}
+  priority: {{ .priority }}
+  {{- end }}
   selector:
     {{- toYaml .selector | nindent 4 }}
   applications:

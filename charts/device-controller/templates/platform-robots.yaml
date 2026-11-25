@@ -1,0 +1,29 @@
+{{- /*
+Robots every install gets (values platformRobots), same shape as platformRobotTypes; a
+Robot's spec.type names a RobotType. The spec is copied verbatim. Never pruned or deleted by
+ArgoCD (Prune=false,Delete=false); a Robot carries the finalizer teknoir.org/robot-release,
+which only device-controller removes, so Delete=false keeps ArgoCD from deleting it.
+The gitops marker teknoir.org/managed-by: gitops is an ANNOTATION here, not a label as on the DAS and
+RobotTypes: device-controller copies every Robot label onto its Device (robot_controller.go copiedLabels),
+and the Devices are not managed by git. Removing an entry later leaves the Robot in the cluster and the
+Application OutOfSync (Prune=false): delete the object by hand in the same window as the removal PR.
+*/ -}}
+{{- range .Values.platformRobots }}
+---
+apiVersion: teknoir.org/v1alpha1
+kind: Robot
+metadata:
+  name: {{ required "platformRobots[].name is required" .name }}
+  namespace: {{ required "platformRobots[].namespace is required" .namespace }}
+  annotations:
+    {{- $ann := dict "argocd.argoproj.io/sync-options" "Prune=false,Delete=false" "teknoir.org/managed-by" "gitops" }}
+    {{- if .annotations }}{{ $ann = mergeOverwrite (deepCopy .annotations) $ann }}{{ end }}
+    {{- toYaml $ann | nindent 4 }}
+  {{- with .labels }}
+  {{- if hasKey . "teknoir.org/managed-by" }}{{ fail "platformRobots[].labels must not set teknoir.org/managed-by: device-controller copies Robot labels onto the Device; the marker is an annotation" }}{{ end }}
+  labels:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- required "platformRobots[].spec is required" .spec | toYaml | nindent 2 }}
+{{- end }}
