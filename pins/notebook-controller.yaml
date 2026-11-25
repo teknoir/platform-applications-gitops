@@ -2,4 +2,4 @@
 # Application (helm.valueFiles, charts/app-of-apps/templates/controllers.yaml). Written by the Kargo
 # stage pin-notebook-controller and by scripts/pin-image; do not edit by hand.
 image:
-  tag: "teknoir-cloud-20260522-055950@sha256:7a717c3bd14bfa8a1f4899d4902351148fa83ee5a07d75c9488c2d6508ae35ac"
+  tag: sha-87abc8df@sha256:74e18c6c2a9590f95f3aa127bb14d4cde7926ccc713d2937fbc0d01d71710749
