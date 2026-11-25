@@ -61,6 +61,8 @@ autoPromotion:
     keycloak-theme: true
     # teknoir-desktop: the desktop and council images on the devices (device-controller ConfigMap).
     teknoir-desktop: true
+    # wg-tunnel: wg-hub/wg-flags, the per-device wgt-* gateways, and wg-agent on every Tunneling device.
+    wg-tunnel: true
 
 staging:
   # P4.3 (b) fallback: also set the root Application's Helm parameter `release` to the Freight commit (besides
