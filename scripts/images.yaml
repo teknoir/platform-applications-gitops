@@ -26,10 +26,10 @@ groups:
   user-controller: {same_commit: false, enabled: false}
   notebook-controller: {same_commit: false, enabled: false}
   teknoirbot-controller: {same_commit: false, enabled: false}
-  keycloak-theme: {same_commit: false, enabled: false}
+  keycloak-theme: {same_commit: false, enabled: true}
   wg-tunnel: {same_commit: true, enabled: true}
   web-terminal: {same_commit: false, enabled: true}
-  teknoir-desktop: {same_commit: true, enabled: false}
+  teknoir-desktop: {same_commit: true, enabled: true}
 
 images:
   - component: backstage-app
