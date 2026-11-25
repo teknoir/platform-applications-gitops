@@ -109,9 +109,10 @@ tests:
       path: kind
       value: ProjectConfig
     # 13 = staging + staging-verified + one per group in values.yaml (a policy exists for every group, enabled or
-    # not). pins: {} keeps every pin policy off whatever the default values later turn on.
+    # not). Helm merges maps, so `pins: {}` cannot clear a default: the asserted pin policies are set off explicitly.
     set:
-      autoPromotion.pins: {}
+      autoPromotion.pins.wg-tunnel: false
+      autoPromotion.pins.backstage: false
     asserts:
       - lengthEqual: {path: spec.promotionPolicies, count: 13}
       - contains:
