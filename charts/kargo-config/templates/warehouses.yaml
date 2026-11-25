@@ -5,8 +5,8 @@ Warehouses: where Freight comes from.
   - gitops-main: new commits on the gitops branch (the thing the staging Stage promotes), off by default;
   - img-<group>: one image subscription per image of every ENABLED group (scripts/images.yaml), each polling the
     image's `poll` repository (ghcr for public images, Harbor through the kargo robot for private ones, see
-    plans/cicd/v4/p42-spec.md "Deviations"). A private group whose repository is still ghcr stays disabled until
-    P6.2 flips it: a Harbor digest whose ghcr push failed would otherwise pin an image ghcr lacks.
+    plans/cicd/v4/p42-spec.md "Deviations"). Since P6.2 (2026-11-25) a private group's repository is also its
+    Harbor repository, so a pin never names an image Harbor lacks.
 Every subscription only accepts the dev-host CI's immutable build tags sha-<8 hex> (proposal-v4 3.1), so a
 Warehouse never makes Freight from a branch tag or :latest that moved under it.
 */}}

@@ -122,38 +122,38 @@ groups:
     enabled: false
     sameCommit: true
     images:
-      - {component: backstage-app, poll: harbor.teknoir.cloud/teknoir/backstage-app, repository: ghcr.io/teknoir/backstage-app, key: backstage.image, style: ref}
-      - {component: backstage-api, poll: harbor.teknoir.cloud/teknoir/backstage, repository: ghcr.io/teknoir/backstage, key: backstageApi.image, style: ref}
+      - {component: backstage-app, poll: harbor.teknoir.cloud/teknoir/backstage-app, repository: harbor.teknoir.cloud/teknoir/backstage-app, key: backstage.image, style: ref}
+      - {component: backstage-api, poll: harbor.teknoir.cloud/teknoir/backstage, repository: harbor.teknoir.cloud/teknoir/backstage, key: backstageApi.image, style: ref}
   - name: device-controller
     enabled: false
     sameCommit: false
     images:
-      - {component: device-controller, poll: harbor.teknoir.cloud/teknoir/device-controller, repository: ghcr.io/teknoir/device-controller, key: image.tag, style: tag}
+      - {component: device-controller, poll: harbor.teknoir.cloud/teknoir/device-controller, repository: harbor.teknoir.cloud/teknoir/device-controller, key: image.tag, style: tag}
   - name: profile-controller
     enabled: false
     sameCommit: false
     images:
-      - {component: profile-controller, poll: harbor.teknoir.cloud/teknoir/profile-controller, repository: ghcr.io/teknoir/profile-controller, key: image.tag, style: tag}
+      - {component: profile-controller, poll: harbor.teknoir.cloud/teknoir/profile-controller, repository: harbor.teknoir.cloud/teknoir/profile-controller, key: image.tag, style: tag}
   - name: devstudio-controller
     enabled: false
     sameCommit: false
     images:
-      - {component: devstudio-controller, poll: harbor.teknoir.cloud/teknoir/devstudio-controller, repository: ghcr.io/teknoir/devstudio-controller, key: image.tag, style: tag}
+      - {component: devstudio-controller, poll: harbor.teknoir.cloud/teknoir/devstudio-controller, repository: harbor.teknoir.cloud/teknoir/devstudio-controller, key: image.tag, style: tag}
   - name: user-controller
     enabled: false
     sameCommit: false
     images:
-      - {component: user-controller, poll: harbor.teknoir.cloud/teknoir/user-controller, repository: ghcr.io/teknoir/user-controller, key: image.tag, style: tag}
+      - {component: user-controller, poll: harbor.teknoir.cloud/teknoir/user-controller, repository: harbor.teknoir.cloud/teknoir/user-controller, key: image.tag, style: tag}
   - name: notebook-controller
     enabled: false
     sameCommit: false
     images:
-      - {component: notebook-controller, poll: harbor.teknoir.cloud/teknoir/notebook-controller, repository: ghcr.io/teknoir/notebook-controller, key: image.tag, style: tag}
+      - {component: notebook-controller, poll: harbor.teknoir.cloud/teknoir/notebook-controller, repository: harbor.teknoir.cloud/teknoir/notebook-controller, key: image.tag, style: tag}
   - name: teknoirbot-controller
     enabled: false
     sameCommit: false
     images:
-      - {component: teknoirbot-controller, poll: harbor.teknoir.cloud/teknoir/teknoirbot-controller, repository: ghcr.io/teknoir/teknoirbot-controller, key: image.tag, style: tag}
+      - {component: teknoirbot-controller, poll: harbor.teknoir.cloud/teknoir/teknoirbot-controller, repository: harbor.teknoir.cloud/teknoir/teknoirbot-controller, key: image.tag, style: tag}
   - name: keycloak-theme
     enabled: true
     sameCommit: false

@@ -1,6 +1,6 @@
 # teknoirbot-controller
 
-Deploys the TeknoirBot controller (`ghcr.io/teknoir/teknoirbot-controller`, private repo) into `teknoir-system`:
+Deploys the TeknoirBot controller (`harbor.teknoir.cloud/teknoir/teknoirbot-controller`, private repo) into `teknoir-system`:
 
 - the CRD `teknoirbots.teknoir.org` (`crds/`, annotated `Prune=false,Delete=false`: pruning a CRD would delete every bot);
 - ServiceAccount, ClusterRole and ClusterRoleBinding `teknoirbot-controller` (the rules of `config/rbac/role.yaml` of the
