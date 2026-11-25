@@ -70,6 +70,8 @@ autoPromotion:
     user-controller: true
     teknoirbot-controller: true
     notebook-controller: true
+    # profile-controller: reconciles every teamspace (Profiles); its own PR.
+    profile-controller: true
 
 staging:
   # P4.3 (b) fallback: also set the root Application's Helm parameter `release` to the Freight commit (besides
@@ -141,7 +143,7 @@ groups:
     images:
       - {component: device-controller, poll: harbor.teknoir.cloud/teknoir/device-controller, repository: harbor.teknoir.cloud/teknoir/device-controller, key: image.tag, style: tag}
   - name: profile-controller
-    enabled: false
+    enabled: true
     sameCommit: false
     images:
       - {component: profile-controller, poll: harbor.teknoir.cloud/teknoir/profile-controller, repository: harbor.teknoir.cloud/teknoir/profile-controller, key: image.tag, style: tag}
