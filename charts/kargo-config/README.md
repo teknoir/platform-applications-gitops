@@ -18,7 +18,7 @@ until those values are turned on.
 | `warehouses.yaml` | `gitops-main` (when enabled) and one `img-<group>` Warehouse per enabled group of `scripts/images.yaml`; image subscriptions accept only the CI's immutable `sha-<8>` tags |
 | `stage-staging.yaml` | Stage `staging`: `argocd-update` of the root Application to the Freight commit, verification with `revision-check` (plus `browser` / `prometheus-soak` when configured) |
 | `stage-staging-verified.yaml` | Stage `staging-verified`: tags the commit the `staging` Stage verified (`verified/<stamp>`), the provenance `scripts/watch.py` and `scripts/staging-release` read |
-| `stage-pins.yaml`, `_pin-steps.tpl` | One Stage `pin-<group>` per enabled group: rewrite `pins/<group>.yaml`, commit, push a branch, open a PR and merge it |
+| `stage-pins.yaml`, `_pin-steps.tpl` | One Stage `pin-<group>` per enabled group: rewrite `pins/<group>.yaml`, commit, push a branch, open a PR and merge it. When the Freight's images are already pinned the commit step is Skipped, and push, PR and merge are skipped too (the Promotion succeeds, no branch, no PR) |
 | `analysis-revision-check.yaml` | ServiceAccount, Role and RoleBinding, the script ConfigMap and the `revision-check` AnalysisTemplate |
 | `analysis-browser.yaml` | `browser` AnalysisTemplate (only when `verification.browser.image` is set) |
 | `analysis-soak.yaml` | `prometheus-soak` AnalysisTemplate (only when `verification.prometheus.address` is set) |
@@ -63,6 +63,11 @@ Kargo expressions (`${{ commitFrom("…").ID }}`, `${{ outputs.stamp.tag }}`) an
 placeholders (`{{args.revision}}`) must reach the objects literally. Helm would parse `{{`, so no
 template writes one directly: every expression comes from a helper in `templates/_helpers.tpl` that
 `printf`s it. The helm unittest suites assert both literals in the rendered output.
+
+## Pins file comments
+
+Kargo's `yaml-update` rewrites a pinned line unquoted and drops any trailing comment on it, so
+comments in `pins/*.yaml` go on their own lines above the key, never at the end of a value line.
 
 ## Verification (`files/revision-check.sh`)
 

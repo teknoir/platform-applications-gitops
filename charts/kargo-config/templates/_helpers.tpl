@@ -33,6 +33,11 @@ args, e.g. {{args.revision}}).
 {{- printf "${{ outputs.%s }}" . -}}
 {{- end -}}
 
+{{/* ${{ <expression> }}: a Kargo expression, e.g. a step `if`. */}}
+{{- define "kargo-config.expr" -}}
+{{- printf "${{ %s }}" . -}}
+{{- end -}}
+
 {{/* {{args.revision}} — an Argo Rollouts AnalysisTemplate argument, not a Kargo expression. */}}
 {{- define "kargo-config.analysisArg.revision" -}}
 {{- printf "{{args.revision}}" -}}

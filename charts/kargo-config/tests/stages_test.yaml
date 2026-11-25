@@ -105,7 +105,7 @@ tests:
           path: 'spec.promotionTemplate.spec.steps[0].config'
           value:
             repoURL: https://github.com/teknoir/platform-applications-gitops.git
-            author: {name: Kargo (teknoir), email: kargo@teknoir.ai}
+            author: {name: Kargo (teknoir), email: 2813201+tekn0ir@users.noreply.github.com}
             checkout:
               - commit: ${{ commitFrom("https://github.com/teknoir/platform-applications-gitops.git").ID }}
                 path: ./src

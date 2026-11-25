@@ -217,6 +217,26 @@ class KargoConfig(unittest.TestCase):
                     if "as" in step:
                         self.assertRegex(step["as"], r"^[a-z][a-z0-9]*$", stage["metadata"]["name"])
 
+    def test_the_pin_steps_skip_push_pr_and_merge_without_a_new_commit(self):
+        # git-commit is Skipped (output commit = HEAD) when the Freight is already pinned; the `if` guards on the
+        # next three steps then skip them too, and the Promotion succeeds (Kargo counts Skipped as Succeeded).
+        expected = {
+            3: "${{ success() && status('commit') == 'Succeeded' }}",
+            4: "${{ success() && status('push') == 'Succeeded' }}",
+            5: "${{ success() && status('openpr') == 'Succeeded' }}",
+        }
+        checked = 0
+        for name, stage in self.stages(self.full_docs).items():
+            if not name.startswith("pin-"):
+                continue
+            steps = stage["spec"]["promotionTemplate"]["spec"]["steps"]
+            for i in range(3):
+                self.assertNotIn("if", steps[i], name)
+            for i, expression in expected.items():
+                self.assertEqual(steps[i]["if"], expression, name)
+            checked += 1
+        self.assertEqual(checked, len(self.groups()))
+
     # -- Warehouses
     def test_every_warehouse_subscription_uses_documented_keys(self):
         for docs in (self.default_docs, self.full_docs):
@@ -230,10 +250,13 @@ class KargoConfig(unittest.TestCase):
                     self.assertEqual(keys - allowed, set(), wh["metadata"]["name"])
                     self.assertIn("repoURL", keys)
 
-    def test_the_defaults_poll_the_branch_and_only_the_enabled_group(self):
+    def test_the_defaults_poll_the_branch_and_only_the_enabled_groups(self):
+        # values.yaml decides which groups are on; this test never hard-codes one.
+        enabled = [g["name"] for g in self.groups() if g["enabled"]]
         warehouses = self.warehouses(self.default_docs)
-        self.assertEqual(sorted(warehouses), ["gitops-main", "img-wg-tunnel"])
-        self.assertEqual(sorted(self.stages(self.default_docs)), ["pin-wg-tunnel", "staging", "staging-verified"])
+        self.assertEqual(sorted(warehouses), sorted(["gitops-main"] + ["img-" + n for n in enabled]))
+        self.assertEqual(sorted(self.stages(self.default_docs)),
+                         sorted(["staging", "staging-verified"] + ["pin-" + n for n in enabled]))
 
     def test_every_enabled_group_gets_a_warehouse_and_a_pin_stage(self):
         warehouses = self.warehouses(self.full_docs)
@@ -274,16 +297,25 @@ class KargoConfig(unittest.TestCase):
                 else:
                     self.assertEqual(value, '${{ imageFrom("%s").Digest }}' % img["poll"])
 
-    # -- defaults (P5.2: staging auto-promotes, pins stay off), and the P4.3 (b) fallback
-    def test_only_staging_and_staging_verified_auto_promote_by_default(self):
-        # P5.2 cut-over: a merge to main is a release; every pin auto-promotion stays off until P6.1
+    # -- defaults (P5.2: staging auto-promotes; pins follow values.yaml), and the P4.3 (b) fallback
+    def test_auto_promotion_follows_values(self):
+        # P5.2 cut-over: a merge to main is a release. Each pin group is on only when
+        # values.yaml autoPromotion.pins says so (P6.1 enables one group per reviewed PR).
         config = self.of_kind(self.default_docs, "ProjectConfig")[0]
         policies = config["spec"]["promotionPolicies"]
         self.assertEqual(len(policies), len(self.groups()) + 2)
+        with open(os.path.join(CHART, "values.yaml")) as fh:
+            auto = yaml.safe_load(fh)["autoPromotion"]
+        pins_on = {"pin-" + name for name, on in auto["pins"].items() if on}
         on = {p["stageSelector"]["name"] for p in policies if p["autoPromotionEnabled"] is True}
-        self.assertEqual(on, {"staging", "staging-verified"}, policies)
-        self.assertTrue(all(p["autoPromotionEnabled"] is False for p in policies
-                            if p["stageSelector"]["name"].startswith("pin-")), policies)
+        self.assertEqual(on, {"staging", "staging-verified"} | pins_on, policies)
+        # Every pin policy not switched on in values.yaml is off.
+        self.assertEqual({p["stageSelector"]["name"] for p in policies
+                          if p["stageSelector"]["name"].startswith("pin-")
+                          and p["autoPromotionEnabled"] is not False}, pins_on, policies)
+        self.assertEqual({p["stageSelector"]["name"] for p in policies
+                          if p["stageSelector"]["name"].startswith("pin-")},
+                         {"pin-" + g["name"] for g in self.groups()}, policies)
 
     def test_the_release_parameter_is_only_set_with_setReleaseParam(self):
         staging = self.stages(self.default_docs)["staging"]
