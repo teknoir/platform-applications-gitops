@@ -65,3 +65,17 @@ VMs use the public gateway's egress rules) and the teknoir-cloud allowlist. One 
 {{- $allowedProjects := list "teknoir-cloud" -}}
 {{- if and (.Values.teknoirbot).enabled ((.Values.teknoirbot).agent).enabled (include "app-of-apps.ztnaEnabled" .) (has .Values.project $allowedProjects) -}}true{{- end -}}
 {{- end -}}
+
+{{/*
+The device-controller retainedConfigRepublish value of this environment (plans/teknoirbot/root-in-vm.md R0, D13):
+app-of-apps values deviceController.retainedConfigRepublish, passed to the device-controller Application as a helm
+parameter by templates/controllers.yaml, inside its teknoir-cloud allowlist. Renders "off", "log", "on" or the raw
+value: an absent or empty value and a bare off (YAML 1.1 boolean false) are "off", a bare on (true) is "on". No
+validation here, because a failed render of the root would stop every Application of the environment from syncing:
+charts/device-controller fails its own render for any other value, which stops only that child (and the CI render).
+*/}}
+{{- define "app-of-apps.retainedConfigRepublish" -}}
+{{- $raw := (.Values.deviceController).retainedConfigRepublish -}}
+{{- $v := ternary "" (toString $raw) (kindIs "invalid" $raw) -}}
+{{- if or (eq $v "false") (eq $v "") -}}off{{- else if eq $v "true" -}}on{{- else -}}{{ $v }}{{- end -}}
+{{- end -}}

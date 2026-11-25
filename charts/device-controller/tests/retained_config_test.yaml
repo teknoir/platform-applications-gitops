@@ -42,3 +42,11 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: 'retainedConfigRepublish must be "off", "log" or "on" \(got "verbose"\)'
+
+  # What staging passes (charts/app-of-apps templates/controllers.yaml): --set-string retainedConfigRepublish=<value>.
+  - it: takes the string the staging Application passes (forceString)
+    set:
+      retainedConfigRepublish: "log"
+    asserts:
+      - equal: {path: 'data.RETAINED_CONFIG_REPUBLISH', value: "log"}
+      - equal: {path: metadata.name, value: RELEASE-NAME-device-controller-parameters}

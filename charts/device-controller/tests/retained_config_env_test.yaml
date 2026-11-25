@@ -1,0 +1,18 @@
+suite: retained config republish reaches the manager (R0, plans/teknoirbot/root-in-vm.md)
+templates:
+  - templates/configmap.yaml
+  - templates/deployment.yaml
+# The pins the device-controller Application passes (charts/app-of-apps/templates/controllers.yaml).
+values:
+  - ../../../pins/device-controller.yaml
+  - ../../../pins/teknoir-desktop.yaml
+  - ../../../pins/web-terminal.yaml
+  - ../../../pins/wg-tunnel.yaml
+tests:
+  - it: reads the parameters ConfigMap (RETAINED_CONFIG_REPUBLISH) into the manager's environment
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].envFrom
+          content: {configMapRef: {name: RELEASE-NAME-device-controller-parameters}}
+
