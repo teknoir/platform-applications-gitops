@@ -3,13 +3,13 @@
 replicaCount: 1
 
 image:
-  repository: ghcr.io/teknoir/device-controller
+  repository: harbor.teknoir.cloud/teknoir/device-controller
   # pinned in pins/device-controller.yaml (Kargo stage pin-device-controller)
   tag: ""
   pullPolicy: IfNotPresent
 
-imagePullSecrets:
-  - name: ghcr-token
+# The image is pulled from Harbor with the node credential (CI v4 P6.2), so no pull secret.
+imagePullSecrets: []
 
 nameOverride: ""
 fullnameOverride: ""

@@ -91,8 +91,8 @@ class ImagesYaml(unittest.TestCase):
             self.assertNotIn(":", row["poll"], row["component"])  # no tag in a Warehouse repoURL
 
     def test_a_group_is_enabled_only_while_its_poll_matches_its_repository(self):
-        """A private group (poll on Harbor, pinned from ghcr) stays disabled until P6.2 flips `repository`:
-        a Harbor digest whose ghcr push failed would otherwise pin an image ghcr lacks."""
+        """An enabled group polls the repository it pins from: a Harbor digest whose ghcr push failed would
+        otherwise pin an image ghcr lacks. Since P6.2 the private groups pin from Harbor too."""
         for g in self.values["groups"]:
             if not g["enabled"]:
                 continue

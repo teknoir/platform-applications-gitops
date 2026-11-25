@@ -5,13 +5,13 @@ commonLabels:
   app: notebook-controller
 
 image:
-  repository: ghcr.io/teknoir/notebook-controller
+  repository: harbor.teknoir.cloud/teknoir/notebook-controller
   # pinned in pins/notebook-controller.yaml (Kargo stage pin-notebook-controller)
   tag: ""
   pullPolicy: Always
 
-imagePullSecrets:
-  - name: ghcr-token
+# The image is pulled from Harbor with the node credential (CI v4 P6.2), so no pull secret.
+imagePullSecrets: []
 
 serviceAccount:
   name: notebook-controller-service-account

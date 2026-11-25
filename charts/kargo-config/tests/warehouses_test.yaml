@@ -88,13 +88,13 @@ tests:
           enabled: true
           sameCommit: false
           images:
-            - {component: device-controller, poll: harbor.teknoir.cloud/teknoir/device-controller, repository: ghcr.io/teknoir/device-controller, key: image.tag, style: tag}
+            - {component: device-controller, poll: harbor.teknoir.cloud/teknoir/device-controller, repository: harbor.teknoir.cloud/teknoir/device-controller, key: image.tag, style: tag}
         - name: backstage
           enabled: true
           sameCommit: true
           images:
-            - {component: backstage-app, poll: harbor.teknoir.cloud/teknoir/backstage-app, repository: ghcr.io/teknoir/backstage-app, key: backstage.image, style: ref}
-            - {component: backstage-api, poll: harbor.teknoir.cloud/teknoir/backstage, repository: ghcr.io/teknoir/backstage, key: backstageApi.image, style: ref}
+            - {component: backstage-app, poll: harbor.teknoir.cloud/teknoir/backstage-app, repository: harbor.teknoir.cloud/teknoir/backstage-app, key: backstage.image, style: ref}
+            - {component: backstage-api, poll: harbor.teknoir.cloud/teknoir/backstage, repository: harbor.teknoir.cloud/teknoir/backstage, key: backstageApi.image, style: ref}
     asserts:
       - hasDocuments: {count: 2}
 
@@ -106,13 +106,13 @@ tests:
           enabled: true
           sameCommit: false
           images:
-            - {component: device-controller, poll: harbor.teknoir.cloud/teknoir/device-controller, repository: ghcr.io/teknoir/device-controller, key: image.tag, style: tag}
+            - {component: device-controller, poll: harbor.teknoir.cloud/teknoir/device-controller, repository: harbor.teknoir.cloud/teknoir/device-controller, key: image.tag, style: tag}
         - name: backstage
           enabled: true
           sameCommit: true
           images:
-            - {component: backstage-app, poll: harbor.teknoir.cloud/teknoir/backstage-app, repository: ghcr.io/teknoir/backstage-app, key: backstage.image, style: ref}
-            - {component: backstage-api, poll: harbor.teknoir.cloud/teknoir/backstage, repository: ghcr.io/teknoir/backstage, key: backstageApi.image, style: ref}
+            - {component: backstage-app, poll: harbor.teknoir.cloud/teknoir/backstage-app, repository: harbor.teknoir.cloud/teknoir/backstage-app, key: backstage.image, style: ref}
+            - {component: backstage-api, poll: harbor.teknoir.cloud/teknoir/backstage, repository: harbor.teknoir.cloud/teknoir/backstage, key: backstageApi.image, style: ref}
     documentSelector:
       path: metadata.name
       value: img-device-controller
@@ -127,13 +127,13 @@ tests:
           enabled: true
           sameCommit: false
           images:
-            - {component: device-controller, poll: harbor.teknoir.cloud/teknoir/device-controller, repository: ghcr.io/teknoir/device-controller, key: image.tag, style: tag}
+            - {component: device-controller, poll: harbor.teknoir.cloud/teknoir/device-controller, repository: harbor.teknoir.cloud/teknoir/device-controller, key: image.tag, style: tag}
         - name: backstage
           enabled: true
           sameCommit: true
           images:
-            - {component: backstage-app, poll: harbor.teknoir.cloud/teknoir/backstage-app, repository: ghcr.io/teknoir/backstage-app, key: backstage.image, style: ref}
-            - {component: backstage-api, poll: harbor.teknoir.cloud/teknoir/backstage, repository: ghcr.io/teknoir/backstage, key: backstageApi.image, style: ref}
+            - {component: backstage-app, poll: harbor.teknoir.cloud/teknoir/backstage-app, repository: harbor.teknoir.cloud/teknoir/backstage-app, key: backstage.image, style: ref}
+            - {component: backstage-api, poll: harbor.teknoir.cloud/teknoir/backstage, repository: harbor.teknoir.cloud/teknoir/backstage, key: backstageApi.image, style: ref}
     documentSelector:
       path: metadata.name
       value: img-backstage

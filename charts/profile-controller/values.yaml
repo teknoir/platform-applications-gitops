@@ -3,13 +3,13 @@
 replicaCount: 1
 
 image:
-  repository: ghcr.io/teknoir/profile-controller
+  repository: harbor.teknoir.cloud/teknoir/profile-controller
   # pinned in pins/profile-controller.yaml (Kargo stage pin-profile-controller)
   tag: ""
   pullPolicy: Always
 
-imagePullSecrets:
-  - name: ghcr-token
+# The image is pulled from Harbor with the node credential (CI v4 P6.2), so no pull secret.
+imagePullSecrets: []
 
 podSecurityContext: {}
   # fsGroup: 2000

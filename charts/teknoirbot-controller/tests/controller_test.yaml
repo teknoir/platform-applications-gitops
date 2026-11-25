@@ -70,13 +70,13 @@ tests:
     asserts:
       - hasDocuments: {count: 0}
 
-  - it: the Deployment uses the pinned image, the pull secret and the labels the PodMonitor selects on
+  - it: the Deployment uses the pinned image, no pull secret and the labels the PodMonitor selects on
     template: templates/deployment.yaml
     asserts:
       - equal: {path: spec.replicas, value: 1}
       - equal: {path: 'spec.template.spec.containers[0].name', value: manager}
-      - equal: {path: 'spec.template.spec.containers[0].image', value: "ghcr.io/teknoir/teknoirbot-controller:v0@sha256:0000000000000000000000000000000000000000000000000000000000000000"}
-      - equal: {path: spec.template.spec.imagePullSecrets, value: [{name: ghcr-token}]}
+      - equal: {path: 'spec.template.spec.containers[0].image', value: "harbor.teknoir.cloud/teknoir/teknoirbot-controller:v0@sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+      - notExists: {path: spec.template.spec.imagePullSecrets}
       - equal: {path: spec.template.spec.serviceAccountName, value: teknoirbot-controller}
       - equal: {path: 'metadata.labels["kustomize.component"]', value: teknoirbot-controller}
       - equal: {path: 'spec.template.metadata.labels["kustomize.component"]', value: teknoirbot-controller}

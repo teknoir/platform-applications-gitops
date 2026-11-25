@@ -17,8 +17,10 @@ spec:
         # Backstage reads its config only at start: roll the pods when the app-config changes.
         checksum/app-config: {{ include (print $.Template.BasePath "/configmap-app-config.yaml") . | sha256sum }}
     spec:
+      {{- with .Values.backstage.imagePullSecrets }}
       imagePullSecrets:
-        {{- toYaml .Values.backstage.imagePullSecrets | nindent 8 }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: backstage
           image: {{ required "backstage.image is pinned in pins/backstage.yaml (Kargo stage pin-backstage)" .Values.backstage.image }}
@@ -107,8 +109,10 @@ spec:
                   path: token
         {{- end }}
       serviceAccountName: {{ .Values.name }}-api
+      {{- with .Values.backstageApi.imagePullSecrets }}
       imagePullSecrets:
-        {{- toYaml .Values.backstageApi.imagePullSecrets | nindent 8 }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: backstage-api
           {{- with .Values.backstageApi.containerSecurityContext }}
