@@ -137,7 +137,7 @@ tests:
       autoPromotion:
         staging: true
         staging-verified: false
-        pins: {wg-tunnel: true}
+        pins: {wg-tunnel: true, device-controller: false}
     asserts:
       - contains:
           path: spec.promotionPolicies

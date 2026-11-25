@@ -74,6 +74,8 @@ autoPromotion:
     profile-controller: true
     # devstudio-controller: DEVSTUDIO_IMAGE support (#40), inert until the chart sets it (P6.6).
     devstudio-controller: true
+    # device-controller: last and alone (a restart re-reconciles every live device).
+    device-controller: true
 
 staging:
   # P4.3 (b) fallback: also set the root Application's Helm parameter `release` to the Freight commit (besides
@@ -140,7 +142,7 @@ groups:
       - {component: backstage-app, poll: harbor.teknoir.cloud/teknoir/backstage-app, repository: harbor.teknoir.cloud/teknoir/backstage-app, key: backstage.image, style: ref}
       - {component: backstage-api, poll: harbor.teknoir.cloud/teknoir/backstage, repository: harbor.teknoir.cloud/teknoir/backstage, key: backstageApi.image, style: ref}
   - name: device-controller
-    enabled: false
+    enabled: true
     sameCommit: false
     images:
       - {component: device-controller, poll: harbor.teknoir.cloud/teknoir/device-controller, repository: harbor.teknoir.cloud/teknoir/device-controller, key: image.tag, style: tag}
