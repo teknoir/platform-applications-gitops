@@ -2,4 +2,5 @@
 # Application (helm.valueFiles, charts/app-of-apps/templates/teknoirbot.yaml). Written by the Kargo stage
 # pin-teknoirbot-controller and by scripts/pin-image; do not edit by hand.
 image:
-  tag: "sha-611c806c@sha256:ff345624d7aeddea306ae1c98b7d07b2cf0a1502d144722d15bac1d2271c4409"  # required: '<tag>@sha256:<digest>' (scripts/pin-image teknoirbot-controller ...)
+  # required: '<tag>@sha256:<digest>' (scripts/pin-image teknoirbot-controller ...)
+  tag: "sha-611c806c@sha256:ff345624d7aeddea306ae1c98b7d07b2cf0a1502d144722d15bac1d2271c4409"

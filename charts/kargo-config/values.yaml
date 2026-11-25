@@ -24,9 +24,13 @@ gitops:
   # none = <prefix><sha8> (the P4.3 (e) fallback if the ruleset or the PAT forbids the timestamped form).
   verifiedTagStamp: time
   # Author of the commits and tags Kargo makes (git-clone config.author; 1.12 has no author on git-commit).
+  # The email is the GitHub noreply address of tekn0ir, the account whose PAT (platform/gitops-git) Kargo pushes
+  # and merges with. The live main ruleset has require_extra_approval_for_unattributed_changes: true (GitHub's
+  # default), so a commit by an address no GitHub account owns would need an approval nobody can give, and
+  # git-merge-pr would time out (CI v4 P6.1, 2026-11-25).
   author:
     name: "Kargo (teknoir)"
-    email: "kargo@teknoir.ai"
+    email: "2813201+tekn0ir@users.noreply.github.com"
 
 warehouses:
   # Poll this repository's branch for commits: every merge to `main` becomes Freight (P5.2).

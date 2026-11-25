@@ -7,7 +7,8 @@ Input: (dict "group" <entry of .Values.groups> "root" $).
   - clone the gitops branch;
   - rewrite every image's key in pins/<group>.yaml from the Freight's image references;
   - commit with the component names in the message (plan 7.1 searches commits by image name);
-  - push a per-promotion branch, open a pull request, merge it (squash) and wait for the merge.
+  - push a per-promotion branch, open a pull request, merge it (squash) and wait for the merge;
+  - skip push, PR and merge when the commit step made no new commit (the images are already pinned).
 Aliases have no hyphens (Kargo expressions address step outputs as outputs.<alias>.<field>).
 */ -}}
 {{- define "kargo-config.pinSteps" -}}
@@ -39,14 +40,20 @@ Aliases have no hyphens (Kargo expressions address step outputs as outputs.<alia
   config:
     path: ./src
     message: {{ $msg | squote }}
+# git-commit reports Skipped (output commit = HEAD) when the Freight's images are already pinned. Push, PR and
+# merge are then skipped and the Promotion still succeeds: Kargo counts Skipped as Succeeded. An explicit `if`
+# drops Kargo's default skip-after-failure, hence success(). git-open-pr is Skipped with no output when the
+# branch equals the target, hence the guard on merge.
 - uses: git-push
   as: push
+  if: {{ include "kargo-config.expr" "success() && status('commit') == 'Succeeded'" | quote }}
   config:
     path: ./src
     # One branch per promotion name: two promotions of one group never race on the same branch.
     targetBranch: {{ printf "%s/%s" $gitops.pinBranchPrefix (include "kargo-config.promotion" "") | squote }}
 - uses: git-open-pr
   as: openpr
+  if: {{ include "kargo-config.expr" "success() && status('push') == 'Succeeded'" | quote }}
   config:
     repoURL: {{ $gitops.repoURL }}
     provider: github
@@ -55,6 +62,7 @@ Aliases have no hyphens (Kargo expressions address step outputs as outputs.<alia
     title: {{ $msg | squote }}
 - uses: git-merge-pr
   as: merge
+  if: {{ include "kargo-config.expr" "success() && status('openpr') == 'Succeeded'" | quote }}
   # Required checks (render, helm-unittest, ...) gate the merge: wait for them, and give up after 30 minutes.
   retry:
     timeout: 30m

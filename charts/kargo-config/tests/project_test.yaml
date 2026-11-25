@@ -108,6 +108,10 @@ tests:
     documentSelector:
       path: kind
       value: ProjectConfig
+    # 13 = staging + staging-verified + one per group in values.yaml (a policy exists for every group, enabled or
+    # not). pins: {} keeps every pin policy off whatever the default values later turn on.
+    set:
+      autoPromotion.pins: {}
     asserts:
       - lengthEqual: {path: spec.promotionPolicies, count: 13}
       - contains:

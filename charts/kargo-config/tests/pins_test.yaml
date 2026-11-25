@@ -1,12 +1,36 @@
 suite: pin Stages (image pins through pull requests)
-# plans/cicd/v4/p42-spec.md section 4. Defaults: one group enabled (wg-tunnel, scripts/images.yaml) with three
-# images of two styles (tag, ref, ref).
+# plans/cicd/v4/p42-spec.md section 4. The step tests select the pin-wg-tunnel Stage by name
+# (documentSelector), so they do not depend on which groups values.yaml enables; the count test sets its own
+# explicit groups (two enabled, one disabled).
 templates:
   - templates/stage-pins.yaml
 tests:
   - it: renders one Stage per enabled group and none for a disabled group
+    set:
+      groups:
+        - name: wg-tunnel
+          enabled: true
+          sameCommit: true
+          images:
+            - {component: wg-hub, poll: ghcr.io/teknoir/wg-hub, repository: ghcr.io/teknoir/wg-hub, key: hub.image.tag, style: tag}
+        - name: web-terminal
+          enabled: true
+          sameCommit: false
+          images:
+            - {component: web-terminal, poll: ghcr.io/teknoir/web-terminal, repository: ghcr.io/teknoir/web-terminal, key: ztna.terminalImage, style: ref}
+        - name: backstage
+          enabled: false
+          sameCommit: true
+          images:
+            - {component: backstage-app, poll: harbor.teknoir.cloud/teknoir/backstage-app, repository: ghcr.io/teknoir/backstage-app, key: backstage.image, style: ref}
     asserts:
-      - hasDocuments: {count: 1}
+      - hasDocuments: {count: 2}
+
+  - it: names the Stage pin-<group> in the platform namespace and requests its image Warehouse
+    documentSelector:
+      path: metadata.name
+      value: pin-wg-tunnel
+    asserts:
       - isKind: {of: Stage}
       - equal: {path: metadata.name, value: pin-wg-tunnel}
       - equal: {path: metadata.namespace, value: platform}
@@ -23,6 +47,9 @@ tests:
       - hasDocuments: {count: 0}
 
   - it: clones the branch, rewrites every key of the group pins file, commits, opens a PR and merges it
+    documentSelector:
+      path: metadata.name
+      value: pin-wg-tunnel
     asserts:
       - equal: {path: 'spec.promotionTemplate.spec.steps[0].uses', value: git-clone}
       - equal: {path: 'spec.promotionTemplate.spec.steps[0].as', value: clone}
@@ -64,7 +91,31 @@ tests:
             pollInterval: 60s
             deleteSourceBranch: true
 
+  - it: skips push, PR and merge when git-commit made no commit
+    documentSelector:
+      path: metadata.name
+      value: pin-wg-tunnel
+    asserts:
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[3].if'
+          value: "${{ success() && status('commit') == 'Succeeded' }}"
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[4].if'
+          value: "${{ success() && status('push') == 'Succeeded' }}"
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[5].if'
+          value: "${{ success() && status('openpr') == 'Succeeded' }}"
+      - notExists: {path: 'spec.promotionTemplate.spec.steps[0].if'}
+      - notExists: {path: 'spec.promotionTemplate.spec.steps[1].if'}
+      - notExists: {path: 'spec.promotionTemplate.spec.steps[2].if'}
+      - matchRegex:
+          path: 'spec.promotionTemplate.spec.steps[3].if'
+          pattern: "^\\$\\{\\{ success\\(\\) && status\\('commit'\\) == 'Succeeded' \\}\\}$"
+
   - it: maps the style to the value written into the pins file (tag and ref)
+    documentSelector:
+      path: metadata.name
+      value: pin-wg-tunnel
     asserts:
       - equal:
           path: 'spec.promotionTemplate.spec.steps[1].config.updates'
@@ -89,6 +140,9 @@ tests:
             - {key: keycloak.image.digest, value: '${{ imageFrom("ghcr.io/teknoir/keycloak-theme").Digest }}'}
 
   - it: names the components, not the group, in the commit message (plan 7.1)
+    documentSelector:
+      path: metadata.name
+      value: pin-wg-tunnel
     asserts:
       - equal:
           path: 'spec.promotionTemplate.spec.steps[2].config.message'
@@ -97,6 +151,9 @@ tests:
   - it: uses the rehearsal branch and pin prefix from the override values
     values:
       - ../values-rehearsal.yaml
+    documentSelector:
+      path: metadata.name
+      value: pin-wg-tunnel
     asserts:
       - equal:
           path: 'spec.promotionTemplate.spec.steps[0].config.checkout'
@@ -108,6 +165,9 @@ tests:
       - equal: {path: 'spec.promotionTemplate.spec.steps[4].config.targetBranch', value: rehearsal/kargo}
 
   - it: renders the Kargo promotion name and image references literally
+    documentSelector:
+      path: metadata.name
+      value: pin-wg-tunnel
     asserts:
       - matchRegex: {path: 'spec.promotionTemplate.spec.steps[3].config.targetBranch', pattern: '^kargo/promotion/\$\{\{ ctx\.promotion \}\}$'}
       - matchRegex: {path: 'spec.promotionTemplate.spec.steps[1].config.updates[0].value', pattern: '^\$\{\{ imageFrom\("ghcr\.io/teknoir/wg-hub"\)\.Tag \}\}@'}

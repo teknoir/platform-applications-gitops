@@ -4,24 +4,46 @@ suite: Warehouses (git branch and image groups)
 templates:
   - templates/warehouses.yaml
 tests:
-  - it: polls the gitops branch and one Warehouse for the one enabled group by default (since P5.2)
+  - it: renders the git Warehouse and one per enabled group, none for a disabled group
+    set:
+      warehouses.gitopsMain.enabled: true
+      groups:
+        - name: wg-tunnel
+          enabled: true
+          sameCommit: true
+          images:
+            - {component: wg-hub, poll: ghcr.io/teknoir/wg-hub, repository: ghcr.io/teknoir/wg-hub, key: hub.image.tag, style: tag}
+        - name: web-terminal
+          enabled: true
+          sameCommit: false
+          images:
+            - {component: web-terminal, poll: ghcr.io/teknoir/web-terminal, repository: ghcr.io/teknoir/web-terminal, key: ztna.terminalImage, style: ref}
+        - name: backstage
+          enabled: false
+          sameCommit: true
+          images:
+            - {component: backstage-app, poll: harbor.teknoir.cloud/teknoir/backstage-app, repository: ghcr.io/teknoir/backstage-app, key: backstage.image, style: ref}
     asserts:
-      - hasDocuments: {count: 2}
+      - hasDocuments: {count: 3}
       - isKind: {of: Warehouse}
-      - matchRegex: {path: metadata.name, pattern: ^(gitops-main|img-wg-tunnel)$}
       - equal: {path: metadata.namespace, value: platform}
 
-  - it: one Warehouse for the one enabled group with the gitops branch off
+  - it: keeps the image Warehouse with the gitops branch off
     set:
       warehouses.gitopsMain.enabled: false
+    documentSelector:
+      path: metadata.name
+      value: img-wg-tunnel
     asserts:
-      - hasDocuments: {count: 1}
       - equal: {path: metadata.name, value: img-wg-tunnel}
       - equal: {path: spec.interval, value: 5m}
 
   - it: subscribes to every image of the group with the sha-<8> tag filter and cached tags
     set:
       warehouses.gitopsMain.enabled: false
+    documentSelector:
+      path: metadata.name
+      value: img-wg-tunnel
     asserts:
       - lengthEqual: {path: spec.subscriptions, count: 3}
       - equal:
@@ -39,6 +61,9 @@ tests:
   - it: requires the same tag for every image of a same_commit group
     set:
       warehouses.gitopsMain.enabled: false
+    documentSelector:
+      path: metadata.name
+      value: img-wg-tunnel
     asserts:
       - equal:
           path: spec.freightCreationCriteria.expression
@@ -47,6 +72,12 @@ tests:
   - it: adds the git Warehouse when warehouses.gitopsMain.enabled is on
     set:
       warehouses.gitopsMain.enabled: true
+      groups:
+        - name: wg-tunnel
+          enabled: true
+          sameCommit: true
+          images:
+            - {component: wg-hub, poll: ghcr.io/teknoir/wg-hub, repository: ghcr.io/teknoir/wg-hub, key: hub.image.tag, style: tag}
     asserts:
       - hasDocuments: {count: 2}
 
