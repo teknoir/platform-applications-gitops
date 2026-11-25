@@ -5,7 +5,13 @@ suite: the devhost-ci releases under ArgoCD (ci-runners, arc, the three scale se
 templates:
   - templates/ci-runners.yaml
 tests:
-  - it: renders nothing by default (the flag is off in values.yaml)
+  - it: renders the five Applications on staging (the flag is on in values.yaml since 2026-11-25)
+    asserts:
+      - hasDocuments: {count: 5}
+
+  - it: renders nothing with the flag off
+    set:
+      ciRunners: {enabled: false}
     asserts:
       - hasDocuments: {count: 0}
 
