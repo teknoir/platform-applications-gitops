@@ -14,7 +14,11 @@
 #      revision (status.sync.revision, or revisions[i] absent or the array too short) fails as <none>: a source
 #      that never synced is not at $REVISION. Sources of other repositories and of Helm charts (OCI) are not
 #      revision-checked. Every child is Synced and Healthy, except one whose spec.destination.server is
-#      DEVHOST_CI_SERVER (it runs on the dev-host cluster): revision only;
+#      DEVHOST_CI_SERVER (it runs on the dev-host cluster): sync status and health are never checked, and a
+#      revision other than $REVISION fails only while the Application is comparable. When the dev host is
+#      unreachable or the Application cannot be compared (status.sync.status Unknown, or a condition of type
+#      ComparisonError), ArgoCD may leave its revisions empty or stale, so a wrong or missing revision is a
+#      WARN line on stdout and NOT a failure: a dev host that is down must never stall a staging promotion;
 #   4. every profile-plugin Application in PLUGIN_NAMESPACE (spec.source.chart starts with profile-plugin-)
 #      has spec.source.targetRevision equal to PLUGIN_CHART_VERSION of the live profile-controller ConfigMap.
 #      This needs a ConfigMap only when such an Application exists.
@@ -26,7 +30,8 @@
 #   ROOT_APP_NAME             default app-of-apps
 #   ROOT_APP_NAMESPACE        default teknoir-system
 #   EXCLUDE_APPS              space-separated child names to skip
-#   DEVHOST_CI_SERVER         default empty: no revision-only child
+#   DEVHOST_CI_SERVER         default empty: no dev-host child (its revisions then only warn while it cannot be
+#                             compared)
 #   GITOPS_REPO_URL           default https://github.com/teknoir/platform-applications-gitops.git
 #   PLUGIN_CONFIGMAP          default profile-controller-config
 #   PLUGIN_NAMESPACE          default teknoir-system
@@ -98,6 +103,15 @@ state() {
     printf '%s' "$1" | jq -r '"\(.status.sync.status // "-")|\(.status.health.status // "-")"'
 }
 
+# uncomparable <application JSON>: true (exit 0) when ArgoCD could not compare the Application with its cluster:
+# status.sync.status Unknown, or a condition of type ComparisonError (an unreachable dev-host cluster).
+uncomparable() {
+    if printf '%s' "$1" | jq -e '(.status.sync.status // "") == "Unknown"' >/dev/null 2>&1; then
+        return 0
+    fi
+    printf '%s' "$1" | jq -e 'any(.status.conditions[]?; .type == "ComparisonError")' >/dev/null 2>&1
+}
+
 # plugin_check: rule 4. The Applications are listed first: the ConfigMap is required only when there is one.
 plugin_check() {
     apps=$(get "$PLUGIN_NS" applications.argoproj.io) || {
@@ -154,13 +168,32 @@ check() {
             fail "$name: listed in $ROOT_APP but not found in $ROOT_NS"
             continue
         }
+        # The destination server decides first: a dev-host child has its own rule (below), every other child the
+        # ordinary one. Nothing else about a dev-host child is checked: its sync status and health are not.
+        server=$(printf '%s' "$child" | jq -r '.spec.destination.server // ""')
+        if [ -n "$DEVHOST" ] && [ "$server" = "$DEVHOST" ]; then
+            # Revisions word-split (a SHA or <none>: no spaces) so the decision is made here, not in a subshell.
+            revs=$(expected_revisions "$child")
+            stale=0
+            for rev in $revs; do
+                [ "$rev" = "$REVISION" ] || stale=1
+            done
+            if [ "$stale" -eq 1 ]; then
+                cstate=$(state "$child")
+                if uncomparable "$child"; then
+                    printf 'revision-check: WARN %s: devhost-ci unreachable or not comparable (sync %s); not blocking\n' \
+                        "$name" "${cstate%%|*}"
+                else
+                    for rev in $revs; do
+                        [ "$rev" = "$REVISION" ] || fail "$name: revision $rev (want $REVISION)"
+                    done
+                fi
+            fi
+            continue
+        fi
         expected_revisions "$child" | while IFS= read -r rev; do
             [ "$rev" = "$REVISION" ] || fail "$name: revision $rev (want $REVISION)"
         done
-        server=$(printf '%s' "$child" | jq -r '.spec.destination.server // ""')
-        if [ -n "$DEVHOST" ] && [ "$server" = "$DEVHOST" ]; then
-            continue
-        fi
         cstate=$(state "$child")
         if [ "${cstate%%|*}" != "Synced" ]; then
             fail "$name: sync ${cstate%%|*} (want Synced)"

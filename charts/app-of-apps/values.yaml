@@ -105,6 +105,18 @@ kargo:
     # (2026-11-24), one release after kargo.
     enabled: true
 
+# The dev-host CI cluster's five Helm releases under ArgoCD (CI v4 P6.3, templates/ci-runners.yaml):
+# ci-runners, arc, teknoir-ci, teknoir-land and teknoir-push, destination devhost-ci. teknoir-cloud only
+# (allowlist in the template), so a cherry-pick onto another environment branch renders nothing. Off: the
+# releases stay hand-installed by charts/ci-runners/README.md, unchanged.
+ciRunners:
+  enabled: false
+  # The devhost-ci API server as registered in the r415 ArgoCD cluster Secret (teknoir-system, name
+  # devhost-ci). destination.server, never destination.name. It must equal charts/kargo-config
+  # verification.devhostCiServer: the staging revision check skips sync and health only for a child whose
+  # destination.server is exactly this value.
+  server: https://192.168.2.181:6443
+
 # Staging release guard (charts/release-guard, templates/release-guard.yaml): a
 # ValidatingAdmissionPolicy that lets only scripts/staging-release (ServiceAccount
 # teknoir-system/staging-releaser), ArgoCD and profile-controller write ArgoCD Applications.

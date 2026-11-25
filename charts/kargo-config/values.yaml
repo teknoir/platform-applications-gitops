@@ -77,8 +77,12 @@ verification:
   # release: cliproxyapi is the CLI proxy, deployed on its own).
   excludeApps: [cliproxyapi]
   # Destination server of the devhost-ci Applications (they run on the dev-host cluster, not on r415): their
-  # revision is checked, their sync status and health are not. Empty: no such Application.
-  devhostCiServer: ""
+  # revision is checked, their sync status and health are not, and while the dev host is unreachable or not
+  # comparable (sync Unknown or a ComparisonError condition) a wrong or missing revision is only a warning. These
+  # are the ci-runners, arc, teknoir-ci, teknoir-land and teknoir-push Applications of charts/app-of-apps
+  # (templates/ci-runners.yaml). It must equal app-of-apps ciRunners.server (the API server in the r415 ArgoCD
+  # cluster Secret devhost-ci): on a mismatch every staging promotion fails whenever the dev host is down.
+  devhostCiServer: "https://192.168.2.181:6443"
   # The profile-controller ConfigMap in rootApp.namespace whose PLUGIN_CHART_VERSION every profile-plugin
   # Application must follow. The revision-check Role may read this one ConfigMap (resourceNames) and nothing
   # else, and the script gets the same name as env PLUGIN_CONFIGMAP: one value, both places.

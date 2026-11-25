@@ -12,6 +12,8 @@ metadata:
     {{- include "ci-runners.labels" $ | nindent 4 }}
   annotations:
     helm.sh/resource-policy: keep
+    # Never pruned or deleted by ArgoCD either (CI v4 P6.3), like kargo-config's namespace and Project.
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
 spec:
   capacity:
     storage: {{ $.Values.cacheVolumes.size }}
@@ -44,6 +46,8 @@ metadata:
     {{- include "ci-runners.labels" $ | nindent 4 }}
   annotations:
     helm.sh/resource-policy: keep
+    # Never pruned or deleted by ArgoCD either (CI v4 P6.3), like kargo-config's namespace and Project.
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
 spec:
   accessModes:
     - ReadWriteOnce

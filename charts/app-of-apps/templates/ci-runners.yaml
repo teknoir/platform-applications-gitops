@@ -1,0 +1,151 @@
+{{- /*
+The dev-host CI cluster's five Helm releases under ArgoCD (CI v4 P6.3, plans/cicd/proposal-v4.md section 5).
+Until now they were installed by hand on devhost-ci (charts/ci-runners/README.md, "Bootstrap"); this file makes
+the ArgoCD on r415 (namespace teknoir-system) own them, through the cluster Secret devhost-ci.
+
+Two gates, both required: a flag in this environment's values (a missing key is off) AND the environment in the
+allowlist below. The allowlist lives here, not in values, for the same reason as in kargo.yaml and
+teknoirbot.yaml: a cherry-pick that brings this file and an enabled flag onto teknoir-online (production) or
+teknoir-local (airgapped) must still render nothing there, and an environment that is not listed renders nothing
+instead of failing the root render. Add an environment only in its own reviewed commit.
+
+INERT until ciRunners.enabled is true: with the flag off (the default in values.yaml) this renders nothing and
+the devhost-ci releases stay hand-installed. The switch is one reviewed PR that only flips the flag.
+
+Every Application here targets devhost-ci by destination.server (.Values.ciRunners.server), never
+destination.name: the value is the API server as registered in the r415 ArgoCD cluster Secret devhost-ci. It must
+equal charts/kargo-config verification.devhostCiServer, or the staging revision check treats these children as
+ordinary children on r415 and a promotion fails whenever the dev host is unreachable.
+
+No resources-finalizer.argocd.argoproj.io on purpose: turning ciRunners.enabled off (or pruning this file) must
+ORPHAN these Applications and what they installed (the ARC CRs, the release's objects), never cascade-delete CI
+and the ARC CRDs. The ARC CRDs also live on this cluster and deleting them would take every runner scale set with
+them. Disabling is therefore inert for the dev host: it stops ArgoCD from syncing, and a human removes or adopts
+the objects deliberately.
+
+releaseName is pinned on every Application, and MUST stay equal to the Helm release name used by the hand
+installs in charts/ci-runners/README.md:
+  - the ARC controller's ServiceAccount is <release>-gha-rs-controller and the scale sets name it
+    (controllerServiceAccount in charts/ci-runners/arc/*.yaml);
+  - the scale sets' AutoscalingRunnerSet name, and so the pods' actions.github.com/scale-set-name label that every
+    NetworkPolicy in charts/ci-runners selects on, is the release name. ArgoCD would otherwise release as the
+    Application name, which happens to match here, but pinning it keeps that from drifting.
+
+These Applications are health-exempt in staging verification: charts/kargo-config's revision check skips sync
+status and health for a child whose destination.server is verification.devhostCiServer (a dev host that is down
+must never stall a staging promotion), and treats an unreachable dev host (sync Unknown or a ComparisonError
+condition) as a warning, not a failure.
+
+The ARC CRDs are large enough to exceed the 256 KiB client-side apply annotation limit and the scale sets'
+AutoscalingRunnerSet/EphemeralRunnerSet/... objects are unknown to the API server until the controller Application
+installed them: ServerSideApply=true and SkipDryRunOnMissingResource=true on every Application. No sync waves, on
+purpose (same reason as kargo.yaml): a child Application's own sync is not ordered against its siblings; the
+retry covers the order.
+*/ -}}
+{{- $allowedProjects := list "teknoir-cloud" }}
+{{- $enabled := and (has .Values.project $allowedProjects) (.Values.ciRunners).enabled }}
+{{- $retry := dict "limit" 10 "backoff" (dict "duration" "30s" "factor" 2 "maxDuration" "5m") }}
+{{- if $enabled }}
+---
+# charts/ci-runners itself: the three namespaces, the low PriorityClass, the memory quotas and LimitRange, the
+# NetworkPolicies, the push-guard ConfigMap, the ci-cache-* PV/PVC pairs and the buildkitd Deployment + Service.
+# The release record lives in "default" because the chart creates its own namespaces (the hand install does the
+# same, charts/ci-runners/README.md). No CreateNamespace: "default" always exists.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ci-runners
+spec:
+  destination:
+    namespace: default
+    server: {{ .Values.ciRunners.server | quote }}
+  project: {{ .Values.project }}
+  source:
+    repoURL: https://github.com/teknoir/platform-applications-gitops
+    path: charts/ci-runners
+    targetRevision: {{ include "app-of-apps.revision" . }}
+    helm:
+      # The release name the hand install used (charts/ci-runners/README.md), adopted as is.
+      releaseName: ci-runners
+  syncPolicy:
+    syncOptions:
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+    automated:
+      prune: true
+      selfHeal: true
+      enabled: true
+    retry:
+      {{- toYaml $retry | nindent 6 }}
+{{- $scaleSets := list "teknoir-ci" "teknoir-land" "teknoir-push" }}
+---
+# The ARC controller (release "arc", namespace arc-systems), the OCI chart the hand install used. Multi-source:
+# the upstream chart plus this repository as the `values` source that supplies charts/ci-runners/arc/.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: arc
+spec:
+  destination:
+    namespace: arc-systems
+    server: {{ .Values.ciRunners.server | quote }}
+  project: {{ .Values.project }}
+  sources:
+    - repoURL: ghcr.io/actions/actions-runner-controller-charts
+      chart: gha-runner-scale-set-controller
+      targetRevision: 0.15.1
+      helm:
+        releaseName: arc
+        valueFiles:
+          - $values/charts/ci-runners/arc/controller.yaml
+    - repoURL: https://github.com/teknoir/platform-applications-gitops
+      targetRevision: {{ include "app-of-apps.revision" . }}
+      ref: values
+  syncPolicy:
+    syncOptions:
+      # The chart also creates arc-systems (the ci-runners Application does too; whichever syncs first wins).
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+    automated:
+      prune: true
+      selfHeal: true
+      enabled: true
+    retry:
+      {{- toYaml $retry | nindent 6 }}
+{{- range $set := $scaleSets }}
+---
+# Runner scale set {{ $set }} (release and AutoscalingRunnerSet both named {{ $set }}: the NetworkPolicies and the
+# push guard select on that name). OCI chart plus this repository as the values source, like arc.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ $set }}
+spec:
+  destination:
+    namespace: arc-runners
+    server: {{ $.Values.ciRunners.server | quote }}
+  project: {{ $.Values.project }}
+  sources:
+    - repoURL: ghcr.io/actions/actions-runner-controller-charts
+      chart: gha-runner-scale-set
+      targetRevision: 0.15.1
+      helm:
+        releaseName: {{ $set }}
+        valueFiles:
+          - $values/charts/ci-runners/arc/{{ $set }}.yaml
+    - repoURL: https://github.com/teknoir/platform-applications-gitops
+      targetRevision: {{ include "app-of-apps.revision" $ }}
+      ref: values
+  syncPolicy:
+    syncOptions:
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+    automated:
+      prune: true
+      selfHeal: true
+      enabled: true
+    retry:
+      {{- toYaml $retry | nindent 6 }}
+{{- end }}
+{{- end }}
