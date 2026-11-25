@@ -62,7 +62,7 @@ deviceController:
   # unchanged config when the teamspace's EMQX holds no retained message for it. "off" (the chart default), "log" (only
   # logs what it would publish) or "on" (publishes); keep the quotes. Staged one release at a time: off -> log -> on, and
   # "log" or "on" only with a pins/device-controller.yaml image that reads RETAINED_CONFIG_REPUBLISH.
-  retainedConfigRepublish: "off"
+  retainedConfigRepublish: "log"
 
 # CI/CD on the cluster (plans/ci-argo-workflows.md), teknoir-cloud only (allowlist in
 # templates/harbor.yaml): Harbor as the registry (harbor.teknoir.cloud), which staging pulls its
