@@ -1,11 +1,14 @@
 """The pins wiring of charts/app-of-apps, derived from scripts/images.yaml (CI/CD v4 P4.2, plans/cicd/v4/p42-spec.md
 sections 1 and 2): every grouped image row is pinned in pins/<group>.yaml and empty in its chart values, and it makes
-its chart's child Application list ../../pins/<group>.yaml for project teknoir-cloud; no Application lists valueFiles
-for teknoir-online or teknoir-local (those branches have no pins/ directory, and their root render must not change).
+its chart's child Application list ../../pins/<group>.yaml for project teknoir-cloud; a grouped row with values_files
+(such as ci-runner) is pinned in those chart values files instead, which the scale-set Applications already list as
+their `$values` source. No Application lists valueFiles for teknoir-online or teknoir-local (those branches have no
+pins/ directory, and their root render must not change).
 
 PinsLiveInTheGroupFiles reads files only and never skips. PinsWiring renders the root with helm: without helm on PATH
 that class skips."""
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -54,13 +57,16 @@ MISSING = object()
 
 
 def value_at(path, key_path):
-    """The value at a dotted key path in a YAML file, or MISSING."""
+    """The value at a dotted key path in a YAML file, or MISSING. A segment of digits indexes a list."""
     with open(path) as fh:
         doc = yaml.safe_load(fh) or {}
     for key in key_path.split("."):
-        if not isinstance(doc, dict) or key not in doc:
+        if isinstance(doc, list) and key.isdigit() and int(key) < len(doc):
+            doc = doc[int(key)]
+        elif isinstance(doc, dict) and key in doc:
+            doc = doc[key]
+        else:
             return MISSING
-        doc = doc[key]
     return doc
 
 
@@ -74,6 +80,13 @@ class PinsLiveInTheGroupFiles(unittest.TestCase):
             if not row["group"]:
                 continue
             name = row["component"]
+            if row.get("values_files"):
+                # pinned where it is consumed (the ARC scale-set values): set in every listed file
+                for f in row["values_files"]:
+                    pin = value_at(os.path.join(ROOT, f), row["key_path"])
+                    self.assertIsInstance(pin, str, f"{name}: {f} has no {row['key_path']}")
+                    self.assertTrue(pin.strip(), f"{name}: {f} {row['key_path']} is empty")
+                continue
             pin = value_at(os.path.join(ROOT, row["pins_file"]), row["key_path"])
             self.assertIsInstance(pin, str, f"{name}: {row['pins_file']} has no {row['key_path']}")
             self.assertTrue(pin.strip(), f"{name}: {row['pins_file']} {row['key_path']} is empty")
@@ -94,12 +107,30 @@ class PinsWiring(unittest.TestCase):
         cls.local = apps_of(LOCAL)
 
     def test_every_group_has_a_pins_file(self):
+        by_group = {}
+        for row in self.images["images"]:
+            if row["group"]:
+                by_group.setdefault(row["group"], []).append(row)
         for group in self.images["groups"]:
+            # a group whose every image is pinned in chart values files (ci-runner) has no pins/<group>.yaml
+            if by_group.get(group) and all(r.get("values_files") for r in by_group[group]):
+                continue
             self.assertTrue(os.path.isfile(os.path.join(ROOT, "pins", group + ".yaml")), group)
 
-    def test_every_image_with_a_group_points_at_its_group_pins_file(self):
+    def test_every_image_with_a_group_points_at_its_group_pins_files(self):
+        ci_runners = open(os.path.join(AOA, "templates", "ci-runners.yaml")).read()
         for row in self.images["images"]:
             if not row["group"]:
+                continue
+            if row.get("values_files"):
+                # the scale-set Applications already list these files as their `$values` source: the template
+                # renders one scale-set Application per set of its $scaleSets list over this directory
+                for f in row["values_files"]:
+                    m = re.match(r"^charts/ci-runners/arc/([a-z0-9-]+)\.yaml$", f)
+                    self.assertIsNotNone(m, f"{row['component']}: {f}")
+                    self.assertIn("$values/charts/ci-runners/arc/", ci_runners, f"{row['component']}: {f}")
+                    self.assertRegex(ci_runners, r"\$scaleSets := list[^\n]*\b%s\b" % re.escape(m.group(1)),
+                                     f"{row['component']}: {f}")
                 continue
             self.assertEqual(row["pins_file"], f"pins/{row['group']}.yaml", row["component"])
             self.assertFalse(row.get("values_file"), row["component"])
@@ -123,7 +154,8 @@ class PinsWiring(unittest.TestCase):
                 self.assertTrue(os.path.isfile(os.path.join(ROOT, chart, f)), f"{name}: {f}")
 
     def test_the_affected_applications_are_exactly_the_ones_with_a_group(self):
-        charts = {row["chart"] for row in self.images["images"] if row["group"]}
+        # a values_files row (ci-runner) has no valueFiles Application: the scale sets read it through `$values`
+        charts = {row["chart"] for row in self.images["images"] if row["group"] and not row.get("values_files")}
         expected = {APP_NAME.get(c, c) for c in charts}
         got = {n for n, a in self.cloud.items() if (source(a).get("helm") or {}).get("valueFiles")}
         self.assertEqual(got, expected)

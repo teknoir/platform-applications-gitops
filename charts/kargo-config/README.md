@@ -18,7 +18,7 @@ until those values are turned on.
 | `warehouses.yaml` | `gitops-main` (when enabled) and one `img-<group>` Warehouse per enabled group of `scripts/images.yaml`; image subscriptions accept only the CI's immutable `sha-<8>` tags |
 | `stage-staging.yaml` | Stage `staging`: `argocd-update` of the root Application to the Freight commit, verification with `revision-check` (plus `browser` / `prometheus-soak` when configured) |
 | `stage-staging-verified.yaml` | Stage `staging-verified`: tags the commit the `staging` Stage verified (`verified/<stamp>`), the provenance `scripts/watch.py` reads |
-| `stage-pins.yaml`, `_pin-steps.tpl` | One Stage `pin-<group>` per enabled group: rewrite `pins/<group>.yaml`, commit, push a branch, open a PR and merge it. When the Freight's images are already pinned the commit step is Skipped, and push, PR and merge are skipped too (the Promotion succeeds, no branch, no PR) |
+| `stage-pins.yaml`, `_pin-steps.tpl` | One Stage `pin-<group>` per enabled group: rewrite every image's key, commit, push a branch, open a PR and merge it. One `yaml-update` step per target file, in order of first appearance (alias `update`, `update2`, `update3`, ...): an image's `files` when set, else `pins/<group>.yaml`. When the Freight's images are already pinned the commit step is Skipped, and push, PR and merge are skipped too (the Promotion succeeds, no branch, no PR) |
 | `analysis-revision-check.yaml` | ServiceAccount, Role and RoleBinding, the script ConfigMap and the `revision-check` AnalysisTemplate |
 | `analysis-browser.yaml` | `browser` AnalysisTemplate (only when `verification.browser.image` is set) |
 | `analysis-soak.yaml` | `prometheus-soak` AnalysisTemplate (only when `verification.prometheus.address` is set) |
@@ -29,6 +29,15 @@ until those values are turned on.
   asserts the two are equal. Every group has a promotion policy; only an `enabled` group gets a
   Warehouse and a pin Stage. `sameCommit` groups create Freight only when every image carries the
   same tag.
+- An image may set `files`: the repository-relative files its pin is written to, each holding the image's
+  `key` (the pin Stage then renders one `yaml-update` step per file). Without it the pin goes to
+  `pins/<group>.yaml`. Group `ci-runner` uses this: its one image is pinned at `template.spec.containers.0.image`
+  in the three ARC scale-set values files (`charts/ci-runners/arc/teknoir-{ci,land,push}.yaml`), so it has no
+  `pins/ci-runner.yaml`. A digit key segment indexes a list item (`template.spec.containers.0.image`); Kargo's
+  `yaml-update` handles any YAML shape, while `scripts/pin-image` reads only a list indented under its key whose
+  pinned key is not on the item's `- ` line. The group is off (`enabled: false`, no
+  `autoPromotion.pins` entry) until the first `sha-<8>` build of `ghcr.io/teknoir/ci-runner` exists; until then
+  `scripts/pin-image` writes the same three files.
 - `pinStages.enabled: false` renders the staging Stages only (the drill).
 - `staging.setReleaseParam` sets the root Application's Helm parameter `release` besides its
   targetRevision. `argocd-update` has no dedicated Helm-parameter field in Kargo 1.12.6; its

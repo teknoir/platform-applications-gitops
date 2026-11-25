@@ -131,6 +131,24 @@ the name Backstage's TestDatabases looks for (`..._POSTGRES16_...`).
   regardless of policy; nothing listens there today. A host iptables `DROP` for 10.52.0.0/16 to local
   30000-32767 is a later step.
 
+## The runner image
+
+The runner image is `ghcr.io/teknoir/ci-runner` (public ghcr), built by teknoir/ci-workflows
+`runner-image.yml` from `runner-image/`: actions-runner plus make, gcc, gh, yq, helm and the other job tools. It
+is pinned as `repo:sha-<8>@sha256:<digest>` at `template.spec.containers.0.image` of all three `arc/*.yaml`
+files, which are at the same time the values files the scale-set Applications pass as their `$values` source.
+
+The flow, once group `ci-runner` is on and auto-promoted: Dependabot opens the weekly upstream actions-runner
+bump in ci-workflows, a merge builds `ghcr.io/teknoir/ci-runner:sha-<8>`, Kargo Stage `pin-ci-runner` rewrites
+the three files through a pull request it merges, and ArgoCD rolls the three scale sets. Nothing is bumped by
+hand then, and the recurring manual check of the runner version (within 21 days of the upstream release) ends.
+
+Until then (the first `sha-<8>` build, then one PR that sets `enabled: true` for group `ci-runner` in
+`scripts/images.yaml` and in `charts/kargo-config/values.yaml` `groups[]`, **and** adds `ci-runner: true` under
+`autoPromotion.pins` in `charts/kargo-config/values.yaml` - without it the pin Stage exists but is never
+auto-promoted), bump by hand: `scripts/pin-image ci-runner=sha-<8> --write`, PR the three files. The 21-day check
+is still yours.
+
 ## Tests
 
 `helm unittest charts/ci-runners` (tests/ is chart-internal, so it lands with the chart):

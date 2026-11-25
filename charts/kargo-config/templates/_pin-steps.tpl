@@ -5,7 +5,8 @@ variables cannot express (plans/cicd/v4/p42-spec.md "Deviations").
 
 Input: (dict "group" <entry of .Values.groups> "root" $).
   - clone the gitops branch;
-  - rewrite every image's key in pins/<group>.yaml from the Freight's image references;
+  - rewrite every image's key from the Freight's image references: one yaml-update step per target file, in order
+    of first appearance (an image's `files`, else pins/<group>.yaml; the aliases are update, update2, update3, ...);
   - commit with the component names in the message (plan 7.1 searches commits by image name);
   - push a per-promotion branch, open a pull request, merge it (squash) and wait for the merge;
   - skip push, PR and merge when the commit step made no new commit (the images are already pinned).
@@ -15,6 +16,15 @@ Aliases have no hyphens (Kargo expressions address step outputs as outputs.<alia
 {{- $g := .group -}}
 {{- $gitops := .root.Values.gitops -}}
 {{- $msg := include "kargo-config.pinMessage" $g -}}
+{{- /* The distinct target files, in order of first appearance: an image's `files`, else pins/<group>.yaml. */ -}}
+{{- $files := list -}}
+{{- range $img := $g.images -}}
+{{- range $f := ($img.files | default (list (printf "pins/%s.yaml" $g.name))) -}}
+{{- if not (has $f $files) -}}
+{{- $files = append $files $f -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 - uses: git-clone
   as: clone
   config:
@@ -26,14 +36,18 @@ Aliases have no hyphens (Kargo expressions address step outputs as outputs.<alia
       # The release branch, not the Freight (the Freight is an image tag, and the pins are read from the branch).
       - branch: {{ $gitops.branch }}
         path: ./src
+{{- range $i, $f := $files }}
 - uses: yaml-update
-  as: update
+  as: {{ if eq $i 0 }}update{{ else }}update{{ add $i 1 }}{{ end }}
   config:
-    path: ./src/pins/{{ $g.name }}.yaml
+    path: ./src/{{ $f }}
     updates:
 {{- range $img := $g.images }}
+{{- if has $f ($img.files | default (list (printf "pins/%s.yaml" $g.name))) }}
       - key: {{ $img.key | quote }}
         value: {{ include "kargo-config.pinValue" (dict "image" $img) | squote }}
+{{- end }}
+{{- end }}
 {{- end }}
 - uses: git-commit
   as: commit

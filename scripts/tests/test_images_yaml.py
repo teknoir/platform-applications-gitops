@@ -28,16 +28,16 @@ def expected_groups(images):
     """The charts/kargo-config groups block derived from scripts/images.yaml."""
     out = []
     for name, g in images["groups"].items():
-        out.append({
-            "name": name,
-            "enabled": g["enabled"],
-            "sameCommit": g["same_commit"],
-            "images": [
-                {"component": r["component"], "poll": r["poll"], "repository": r["repository"],
-                 "key": r["key_path"], "style": r["style"]}
-                for r in images["images"] if r.get("group") == name
-            ],
-        })
+        rows = []
+        for r in images["images"]:
+            if r.get("group") != name:
+                continue
+            row = {"component": r["component"], "poll": r["poll"], "repository": r["repository"],
+                   "key": r["key_path"], "style": r["style"]}
+            if r.get("values_files"):
+                row["files"] = r["values_files"]
+            rows.append(row)
+        out.append({"name": name, "enabled": g["enabled"], "sameCommit": g["same_commit"], "images": rows})
     return out
 
 
@@ -63,6 +63,20 @@ class ImagesYaml(unittest.TestCase):
     def test_every_grouped_image_has_its_group_pins_file(self):
         for row in self.images["images"]:
             if not row.get("group"):
+                continue
+            if row.get("values_files"):
+                # a grouped row whose pin lives in chart values files: no pins file, each file holds the key
+                self.assertIsNone(row["pins_file"], row["component"])
+                self.assertTrue(row["values_files"], row["component"])
+                for f in row["values_files"]:
+                    path = os.path.join(ROOT, f)
+                    self.assertTrue(os.path.isfile(path), f"{row['component']}: {f}")
+                    with open(path) as fh:
+                        doc = yaml.safe_load(fh)
+                    for key in row["key_path"].split("."):
+                        doc = doc[int(key)] if isinstance(doc, list) else (doc or {}).get(key)
+                    self.assertIsInstance(doc, str, f"{row['component']}: {f} has no {row['key_path']}")
+                self.assertIsNone(row.get("values_file"), row["component"])
                 continue
             self.assertEqual(row["pins_file"], f"pins/{row['group']}.yaml", row["component"])
             self.assertTrue(os.path.isfile(os.path.join(ROOT, row["pins_file"])), row["component"])

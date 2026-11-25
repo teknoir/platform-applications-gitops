@@ -108,13 +108,14 @@ tests:
     documentSelector:
       path: kind
       value: ProjectConfig
-    # 13 = staging + staging-verified + one per group in values.yaml (a policy exists for every group, enabled or
-    # not). Helm merges maps, so `pins: {}` cannot clear a default: the asserted pin policies are set off explicitly.
+    # 15 = staging + staging-verified + one per group in values.yaml (a policy exists for every group, enabled or
+    # not; ci-runner included). Helm merges maps, so `pins: {}` cannot clear a default: the asserted pin policies
+    # are set off explicitly.
     set:
       autoPromotion.pins.wg-tunnel: false
       autoPromotion.pins.backstage: false
     asserts:
-      - lengthEqual: {path: spec.promotionPolicies, count: 14}
+      - lengthEqual: {path: spec.promotionPolicies, count: 15}
       - contains:
           path: spec.promotionPolicies
           content: {stageSelector: {name: staging}, autoPromotionEnabled: true}
