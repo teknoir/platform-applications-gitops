@@ -52,13 +52,25 @@ The verb has shipped (R7 release 2): the ClusterRole has `delete` on Devices, wh
 bot's computer. A reset is requested by annotating the TeknoirBot with `teknoir.org/reset-requested-at` (the portal does
 it); the controller records the request in `status.resetHandled` and the Device's UID in `status.resetDeviceUID`, then
 deletes that Device with the UID as a precondition and creates a new one once device-controller has removed it (see the
-controller's README, "Reset"). The policy shipped one release before the verb (release 1, #308); rolling back means
-removing the verb first, then the policy. The unit test `the ClusterRole has delete on Devices, and on nothing else` pins
-the verb. Test: the DELETE cases of `tests/k3d-vap-test.sh`, which run on the chart's own ClusterRole. Break-glass as
+controller's README, "Reset"). The policy shipped one release before the verb (release 1, #308).
+
+**Rollback order** (the reverse of the release): first the controller image (its pin in
+`pins/teknoirbot-controller.yaml`), so nothing asks for a delete any more; then the `delete` verb in the ClusterRole;
+then this policy. An image that still requests resets without the verb only gets 403s: the bot's status names the
+refusal, the delete is retried with the controller's backoff, and the bot's spec still reaches its computer (a halted
+computer is not started while its reset is pending). The verb without the policy would be an unguarded delete right.
+The unit test `the ClusterRole has delete on Devices, and on nothing else` pins the verb. Test: the DELETE cases of `tests/k3d-vap-test.sh`, which run on the chart's own ClusterRole. Break-glass as
 above, but remove the verb from the ClusterRole first: without this binding the controller could delete any Device.
 
-A computer an admin disabled (`teknoir.org/disabled: "true"`) is not reset: `ztna-device-disabled-delete` (charts/ztna)
-refuses the controller's delete, the bot's status names the refusal, and the reset runs once the computer is enabled.
+A computer an admin disabled (`teknoir.org/disabled: "true"`) is not reset: the controller does not even ask (it records
+nothing and deletes nothing, and the bot's status says `the computer is disabled by an admin; enable it before a
+reset`), and `ztna-device-disabled-delete` (charts/ztna) would refuse the delete anyway. The reset runs once the computer
+is enabled. A suspended bot is reset: its halted computer is deleted and the new one stays halted until the bot is
+resumed.
+
+The controller image and the CRD in `crds/` ship together: an image that is newer than the chart's CRD (one without
+`status.resetHandled` and `status.resetDeviceUID`) resets nothing and says `the TeknoirBot CRD does not store the reset
+status; update the chart`.
 
 ## Bot fence
 
