@@ -86,6 +86,11 @@ autoPromotion:
     # fleet-metrics (CI v4 P9.1 S7): metrics-processor and metrics-publisher from one commit; a pin restarts the
     # fleet-metrics pod of every teamspace with the plugin. The first Freight (sha-ba6ed3e0) equals the pin.
     fleet-metrics: true
+    # profile-plugin-historian (CI v4 P9.1 S7): one group per source repo, all three pinned in one values file; a pin
+    # restarts that workload in every teamspace with the plugin. The first Freight of each equals its pin.
+    historian-middle-end-api: true
+    historian-api: true
+    observatory-event-processing-app: true
 
 staging:
   # P4.3 (b) fallback: also set the root Application's Helm parameter `release` to the Freight commit (besides

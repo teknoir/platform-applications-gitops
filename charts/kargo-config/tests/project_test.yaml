@@ -116,6 +116,9 @@ tests:
       autoPromotion.pins.backstage: false
       autoPromotion.pins.jwks-server: false
       autoPromotion.pins.fleet-metrics: false
+      autoPromotion.pins.historian-middle-end-api: false
+      autoPromotion.pins.historian-api: false
+      autoPromotion.pins.observatory-event-processing-app: false
     asserts:
       - lengthEqual: {path: spec.promotionPolicies, count: 20}
       - contains:
@@ -130,14 +133,14 @@ tests:
       - contains:
           path: spec.promotionPolicies
           content: {stageSelector: {name: pin-backstage}, autoPromotionEnabled: false}
-      # jwks-server and fleet-metrics (P-b on) are set off explicitly above.
+      # The plugin groups (P-b on) are set off explicitly above.
       - contains:
           path: spec.promotionPolicies
           content: {stageSelector: {name: pin-jwks-server}, autoPromotionEnabled: false}
       - contains:
           path: spec.promotionPolicies
           content: {stageSelector: {name: pin-fleet-metrics}, autoPromotionEnabled: false}
-      # the three historian groups (CI v4 P9.1 S7 P-a) have no autoPromotion.pins entry yet either
+      # the three historian groups (P-b on) are set off explicitly above too
       - contains:
           path: spec.promotionPolicies
           content: {stageSelector: {name: pin-historian-middle-end-api}, autoPromotionEnabled: false}
@@ -191,3 +194,19 @@ tests:
       - contains:
           path: spec.promotionPolicies
           content: {stageSelector: {name: pin-fleet-metrics}, autoPromotionEnabled: true}
+
+  - it: pins the three historian-chart groups automatically with the shipped values (CI v4 P9.1 S7 P-b)
+    template: templates/project.yaml
+    documentSelector:
+      path: kind
+      value: ProjectConfig
+    asserts:
+      - contains:
+          path: spec.promotionPolicies
+          content: {stageSelector: {name: pin-historian-middle-end-api}, autoPromotionEnabled: true}
+      - contains:
+          path: spec.promotionPolicies
+          content: {stageSelector: {name: pin-historian-api}, autoPromotionEnabled: true}
+      - contains:
+          path: spec.promotionPolicies
+          content: {stageSelector: {name: pin-observatory-event-processing-app}, autoPromotionEnabled: true}
