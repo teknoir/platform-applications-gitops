@@ -7,8 +7,8 @@ templates:
 set:
   release: "0123456789abcdef0123456789abcdef01234567"
 tests:
-  - it: passes no parameter while the switch is off (chart mode, the shipped default)
-    set: {project: teknoir-cloud}
+  - it: passes no parameter while the switch is off (chart mode, the rollback)
+    set: {project: teknoir-cloud, profileController.pluginGit.enabled: false}
     documentSelector: {path: metadata.name, value: profile-controller}
     asserts:
       - notExists: {path: spec.source.helm.parameters}

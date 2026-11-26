@@ -71,10 +71,10 @@ profileController:
   # Plugin git mode (CI v4 P9.1, plugins/charts/README.md): profile-controller renders every profile-plugin-<x>
   # Application from plugins/charts/profile-plugin-<x> of this repository at the root's revision, instead of the
   # published pluginChartVersion chart. Off: chart mode, the behaviour since the plugin charts were released. This is
-  # the staging switch a later one-line PR turns on; turning it off again is the rollback (profile-controller keeps
+  # the staging switch (on since CI v4 P9.1 G4); turning it off again is the rollback (profile-controller keeps
   # config.pluginChartVersion, so its plugins return to that published version).
   pluginGit:
-    enabled: false
+    enabled: true
 
 # CI/CD on the cluster (plans/ci-argo-workflows.md), teknoir-cloud only (allowlist in
 # templates/harbor.yaml): Harbor as the registry (harbor.teknoir.cloud), which staging pulls its
