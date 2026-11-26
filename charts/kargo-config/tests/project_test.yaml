@@ -120,6 +120,9 @@ tests:
       autoPromotion.pins.historian-middle-end-api: false
       autoPromotion.pins.historian-api: false
       autoPromotion.pins.observatory-event-processing-app: false
+      autoPromotion.pins.observatory-wss-mqtt: false
+      autoPromotion.pins.observatory-snapshot-exporter: false
+      autoPromotion.pins.observatory-media-service: false
     asserts:
       - lengthEqual: {path: spec.promotionPolicies, count: 23}
       - contains:
@@ -151,7 +154,7 @@ tests:
       - contains:
           path: spec.promotionPolicies
           content: {stageSelector: {name: pin-observatory-event-processing-app}, autoPromotionEnabled: false}
-      # the three observatory groups have no autoPromotion.pins entry: off by default, no set needed
+      # the three observatory groups (P-b on) are set off explicitly above too
       - contains:
           path: spec.promotionPolicies
           content: {stageSelector: {name: pin-observatory-wss-mqtt}, autoPromotionEnabled: false}
@@ -221,3 +224,19 @@ tests:
       - contains:
           path: spec.promotionPolicies
           content: {stageSelector: {name: pin-observatory-event-processing-app}, autoPromotionEnabled: true}
+
+  - it: pins the three observatory groups automatically with the shipped values (CI v4 P9.1 S7 P-b)
+    template: templates/project.yaml
+    documentSelector:
+      path: kind
+      value: ProjectConfig
+    asserts:
+      - contains:
+          path: spec.promotionPolicies
+          content: {stageSelector: {name: pin-observatory-wss-mqtt}, autoPromotionEnabled: true}
+      - contains:
+          path: spec.promotionPolicies
+          content: {stageSelector: {name: pin-observatory-snapshot-exporter}, autoPromotionEnabled: true}
+      - contains:
+          path: spec.promotionPolicies
+          content: {stageSelector: {name: pin-observatory-media-service}, autoPromotionEnabled: true}
