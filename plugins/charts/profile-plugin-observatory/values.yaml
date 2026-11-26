@@ -40,7 +40,7 @@ snapshotExporter:
   image:
     registry: ghcr.io/teknoir/observatory-snapshot-exporter
     # Pinned by Kargo Stage pin-observatory-snapshot-exporter (scripts/images.yaml) from ghcr (public) since CI v4 P9.1: never edit by hand.
-    version: sha-e7dcf3b6@sha256:335f58924b4d44e329afd9b746d2dad11c8992a95da4963b2cfaa69a7fc4a19c
+    version: sha-6dc5b04e@sha256:ea81bb7f587cc0dc9860080312b62c047af8eecef6a477664d8455f0d3b575d4
   # The exporter uses about 100 MB. The limit restarts only this container if its memory
   # ever keeps growing, instead of letting it starve the node.
   resources:
