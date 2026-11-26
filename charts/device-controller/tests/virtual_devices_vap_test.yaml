@@ -1,0 +1,212 @@
+suite: virtual device VM and VMI shape policy
+templates:
+  - templates/virtual-devices-vap.yaml
+set:
+  virtualDevices.enabled: true
+tests:
+  - it: renders the policy and its binding when virtual devices and the shape policy are on
+    asserts:
+      - hasDocuments:
+          count: 2
+      - containsDocument:
+          kind: ValidatingAdmissionPolicy
+          apiVersion: admissionregistration.k8s.io/v1
+          name: virtual-device-shape
+        documentIndex: 0
+      - containsDocument:
+          kind: ValidatingAdmissionPolicyBinding
+          apiVersion: admissionregistration.k8s.io/v1
+          name: virtual-device-shape
+        documentIndex: 1
+
+  - it: fails closed and denies by default, and the binding applies wherever the policy matches
+    asserts:
+      - equal:
+          path: spec.failurePolicy
+          value: Fail
+        documentIndex: 0
+      - equal:
+          path: spec.policyName
+          value: virtual-device-shape
+        documentIndex: 1
+      - equal:
+          path: spec.validationActions
+          value:
+            - Deny
+        documentIndex: 1
+      - notExists:
+          path: spec.matchResources
+        documentIndex: 1
+
+  - it: matches VMs on create and update and VMIs on create only, never a status subresource
+    asserts:
+      - equal:
+          path: spec.matchConstraints.resourceRules
+          value:
+            - apiGroups:
+                - kubevirt.io
+              apiVersions:
+                - v1
+              operations:
+                - CREATE
+                - UPDATE
+              resources:
+                - virtualmachines
+            - apiGroups:
+                - kubevirt.io
+              apiVersions:
+                - v1
+              operations:
+                - CREATE
+              resources:
+                - virtualmachineinstances
+        documentIndex: 0
+
+  - it: applies only in the virtual device runtime namespaces
+    asserts:
+      - equal:
+          path: spec.matchConstraints.namespaceSelector
+          value:
+            matchLabels:
+              teknoir.org/component: virtual-device-runtime
+        documentIndex: 0
+
+  - it: validates an update only when its spec changed
+    asserts:
+      - equal:
+          path: spec.matchConditions
+          value:
+            - name: only-when-the-spec-changed
+              expression: "request.operation != 'UPDATE' || object.?spec.orValue({}) != oldObject.?spec.orValue({})"
+        documentIndex: 0
+
+  # The full CEL: the allow-lists of the plan (volumes, interfaces, networks, disks) and every forbidden field, each
+  # with the message that names it. A VM is read from spec.template.spec, a VMI from spec (variable podSpec).
+  - it: carries the allow-list of the plan, one validation per concern
+    asserts:
+      - lengthEqual:
+          path: spec.validations
+          count: 15
+        documentIndex: 0
+      - equal:
+          path: spec.validations
+          value:
+            - expression: "variables.volumes.all(v, type(v) == map && v.filter(k, k != 'name').all(k, k in ['dataVolume', 'cloudInitNoCloud']))"
+              message: "a virtual device volume may only be dataVolume or cloudInitNoCloud (no hostDisk, persistentVolumeClaim, containerDisk, secret, serviceAccount, configMap, emptyDisk, ephemeral, sysprep or memoryDump volume)"
+            - expression: "size(variables.hostDevices) == 0"
+              message: "spec.domain.devices.hostDevices is not allowed on a virtual device (no host PCI passthrough)"
+            - expression: "size(variables.gpus) == 0"
+              message: "spec.domain.devices.gpus is not allowed on a virtual device (no GPU passthrough)"
+            - expression: "size(variables.filesystems) == 0"
+              message: "spec.domain.devices.filesystems is not allowed on a virtual device (no host directory shared into the guest)"
+            - expression: "size(variables.accessCredentials) == 0"
+              message: "spec.accessCredentials is not allowed on a virtual device"
+            - expression: "!has(variables.devices.tpm)"
+              message: "spec.domain.devices.tpm is not allowed on a virtual device"
+            - expression: "!has(variables.podSpec.launchSecurity)"
+              message: "spec.launchSecurity is not allowed on a virtual device"
+            - expression: "!variables.domain.?cpu.orValue({}).?dedicatedCpuPlacement.orValue(false)"
+              message: "spec.domain.cpu.dedicatedCpuPlacement is not allowed on a virtual device"
+            - expression: "!has(variables.domain.?memory.orValue({}).hugepages)"
+              message: "spec.domain.memory.hugepages is not allowed on a virtual device"
+            - expression: "!variables.devices.?autoattachVSOCK.orValue(false)"
+              message: "spec.domain.devices.autoattachVSOCK is not allowed on a virtual device"
+            - expression: "variables.interfaces.all(i, type(i) == map && has(i.masquerade) && !has(i.bridge) && !has(i.sriov) && !has(i.slirp) && !has(i.passt) && !has(i.macvtap))"
+              message: "a virtual device interface may only be masquerade (no bridge, sriov, slirp, passt or macvtap interface)"
+            - expression: "variables.networks.all(n, type(n) == map && has(n.pod) && !has(n.multus) && !has(n.sriov) && !has(n.bridge))"
+              message: "a virtual device network may only be pod (no multus, sriov or bridge network)"
+            - expression: "variables.disks.all(d, type(d) == map && !has(d.lun) && !has(d.cdrom))"
+              message: "a virtual device disk may only be disk (no lun or cdrom disk)"
+            - expression: "!('hooks.kubevirt.io/hookSidecars' in variables.annotations)"
+              message: "the annotation hooks.kubevirt.io/hookSidecars is not allowed on a virtual device's VirtualMachine or VirtualMachineInstance"
+            - expression: "!('hooks.kubevirt.io/hookSidecars' in variables.templateAnnotations)"
+              message: "the annotation hooks.kubevirt.io/hookSidecars is not allowed in spec.template.metadata.annotations of a virtual device's VirtualMachine"
+        documentIndex: 0
+
+  - it: reads a VM's pod template spec and a VMI's spec through one variable, so no field access can error
+    asserts:
+      - equal:
+          path: spec.variables
+          value:
+            - name: podSpec
+              expression: "request.resource.resource == 'virtualmachines' ? object.?spec.orValue({}).?template.orValue({}).?spec.orValue({}) : object.?spec.orValue({})"
+            - name: vmTemplate
+              expression: "object.?spec.orValue({}).?template.orValue({})"
+            - name: domain
+              expression: "variables.podSpec.?domain.orValue({})"
+            - name: devices
+              expression: "variables.domain.?devices.orValue({})"
+            - name: volumes
+              expression: "variables.podSpec.?volumes.orValue([]) == null ? [] : variables.podSpec.?volumes.orValue([])"
+            - name: networks
+              expression: "variables.podSpec.?networks.orValue([]) == null ? [] : variables.podSpec.?networks.orValue([])"
+            - name: interfaces
+              expression: "variables.devices.?interfaces.orValue([]) == null ? [] : variables.devices.?interfaces.orValue([])"
+            - name: disks
+              expression: "variables.devices.?disks.orValue([]) == null ? [] : variables.devices.?disks.orValue([])"
+            - name: hostDevices
+              expression: "variables.devices.?hostDevices.orValue([]) == null ? [] : variables.devices.?hostDevices.orValue([])"
+            - name: gpus
+              expression: "variables.devices.?gpus.orValue([]) == null ? [] : variables.devices.?gpus.orValue([])"
+            - name: filesystems
+              expression: "variables.devices.?filesystems.orValue([]) == null ? [] : variables.devices.?filesystems.orValue([])"
+            - name: accessCredentials
+              expression: "variables.podSpec.?accessCredentials.orValue([]) == null ? [] : variables.podSpec.?accessCredentials.orValue([])"
+            - name: annotations
+              expression: "object.metadata.?annotations.orValue({}) == null ? {} : object.metadata.?annotations.orValue({})"
+            - name: templateAnnotations
+              expression: "variables.vmTemplate.?metadata.orValue({}).?annotations.orValue({}) == null ? {} : variables.vmTemplate.?metadata.orValue({}).?annotations.orValue({})"
+        documentIndex: 0
+
+  - it: accepts validationActions Warn and Audit without blocking (a value only)
+    set:
+      virtualDevices.shapePolicy.validationActions: [Warn, Audit]
+    asserts:
+      - equal:
+          path: spec.validationActions
+          value:
+            - Warn
+            - Audit
+        documentIndex: 1
+
+  - it: renders nothing with shapePolicy.enabled false
+    set:
+      virtualDevices.shapePolicy.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders nothing when virtualDevices.enabled is false
+    set:
+      virtualDevices.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders nothing when the virtualDevices block is absent
+    set:
+      virtualDevices: null
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: fails the render for a validation action that is not Deny, Warn or Audit
+    set:
+      virtualDevices.shapePolicy.validationActions: [Deny, Block]
+    asserts:
+      - failedTemplate:
+          errorPattern: "not Deny, Warn or Audit"
+
+  - it: fails the render for an empty validationActions
+    set:
+      virtualDevices.shapePolicy.validationActions: []
+    asserts:
+      - failedTemplate:
+          errorPattern: "must not be empty"
+
+  - it: fails the render for a scalar validationActions
+    set:
+      virtualDevices.shapePolicy.validationActions: Deny
+    asserts:
+      - failedTemplate:
+          errorPattern: "must be a list"

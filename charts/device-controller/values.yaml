@@ -141,6 +141,19 @@ virtualDevices:
   allowances:
     teknoir-demo: {devices: 2, cpu: "6", memory: 12Gi, disk: 80Gi}
 
+  # VM-shape policy (R10, plan WP3; templates/virtual-devices-vap.yaml): the ValidatingAdmissionPolicy
+  # virtual-device-shape and its binding. In the runtime namespaces (<teamspace>-vdev) it allow-lists the shape
+  # BuildVM builds: volumes dataVolume/cloudInitNoCloud, interfaces masquerade, networks pod, disks disk; no
+  # hostDevices, gpus, filesystems, accessCredentials, tpm, launchSecurity, dedicatedCpuPlacement, hugepages,
+  # autoattachVSOCK, and no hooks.kubevirt.io/hookSidecars annotation. A VirtualMachine is validated on create and
+  # on an update that changes its spec (virt-controller's label, annotation and finalizer writes, and the deletion
+  # of a VM created before the policy, are never blocked); a VirtualMachineInstance only on create, so virt-handler
+  # and virt-controller updates are never blocked. failurePolicy Fail: an evaluation error is a denial.
+  # Rendered only together with enabled (above). Rollback: enabled false, or delete the binding by hand.
+  shapePolicy:
+    enabled: true               # false renders neither the policy nor the binding
+    validationActions: [Deny]   # Deny blocks; [Warn, Audit] only reports (switch without a code change)
+
 # Remote desktop for Devices with spec.desktop (plans/teknoirbot/mvp-spec.md 3.1): device-controller injects a
 # teknoir-desktop Deployment into the device's config and the WireGuard plugin publishes it as the web service
 # "desktop". Rendered as the DESKTOP config only together with ztna (the desktop is reached through Tunneling).
