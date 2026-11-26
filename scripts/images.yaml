@@ -13,8 +13,9 @@
 #         the list of files, each holding the same key_path (Kargo's pin Stage and scripts/pin-image write all
 #         of them). Such a row has pins_file null and no values_file. Other grouped rows do not set it;
 #         values_file: the chart values file of a third-party row (null for a grouped row);
-#         chart: the chart directory under charts/ (the child Application has the same name but for
-#         auth (keycloak-theme) and ztna (wg-tunnel));
+#         chart: the chart directory under charts/, or for a profile-plugin row the plugin chart under
+#         plugins/charts/ (information only; the child Application has the same name but for auth
+#         (keycloak-theme) and ztna (wg-tunnel));
 #         key_path: the nested values key that holds the pin. A segment of digits indexes a list item (e.g.
 #         template.spec.containers.0.image), but scripts/pin-image reads only a list indented under its key whose
 #         pinned key is not the item's first key (i.e. not on the `- ` line): any other shape is an error, not a
@@ -43,6 +44,9 @@ groups:
   teknoir-desktop: {same_commit: true, enabled: true}
   # The ARC runner image (teknoir/ci-workflows runner-image.yml, first sha-<8> build 2026-11-25, P6.4).
   ci-runner: {same_commit: false, enabled: true}
+  # The first profile-plugin image (CI v4 P9.1 S7): pinned in plugins/charts/profile-plugin-jwks/values.yaml.
+  # jwks is one replica with strategy Recreate, so a pin restarts it once.
+  jwks-server: {same_commit: false, enabled: true}
 
 images:
   - component: backstage-app
@@ -218,6 +222,18 @@ images:
     repository: ghcr.io/teknoir/ci-runner
     poll: ghcr.io/teknoir/ci-runner
     note: "the dev-host ARC runner image (teknoir/ci-workflows runner-image/); pinned in the three scale-set values files"
+
+  - component: jwks-server
+    group: jwks-server
+    pins_file: null
+    values_files:
+      - plugins/charts/profile-plugin-jwks/values.yaml
+    chart: profile-plugin-jwks
+    key_path: jwks.image.version
+    style: tag
+    repository: harbor.teknoir.cloud/teknoir/jwks-server
+    poll: harbor.teknoir.cloud/teknoir/jwks-server
+    note: "the teamspace JWKS/MQTT authn server (profile-plugin-jwks, plugins/charts)"
 
   # Third party images: no group, pinned by hand into the chart values file with scripts/pin-image.
   - component: postgres

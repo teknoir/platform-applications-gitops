@@ -145,7 +145,8 @@ verification:
 # scripts/tests/test_images_yaml.py asserts this block equals scripts/images.yaml.
 # An image may set `files`: the repository-relative files its pin is written to (one yaml-update step per file,
 # in the order given); without it the pin goes to pins/<group>.yaml. A group whose pin lives in chart values
-# files (ci-runner: the ARC scale-set values) has no pins/<group>.yaml at all.
+# files (ci-runner: the ARC scale-set values; jwks-server: the profile-plugin-jwks values under plugins/charts/)
+# has no pins/<group>.yaml at all.
 groups:
   - name: backstage
     enabled: true
@@ -218,6 +219,13 @@ groups:
     sameCommit: false
     images:
       - {component: ci-runner, poll: ghcr.io/teknoir/ci-runner, repository: ghcr.io/teknoir/ci-runner, key: template.spec.containers.0.image, style: ref, files: [charts/ci-runners/arc/teknoir-ci.yaml, charts/ci-runners/arc/teknoir-land.yaml, charts/ci-runners/arc/teknoir-push.yaml]}
+  # The first profile-plugin image group (CI v4 P9.1 S7): jwks-server, pinned in the plugin chart values under
+  # plugins/charts/ instead of pins/jwks-server.yaml. No autoPromotion.pins entry yet: Kargo does not pin it on its own.
+  - name: jwks-server
+    enabled: true
+    sameCommit: false
+    images:
+      - {component: jwks-server, poll: harbor.teknoir.cloud/teknoir/jwks-server, repository: harbor.teknoir.cloud/teknoir/jwks-server, key: jwks.image.version, style: tag, files: [plugins/charts/profile-plugin-jwks/values.yaml]}
 
 # The Kargo UI and API at https://<ui.host> (Anders 2026-11-24): VirtualService kargo on the shared gateway
 # (templates/virtualservice.yaml) to Service kargo-api (plain HTTP on port 80: charts/kargo/values.yaml

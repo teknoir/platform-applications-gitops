@@ -44,7 +44,8 @@ tests:
           pattern: 'sha-3ffc34e5|b4f9e01f45de79bf48028e4056b270d5fdbf47a66a5e55ffe4755f0ead8f6301'
       - matchRegex:
           path: spec.template.spec.containers[0].image
-          pattern: '^ghcr\.io/teknoir/jwks-server:sha-[0-9a-f]{8}@sha256:[0-9a-f]{64}$'
+          # pinned from Harbor since CI v4 P9.1 (Kargo Warehouse img-jwks-server)
+          pattern: '^harbor\.teknoir\.cloud/teknoir/jwks-server:sha-[0-9a-f]{8}@sha256:[0-9a-f]{64}$'
 
   # Release gate for 0.0.113-p1: sha-de5c5ed8 has no GET /api/v1/keys/legacy, so with
   # profile-plugin-emqx 0.0.113-p2 a restarted EMQX would get 404 for its legacy key set. This
@@ -58,7 +59,8 @@ tests:
           pattern: 'sha-de5c5ed8|403771123fa3486a10fee3ac7dcd60a9ef4d1d3d8b63b13299afd09eb5525437'
       - matchRegex:
           path: spec.template.spec.containers[0].image
-          pattern: '^ghcr\.io/teknoir/jwks-server:sha-[0-9a-f]{8}@sha256:[0-9a-f]{64}$'
+          # pinned from Harbor since CI v4 P9.1 (Kargo Warehouse img-jwks-server)
+          pattern: '^harbor\.teknoir\.cloud/teknoir/jwks-server:sha-[0-9a-f]{8}@sha256:[0-9a-f]{64}$'
 
   - it: renders LEGACY_KEYS_EXCLUDE_PREFIXES tb- by default
     template: templates/deployment.yaml

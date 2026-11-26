@@ -204,6 +204,38 @@ tests:
           value: "${{ success() && status('openpr') == 'Succeeded' }}"
       - equal: {path: 'spec.promotionTemplate.spec.steps[7].retry', value: {timeout: 30m}}
 
+  - it: writes a profile-plugin image into the plugin chart values under plugins/charts/
+    # CI v4 P9.1 S7: the first plugin group (jwks-server); its pin lives in the plugin chart values file, which
+    # scripts/staging-render.sh --plugins tree renders from plugins/charts/. Tag style: the key holds tag@digest,
+    # and the version line carries no trailing comment for Kargo's yaml-update to drop.
+    set:
+      groups:
+        - name: jwks-server
+          enabled: true
+          sameCommit: false
+          images:
+            - {component: jwks-server, poll: harbor.teknoir.cloud/teknoir/jwks-server, repository: harbor.teknoir.cloud/teknoir/jwks-server, key: jwks.image.version, style: tag, files: [plugins/charts/profile-plugin-jwks/values.yaml]}
+    documentSelector:
+      path: metadata.name
+      value: pin-jwks-server
+    asserts:
+      - isKind: {of: Stage}
+      - equal: {path: spec.requestedFreight, value: [{origin: {kind: Warehouse, name: img-jwks-server}, sources: {direct: true}}]}
+      - lengthEqual: {path: spec.promotionTemplate.spec.steps, count: 6}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[1].uses', value: yaml-update}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[1].config.path', value: ./src/plugins/charts/profile-plugin-jwks/values.yaml}
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[1].config.updates'
+          value:
+            - {key: jwks.image.version, value: '${{ imageFrom("harbor.teknoir.cloud/teknoir/jwks-server").Tag }}@${{ imageFrom("harbor.teknoir.cloud/teknoir/jwks-server").Digest }}'}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[2].uses', value: git-commit}
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[2].config.message'
+          value: 'chore(pins): jwks-server ${{ imageFrom("harbor.teknoir.cloud/teknoir/jwks-server").Tag }} [kargo]'
+      - equal: {path: 'spec.promotionTemplate.spec.steps[3].uses', value: git-push}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[4].uses', value: git-open-pr}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[5].uses', value: git-merge-pr}
+
   - it: names the components, not the group, in the commit message (plan 7.1)
     documentSelector:
       path: metadata.name

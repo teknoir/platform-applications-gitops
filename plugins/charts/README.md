@@ -40,8 +40,10 @@ CI covers these charts from day one even though nothing deploys from them:
    version. (`scripts/tests/test_plugin_charts.py` fails on a bump.)
 3. Merge to `main`: Kargo promotes the commit and verifies it (staging), so the change reaches a teamspace with the
    same release as the rest of the platform. A rollback is a revert PR.
-4. A plugin **image** is a value in the chart (`image.registry`/`image.version` per plugin) or a Kargo pin
-   (`pins/<group>.yaml`, written by Kargo, never by hand): a first-party image must be `repo:<tag>@sha256:<digest>`
+4. A plugin **image** is a value in the chart (`image.registry`/`image.version` per plugin). For a plugin image with a
+   Kargo pin group (`scripts/images.yaml` rows with `values_files`, e.g. jwks-server since CI v4 P9.1 S7) Kargo's
+   Stage `pin-<group>` writes the version into the chart's own `values.yaml`: never edit that key by hand. A
+   first-party image must be `repo:<tag>@sha256:<digest>`
    because `release-policy.yaml` has `images: deny`, and CI's check-pins fails without it.
 
 The chart's own `README.md` (e.g. `profile-plugin-emqx/README.md`) documents behaviour and rollout order; this file
