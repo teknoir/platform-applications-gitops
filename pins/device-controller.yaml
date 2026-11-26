@@ -30,4 +30,4 @@ image:
   # device-controller 441b9e9 (branch teknoirbot-council-items, descends from 12e08c2: the headless council Deployment
   # teknoir-desktop/teknoirbot-council on a bot's computer, read-only root, 3Gi ephemeral storage, council-work volume;
   # the bot's desktop is the plain desktop again; no CRD change). Previous pin: sha-12e08c2c@sha256:47a8ac4654a6b06f82d0bd023bf430cabe956636f000ed252fecebc5220ba1a4
-  tag: sha-c6a9aba4@sha256:5809fc24a753b33673825ca7b976f84a147a6c6edd5aac5a7678c12843f27e74
+  tag: sha-02dbc5d6@sha256:0b7cb43a8afb316b2bdb459b7d50cdab454bc1ffd8263d7b772468fbd229df71
