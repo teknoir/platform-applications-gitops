@@ -23,7 +23,7 @@ wssMqtt:
   image:
     registry: ghcr.io/teknoir/observatory-wss-mqtt
     # Pinned by Kargo Stage pin-observatory-wss-mqtt (scripts/images.yaml) from ghcr (public) since CI v4 P9.1: never edit by hand.
-    version: sha-71e82286@sha256:8f987ee85542c5e1ac224b2f93052c54a719cf82104fed57779cf53d1ba0d874
+    version: sha-99781c79@sha256:1a4bd4def2efa37a06aa5a9d4ddeae07c65e5bc405f7a245671134445062f6af
   resources:
     requests:
       cpu: 10m
