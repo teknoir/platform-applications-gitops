@@ -91,6 +91,11 @@ autoPromotion:
     historian-middle-end-api: true
     historian-api: true
     observatory-event-processing-app: true
+    # profile-plugin-observatory (CI v4 P9.1 S7, public ghcr): the first pins ship each repo's main HEAD (CI and test
+    # tooling only since the hand pins); a pin restarts that workload in every teamspace with the plugin.
+    observatory-wss-mqtt: true
+    observatory-snapshot-exporter: true
+    observatory-media-service: true
 
 staging:
   # P4.3 (b) fallback: also set the root Application's Helm parameter `release` to the Freight commit (besides
