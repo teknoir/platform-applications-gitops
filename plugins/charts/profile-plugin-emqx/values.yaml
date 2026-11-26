@@ -1,0 +1,157 @@
+domain: teknoir.cloud
+domainPrefix:
+
+# Dashboard proxy: the EMQX dashboard without its own login, owners only (README).
+# enabled=false routes the dashboard host to EMQX again with no guard: then set
+# emqx.emqxConfig.EMQX_DASHBOARD__DEFAULT_PASSWORD explicitly (the chart blanks it below).
+dashboard:
+  enabled: true
+  image: nginxinc/nginx-unprivileged:1.30.6-alpine@sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03
+  # Principals allowed to reach the proxy (everything else is denied). The user ingress
+  # gateway of this cluster; never the -public gateway.
+  gatewayPrincipals: ["cluster.local/ns/istio-system/sa/istio-ingressgateway"]
+  # Passwords the guard rotates away whenever the dashboard accepts one of them.
+  knownDefaultPasswords: ["teknoir", "public"]
+  # The guard checks the defaults every guardIntervalSeconds while EMQX answers and every
+  # guardRetrySeconds while it does not (so a restarted EMQX is checked within seconds).
+  guardIntervalSeconds: 60
+  guardRetrySeconds: 10
+  resources:
+    requests:
+      cpu: 5m
+      memory: 16Mi
+    limits:
+      memory: 64Mi
+
+# Who may reach the EMQX management API / dashboard port (18083) of the broker pod. MQTT and
+# WebSocket ports (1883, 8883, 8083, 8084) are not affected. A DENY policy (emqx-api-restrict)
+# denies every mesh caller that is not listed, whatever the namespace-wide ALLOW policies
+# (for example the in-namespace rule of profile-controller's ns-owner-access-istio) say.
+# Allowed: the dashboard proxy's ServiceAccount (its sidecar and the guard use it), or, when
+# dashboard.enabled=false, the gateway principals that route the dashboard host to EMQX.
+emqxApi:
+  restrict: true
+  trustDomain: cluster.local
+  # Platform workloads in the mesh that call the API (rendered as
+  # <trustDomain>/ns/<namespace>/sa/<serviceAccount>). device-controller closes the MQTT sessions
+  # of a disabled or deleted Device (DELETE /api/v5/clients/{clientid}, device-controller
+  # internal/controller/emqx). Set to [] to deny it.
+  callers:
+    - namespace: teknoir-system
+      serviceAccount: device-controller-service-account
+  # More principals, for example cluster.local/ns/teknoir-system/sa/profile-controller once
+  # that pod has a sidecar (it creates the MQTT bootstrap user through this API).
+  extraPrincipals: []
+  # Callers without mTLS (no sidecar) have no principal, so Istio cannot tell them apart:
+  # profile-controller runs without a sidecar today and calls emqx:18083 in plaintext. true
+  # keeps that working (only mesh callers are denied); set false, together with
+  # extraPrincipals, once every legitimate caller is in the mesh.
+  allowPlaintext: true
+
+emqx:
+  replicaCount: 1
+  # Adds a checksum/config annotation (sha of the upstream configmap, which holds
+  # emqxConfig) to the StatefulSet pod template, so a config change rolls EMQX.
+  # Certificate renewal does not need this: see README.
+  recreatePods: true
+  image:
+    registry: emqx/emqx
+    version: 5.8.9
+    repository: emqx/emqx
+    tag: 5.8.9
+  persistence:
+    enabled: true
+    size: 1Gi
+  apiKey: teknoir
+  apiSecret: teknoir
+  emqxConfig:
+    EMQX_API_KEY__BOOTSTRAP_FILE: "/opt/emqx-bootstrap/api-keys.txt"
+    EMQX_CLUSTER__DISCOVERY_STRATEGY: "k8s"
+    # No chart-set dashboard password: the dashboard is reached through the emqx-dashboard
+    # proxy (see README), nobody logs in to EMQX. EMQX's built-in default applies on a
+    # fresh volume until the guard in the proxy pod rotates it to a random value.
+    EMQX_DASHBOARD__DEFAULT_USERNAME: "teknoir"
+    # empty: the upstream chart default ("public") is not rendered (its configmap skips empty values)
+    EMQX_DASHBOARD__DEFAULT_PASSWORD: ""
+    # --- AUTHENTICATION & AUTHORIZATION (README "MQTT authentication and authorization") ---
+    # Authenticators run in order; "ignore" moves on to the next one.
+    EMQX_AUTHENTICATION__1__ENABLE: "true"                 # built-in DB, user teknoir (unchanged)
+    EMQX_AUTHENTICATION__1__MECHANISM: "password_based"
+    EMQX_AUTHENTICATION__1__BACKEND: "built_in_database"
+    EMQX_AUTHENTICATION__2__ENABLE: "true"                 # device key bound to username (jwks)
+    EMQX_AUTHENTICATION__2__MECHANISM: "password_based"
+    EMQX_AUTHENTICATION__2__BACKEND: "http"
+    EMQX_AUTHENTICATION__2__METHOD: "post"
+    EMQX_AUTHENTICATION__2__URL: "http://jwks:8083/api/v1/mqtt/authn"
+    EMQX_AUTHENTICATION__2__REQUEST_TIMEOUT: "3s"
+    EMQX_AUTHENTICATION__2__BODY: {username: "${username}", clientid: "${clientid}", password: "${password}"}
+    EMQX_AUTHENTICATION__3__ENABLE: "true"                 # legacy union JWKS, fallback only; removed in 0.0.115
+    EMQX_AUTHENTICATION__3__MECHANISM: "jwt"
+    EMQX_AUTHENTICATION__3__USE_JWKS: "true"
+    # The legacy key set: /api/v1/keys without the ids of profile-plugin-jwks
+    # mqttAuth.legacyExcludePrefixes (tb-), so TeknoirBot keys never pass the legacy fallback.
+    # Needs profile-plugin-jwks 0.0.113-p1 or later, live first: an older jwks answers 404 here.
+    EMQX_AUTHENTICATION__3__ENDPOINT: "http://jwks:8083/api/v1/keys/legacy"
+    EMQX_AUTHENTICATION__3__FROM: "password"
+    EMQX_AUTHENTICATION__3__REFRESH_INTERVAL: "60"
+    EMQX_AUTHENTICATION__3__SSL__ENABLE: "false"
+    # Legacy fallback only (README "MQTT authentication and authorization"); 0.0.115 removes it.
+    EMQX_AUTHENTICATION__3__ACL_CLAIM_NAME: "x_teknoir_unused_acl"
+    EMQX_AUTHENTICATION__3__VERIFY_CLAIMS: '{aud= \"teknoir\"}'
+    # Authorization: the chart's ACL file (templates/acl-configmap.yaml), then the jwks audit sink,
+    # which only sees what the file did not allow and logs it as would_deny.
+    EMQX_AUTHORIZATION__NO_MATCH: "allow"                  # 0.0.114: "deny"
+    EMQX_AUTHORIZATION__DENY_ACTION: "ignore"
+    EMQX_AUTHORIZATION__SOURCES__1__TYPE: "file"
+    EMQX_AUTHORIZATION__SOURCES__1__ENABLE: "true"
+    EMQX_AUTHORIZATION__SOURCES__1__PATH: '/opt/emqx-acl/{{ include "teknoir.emqx.aclFile" . }}'
+    EMQX_AUTHORIZATION__SOURCES__2__TYPE: "http"           # observe only; removed in 0.0.114
+    EMQX_AUTHORIZATION__SOURCES__2__ENABLE: "true"
+    EMQX_AUTHORIZATION__SOURCES__2__METHOD: "post"
+    EMQX_AUTHORIZATION__SOURCES__2__URL: "http://jwks:8083/api/v1/mqtt/authz-audit"
+    EMQX_AUTHORIZATION__SOURCES__2__REQUEST_TIMEOUT: "2s"
+    EMQX_AUTHORIZATION__SOURCES__2__BODY: {username: "${username}", clientid: "${clientid}", topic: "${topic}", action: "${action}", qos: "${qos}", retain: "${retain}"}
+    # Retained messages are stored on disc (the emqx-data volume at /opt/emqx/data), so they
+    # survive an EMQX restart. device-controller publishes each device's config as a retained
+    # message on /devices/<device>/config and republishes it only when the config changes.
+    # EMQX converts its retainer tables to disc at the first boot with this value. ram or disc.
+    EMQX_RETAINER__BACKEND__STORAGE_TYPE: "disc"
+    # The largest retained payload, the same as EMQX_MQTT__MAX_PACKET_SIZE below. The EMQX
+    # default is 1MB: a larger config would be delivered once but never retained.
+    EMQX_RETAINER__MAX_PAYLOAD_SIZE: "3MB"
+    # Do not set EMQX_MQTT__USE_USERNAME_AS_CLIENTID: platform clients share the user teknoir with
+    # distinct clientids and would take over each other's sessions.
+    # EMQX 5 name of the intended 3 MB limit (the former EMQX_MAX_PACKET_SIZE is not an
+    # EMQX 5 setting: the effective mqtt.max_packet_size stayed at the 1MB default)
+    EMQX_MQTT__MAX_PACKET_SIZE: "3MB"
+    # EMQX 5 names (the EMQX_LISTENER__SSL__* names are EMQX 4's and are ignored: the
+    # 8883 listener then serves EMQX's built-in self-signed "EMQ RootCA" certificate)
+    EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__KEYFILE: "/certs/tls.key"
+    EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__CERTFILE: "/certs/tls.crt"
+  pdb:
+    enabled: false
+    maxUnavailable: 1
+  extraVolumeMounts:
+    - name: emqx-bootstrap-api-keys
+      mountPath: /opt/emqx-bootstrap
+      readOnly: true
+    - name: emqx-certs
+      mountPath: /certs
+      readOnly: true
+    - name: emqx-acl
+      mountPath: /opt/emqx-acl
+      readOnly: true
+  extraVolumes:
+    - name: emqx-bootstrap-api-keys
+      secret:
+        secretName: emqx-bootstrap-api-keys
+    - name: emqx-certs
+      secret:
+        secretName: domain-wildcard-tls
+    - name: emqx-acl
+      configMap:
+        name: emqx-acl
+  resources:
+    requests:
+      cpu: 25m
+      memory: 50Mi

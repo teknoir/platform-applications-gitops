@@ -1,0 +1,106 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: alertmanager
+    teknoir.org/plugin: alertmanager
+data:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 1m
+      slack_api_url_file: '/etc/alertmanager/slack_api_url'
+
+    route:
+      receiver: 'slack-notifications'
+      group_by: ['alertname']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 2h
+      routes:
+        - receiver: 'user-alerting-rules'
+          group_wait: 10s
+          matchers:
+          - user_alerting_rules="user"
+        - receiver: 'ml-slack-notifications'
+          group_wait: 10s
+          matchers:
+          - team="ml"
+        - receiver: 'ml-slack-notifications'
+          group_wait: 10s
+          matchers:
+          - scope="device"
+
+    receivers:
+    - name: 'ml-slack-notifications'
+      slack_configs:
+      - channel: '{{ .Values.channelName }}'
+        send_resolved: true
+        icon_url: https://avatars3.githubusercontent.com/u/3380462
+        title: |-
+          {{ "{{" }} template "slack.title" . {{ "}}" }}
+        text: |-
+          {{ "{{" }} template "slack.text" . {{ "}}" }}
+        actions:
+        - type: button
+          name: mutebutton
+          text: 'Silence :no_bell:'
+          value: 'text'
+          url: |-
+            {{ "{{" }} template "__alert_silence_link" . {{ "}}" }}
+    - name: 'slack-notifications'
+      slack_configs:
+      - channel: '#monitoring'
+        send_resolved: true
+        icon_url: https://avatars3.githubusercontent.com/u/3380462
+        title: |-
+          {{ "{{" }} template "slack.title" . {{ "}}" }}
+        text: |-
+          {{ "{{" }} template "slack.text" . {{ "}}" }}
+        actions:
+        - type: button
+          name: mutebutton
+          text: 'Silence :no_bell:'
+          value: 'text'
+          url: |-
+            {{ "{{" }} template "__alert_silence_link" . {{ "}}" }}
+        - type: button
+          name: readmebutton
+          text: 'README :green_book:'
+          value: 'text'
+          url: 'https://github.com/teknoir'
+    - name: 'user-alerting-rules'
+      webhook_configs:
+      - url: http://useralerts.{{ .Release.Namespace }}.svc.cluster.local/
+
+    templates:
+    - '/etc/alertmanager/slack.tmpl'
+  slack.tmpl: |
+    {{ "{{" }} define "slack.title" {{ "}}" }}
+    :fire: ACTIVE ALERTS [ {{ .Release.Namespace }} ] [ {{ "{{" }} .GroupLabels.alertname {{ "}}" }} ]
+    {{ "{{" }} end {{ "}}" }}
+
+    {{ "{{" }} define "slack.text" {{ "}}" }}
+    {{ "{{" }} range .Alerts.Firing {{ "}}" }}
+    *Alert:* {{ "{{" }} .Annotations.summary {{ "}}" }}
+    *Description:* {{ "{{" }} .Annotations.description {{ "}}" }}
+    {{ "{{" }} end {{ "}}" }}
+
+    {{ "{{" }} if .Alerts.Resolved {{ "}}" }}
+    {{ "{{" }} range .Alerts.Resolved {{ "}}" }}
+    :white_check_mark: *Resolved* {{ "{{" }} .Annotations.summary {{ "}}" }}
+    {{ "{{" }} end {{ "}}" }}
+    {{ "{{" }} end {{ "}}" }}
+    {{ "{{" }} end {{ "}}" }}
+
+    {{ "{{" }} define "__alert_silence_link" -{{ "}}" }}
+    {{ "{{" }} .ExternalURL {{ "}}" }}/#/silences/new?filter=%7B
+    {{ "{{" -}} range .CommonLabels.SortedPairs -{{ "}}" }}
+        {{ "{{" -}} if ne .Name "alertname" -{{ "}}" }}
+            {{ "{{" -}} .Name {{ "}}" }}%3D"{{ "{{" -}} .Value -{{ "}}" }}"%2C%20
+        {{ "{{" -}} end -{{ "}}" }}
+    {{ "{{" -}} end -{{ "}}" }}
+    alertname%3D"{{ "{{" }} .CommonLabels.alertname {{ "}}" }}"%7D
+    {{ "{{" -}} end {{ "}}" }}

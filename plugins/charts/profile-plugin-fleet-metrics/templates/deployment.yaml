@@ -1,0 +1,110 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: fleet-metrics
+    teknoir.org/plugin: fleet-metrics
+  name: fleet-metrics
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: fleet-metrics
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "9090"
+        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true }'
+      labels:
+        app: fleet-metrics
+        teknoir.org/plugin: fleet-metrics
+    spec:
+      serviceAccountName: default-editor
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: fleet-metrics-metrics-proc
+          image: "{{ .Values.metricsProcessor.image.registry }}:{{ .Values.metricsProcessor.image.version }}"
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: CLIENT_ID
+              value: "fleet-metrics"
+            - name: BROKER_URL
+              value: "mqtt://emqx:1883"
+            - name: USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: emqx-bootstrap-user
+                  key: username
+            - name: PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: emqx-bootstrap-user
+                  key: password
+            - name: NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            - name: MONGODB_URI
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb-credentials
+                  key: service_uri
+          {{- if .Values.metricsProcessor.resources }}
+          resources:
+            {{- toYaml .Values.metricsProcessor.resources | nindent 12 }}
+          {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: org-config
+              mountPath: /data/org-config/
+        - name: fleet-metrics-metrics-pub
+          image: "{{ .Values.metricsPublisher.image.registry }}:{{ .Values.metricsPublisher.image.version }}"
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9090
+            initialDelaySeconds: 25
+            periodSeconds: 20
+          ports:
+            - containerPort: 9090
+              name: http
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 9090
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          {{- if .Values.metricsPublisher.resources }}
+          resources:
+            {{- toYaml .Values.metricsPublisher.resources | nindent 12 }}
+          {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+        - name: redis
+          image: "{{ .Values.redis.image.registry }}:{{ .Values.redis.image.version }}"
+          ports:
+            - containerPort: 6379
+          {{- if .Values.redis.resources }}
+          resources:
+            {{- toYaml .Values.redis.resources | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: redis-persistent-storage
+              mountPath: /data
+      volumes:
+        - name: redis-persistent-storage
+          persistentVolumeClaim:
+            claimName: fleet-metrics
+        - name: org-config
+          configMap:
+            name: org-config

@@ -1,0 +1,72 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    teknoir.org/plugin: deadend
+    app: deadend
+  name: deadend
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: deadend
+  template:
+    metadata:
+      labels:
+        teknoir.org/plugin: deadend
+        app: deadend
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: deadend
+        image: "{{ .Values.deadend.image.registry }}:{{ .Values.deadend.image.version }}"
+        imagePullPolicy: IfNotPresent
+        ports:
+          - containerPort: 22
+            name: tcp-ssh
+            protocol: TCP
+        volumeMounts:
+          - name: deadend-authorized-keys
+            mountPath: /secret-keys
+        {{- if .Values.resources }}
+        resources:
+          {{- toYaml .Values.resources | nindent 10 }}
+        {{- end }}
+      - name: tls-terminator
+        image: "{{ .Values.tlsTerminator.image.registry }}:{{ .Values.tlsTerminator.image.version }}"
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            command -v stunnel >/dev/null 2>&1 || apk add --no-cache stunnel
+            exec stunnel /etc/stunnel/stunnel.conf
+        ports:
+          - containerPort: 2222
+        volumeMounts:
+          - name: certs
+            mountPath: /etc/stunnel/certs
+            readOnly: true
+          - name: stunnel-config
+            mountPath: /etc/stunnel/stunnel.conf
+            subPath: stunnel.conf
+        {{- if .Values.resources }}
+        resources:
+          {{- toYaml .Values.resources | nindent 10 }}
+        {{- end }}
+      volumes:
+        - name: deadend-authorized-keys
+          secret:
+            secretName: deadend-authorized-keys-secret
+            defaultMode: 0644
+        - name: certs
+          secret:
+            secretName: domain-wildcard-tls
+        - name: stunnel-config
+          configMap:
+            name: deadend-stunnel-config
+      serviceAccountName: deadend-service-account

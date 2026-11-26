@@ -1,0 +1,63 @@
+domain: teknoir.cloud
+domainPrefix:
+
+historianApi:
+  image:
+    registry: ghcr.io/teknoir/historian-api
+    version: latest@sha256:746a129e64a65c077fca9540f0c407657026a40659af34a4053656f906cb2164
+  resources:
+    requests:
+      cpu: 25m
+      memory: 20Mi
+
+historianMiddleend:
+  image:
+    registry: ghcr.io/teknoir/historian-middle-end-api
+    version: latest@sha256:9eff60a54e2a0409aa7ac4b5971606a46278beaa7122e0d33ff5258c21fb1b8e
+  resources:
+    requests:
+      cpu: 25m
+      memory: 20Mi
+
+historianStreams:
+  image:
+    registry: ghcr.io/teknoir/observatory-event-processing-app
+    version: latest@sha256:dd13619de2c5ee13c0a1276c7df58598251b9a3b039f66d86ff72d0930c418b5
+
+mongodb:
+  image:
+    registry: mongo
+    version: 8.2.1
+  resources:
+    requests:
+      cpu: 25m
+      memory: 128Mi
+
+exporter:
+  image:
+    registry: docker.io/percona/mongodb_exporter
+    version: 0.47
+  resources:
+    requests:
+      cpu: 25m
+      memory: 128Mi
+
+imagePullSecrets:
+  - name: ghcr-token
+
+persistentVolumeClaimSize: 10Gi
+
+# Historian Event Processing Streams
+streams:
+  - stream: "sync-alerts"
+    resources:
+      requests:
+        cpu: 25m
+        memory: 20Mi
+  - stream: "sync-movements"
+    resources:
+      requests:
+        cpu: 25m
+        memory: 20Mi
+#  - stream: "sync-alert-snapshots"
+#  - stream: "sync-movement-snapshots"

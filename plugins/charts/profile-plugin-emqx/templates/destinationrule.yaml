@@ -1,0 +1,62 @@
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: emqx-dashboard
+  namespace: {{ .Release.Namespace }}
+  labels:
+    teknoir.org/plugin: emqx
+spec:
+  host: emqx-dashboard.{{ .Release.Namespace }}.svc.cluster.local
+  exportTo:
+    {{- if .Values.dashboard.enabled }}
+    # Only the user ingress gateway talks to the proxy, always over mTLS, so every request
+    # carries its principal (see emqx-dashboard-gateway-only).
+    - "istio-system"
+    {{- else }}
+    - "teknoir-system"
+    {{- end }}
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+    connectionPool:
+      tcp:
+        maxConnections: 10000
+
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: emqx-headless
+  labels:
+    teknoir.org/plugin: emqx
+spec:
+  host: emqx-headless.{{ .Release.Namespace }}.svc.cluster.local
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 100000  # Scale this to your device count
+        connectTimeout: 10s
+        tcpKeepalive:
+          time: 60s             # Start probes after 60s of inactivity
+          interval: 20s
+          probes: 3
+
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: emqx
+  labels:
+    teknoir.org/plugin: emqx
+spec:
+  host: emqx.{{ .Release.Namespace }}.svc.cluster.local
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 100000  # Scale this to your device count
+        connectTimeout: 10s
+        tcpKeepalive:
+          time: 60s             # Start probes after 60s of inactivity
+          interval: 20s
+          probes: 3

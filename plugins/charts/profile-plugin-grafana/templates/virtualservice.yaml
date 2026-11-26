@@ -1,0 +1,26 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: {{ .Values.name }}-vsvc
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{ .Values.labelSelectorKey }}: {{ .Values.labelSelectorValue }}
+    teknoir.org/plugin: grafana
+  annotations:
+    teknoir.org/public-urls-selector: '{ "http": { "query": "spec.http.[0].match.[0].uri.prefix" } }'
+spec:
+  gateways:
+    - istio-system/teknoir-gateway
+  hosts:
+    - {{ .Values.domainPrefix }}{{ if .Values.domainPrefix }}.{{ end }}{{ .Values.domain }}
+  http:
+    - match:
+        - uri:
+            prefix: /{{ .Release.Namespace }}/{{ .Values.name }}
+      rewrite:
+        uri: /{{ .Release.Namespace }}/{{ .Values.name }}
+      route:
+        - destination:
+            host: {{ .Values.name }}.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: 80

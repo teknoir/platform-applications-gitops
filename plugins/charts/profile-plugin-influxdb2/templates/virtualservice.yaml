@@ -1,0 +1,27 @@
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: influxdb2-vsvc
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: influxdb2
+    app.kubernetes.io/instance: influxdb2
+    teknoir.org/plugin: influxdb2
+    owner: teknoir
+spec:
+  gateways:
+  - istio-system/teknoir-gateway
+  hosts:
+  - '*'
+  http:
+  - match:
+    - uri:
+        prefix: /{{ .Release.Namespace }}/influxdb2
+    rewrite:
+      uri: /{{ .Release.Namespace }}/influxdb2
+    route:
+    - destination:
+        host: influxdb2.{{ .Release.Namespace }}.svc.cluster.local
+        port:
+          number: 80

@@ -1,0 +1,25 @@
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: alertmanager-vsvc
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: alertmanager
+    teknoir.org/plugin: alertmanager
+spec:
+  gateways:
+  - istio-system/teknoir-gateway
+  hosts:
+  - {{ .Values.domainPrefix }}{{ if .Values.domainPrefix }}.{{ end }}{{ .Values.domain }}
+  http:
+  - match:
+    - uri:
+        prefix: /{{ .Release.Namespace }}/alertmanager
+    rewrite:
+      uri: /{{ .Release.Namespace }}/alertmanager
+    route:
+    - destination:
+        host: alertmanager.{{ .Release.Namespace }}.svc.cluster.local
+        port:
+          number: 80

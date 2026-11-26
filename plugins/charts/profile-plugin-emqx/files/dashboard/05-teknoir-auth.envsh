@@ -1,0 +1,5 @@
+# Sourced by the nginx image entrypoint before 20-envsubst-on-templates.sh (it must be
+# executable). The EMQX API key comes from the Secret emqx-bootstrap-api-keys; it never
+# reaches the browser.
+EMQX_DASHBOARD_AUTH="Basic $(printf '%s:%s' "$EMQX_API_KEY" "$EMQX_API_SECRET" | base64 | tr -d '\n')"
+export EMQX_DASHBOARD_AUTH

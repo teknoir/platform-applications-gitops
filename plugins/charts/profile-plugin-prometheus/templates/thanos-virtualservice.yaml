@@ -1,0 +1,24 @@
+{{- if .Values.thanos.enabled }}
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: thanos-query-vsvc
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: thanos-query
+    teknoir.org/plugin: prometheus
+spec:
+  gateways:
+  - istio-system/teknoir-gateway
+  hosts:
+  - {{ .Values.domainPrefix }}{{ if .Values.domainPrefix }}.{{ end }}{{ .Values.domain }}
+  http:
+  - match:
+    - uri:
+        prefix: /{{ .Release.Namespace }}/thanos
+    route:
+    - destination:
+        host: thanos-query.{{ .Release.Namespace }}.svc.cluster.local
+        port:
+          number: 80
+{{- end }}

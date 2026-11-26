@@ -1,0 +1,55 @@
+suite: emqx retained messages
+release:
+  name: emqx
+  namespace: teknoir-demo
+set:
+  domain: teknoir.cloud
+templates:
+  - charts/emqx/templates/configmap.yaml
+  - charts/emqx/templates/StatefulSet.yaml
+tests:
+  - it: the retainer stores retained messages on disc
+    template: charts/emqx/templates/configmap.yaml
+    asserts:
+      - equal:
+          path: data.EMQX_RETAINER__BACKEND__STORAGE_TYPE
+          value: disc
+
+  - it: no retainer count limit or expiry is set
+    template: charts/emqx/templates/configmap.yaml
+    asserts:
+      - notExists:
+          path: data.EMQX_RETAINER__BACKEND__MAX_RETAINED_MESSAGES
+      - notExists:
+          path: data.EMQX_RETAINER__MSG_EXPIRY_INTERVAL
+
+  - it: the retainer keeps payloads up to the max packet size (3MB, not the 1MB default)
+    template: charts/emqx/templates/configmap.yaml
+    asserts:
+      - equal:
+          path: data.EMQX_RETAINER__MAX_PAYLOAD_SIZE
+          value: 3MB
+      - equal:
+          path: data.EMQX_MQTT__MAX_PACKET_SIZE
+          value: 3MB
+
+  - it: the EMQX data directory is on a persistent volume
+    template: charts/emqx/templates/StatefulSet.yaml
+    asserts:
+      - equal:
+          path: spec.volumeClaimTemplates[0].metadata.name
+          value: emqx-data
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: emqx-data
+            mountPath: /opt/emqx/data
+
+  - it: a values override can switch the retainer back to ram
+    template: charts/emqx/templates/configmap.yaml
+    set:
+      emqx.emqxConfig.EMQX_RETAINER__BACKEND__STORAGE_TYPE: ram
+    asserts:
+      - equal:
+          path: data.EMQX_RETAINER__BACKEND__STORAGE_TYPE
+          value: ram

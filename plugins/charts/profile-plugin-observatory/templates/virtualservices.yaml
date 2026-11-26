@@ -1,0 +1,83 @@
+{{- if .Values.observatory.enabled }}
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: observatory-vsvc
+  namespace: {{ .Release.Namespace }}
+  labels:
+    teknoir.org/plugin: observatory
+  annotations:
+    teknoir.org/public-urls-selector: '{ "http": { "query": "spec.http.[0].match.[0].uri.prefix" } }'
+spec:
+  gateways:
+  - istio-system/teknoir-gateway
+  hosts:
+  - {{ .Values.domainPrefix }}{{ if .Values.domainPrefix }}.{{ end }}{{ .Values.domain }}
+  http:
+  - match:
+    - uri:
+        prefix: /{{ .Release.Namespace }}/observatory/
+    - uri:
+        exact: /{{ .Release.Namespace }}/observatory
+    route:
+    - destination:
+        host: observatory.{{ .Release.Namespace }}.svc.cluster.local
+        port:
+          number: 80
+{{- end }}
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: observatory-wss-mqtt-vsvc
+  namespace: {{ .Release.Namespace }}
+  labels:
+    teknoir.org/plugin: observatory
+  annotations:
+    teknoir.org/public-urls-selector: '{ "websocket": { "query": "spec.http.[0].match.[0].uri.prefix" } }'
+spec:
+  gateways:
+  - istio-system/teknoir-gateway
+  hosts:
+  - {{ .Values.domainPrefix }}{{ if .Values.domainPrefix }}.{{ end }}{{ .Values.domain }}
+  http:
+  - name: "observatory-wss-route"
+    match:
+    - uri:
+        prefix: /{{ .Release.Namespace }}/ws/observatory
+    # legacy path Backstage's usePeripheralData still uses
+    - uri:
+        prefix: /{{ .Release.Namespace }}/observatory-wss-mqtt
+    route:
+    - destination:
+        host: observatory-wss-mqtt.{{ .Release.Namespace }}.svc.cluster.local
+        port:
+          number: 8080
+    timeout: 3600s
+    retries:
+      attempts: 0 # Disable retries for websockets
+
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: observatory-media-service-vsvc
+  namespace: {{ .Release.Namespace }}
+  labels:
+    teknoir.org/plugin: observatory
+  annotations:
+    teknoir.org/public-urls-selector: '{ "http": { "query": "spec.http.[0].match.[0].uri.prefix" } }'
+spec:
+  gateways:
+  - istio-system/teknoir-gateway
+  hosts:
+  - {{ .Values.domainPrefix }}{{ if .Values.domainPrefix }}.{{ end }}{{ .Values.domain }}
+  http:
+  - match:
+    - uri:
+        prefix: /{{ .Release.Namespace }}/media-service
+    route:
+    - destination:
+        host: observatory-media-service.{{ .Release.Namespace }}.svc.cluster.local
+        port:
+          number: 80

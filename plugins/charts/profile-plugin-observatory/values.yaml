@@ -1,0 +1,67 @@
+domain: teknoir.cloud
+domainPrefix:
+
+observatory:
+  # The standalone Surveillance Dashboard frontend. Off because Backstage's
+  # Observatory page replaces it, and the current image only works at the site
+  # root (it was built without its VITE_* build args since 2026-04); enable
+  # only after rebuilding it.
+  enabled: false
+  image:
+    registry: ghcr.io/teknoir/observatory
+    version: latest@sha256:bf1003a25046c95d4681679aaf9ab5eba205db18cdfb0fb22825edb304f39005
+  resources:
+    requests:
+      cpu: 10m
+      memory: 20Mi
+wssMqtt:
+  # Backstage backends read device statistics from wss-mqtt in-mesh; user
+  # traffic is allowed by the teamspace's own policies.
+  allowedPrincipals:
+    - cluster.local/ns/teknoir-system/sa/backstage-api
+    - cluster.local/ns/teknoir-system/sa/backstage-next-api
+  image:
+    registry: ghcr.io/teknoir/observatory-wss-mqtt
+    version: sha-71e82286@sha256:8f987ee85542c5e1ac224b2f93052c54a719cf82104fed57779cf53d1ba0d874
+  resources:
+    requests:
+      cpu: 10m
+      memory: 20Mi
+keydb:
+  image:
+    registry: eqalpha/keydb
+    version: x86_64_v6.3.4
+  resources:
+    requests:
+      cpu: 10m
+      memory: 20Mi
+snapshotExporter:
+  image:
+    registry: ghcr.io/teknoir/observatory-snapshot-exporter
+    version: sha-e7dcf3b6@sha256:335f58924b4d44e329afd9b746d2dad11c8992a95da4963b2cfaa69a7fc4a19c
+  # The exporter uses about 100 MB. The limit restarts only this container if its memory
+  # ever keeps growing, instead of letting it starve the node.
+  resources:
+    requests:
+      cpu: 10m
+      memory: 128Mi
+    limits:
+      memory: 384Mi
+mediaService:
+  image:
+    registry: ghcr.io/teknoir/observatory-media-service
+    version: latest@sha256:6c7b3c1ff8b5b388e8d6d7132cfa69bc98e9433d02e9b96fadb3860e3dde5ce5
+  resources:
+    requests:
+      cpu: 10m
+      memory: 20Mi
+
+imagePullSecrets:
+  - name: ghcr-token
+
+logLevel: info
+inferenceTopic: "/devices/+/events/inference"
+flushCacheBufferInterval: "30000"
+
+pvcSize: 10Gi
+serviceAccountName: default-editor

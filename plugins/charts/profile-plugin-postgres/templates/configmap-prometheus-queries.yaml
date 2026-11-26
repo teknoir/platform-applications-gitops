@@ -1,0 +1,73 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-prometheus-queries-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/instance: postgres
+    teknoir.org/plugin: postgres
+    owner: teknoir
+data:
+  queries.yaml: |
+    pg_stat_statements:
+      query: |
+        SELECT
+          d.datname as database_name,
+          s.queryid as queryid,
+          left(s.query, 500) as query,
+          s.calls as calls,
+          s.total_exec_time as total_exec_time,
+          s.min_exec_time as min_exec_time,
+          s.max_exec_time as max_exec_time,
+          s.mean_exec_time as mean_exec_time,
+          s.stddev_exec_time as stddev_exec_time,
+          s.rows as rows,
+          s.shared_blks_hit as shared_blks_hit,
+          s.shared_blks_read as shared_blks_read
+        FROM
+          pg_stat_statements s
+          JOIN pg_database d ON s.dbid = d.oid
+        WHERE
+          s.calls > 10
+          AND s.query NOT LIKE 'COMMIT'
+          AND s.query NOT LIKE 'BEGIN'
+          AND s.query NOT LIKE '%pg_%'
+        ORDER BY
+          s.total_exec_time DESC
+        LIMIT 100;
+      metrics:
+        - database_name:
+            usage: "LABEL"
+            description: "Database name"
+        - queryid:
+            usage: "LABEL"
+            description: "Query ID"
+        - query:
+            usage: "LABEL"
+            description: "Query text (truncated)"
+        - calls:
+            usage: "COUNTER"
+            description: "Number of times executed"
+        - total_exec_time:
+            usage: "COUNTER"
+            description: "Total time spent executing in milliseconds"
+        - mean_exec_time:
+            usage: "GAUGE"
+            description: "Mean execution time in milliseconds"
+        - max_exec_time:
+            usage: "GAUGE"
+            description: "Maximum execution time in milliseconds"
+        - stddev_exec_time:
+            usage: "GAUGE"
+            description: "Standard deviation of execution time in milliseconds"
+        - rows:
+            usage: "COUNTER"
+            description: "Total rows processed by the statement"
+        - shared_blks_hit:
+            usage: "COUNTER"
+            description: "Total shared block cache hits by the statement"
+        - shared_blks_read:
+            usage: "COUNTER"
+            description: "Total shared blocks read by the statement"

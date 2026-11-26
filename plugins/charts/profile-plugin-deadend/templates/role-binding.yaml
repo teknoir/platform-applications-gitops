@@ -1,0 +1,14 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    teknoir.org/plugin: deadend
+  name: deadend-role-binding
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: deadend-role
+subjects:
+- kind: ServiceAccount
+  name: deadend-service-account

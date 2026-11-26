@@ -1,0 +1,30 @@
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: influxdb2-auth
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: influxdb2
+    app.kubernetes.io/instance: influxdb2
+    teknoir.org/plugin: influxdb2
+    owner: teknoir
+spec:
+  configPatches:
+  - applyTo: HTTP_FILTER
+    match:
+      context: SIDECAR_INBOUND
+    patch:
+      operation: INSERT_BEFORE
+      value:
+        name: envoy.lua
+        typed_config:
+          '@type': type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+          inlineCode: |
+            function envoy_on_request(request_handle)
+              request_handle:headers():remove("Authorization")
+              request_handle:headers():add("Authorization", "Token {{ include "influxdb2.adminToken" . }}")
+            end
+  workloadSelector:
+    labels:
+      app.kubernetes.io/name: influxdb2

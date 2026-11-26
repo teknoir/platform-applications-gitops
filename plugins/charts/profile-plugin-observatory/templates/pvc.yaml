@@ -1,0 +1,14 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: observatory-wss-mqtt-pvc
+  namespace: {{ .Release.Namespace }}
+  labels:
+    teknoir.org/plugin: observatory
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.pvcSize }}

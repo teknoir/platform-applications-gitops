@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: prometheus
+    teknoir.org/plugin: prometheus
+  name: {{ .Release.Namespace }}-prometheus-config
+  namespace: {{ .Release.Namespace }}
+data:
+  user_defined_rules.yml: |
+    groups: []

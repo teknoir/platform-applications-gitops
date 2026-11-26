@@ -1,0 +1,242 @@
+suite: jwks MQTT authentication (mqttAuth)
+release:
+  name: jwks
+  namespace: teknoir-demo
+set:
+  domain: teknoir.cloud
+templates:
+  - templates/deployment.yaml
+  - templates/authorizationpolicy.yaml
+tests:
+  - it: renders MQTT_AUTHN_MODE enforce and MQTT_AUDIENCE teknoir by default
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MQTT_AUTHN_MODE
+            value: enforce
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MQTT_AUDIENCE
+            value: teknoir
+
+  - it: renders MQTT_AUTHN_MODE observe when set
+    template: templates/deployment.yaml
+    set:
+      mqttAuth.authnMode: observe
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MQTT_AUTHN_MODE
+            value: observe
+
+  # Release gate: the origin/main image (sha-3ffc34e5) has no /api/v1/mqtt/* routes, so EMQX
+  # would get 404 (authn "ignore", audit "nomatch") and 0.0.112 would act like 0.0.111. This
+  # test fails until jwks.image.version pins the mqtt-auth image; do not merge while it fails.
+  - it: pins a jwks-server image with the MQTT endpoints (not the pre-mqtt-auth sha-3ffc34e5)
+    template: templates/deployment.yaml
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: 'sha-3ffc34e5|b4f9e01f45de79bf48028e4056b270d5fdbf47a66a5e55ffe4755f0ead8f6301'
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: '^ghcr\.io/teknoir/jwks-server:sha-[0-9a-f]{8}@sha256:[0-9a-f]{64}$'
+
+  # Release gate for 0.0.113-p1: sha-de5c5ed8 has no GET /api/v1/keys/legacy, so with
+  # profile-plugin-emqx 0.0.113-p2 a restarted EMQX would get 404 for its legacy key set. This
+  # test fails until jwks.image.version pins the image built from jwks-server branch
+  # tb-fence-legacy-keys; do not merge while it fails.
+  - it: "RELEASE GATE: pins a jwks-server image with GET /api/v1/keys/legacy (not sha-de5c5ed8)"
+    template: templates/deployment.yaml
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: 'sha-de5c5ed8|403771123fa3486a10fee3ac7dcd60a9ef4d1d3d8b63b13299afd09eb5525437'
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: '^ghcr\.io/teknoir/jwks-server:sha-[0-9a-f]{8}@sha256:[0-9a-f]{64}$'
+
+  - it: renders LEGACY_KEYS_EXCLUDE_PREFIXES tb- by default
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LEGACY_KEYS_EXCLUDE_PREFIXES
+            value: tb-
+
+  - it: leaves LEGACY_KEYS_EXCLUDE_PREFIXES out for an empty list
+    template: templates/deployment.yaml
+    set:
+      mqttAuth.legacyExcludePrefixes: []
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name == "LEGACY_KEYS_EXCLUDE_PREFIXES")]
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MQTT_AUDIENCE
+            value: teknoir
+
+  - it: joins several prefixes with a comma
+    template: templates/deployment.yaml
+    set:
+      mqttAuth.legacyExcludePrefixes: ["tb-", "vm-"]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LEGACY_KEYS_EXCLUDE_PREFIXES
+            value: tb-,vm-
+
+  - it: fails the render on a capitalised prefix
+    template: templates/deployment.yaml
+    set:
+      mqttAuth.legacyExcludePrefixes: ["TB-"]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'mqttAuth.legacyExcludePrefixes: "TB-" must match'
+
+  - it: fails the render on a prefix with an underscore
+    template: templates/deployment.yaml
+    set:
+      mqttAuth.legacyExcludePrefixes: ["tb_"]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'mqttAuth.legacyExcludePrefixes: "tb_" must match'
+
+  - it: fails the render on an empty prefix
+    template: templates/deployment.yaml
+    set:
+      mqttAuth.legacyExcludePrefixes: [""]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'mqttAuth.legacyExcludePrefixes: "" must match'
+
+  - it: fails the render on any other mode
+    template: templates/deployment.yaml
+    set:
+      mqttAuth.authnMode: warn
+    asserts:
+      - failedTemplate:
+          errorPattern: 'mqttAuth.authnMode must be observe or enforce \(got "warn"\)'
+
+  - it: fails the render on a capitalised mode
+    template: templates/deployment.yaml
+    set:
+      mqttAuth.authnMode: Enforce
+    asserts:
+      - failedTemplate:
+          errorPattern: 'mqttAuth.authnMode must be observe or enforce'
+
+  - it: jwks-deny-writes leaves /api/v1/mqtt/* to its own policies
+    template: templates/authorizationpolicy.yaml
+    documentSelector:
+      path: metadata.name
+      value: jwks-deny-writes
+    asserts:
+      - equal:
+          path: spec.action
+          value: DENY
+      - equal:
+          path: spec.rules[0].to
+          value:
+            - operation:
+                notMethods: ["GET"]
+                notPaths: ["/api/v1/mqtt/*"]
+      - notContains:
+          path: spec.rules[0].from[0].source.notPrincipals
+          content: cluster.local/ns/teknoir-demo/sa/emqx
+
+  - it: only the EMQX principal of the release namespace may call /api/v1/mqtt/* (DENY)
+    template: templates/authorizationpolicy.yaml
+    documentSelector:
+      path: metadata.name
+      value: jwks-mqtt-auth
+    asserts:
+      - equal:
+          path: spec.action
+          value: DENY
+      - equal:
+          path: spec.selector.matchLabels
+          value:
+            app: jwks
+      - equal:
+          path: spec.rules
+          value:
+            - to:
+                - operation:
+                    paths: ["/api/v1/mqtt/*"]
+              from:
+                - source:
+                    notPrincipals: ["cluster.local/ns/teknoir-demo/sa/emqx"]
+
+  - it: the EMQX principal follows the release namespace, the trust domain and the ServiceAccount
+    template: templates/authorizationpolicy.yaml
+    release:
+      namespace: other-ns
+    set:
+      authorization.trustDomain: example.org
+      mqttAuth.emqxServiceAccount: broker
+    documentSelector:
+      path: metadata.name
+      value: jwks-mqtt-auth
+    asserts:
+      - equal:
+          path: spec.rules[0].from[0].source.notPrincipals
+          value: ["example.org/ns/other-ns/sa/broker"]
+
+  - it: ALLOW admits EMQX for POST on /api/v1/mqtt/* only, next to GET and the writers
+    template: templates/authorizationpolicy.yaml
+    documentSelector:
+      path: metadata.name
+      value: jwks
+    asserts:
+      - equal:
+          path: spec.action
+          value: ALLOW
+      - equal:
+          path: spec.rules
+          value:
+            - to:
+                - operation:
+                    methods: ["GET"]
+            - from:
+                - source:
+                    principals: ["cluster.local/ns/teknoir-system/sa/device-controller-service-account"]
+              to:
+                - operation:
+                    methods: ["POST", "PUT", "DELETE"]
+            - from:
+                - source:
+                    principals: ["cluster.local/ns/teknoir-demo/sa/emqx"]
+              to:
+                - operation:
+                    methods: ["POST"]
+                    paths: ["/api/v1/mqtt/*"]
+
+  - it: the EMQX rules stay when there are no writers
+    template: templates/authorizationpolicy.yaml
+    set:
+      authorization.writers: []
+    documentSelector:
+      path: metadata.name
+      value: jwks
+    asserts:
+      - equal:
+          path: spec.rules
+          value:
+            - to:
+                - operation:
+                    methods: ["GET"]
+            - from:
+                - source:
+                    principals: ["cluster.local/ns/teknoir-demo/sa/emqx"]
+              to:
+                - operation:
+                    methods: ["POST"]
+                    paths: ["/api/v1/mqtt/*"]

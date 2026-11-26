@@ -1,0 +1,31 @@
+persistentVolumeClaimSize: 10Gi
+
+imagePullSecrets:
+  - name: ghcr-token
+
+metricsProcessor:
+  image:
+    registry: ghcr.io/teknoir/fleet-metrics/metrics-processor
+    version: sha-b687faa3@sha256:7b4291b176c11ea512d3fd269b54e6bc9a732649aec9af1229348b80835a05c9
+  resources:
+    requests:
+      cpu: 25m
+      memory: 50Mi
+
+metricsPublisher:
+  image:
+    registry: ghcr.io/teknoir/fleet-metrics/metrics-publisher
+    version: sha-b687faa3@sha256:cb8917ce05db9b4cece5651f2dfb6be66bccbbcae12c43e6bf9ff56bcaf7ec22
+  resources:
+    requests:
+      cpu: 25m
+      memory: 50Mi
+
+redis:
+  image:
+    registry: redis/redis-stack-server
+    version: 6.2.6-v9
+  resources:
+    requests:
+      cpu: 25m
+      memory: 50Mi

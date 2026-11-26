@@ -1,0 +1,65 @@
+{{- if .Values.thanos.enabled }}
+{{- if .Values.thanos.compactor.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: thanos-compactor
+    teknoir.org/activity-logs-enabled: "true"
+    teknoir.org/activity-logs-section: prometheus
+    teknoir.org/plugin: prometheus
+  name: thanos-compactor
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    matchLabels:
+      app: thanos-compactor
+  replicas: 1
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: thanos-compactor
+        teknoir.org/activity-logs-enabled: "true"
+        teknoir.org/activity-logs-section: prometheus
+        teknoir.org/plugin: prometheus
+    spec:
+      serviceAccountName: default-editor
+      containers:
+        - name: thanos-compactor
+          image: "{{ .Values.thanos.compactor.image.registry }}:{{ .Values.thanos.compactor.image.version }}"
+          imagePullPolicy: Always
+          args:
+            - compact
+            - --data-dir=/thanos/compact
+            - --objstore.config-file=/etc/config/thanos-bucket-config.yaml
+            - --http-address=0.0.0.0:19191
+            - --wait-interval=120m
+            - --wait
+          ports:
+            - name: http-monitoring
+              containerPort: 19191
+          {{- if .Values.thanos.compactor.resources }}
+          resources:
+            {{- toYaml .Values.thanos.compactor.resources | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: config-volume
+              mountPath: /etc/config
+            - name: storage-volume
+              mountPath: /thanos/compact
+      securityContext:
+        fsGroup: 65534
+        runAsGroup: 65534
+        runAsNonRoot: true
+        runAsUser: 65534
+      volumes:
+        - name: config-volume
+          configMap:
+            name: prometheus
+        - name: storage-volume
+          persistentVolumeClaim:
+            claimName: thanos-compactor-pvc
+{{- end }}
+{{- end }}
