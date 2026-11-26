@@ -214,6 +214,10 @@ class PinFlow(unittest.TestCase):
         self.plugin_file = "plugins/charts/profile-plugin-jwks/values.yaml"
         with open(os.path.join(os.path.dirname(H.SCRIPTS), self.plugin_file)) as fh:
             self.write(self.plugin_file, fh.read())
+        # fleet-metrics (CI v4 P9.1 S7): two rows of one same-commit group, pinned in one plugin values file
+        self.fm_file = "plugins/charts/profile-plugin-fleet-metrics/values.yaml"
+        with open(os.path.join(os.path.dirname(H.SCRIPTS), self.fm_file)) as fh:
+            self.write(self.fm_file, fh.read())
         self.out = []
 
     def write(self, rel, text):
@@ -279,6 +283,28 @@ class PinFlow(unittest.TestCase):
         self.assertEqual(before.split("\n")[changed[0]].strip().split(":")[0], "version")
         # the comment above the pin stays
         self.assertIn("Pinned by Kargo Stage pin-jwks-server", after)
+
+    def test_two_rows_of_one_plugin_group_each_write_only_their_own_key(self):
+        # fleet-metrics: metrics-processor and metrics-publisher are one same-commit group in one values file
+        # (values_files). pin-image pins one component, so the sibling key and its registry line stay as written.
+        before = self.read(self.fm_file)
+        want = "sha-abcdef12@" + D
+        res = self.pin(FakeSys()).pin("metrics-processor", "sha-abcdef12", write=True)
+        self.assertEqual(res["new"], want)
+        self.assertEqual(res["files"], [self.fm_file])
+        after = self.read(self.fm_file)
+        self.assertEqual(PI.get_leaf(after, "metricsProcessor.image.version"), want)
+        self.assertEqual(PI.get_leaf(after, "metricsProcessor.image.registry"),
+                         "harbor.teknoir.cloud/teknoir/fleet-metrics/metrics-processor")
+        self.assertEqual(PI.get_leaf(after, "metricsPublisher.image.version"),
+                         PI.get_leaf(before, "metricsPublisher.image.version"))
+        self.assertEqual(PI.get_leaf(after, "metricsPublisher.image.registry"),
+                         "harbor.teknoir.cloud/teknoir/fleet-metrics/metrics-publisher")
+        self.assertEqual(len(after.split("\n")), len(before.split("\n")))
+        changed = [i for i, (a, b) in enumerate(zip(before.split("\n"), after.split("\n"))) if a != b]
+        self.assertEqual(len(changed), 1, changed)
+        # the comment above the pin stays
+        self.assertIn("Pinned by Kargo Stage pin-fleet-metrics", after)
 
     def test_a_values_files_row_keeps_the_index_paths_comments_and_line_count(self):
         before = {rel: self.read(rel) for rel in self.arc_files}

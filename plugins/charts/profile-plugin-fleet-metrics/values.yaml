@@ -5,8 +5,9 @@ imagePullSecrets:
 
 metricsProcessor:
   image:
-    registry: ghcr.io/teknoir/fleet-metrics/metrics-processor
-    version: sha-b687faa3@sha256:7b4291b176c11ea512d3fd269b54e6bc9a732649aec9af1229348b80835a05c9
+    registry: harbor.teknoir.cloud/teknoir/fleet-metrics/metrics-processor
+    # Pinned by Kargo Stage pin-fleet-metrics (scripts/images.yaml) from Harbor since CI v4 P9.1: never edit by hand.
+    version: sha-ba6ed3e0@sha256:95b558dd04895cc6771cd7ed6862ed4a490fbd164cdb9c511984224ba17a2497
   resources:
     requests:
       cpu: 25m
@@ -14,8 +15,9 @@ metricsProcessor:
 
 metricsPublisher:
   image:
-    registry: ghcr.io/teknoir/fleet-metrics/metrics-publisher
-    version: sha-b687faa3@sha256:cb8917ce05db9b4cece5651f2dfb6be66bccbbcae12c43e6bf9ff56bcaf7ec22
+    registry: harbor.teknoir.cloud/teknoir/fleet-metrics/metrics-publisher
+    # Pinned by Kargo Stage pin-fleet-metrics (scripts/images.yaml) from Harbor since CI v4 P9.1: never edit by hand.
+    version: sha-ba6ed3e0@sha256:4385a7f7c500cc2c4225442caf706ef10b0f9dd41667c7c75a8908b8ab729716
   resources:
     requests:
       cpu: 25m

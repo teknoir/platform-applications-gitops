@@ -108,14 +108,14 @@ tests:
     documentSelector:
       path: kind
       value: ProjectConfig
-    # 16 = staging + staging-verified + one per group in values.yaml (a policy exists for every group, enabled or
-    # not; ci-runner and jwks-server included). Helm merges maps, so `pins: {}` cannot clear a default: the
-    # asserted pin policies are set off explicitly.
+    # 17 = staging + staging-verified + one per group in values.yaml (a policy exists for every group, enabled or
+    # not; ci-runner, jwks-server and fleet-metrics included). Helm merges maps, so `pins: {}` cannot clear a
+    # default: the asserted pin policies are set off explicitly.
     set:
       autoPromotion.pins.wg-tunnel: false
       autoPromotion.pins.backstage: false
     asserts:
-      - lengthEqual: {path: spec.promotionPolicies, count: 16}
+      - lengthEqual: {path: spec.promotionPolicies, count: 17}
       - contains:
           path: spec.promotionPolicies
           content: {stageSelector: {name: staging}, autoPromotionEnabled: true}
@@ -128,11 +128,15 @@ tests:
       - contains:
           path: spec.promotionPolicies
           content: {stageSelector: {name: pin-backstage}, autoPromotionEnabled: false}
-      # jwks-server (CI v4 P9.1 S7) has its pin Stage and Warehouse, but autoPromotion.pins holds no entry for it
-      # yet: the policy exists and is off, so a new build is never pinned by Kargo on its own.
+      # jwks-server and fleet-metrics (CI v4 P9.1 S7) have their pin Stages and Warehouses, but autoPromotion.pins
+      # holds no entry for them yet: the policies exist and are off, so a new build is never pinned by Kargo on its
+      # own.
       - contains:
           path: spec.promotionPolicies
           content: {stageSelector: {name: pin-jwks-server}, autoPromotionEnabled: false}
+      - contains:
+          path: spec.promotionPolicies
+          content: {stageSelector: {name: pin-fleet-metrics}, autoPromotionEnabled: false}
 
   - it: turns one policy on without touching the others
     template: templates/project.yaml
