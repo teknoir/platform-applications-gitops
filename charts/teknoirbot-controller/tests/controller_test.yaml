@@ -151,6 +151,48 @@ tests:
       - equal: {path: spec.policyName, value: teknoirbot-device-guard}
       - equal: {path: spec.validationActions, value: [Deny]}
 
+  - it: the delete guard matches only the controller's DELETE of Devices and checks the four bot-computer rules
+    template: templates/admission.yaml
+    documentIndex: 2
+    asserts:
+      - isKind: {of: ValidatingAdmissionPolicy}
+      - equal: {path: metadata.name, value: teknoirbot-device-delete-guard}
+      - equal: {path: spec.failurePolicy, value: Fail}
+      - equal: {path: 'spec.matchConditions[0].expression', value: "request.userInfo.username == 'system:serviceaccount:teknoir-system:teknoirbot-controller'"}
+      - equal: {path: 'spec.matchConstraints.resourceRules[0].operations', value: [DELETE]}
+      - equal: {path: 'spec.matchConstraints.resourceRules[0].resources', value: [devices]}
+      - equal: {path: 'spec.matchConstraints.resourceRules[0].apiVersions', value: ["*"]}
+      - lengthEqual: {path: spec.validations, count: 4}
+      - equal: {path: 'spec.validations[0].expression', value: "oldObject.spec.?device_type.orValue('') == 'virtual'"}
+
+  - it: the delete guard follows a custom service account name and namespace
+    template: templates/admission.yaml
+    documentIndex: 2
+    release:
+      namespace: other-ns
+    set:
+      serviceAccount.name: custom-sa
+    asserts:
+      - equal: {path: 'spec.matchConditions[0].expression', value: "request.userInfo.username == 'system:serviceaccount:other-ns:custom-sa'"}
+
+  - it: the delete guard's binding denies
+    template: templates/admission.yaml
+    documentIndex: 3
+    asserts:
+      - isKind: {of: ValidatingAdmissionPolicyBinding}
+      - equal: {path: metadata.name, value: teknoirbot-device-delete-guard}
+      - equal: {path: spec.policyName, value: teknoirbot-device-delete-guard}
+      - equal: {path: spec.validationActions, value: [Deny]}
+
+  - it: the ClusterRole has no delete on Devices yet (the delete guard ships first, R7)
+    template: templates/clusterrole.yaml
+    asserts:
+      - notContains:
+          path: rules
+          any: true
+          content:
+            verbs: [delete]
+
   - it: the device fence matches bot Devices and exempts the writers, with the default identities
     template: templates/fence.yaml
     documentIndex: 0
