@@ -1,0 +1,16 @@
+name: grafana
+domain: teknoir.cloud
+domainPrefix:
+password: "admin"
+labelSelectorKey: "teknoir.io/backstage-plugin"
+labelSelectorValue: grafana
+image:
+  registry: grafana/grafana-oss
+  version: 12.3.3
+pvc:
+  size: 5Gi
+  storageClassName: ""
+resources:
+  requests:
+    cpu: 25m
+    memory: 20Mi

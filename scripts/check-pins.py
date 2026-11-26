@@ -6,7 +6,7 @@ Checks the rendered manifests of a release (scripts/staging-render.sh output, or
   errors, from day 1
     revision-not-release   a gitops Application whose targetRevision is not the release SHA (release given only)
     release-invalid        the release given is not a 40-hex commit SHA
-    chart-dependency-range a chart dependency that is a range, not an exact version
+    chart-dependency-range a chart dependency that is a range, not an exact version (charts/, plugins/charts/)
     fleet-pointer          a fleet/<class>.yaml that is not one class named after its file with a 40-hex revision
     exception-expired      an exception of release-policy.yaml past its date
     app-not-roundtrip-stable  a rendered Application with a field that ArgoCD's Go types drop when they write the
@@ -354,25 +354,29 @@ _RANGE = re.compile(r"[\^~<>*|,]|\bx\b|\bX\b|\s-\s|^$|^v?\d+(\.\d+)?$")
 
 
 def check_chart_deps(repo_root: str) -> list[Finding]:
-    """Chart dependencies must be exact versions (a range lets a republished chart change a release)."""
+    """Chart dependencies must be exact versions (a range lets a republished chart change a release). Also the
+    imported profile plugin charts under plugins/charts/ (CI v4 P9.1): whichever of them ships first, its dependency
+    must be exact before a render pulls it in."""
     out = []
-    charts = os.path.join(repo_root, "charts")
-    if not os.path.isdir(charts):
-        return out
-    for name in sorted(os.listdir(charts)):
-        cy = os.path.join(charts, name, "Chart.yaml")
-        if not os.path.isfile(cy):
+    for sub in ("charts", "plugins/charts"):
+        charts = os.path.join(repo_root, *sub.split("/"))
+        if not os.path.isdir(charts):
             continue
-        with open(cy) as fh:
-            try:
-                chart = yaml.safe_load(fh) or {}
-            except yaml.YAMLError:
+        for name in sorted(os.listdir(charts)):
+            cy = os.path.join(charts, name, "Chart.yaml")
+            if not os.path.isfile(cy):
                 continue
-        for dep in chart.get("dependencies") or []:
-            v = str(dep.get("version", ""))
-            if not v or _RANGE.search(v):
-                out.append(Finding("error", "chart-dependency-range",
-                                   f"dependency {dep.get('name')} has version '{v}', not an exact version", f"charts/{name}/Chart.yaml"))
+            with open(cy) as fh:
+                try:
+                    chart = yaml.safe_load(fh) or {}
+                except yaml.YAMLError:
+                    continue
+            for dep in chart.get("dependencies") or []:
+                v = str(dep.get("version", ""))
+                if not v or _RANGE.search(v):
+                    out.append(Finding("error", "chart-dependency-range",
+                                       f"dependency {dep.get('name')} has version '{v}', not an exact version",
+                                       f"{sub}/{name}/Chart.yaml"))
     return out
 
 
@@ -503,7 +507,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--policy", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "release-policy.yaml"))
     ap.add_argument("--release", help="the release commit SHA every gitops Application must follow")
     ap.add_argument("--project", default="teknoir-cloud")
-    ap.add_argument("--repo-root", help="checkout whose charts/*/Chart.yaml dependencies and fleet/*.yaml pointers are checked")
+    ap.add_argument("--repo-root", help="checkout whose charts/*/Chart.yaml and plugins/charts/*/Chart.yaml dependencies "
+                                        "and fleet/*.yaml pointers are checked")
     ap.add_argument("--today", help="YYYY-MM-DD (default: today, for the exception expiry)")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--quiet", action="store_true", help="only errors")

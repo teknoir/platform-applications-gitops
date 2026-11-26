@@ -1,0 +1,32 @@
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: observatory-ws
+  labels:
+    teknoir.org/plugin: observatory
+spec:
+  host: observatory-wss-mqtt.{{ .Release.Namespace }}.svc.cluster.local
+  trafficPolicy:
+    loadBalancer:
+      consistentHash:
+        # Use the IP or a specific header for stickiness
+        useSourceIp: true
+    connectionPool:
+      tcp:
+        # Increase max connections. Default is often 1024, but every WS client holds one.
+        maxConnections: 10000
+        # Increase the timeout for idle TCP connections
+        tcpKeepalive:
+          time: 7200s
+          interval: 75s
+      http:
+        # Prevent Envoy from closing the connection after a certain number of requests.
+        # 0 means unlimited.
+        maxRequestsPerConnection: 0
+        # Allow more pending requests
+        http1MaxPendingRequests: 10000
+        # Allow more concurrent HTTP2 streams
+        maxConcurrentStreams: 10000
+        # Increase idle timeout for the HTTP connection pool
+        idleTimeout: 3600s

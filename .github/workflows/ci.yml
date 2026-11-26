@@ -1,8 +1,10 @@
 name: ci
 
 # The required checks of this repository (they replaced the retired vpro-era in-cluster CI):
-#   render         scripts/staging-render.sh of the PR head (or the pushed commit)
-#   helm-unittest  every charts/*/tests suite (scripts/ci/helm-unittest.sh)
+#   render         scripts/staging-render.sh of the PR head (or the pushed commit), with the profile plugin charts
+#                  rendered from plugins/charts/ at that revision (--plugins tree, CI v4 P9.1)
+#   helm-unittest  every charts/*/tests and plugins/charts/*/tests suite, plus the emqx ACL check
+#                  (scripts/ci/helm-unittest.sh)
 #   check-pins     scripts/check-pins.py over the render, with RELEASE set
 #   kubeconform    the render against the kubeconform schemas (scripts/ci/kubeconform.sh)
 #   scripts-tests  scripts/tests/run.sh and the harbor scripts tests
@@ -50,11 +52,14 @@ jobs:
       - name: Helm repositories
         run: scripts/ci/helm-repos.sh
 
+      # --plugins tree: the imported profile plugin charts (plugins/charts/) are rendered offline at the PR head, so
+      # check-pins and kubeconform cover them. Nothing deploys from them yet: profile-controller still renders the
+      # published chart repository at 0.0.113-p2 (plugins/charts/README.md).
       - name: Render
         run: |
           set -euo pipefail
           scripts/staging-render.sh --tree . --release "$RELEASE" --out "$RUNNER_TEMP/render" \
-            --cache "$RUNNER_TEMP/render-cache" --plugins auto
+            --cache "$RUNNER_TEMP/render-cache" --plugins tree
           test ! -s "$RUNNER_TEMP/render/failed"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -128,6 +133,15 @@ jobs:
       - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5
         with:
           version: v3.20.2
+
+      # The emqx ACL check (plugins/charts/profile-plugin-emqx/tests/acl-check.sh --check) reads the rendered
+      # ConfigMap with PyYAML; without it scripts/ci/helm-unittest.sh skips that check.
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+
+      - name: Install PyYAML
+        run: pip install PyYAML==6.0.2
 
       - name: Helm repositories
         run: scripts/ci/helm-repos.sh

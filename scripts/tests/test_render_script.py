@@ -1,5 +1,6 @@
 """The REAL scripts/staging-render.sh on a fixture tree, with kubectl absent from PATH: the render never talks to a
 cluster (the flow tests replace the script by a fake, so this is the only place that proves the claim)."""
+import json
 import os
 import shutil
 import subprocess
@@ -201,6 +202,142 @@ spec:
         code = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
         for tool in ("kubectl", "argocd", "oc "):
             self.assertNotIn(tool, code)
+
+
+PLUGIN = """\
+apiVersion: v1
+kind: ConfigMap
+metadata: {{name: {name}, namespace: {{{{ .Release.Namespace }}}}}}
+data:
+  chart: {name}
+"""
+
+
+class PluginRender(unittest.TestCase):
+    """--plugins tree and auto (CI v4 P9.1): the imported profile plugin charts of plugins/charts/ rendered offline,
+    and auto still on the chart repository until profile-controller's config carries PLUGIN_GIT_REPO_URL."""
+
+    @classmethod
+    def setUpClass(cls):
+        missing = [t for t in ("helm", "python3", "git") if not shutil.which(t)]
+        if missing:
+            raise unittest.SkipTest(f"missing tools: {missing}")
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.bin = os.path.join(self.tmp, "bin")
+        os.makedirs(self.bin)
+        for t in TOOLS:
+            p = shutil.which(t)
+            if p:
+                os.symlink(p, os.path.join(self.bin, t))
+        # no curl: the chart-repository plugin mode must not fetch anything in these tests (tree mode is offline)
+        self.assertFalse(os.path.exists(os.path.join(self.bin, "curl")))
+        self.env = {"PATH": self.bin, "HOME": self.tmp, "XDG_CACHE_HOME": os.path.join(self.tmp, "cache"),
+                    "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"}
+        tree = self.tree = os.path.join(self.tmp, "tree")
+        write(os.path.join(tree, "charts/app-of-apps/Chart.yaml"), "apiVersion: v2\nname: app-of-apps\nversion: 0.1.0\n")
+        write(os.path.join(tree, "charts/app-of-apps/values.yaml"), "release: ''\n")
+        write(os.path.join(tree, "charts/app-of-apps/templates/apps.yaml"), """\
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata: {name: profile-controller, namespace: teknoir-system}
+spec:
+  destination: {namespace: teknoir-applications, server: https://kubernetes.default.svc}
+  source:
+    repoURL: https://github.com/teknoir/platform-applications-gitops
+    path: charts/profile-controller
+    targetRevision: branch
+""")
+        write(os.path.join(tree, "charts/profile-controller/Chart.yaml"),
+              "apiVersion: v2\nname: profile-controller\nversion: 0.1.0\n")
+        self.set_controller("")
+        write(os.path.join(tree, "charts/profile-controller/templates/configmap.yaml"), """\
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: profile-controller-config, namespace: {{ .Release.Namespace }}}
+data:
+  PLUGIN_CHART_VERSION: {{ .Values.pluginChartVersion | quote }}
+  {{- with .Values.pluginGitRepoUrl }}
+  PLUGIN_GIT_REPO_URL: {{ . | quote }}
+  {{- end }}
+""")
+        self.add_plugin("profile-plugin-alpha")
+        subprocess.run(["git", "init", "-q", tree], check=True)
+        H.git(tree, "add", "-A")
+        H.git(tree, "commit", "-q", "-m", "fixture")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def set_controller(self, git_repo_url):
+        write(os.path.join(self.tree, "charts/profile-controller/values.yaml"),
+              f'pluginChartVersion: "0.0.113-p2"\npluginGitRepoUrl: {git_repo_url!r}\n')
+
+    def add_plugin(self, chart):
+        write(os.path.join(self.tree, "plugins/charts", chart, "Chart.yaml"),
+              f"apiVersion: v2\nname: {chart}\nversion: 0.0.113-p2\n")
+        write(os.path.join(self.tree, "plugins/charts", chart, "templates/cm.yaml"), PLUGIN.format(name=chart))
+
+    def render(self, out, plugins):
+        return subprocess.run([os.path.join(self.bin, "bash"), SCRIPT, "--tree", self.tree, "--release", SHA,
+                               "--out", out, "--plugins", plugins],
+                              capture_output=True, text=True, env=self.env)
+
+    def plugins_json(self, out):
+        with open(os.path.join(out, "plugins.json")) as fh:
+            return json.load(fh)
+
+    def test_tree_mode_renders_each_imported_chart_offline(self):
+        out = os.path.join(self.tmp, "out")
+        r = self.render(out, "tree")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(sorted(os.listdir(os.path.join(out, "plugins"))), ["profile-plugin-alpha.yaml"])
+        rendered = open(os.path.join(out, "plugins", "profile-plugin-alpha.yaml")).read()
+        self.assertIn("name: profile-plugin-alpha", rendered)
+        self.assertIn("namespace: teknoir-plugins", rendered)        # helm template ... --namespace teknoir-plugins
+        self.assertEqual(self.plugins_json(out),
+                         {"mode": "git", "revision": SHA, "charts": ["profile-plugin-alpha"]})
+
+    def test_the_tree_render_is_cached_by_chart_content(self):
+        out = os.path.join(self.tmp, "out")
+        self.assertIn("plugins  rendered profile-plugin-alpha", self.render(out, "tree").stdout)
+        self.assertIn("plugins  cached profile-plugin-alpha", self.render(out, "tree").stdout)
+        path = os.path.join(self.tree, "plugins/charts/profile-plugin-alpha/templates/cm.yaml")
+        write(path, open(path).read() + "  extra: added\n")
+        r = self.render(out, "tree")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("plugins  rendered profile-plugin-alpha", r.stdout)
+        self.assertIn("extra: added", open(os.path.join(out, "plugins", "profile-plugin-alpha.yaml")).read())
+
+    def test_a_failing_chart_is_reported_and_the_others_render(self):
+        self.add_plugin("profile-plugin-broken")
+        write(os.path.join(self.tree, "plugins/charts/profile-plugin-broken/templates/fail.yaml"), '{{ fail "boom" }}\n')
+        out = os.path.join(self.tmp, "out")
+        r = self.render(out, "tree")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("FAILED   profile-plugin-broken", r.stderr)
+        self.assertEqual(open(os.path.join(out, "failed")).read().split(), ["profile-plugin-broken"])
+        self.assertTrue(os.path.exists(os.path.join(out, "plugins", "profile-plugin-alpha.yaml")))
+
+    def test_auto_uses_the_tree_when_the_controller_config_carries_the_git_repo_url(self):
+        self.set_controller("https://github.com/teknoir/platform-applications-gitops")
+        out = os.path.join(self.tmp, "out")
+        r = self.render(out, "auto")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.plugins_json(out),
+                         {"mode": "git", "revision": SHA, "charts": ["profile-plugin-alpha"]})
+        self.assertTrue(os.path.exists(os.path.join(out, "plugins", "profile-plugin-alpha.yaml")))
+
+    def test_auto_stays_on_the_chart_repository_without_the_git_repo_url(self):
+        # today: no PLUGIN_GIT_REPO_URL, so auto follows PLUGIN_CHART_VERSION to the published chart repository; the
+        # fixture has no curl, which proves the tree (plugins/charts/) was not used as the fallback
+        out = os.path.join(self.tmp, "out")
+        r = self.render(out, "auto")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("cannot fetch", r.stderr)
+        self.assertEqual(open(os.path.join(out, "failed")).read().split(), ["plugin-index"])
+        self.assertEqual(os.listdir(os.path.join(out, "plugins")), [])
 
 
 if __name__ == "__main__":

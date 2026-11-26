@@ -1,0 +1,25 @@
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: postgres-vsvc
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/instance: postgres
+    teknoir.org/plugin: postgres
+    owner: teknoir
+spec:
+  gateways:
+  - istio-system/teknoir-gateway
+  hosts:
+  - '*'
+  http:
+  - match:
+    - uri:
+        prefix: /{{ .Release.Namespace }}/postgres
+    route:
+    - destination:
+        host: postgres.{{ .Release.Namespace }}.svc.cluster.local
+        port:
+          number: 8080

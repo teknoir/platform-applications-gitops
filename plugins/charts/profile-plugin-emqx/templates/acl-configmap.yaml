@@ -1,0 +1,13 @@
+---
+# The MQTT ACL file (authorization source 1 in emqx.emqxConfig), mounted at /opt/emqx-acl. The
+# data key carries a hash of the content, see teknoir.emqx.aclFile.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    teknoir.org/plugin: emqx
+  name: emqx-acl
+  namespace: {{ .Release.Namespace }}
+data:
+  {{ include "teknoir.emqx.aclFile" . }}: |
+{{ include "teknoir.emqx.aclConf" . | indent 4 }}

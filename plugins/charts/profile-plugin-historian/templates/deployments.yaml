@@ -1,0 +1,205 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: historian-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    backstage.teknoir.org/plugin: historian-api
+    app.kubernetes.io/name: historian-api
+    app.kubernetes.io/instance: historian-api
+    owner: teknoir
+    teknoir.org/plugin: historian
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: historian-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: historian-api
+        backstage.teknoir.org/plugin: historian-api
+        app.kubernetes.io/instance: historian-api
+        owner: teknoir
+        teknoir.org/plugin: historian
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "8000"
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: historian-api
+          image: "{{ .Values.historianApi.image.registry }}:{{ .Values.historianApi.image.version }}"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: historian-api
+              containerPort: 8000
+          env:
+            - name: USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: historian-mongodb-credentials
+                  key: username
+            - name: PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: historian-mongodb-credentials
+                  key: password
+            - name: DOMAIN
+              value: 'historian-mongodb'
+            - name: PORT
+              value: '27017'
+            - name: DATABASE
+              value: 'historian'
+            - name: DEFAULT_TTL_SECONDS
+              value: '2678400'
+          {{- if .Values.historianApi.resources }}
+          resources:
+            {{- toYaml .Values.historianApi.resources | nindent 12 }}
+          {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: historian-middleend
+  namespace: {{ .Release.Namespace }}
+  labels:
+    backstage.teknoir.org/plugin: historian-middleend
+    app.kubernetes.io/name: historian-middleend
+    app.kubernetes.io/instance: historian-middleend
+    owner: teknoir
+    teknoir.org/plugin: historian
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: historian-middleend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: historian-middleend
+        backstage.teknoir.org/plugin: historian-middleend
+        app.kubernetes.io/instance: historian-middleend
+        owner: teknoir
+        teknoir.org/plugin: historian
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "8000"
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: historian-middleend
+          image: "{{ .Values.historianMiddleend.image.registry }}:{{ .Values.historianMiddleend.image.version }}"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: historian-mongodb-credentials
+                  key: username
+            - name: PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: historian-mongodb-credentials
+                  key: password
+            - name: DOMAIN
+              value: 'historian-mongodb'
+            - name: PORT
+              value: '27017'
+            - name: DATABASE
+              value: 'historian'
+
+          {{- if .Values.historianMiddleend.resources }}
+          resources:
+            {{- toYaml .Values.historianMiddleend.resources | nindent 12 }}
+          {{- end }}
+
+
+{{- range .Values.streams }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: historian-{{ .stream }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    app: historian-sync
+    app.kubernetes.io/name: historian-sync
+    app.kubernetes.io/component: {{ .stream }}
+    app.kubernetes.io/instance: historian-sync
+    app.kubernetes.io/part-of: historian-sync
+    owner: teknoir
+    teknoir.org/plugin: historian
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: historian-sync
+      app.kubernetes.io/component: {{ .stream }}
+  template:
+    metadata:
+      labels:
+        app: historian-sync
+        app.kubernetes.io/name: historian-sync
+        app.kubernetes.io/component: {{ .stream }}
+        app.kubernetes.io/instance: historian-sync
+        app.kubernetes.io/part-of: historian-sync
+        owner: teknoir
+        teknoir.org/plugin: historian
+    spec:
+      serviceAccountName: default-editor
+      {{- with $.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: historian-{{ .stream }}
+          image: "{{ $.Values.historianStreams.image.registry }}:{{ $.Values.historianStreams.image.version }}"
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: STREAM
+              value: {{ .stream }}
+            - name: CLIENT_ID
+              value: "historian-{{ .stream }}"
+            - name: DEBUG_LEVEL
+              value: DEBUG
+            - name: LABEL_NAMESPACE
+              value: {{ $.Release.Namespace }}
+            - name: LABEL_DOMAIN
+              value: {{ $.Values.domain }}
+            - name: MQTT_SERVICE_HOST
+              value: emqx
+            - name: MQTT_SERVICE_PORT
+              value: "1883"
+            - name: MQTT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: emqx-bootstrap-user
+                  key: username
+            - name: MQTT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: emqx-bootstrap-user
+                  key: password
+            - name: MONGODB_URI
+              valueFrom:
+                secretKeyRef:
+                  name: historian-mongodb-credentials
+                  key: service_uri
+          {{- if .resources }}
+          resources:
+            {{- toYaml .resources | nindent 12 }}
+          {{- end }}
+{{- end }}

@@ -1,0 +1,65 @@
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  labels:
+    teknoir.org/plugin: emqx
+  name: mqtt-ws
+  namespace: {{ .Release.Namespace }}
+spec:
+  hosts:
+    - 'mqtt-{{ .Release.Namespace }}.{{ .Values.domain }}'
+  gateways:
+    - istio-system/teknoir-gateway-public
+  http:
+    - route:
+        - destination:
+            host: emqx-headless.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: 8083
+
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  labels:
+    teknoir.org/plugin: emqx
+  name: mqtt
+  namespace: {{ .Release.Namespace }}
+spec:
+  hosts:
+    - "*.{{ .Values.domain }}"
+  gateways:
+    - istio-system/teknoir-gateway-public
+  tls:
+    - match:
+        - port: 8883
+          sniHosts:
+            - mqtt-{{ .Release.Namespace }}.{{ .Values.domain }}
+      route:
+        - destination:
+            host: emqx-headless.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: 8883
+
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  labels:
+    teknoir.org/plugin: emqx
+  name: emqx-dashboard
+  namespace: {{ .Release.Namespace }}
+spec:
+  hosts:
+    - 'emqx-dashboard-{{ .Release.Namespace }}.{{ .Values.domain }}'
+  gateways:
+    - istio-system/teknoir-gateway
+  http:
+    - route:
+        - destination:
+            host: {{ if .Values.dashboard.enabled }}emqx-dashboard{{ else }}emqx{{ end }}.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: 18083
+
+

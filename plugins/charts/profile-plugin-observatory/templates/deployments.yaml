@@ -1,0 +1,229 @@
+{{- if .Values.observatory.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: observatory
+  namespace: {{ .Release.Namespace }}
+  labels:
+    teknoir.org/plugin: observatory
+    app: observatory
+    app.kubernetes.io/name: observatory
+    app.kubernetes.io/instance: observatory
+    app.kubernetes.io/part-of: observatory
+    owner: teknoir
+spec:
+  strategy:
+    type: Recreate
+  replicas: 1
+  selector:
+    matchLabels:
+      app: observatory
+  template:
+    metadata:
+      labels:
+        teknoir.org/plugin: observatory
+        app: observatory
+        app.kubernetes.io/name: observatory
+        app.kubernetes.io/instance: observatory
+        app.kubernetes.io/part-of: observatory
+        owner: teknoir
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: observatory
+          image: "{{ .Values.observatory.image.registry }}:{{ .Values.observatory.image.version }}"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http-sdmc
+              containerPort: 80
+          env:
+          - name: APP_NAME
+            value: "sdmc"
+          - name: APP_VERSION
+            value: "{{ .Values.observatory.image.version | splitList "@" | first }}"
+          - name: NAMESPACE
+            value: "{{ .Release.Namespace }}"
+          - name: DOMAIN
+            value: "{{ .Values.domainPrefix }}{{ if .Values.domainPrefix }}.{{ end }}{{ .Values.domain }}"
+          {{- if .Values.observatory.resources }}
+          resources:
+            {{- toYaml .Values.observatory.resources | nindent 12 }}
+          {{- end }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: observatory-wss-mqtt
+  namespace: {{ .Release.Namespace }}
+  labels:
+    teknoir.org/plugin: observatory
+    app: observatory-wss-mqtt
+    app.kubernetes.io/name: observatory-wss-mqtt
+    app.kubernetes.io/instance: observatory-wss-mqtt
+    app.kubernetes.io/part-of: observatory
+    owner: teknoir
+spec:
+  strategy:
+    type: Recreate
+  replicas: 1
+  selector:
+    matchLabels:
+      app: observatory-wss-mqtt
+  template:
+    metadata:
+      labels:
+        teknoir.org/plugin: observatory
+        app: observatory-wss-mqtt
+        app.kubernetes.io/name: observatory-wss-mqtt
+        app.kubernetes.io/instance: observatory-wss-mqtt
+        app.kubernetes.io/part-of: observatory
+        owner: teknoir
+{{/*      annotations:*/}}
+{{/*        prometheus.io/scrape: "true"*/}}
+{{/*        prometheus.io/path: "/metrics"*/}}
+{{/*        prometheus.io/port: "8000"*/}}
+    spec:
+      serviceAccountName: {{ .Values.serviceAccountName }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: keydb
+          image: "{{ .Values.keydb.image.registry }}:{{ .Values.keydb.image.version }}"
+          command: ["keydb-server"]
+          args:
+            - "--dir"
+            - "/data"
+          readinessProbe:
+            exec:
+              command: ["keydb-cli", "--raw", "incr", "ping"]
+            initialDelaySeconds: 10
+            timeoutSeconds: 2
+          ports:
+            - containerPort: 6379
+          {{- if .Values.keydb.resources }}
+          resources:
+            {{- toYaml .Values.keydb.resources | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: keydb-persistent-storage
+              mountPath: /data
+        - name: observatory-wss-mqtt
+          image: "{{ .Values.wssMqtt.image.registry }}:{{ .Values.wssMqtt.image.version }}"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http-ws
+              containerPort: 8080
+          env:
+          - name: APP_NAME
+            value: "wss-mqtt"
+          - name: APP_VERSION
+            value: "{{ .Values.wssMqtt.image.version | splitList "@" | first }}"
+          - name: WSS_PORT
+            value: "8080"
+          - name: CHECK_ACTIVE_INTERVAL
+            value: "10000"
+          - name: TIME_INTERVAL
+            value: "60000"
+          - name: FLUSH_CACHE_BUFFER_INTERVAL
+            value: "{{ .Values.flushCacheBufferInterval }}"
+          - name: MQTT_HOST
+            value: "emqx"
+          - name: MQTT_PORT
+            value: "1883"
+          - name: MQTT_USER
+            valueFrom:
+              secretKeyRef:
+                name: emqx-bootstrap-user
+                key: username
+          - name: MQTT_PASS
+            valueFrom:
+              secretKeyRef:
+                name: emqx-bootstrap-user
+                key: password
+          - name: MQTT_IN_0
+            value: "{{ .Values.inferenceTopic }}"
+          - name: LOG_LEVEL
+            value: "{{ .Values.logLevel }}"
+          {{- if .Values.wssMqtt.resources }}
+          resources:
+            {{- toYaml .Values.wssMqtt.resources | nindent 12 }}
+          {{- end }}
+        - name: observatory-snapshot-exporter
+          image: "{{ .Values.snapshotExporter.image.registry }}:{{ .Values.snapshotExporter.image.version }}"
+          imagePullPolicy: IfNotPresent
+          env:
+          - name: APP_NAME
+            value: "snapshot-exporter"
+          - name: APP_VERSION
+            value: "{{ .Values.snapshotExporter.image.version | splitList "@" | first }}"
+          - name: SCHEDULER_INTERVAL
+            value: "{{ .Values.flushCacheBufferInterval }}"
+          - name: LOG_LEVEL
+            value: "{{ .Values.logLevel }}"
+          - name: GOOGLE_CLOUD_PROJECT
+            value: "{{ .Values.projectId }}"
+          - name: GCLOUD_STORAGE_BUCKET
+            value: "{{ .Release.Namespace }}.{{ .Values.domain }}"
+          {{- if .Values.snapshotExporter.resources }}
+          resources:
+            {{- toYaml .Values.snapshotExporter.resources | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: keydb-persistent-storage
+          persistentVolumeClaim:
+            claimName: observatory-wss-mqtt-pvc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: observatory-media-service
+  namespace: {{ .Release.Namespace }}
+  labels:
+    teknoir.org/plugin: observatory
+    app: observatory-media-service
+    app.kubernetes.io/name: observatory-media-service
+    app.kubernetes.io/instance: observatory-media-service
+    app.kubernetes.io/part-of: observatory
+    owner: teknoir
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: observatory-media-service
+  template:
+    metadata:
+      labels:
+        teknoir.org/plugin: observatory
+        app: observatory-media-service
+        app.kubernetes.io/name: observatory-media-service
+        app.kubernetes.io/instance: observatory-media-service
+        app.kubernetes.io/part-of: observatory
+        owner: teknoir
+    spec:
+      serviceAccountName: {{ .Values.serviceAccountName }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: observatory-media-service
+          image: "{{ .Values.mediaService.image.registry }}:{{ .Values.mediaService.image.version }}"
+          imagePullPolicy: IfNotPresent
+          env:
+          - name: BASE_URL
+            value: "/{{ .Release.Namespace }}/media-service/api"
+          - name: GOOGLE_CLOUD_PROJECT
+            value: "{{ .Values.projectId }}"
+          - name: GCLOUD_STORAGE_BUCKET
+            value: "{{ .Release.Namespace }}.{{ .Values.domain }}"
+          {{- if .Values.mediaService.resources }}
+          resources:
+            {{- toYaml .Values.mediaService.resources | nindent 12 }}
+          {{- end }}

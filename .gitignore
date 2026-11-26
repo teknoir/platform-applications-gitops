@@ -10,3 +10,9 @@ Chart.lock
 __pycache__/
 *.pyc
 .test-logs/
+# Profile plugin charts (CI v4 P9.1, plugins/charts/README.md): /*/**/charts/* would ignore every file under
+# plugins/charts/. The emqx dependency is vendored like STUNner's, so a render needs no repos.emqx.io.
+!/plugins/charts/*
+!/plugins/charts/profile-plugin-emqx/Chart.lock
+!/plugins/charts/profile-plugin-emqx/charts/
+!/plugins/charts/profile-plugin-emqx/charts/emqx-5.8.9.tgz

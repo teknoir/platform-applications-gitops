@@ -1,0 +1,23 @@
+{{- if .Values.wssMqtt.allowedPrincipals }}
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: observatory-ws
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: observatory-wss-mqtt
+    teknoir.org/plugin: observatory
+spec:
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              {{- toYaml .Values.wssMqtt.allowedPrincipals | nindent 14 }}
+      to:
+        - operation:
+            ports: ["8080"]
+  selector:
+    matchLabels:
+      app: observatory-wss-mqtt
+{{- end }}

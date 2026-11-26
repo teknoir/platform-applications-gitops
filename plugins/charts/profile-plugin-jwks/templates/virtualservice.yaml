@@ -1,0 +1,22 @@
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  labels:
+    app: jwks
+    teknoir.org/plugin: jwks
+  name: jwks
+  namespace: {{ .Release.Namespace }}
+spec:
+  hosts:
+    - jwks
+    - jwks.{{ .Release.Namespace }}.svc.cluster.local
+  exportTo:
+    - "teknoir"
+    - "teknoir-system"
+  http:
+    - route:
+        - destination:
+            host: jwks.{{ .Release.Namespace }}.svc.cluster.local
+            port:
+              number: 8083

@@ -1,0 +1,75 @@
+---
+apiVersion: teknoir.org/v1
+kind: ClaimSet
+metadata:
+  name: owner
+  namespace: {{ .Release.Namespace }}
+  labels:
+    teknoir.org/plugin: claims
+spec:
+  claim_permissions:
+    - name: label-studio
+      permissions:
+        - read
+        - write
+    - name: dev-studio
+      permissions:
+        - read
+        - write
+    - name: core
+      permissions:
+        - read
+        - write
+---
+apiVersion: teknoir.org/v1
+kind: ClaimSet
+metadata:
+  name: developer
+  namespace: {{ .Release.Namespace }}
+  labels:
+    teknoir.org/plugin: claims
+spec:
+  claim_permissions:
+    - name: label-studio
+      permissions:
+        - read
+    - name: dev-studio
+      permissions:
+        - read
+        - write
+    - name: core
+      permissions:
+        - write
+---
+apiVersion: teknoir.org/v1
+kind: ClaimSet
+metadata:
+  name: operator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    teknoir.org/plugin: claims
+spec:
+  claim_permissions:
+    - name: notebooks
+      permissions:
+        - read
+    - name: volumes
+      permissions:
+        - read
+        - write
+    - name: core
+      permissions:
+        - read
+---
+apiVersion: teknoir.org/v1
+kind: ClaimSet
+metadata:
+  name: observer
+  namespace: {{ .Release.Namespace }}
+  labels:
+    teknoir.org/plugin: claims
+spec:
+  claim_permissions:
+    - name: observatory
+      permissions:
+        - read

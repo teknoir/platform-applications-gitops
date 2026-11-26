@@ -1,0 +1,55 @@
+imagePullSecrets:
+  - name: ghcr-token
+
+persistentVolumeClaimSize: 10Gi
+
+# Who may register, replace and delete device keys (POST/PUT/DELETE). GET is open.
+# Matched on the mTLS identity of the caller, so each writer needs an Istio
+# sidecar. Only device-controller writes keys; an empty list makes jwks read-only.
+authorization:
+  trustDomain: cluster.local
+  writers:
+    - namespace: teknoir-system
+      serviceAccount: device-controller-service-account
+
+# MQTT device authentication (POST /api/v1/mqtt/authn, called by EMQX's http authenticator)
+# and the authorization audit sink (POST /api/v1/mqtt/authz-audit). See the profile-plugin-emqx
+# README "MQTT authentication and authorization".
+#   authnMode: observe (failures answer "ignore" and log would_deny) or enforce (failures
+#     answer "deny"). Anything else fails the render.
+#   audience: the "aud" a device token must carry (exact match).
+#   emqxServiceAccount: the ServiceAccount of the EMQX pod in this namespace; only its mTLS
+#     principal may call /api/v1/mqtt/*.
+#   legacyExcludePrefixes: device ids with these prefixes are left out of GET
+#     /api/v1/keys/legacy, the key set EMQX's legacy JWT authenticator (authenticator 3) reads
+#     from profile-plugin-emqx 0.0.113-p2 on; /api/v1/keys stays complete. tb- is the reserved
+#     prefix of TeknoirBot computers (Device tb-<bot>), so a bot key never passes the legacy
+#     fallback. Rendered as LEGACY_KEYS_EXCLUDE_PREFIXES (comma-separated, left out when the list
+#     is empty, then the legacy set equals /api/v1/keys). Each item must match
+#     ^[a-z0-9][a-z0-9.-]{0,62}$, or the render fails (jwks-server refuses to start on it).
+mqttAuth:
+  authnMode: enforce
+  audience: teknoir
+  emqxServiceAccount: emqx
+  legacyExcludePrefixes: ["tb-"]
+
+jwks:
+  image:
+    registry: ghcr.io/teknoir/jwks-server
+    # jwks-server main 425041a3 (#13): MQTT authn endpoint and GET /api/v1/keys/legacy with
+    # LEGACY_KEYS_EXCLUDE_PREFIXES. linux/amd64 manifest digest. Never pin a tag that cannot be
+    # pulled: jwks is one replica with strategy Recreate.
+    version: sha-425041a3@sha256:c3414743e135e2363bba003702dc5676c04e1184f6a9d3ea2cf233501a717575
+  resources:
+    requests:
+      cpu: 25m
+      memory: 20Mi
+
+redis:
+  image:
+    registry: redis/redis-stack-server
+    version: 6.2.6-v9
+  resources:
+    requests:
+      cpu: 25m
+      memory: 20Mi

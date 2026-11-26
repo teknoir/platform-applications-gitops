@@ -1,0 +1,21 @@
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: deadend
+  namespace: {{ .Release.Namespace }}
+  labels:
+    teknoir.org/plugin: deadend
+spec:
+  selector:
+    matchLabels:
+      app: deadend
+  action: ALLOW
+  rules:
+    - to:
+        - operation:
+            ports: [ "22", "2222", "8118" ]
+{{/*    - from:*/}}
+{{/*        - source:*/}}
+{{/*            namespaces:*/}}
+{{/*              - {{ .Release.Namespace }}*/}}
