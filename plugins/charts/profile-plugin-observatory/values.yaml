@@ -53,7 +53,7 @@ mediaService:
   image:
     registry: ghcr.io/teknoir/observatory-media-service
     # Pinned by Kargo Stage pin-observatory-media-service (scripts/images.yaml) from ghcr (public) since CI v4 P9.1: never edit by hand.
-    version: sha-bb9cd7b5@sha256:6c7b3c1ff8b5b388e8d6d7132cfa69bc98e9433d02e9b96fadb3860e3dde5ce5
+    version: sha-e549a128@sha256:93d192ec7abc5fb0d6f4b88b6661e2c0ce63e1af52c2d477da597290b38febb2
   resources:
     requests:
       cpu: 10m
