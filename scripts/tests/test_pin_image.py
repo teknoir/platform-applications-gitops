@@ -222,6 +222,10 @@ class PinFlow(unittest.TestCase):
         self.hist_file = "plugins/charts/profile-plugin-historian/values.yaml"
         with open(os.path.join(os.path.dirname(H.SCRIPTS), self.hist_file)) as fh:
             self.write(self.hist_file, fh.read())
+        # the three observatory groups (CI v4 P9.1 S7): one row each, public ghcr, pinned in the same plugin file
+        self.obs_file = "plugins/charts/profile-plugin-observatory/values.yaml"
+        with open(os.path.join(os.path.dirname(H.SCRIPTS), self.obs_file)) as fh:
+            self.write(self.obs_file, fh.read())
         self.out = []
 
     def write(self, rel, text):
@@ -331,6 +335,30 @@ class PinFlow(unittest.TestCase):
         self.assertEqual(before.split("\n")[changed[0]].strip().split(":")[0], "version")
         # the comment above the pin stays
         self.assertIn("Pinned by Kargo Stage pin-historian-api", after)
+
+    def test_an_observatory_row_rewrites_only_the_media_service_version_line(self):
+        # observatory-media-service: the three observatory groups pin into
+        # plugins/charts/profile-plugin-observatory/values.yaml from public ghcr. pin-image pins one component, so
+        # wss-mqtt and the snapshot exporter (and every other key, keydb included) stay as written.
+        before = self.read(self.obs_file)
+        want = "sha-abcdef12@" + D
+        res = self.pin(FakeSys()).pin("observatory-media-service", "sha-abcdef12", write=True)
+        self.assertEqual(res["new"], want)
+        self.assertEqual(res["files"], [self.obs_file])
+        after = self.read(self.obs_file)
+        self.assertEqual(PI.get_leaf(after, "mediaService.image.version"), want)
+        self.assertEqual(PI.get_leaf(after, "mediaService.image.registry"),
+                         "ghcr.io/teknoir/observatory-media-service")
+        for key in ("wssMqtt.image.version", "wssMqtt.image.registry",
+                    "snapshotExporter.image.version", "snapshotExporter.image.registry",
+                    "keydb.image.version", "observatory.image.version"):
+            self.assertEqual(PI.get_leaf(after, key), PI.get_leaf(before, key), key)
+        self.assertEqual(len(after.split("\n")), len(before.split("\n")))
+        changed = [i for i, (a, b) in enumerate(zip(before.split("\n"), after.split("\n"))) if a != b]
+        self.assertEqual(len(changed), 1, changed)
+        self.assertEqual(before.split("\n")[changed[0]].strip().split(":")[0], "version")
+        # the comment above the pin stays, and names ghcr
+        self.assertIn("Pinned by Kargo Stage pin-observatory-media-service", after)
 
     def test_a_values_files_row_keeps_the_index_paths_comments_and_line_count(self):
         before = {rel: self.read(rel) for rel in self.arc_files}

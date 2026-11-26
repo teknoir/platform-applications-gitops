@@ -22,6 +22,7 @@ wssMqtt:
     - cluster.local/ns/teknoir-system/sa/backstage-next-api
   image:
     registry: ghcr.io/teknoir/observatory-wss-mqtt
+    # Pinned by Kargo Stage pin-observatory-wss-mqtt (scripts/images.yaml) from ghcr (public) since CI v4 P9.1: never edit by hand.
     version: sha-71e82286@sha256:8f987ee85542c5e1ac224b2f93052c54a719cf82104fed57779cf53d1ba0d874
   resources:
     requests:
@@ -38,6 +39,7 @@ keydb:
 snapshotExporter:
   image:
     registry: ghcr.io/teknoir/observatory-snapshot-exporter
+    # Pinned by Kargo Stage pin-observatory-snapshot-exporter (scripts/images.yaml) from ghcr (public) since CI v4 P9.1: never edit by hand.
     version: sha-e7dcf3b6@sha256:335f58924b4d44e329afd9b746d2dad11c8992a95da4963b2cfaa69a7fc4a19c
   # The exporter uses about 100 MB. The limit restarts only this container if its memory
   # ever keeps growing, instead of letting it starve the node.
@@ -50,7 +52,8 @@ snapshotExporter:
 mediaService:
   image:
     registry: ghcr.io/teknoir/observatory-media-service
-    version: latest@sha256:6c7b3c1ff8b5b388e8d6d7132cfa69bc98e9433d02e9b96fadb3860e3dde5ce5
+    # Pinned by Kargo Stage pin-observatory-media-service (scripts/images.yaml) from ghcr (public) since CI v4 P9.1: never edit by hand.
+    version: sha-bb9cd7b5@sha256:6c7b3c1ff8b5b388e8d6d7132cfa69bc98e9433d02e9b96fadb3860e3dde5ce5
   resources:
     requests:
       cpu: 10m

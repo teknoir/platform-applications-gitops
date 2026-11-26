@@ -55,6 +55,12 @@ groups:
   historian-middle-end-api: {same_commit: false, enabled: true}
   historian-api: {same_commit: false, enabled: true}
   observatory-event-processing-app: {same_commit: false, enabled: true}
+  # The observatory plugin images (CI v4 P9.1 S7): one group per source repo, all three pinned in
+  # plugins/charts/profile-plugin-observatory/values.yaml. Public on ghcr (no Harbor mirror): repository = poll =
+  # ghcr.io/teknoir/<image>, and the values keep the ghcr registry.
+  observatory-wss-mqtt: {same_commit: false, enabled: true}
+  observatory-snapshot-exporter: {same_commit: false, enabled: true}
+  observatory-media-service: {same_commit: false, enabled: true}
 
 images:
   - component: backstage-app
@@ -302,6 +308,42 @@ images:
     repository: harbor.teknoir.cloud/teknoir/observatory-event-processing-app
     poll: harbor.teknoir.cloud/teknoir/observatory-event-processing-app
     note: "the historian event-processing streams worker (profile-plugin-historian, plugins/charts)"
+
+  - component: observatory-wss-mqtt
+    group: observatory-wss-mqtt
+    pins_file: null
+    values_files:
+      - plugins/charts/profile-plugin-observatory/values.yaml
+    chart: profile-plugin-observatory
+    key_path: wssMqtt.image.version
+    style: tag
+    repository: ghcr.io/teknoir/observatory-wss-mqtt
+    poll: ghcr.io/teknoir/observatory-wss-mqtt
+    note: "the teamspace wss-mqtt device-statistics backend (profile-plugin-observatory, plugins/charts); public ghcr"
+
+  - component: observatory-snapshot-exporter
+    group: observatory-snapshot-exporter
+    pins_file: null
+    values_files:
+      - plugins/charts/profile-plugin-observatory/values.yaml
+    chart: profile-plugin-observatory
+    key_path: snapshotExporter.image.version
+    style: tag
+    repository: ghcr.io/teknoir/observatory-snapshot-exporter
+    poll: ghcr.io/teknoir/observatory-snapshot-exporter
+    note: "the observatory snapshot exporter (profile-plugin-observatory, plugins/charts); public ghcr"
+
+  - component: observatory-media-service
+    group: observatory-media-service
+    pins_file: null
+    values_files:
+      - plugins/charts/profile-plugin-observatory/values.yaml
+    chart: profile-plugin-observatory
+    key_path: mediaService.image.version
+    style: tag
+    repository: ghcr.io/teknoir/observatory-media-service
+    poll: ghcr.io/teknoir/observatory-media-service
+    note: "the observatory media service (profile-plugin-observatory, plugins/charts); public ghcr"
 
   # Third party images: no group, pinned by hand into the chart values file with scripts/pin-image.
   - component: postgres

@@ -108,9 +108,10 @@ tests:
     documentSelector:
       path: kind
       value: ProjectConfig
-    # 20 = staging + staging-verified + one per group in values.yaml (a policy exists for every group, enabled or
-    # not; ci-runner, jwks-server, fleet-metrics and the three historian groups included). Helm merges maps, so
-    # `pins: {}` cannot clear a default: the asserted pin policies are set off explicitly.
+    # 23 = staging + staging-verified + one per group in values.yaml (a policy exists for every group, enabled or
+    # not; ci-runner, jwks-server, fleet-metrics, the three historian groups and the three observatory groups
+    # included). Helm merges maps, so `pins: {}` cannot clear a default: the asserted pin policies are set off
+    # explicitly.
     set:
       autoPromotion.pins.wg-tunnel: false
       autoPromotion.pins.backstage: false
@@ -120,7 +121,7 @@ tests:
       autoPromotion.pins.historian-api: false
       autoPromotion.pins.observatory-event-processing-app: false
     asserts:
-      - lengthEqual: {path: spec.promotionPolicies, count: 20}
+      - lengthEqual: {path: spec.promotionPolicies, count: 23}
       - contains:
           path: spec.promotionPolicies
           content: {stageSelector: {name: staging}, autoPromotionEnabled: true}
@@ -150,6 +151,16 @@ tests:
       - contains:
           path: spec.promotionPolicies
           content: {stageSelector: {name: pin-observatory-event-processing-app}, autoPromotionEnabled: false}
+      # the three observatory groups have no autoPromotion.pins entry: off by default, no set needed
+      - contains:
+          path: spec.promotionPolicies
+          content: {stageSelector: {name: pin-observatory-wss-mqtt}, autoPromotionEnabled: false}
+      - contains:
+          path: spec.promotionPolicies
+          content: {stageSelector: {name: pin-observatory-snapshot-exporter}, autoPromotionEnabled: false}
+      - contains:
+          path: spec.promotionPolicies
+          content: {stageSelector: {name: pin-observatory-media-service}, autoPromotionEnabled: false}
 
   - it: turns one policy on without touching the others
     template: templates/project.yaml
