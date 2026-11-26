@@ -115,6 +115,7 @@ tests:
       autoPromotion.pins.wg-tunnel: false
       autoPromotion.pins.backstage: false
       autoPromotion.pins.jwks-server: false
+      autoPromotion.pins.fleet-metrics: false
     asserts:
       - lengthEqual: {path: spec.promotionPolicies, count: 20}
       - contains:
@@ -129,8 +130,7 @@ tests:
       - contains:
           path: spec.promotionPolicies
           content: {stageSelector: {name: pin-backstage}, autoPromotionEnabled: false}
-      # jwks-server (P-b on) is set off explicitly above; fleet-metrics (CI v4 P9.1 S7 P-a) has no autoPromotion.pins
-      # entry yet, so its policy exists and is off.
+      # jwks-server and fleet-metrics (P-b on) are set off explicitly above.
       - contains:
           path: spec.promotionPolicies
           content: {stageSelector: {name: pin-jwks-server}, autoPromotionEnabled: false}
@@ -181,3 +181,13 @@ tests:
       - contains:
           path: spec.promotionPolicies
           content: {stageSelector: {name: pin-jwks-server}, autoPromotionEnabled: true}
+
+  - it: pins fleet-metrics automatically with the shipped values (CI v4 P9.1 S7 P-b)
+    template: templates/project.yaml
+    documentSelector:
+      path: kind
+      value: ProjectConfig
+    asserts:
+      - contains:
+          path: spec.promotionPolicies
+          content: {stageSelector: {name: pin-fleet-metrics}, autoPromotionEnabled: true}
