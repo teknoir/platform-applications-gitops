@@ -4,7 +4,8 @@ Deploys the TeknoirBot controller (`harbor.teknoir.cloud/teknoir/teknoirbot-cont
 
 - the CRD `teknoirbots.teknoir.org` (`crds/`, annotated `Prune=false,Delete=false`: pruning a CRD would delete every bot);
 - ServiceAccount, ClusterRole and ClusterRoleBinding `teknoirbot-controller` (the rules of `config/rbac/role.yaml` of the
-  controller repo: Devices create/get/list/patch/watch, TeknoirBots read plus status and finalizers, Events);
+  controller repo: Devices create/delete/get/list/patch/watch, TeknoirBots read plus status and finalizers, Events;
+  `delete` is for the reset of a bot computer only, pinned by `teknoirbot-device-delete-guard`);
 - a leader-election Role and RoleBinding (when `leaderElection`, default on; create on Leases plus get/update/patch only on
   the controller's own Lease `teknoirbot-controller.teknoir.org`, which must match `LeaderElectionID` in the controller);
 - the Deployment (1 replica, metrics on 8080, probes on 8081; the label `kustomize.component` is what the monitoring PodMonitor selects);
@@ -41,14 +42,35 @@ Break-glass: pause the Application's auto-sync, delete the binding, act, restore
 
 ## Admission policy `teknoirbot-device-delete-guard`
 
-Pins the controller's DELETE of a Device (the reset of a bot computer, `plans/teknoirbot/root-in-vm.md` R7) to its own bot
-computers: the old object is `device_type: virtual`, has a non-empty label `teknoir.org/teknoirbot`, is named
+Pins the controller's DELETE of a Device (the reset of a bot computer, `plans/teknoirbot/root-in-vm.md` 3.7, R7, D14) to
+its own bot computers: the old object is `device_type: virtual`, has a non-empty label `teknoir.org/teknoirbot`, is named
 `tb-<label>` and has a controller ownerReference to the `teknoir.org/v1alpha1` TeknoirBot of that name. Only the
 controller's service account is evaluated (the fence exempts it and is unchanged; backstage-api's Remove of a robot-less
-device or of a robot with its device is not affected). The policy ships before the ClusterRole gets `delete` on Devices;
-the unit test `the ClusterRole has no delete on Devices yet` guards that order. Test: the DELETE cases of
-`tests/k3d-vap-test.sh` (which grants the verb to the test identity itself). Break-glass as above, but remove the verb
-from the ClusterRole first: without this binding the controller could delete any Device.
+device or of a robot with its device is not affected).
+
+The verb has shipped (R7 release 2): the ClusterRole has `delete` on Devices, which the controller uses only to reset a
+bot's computer. A reset is requested by annotating the TeknoirBot with `teknoir.org/reset-requested-at` (the portal does
+it); the controller records the request in `status.resetHandled` and the Device's UID in `status.resetDeviceUID`, then
+deletes that Device with the UID as a precondition and creates a new one once device-controller has removed it (see the
+controller's README, "Reset"). The policy shipped one release before the verb (release 1, #308).
+
+**Rollback order** (the reverse of the release): first the controller image (its pin in
+`pins/teknoirbot-controller.yaml`), so nothing asks for a delete any more; then the `delete` verb in the ClusterRole;
+then this policy. An image that still requests resets without the verb only gets 403s: the bot's status names the
+refusal, the delete is retried with the controller's backoff, and the bot's spec still reaches its computer (a halted
+computer is not started while its reset is pending). The verb without the policy would be an unguarded delete right.
+The unit test `the ClusterRole has delete on Devices, and on nothing else` pins the verb. Test: the DELETE cases of `tests/k3d-vap-test.sh`, which run on the chart's own ClusterRole. Break-glass as
+above, but remove the verb from the ClusterRole first: without this binding the controller could delete any Device.
+
+A computer an admin disabled (`teknoir.org/disabled: "true"`) is not reset: the controller does not even ask (it records
+nothing and deletes nothing, and the bot's status says `the computer is disabled by an admin; enable it before a
+reset`), and `ztna-device-disabled-delete` (charts/ztna) would refuse the delete anyway. The reset runs once the computer
+is enabled. A suspended bot is reset: its halted computer is deleted and the new one stays halted until the bot is
+resumed.
+
+The controller image and the CRD in `crds/` ship together: an image that is newer than the chart's CRD (one without
+`status.resetHandled` and `status.resetDeviceUID`) resets nothing and says `the TeknoirBot CRD does not store the reset
+status; update the chart`.
 
 ## Bot fence
 

@@ -25,7 +25,7 @@ tests:
               verbs: [create, patch]
             - apiGroups: [teknoir.org]
               resources: [devices]
-              verbs: [create, get, list, patch, watch]
+              verbs: [create, delete, get, list, patch, watch]
             - apiGroups: [teknoir.org]
               resources: [teknoirbots]
               verbs: [get, list, watch]
@@ -184,13 +184,26 @@ tests:
       - equal: {path: spec.policyName, value: teknoirbot-device-delete-guard}
       - equal: {path: spec.validationActions, value: [Deny]}
 
-  - it: the ClusterRole has no delete on Devices yet (the delete guard ships first, R7)
+  - it: the ClusterRole has delete on Devices, and on nothing else (the reset, R7 release 2; the delete guard shipped first)
     template: templates/clusterrole.yaml
     asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [teknoir.org]
+            resources: [devices]
+            verbs: [create, delete, get, list, patch, watch]
       - notContains:
           path: rules
           any: true
           content:
+            resources: [teknoirbots]
+            verbs: [delete]
+      - notContains:
+          path: rules
+          any: true
+          content:
+            resources: [events]
             verbs: [delete]
 
   - it: the device fence matches bot Devices and exempts the writers, with the default identities

@@ -216,6 +216,18 @@ spec:
                 - Failed
                 - Deleting
                 type: string
+              resetDeviceUID:
+                description: |-
+                  ResetDeviceUID is the UID of the Device that the reset of ResetHandled
+                  deletes. The controller retries the delete only for a Device with this UID,
+                  and clears it once the bot's computer is another Device.
+                type: string
+              resetHandled:
+                description: |-
+                  ResetHandled is the value of the annotation teknoir.org/reset-requested-at
+                  that the controller has handled. A reset counts as handled once its value
+                  is here; a different non-empty value is a new request.
+                type: string
             type: object
         type: object
         x-kubernetes-validations:

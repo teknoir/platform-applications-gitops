@@ -28,8 +28,9 @@ spec.keys. So the policy requires:
      the label: a removed label may be restored, never set to another bot).
 
 A second policy, teknoirbot-device-delete-guard (below), pins the controller's DELETE of Devices to its own bot
-computers (the reset of a bot computer, plans/teknoirbot/root-in-vm.md R7 and D14). The ClusterRole only gains the delete
-verb in a later release, after this policy is live. The old object must be:
+computers (the reset of a bot computer, plans/teknoirbot/root-in-vm.md R7 and D14). It shipped one release before the
+ClusterRole gained the delete verb (R7 release 2), and the verb must be removed before this policy is. The controller
+applies the same four tests before it deletes (isBotComputer). The old object must be:
   a. spec.device_type virtual;
   b. labelled with a non-empty teknoir.org/teknoirbot;
   c. named tb-<that label>;

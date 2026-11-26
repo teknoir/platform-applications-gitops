@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Behavioural test of the bot fence (templates/fence.yaml): the ValidatingAdmissionPolicies teknoirbot-device-fence and
-# teknoirbot-created-by, together with teknoirbot-device-guard, on the LOCAL THROWAWAY cluster context k3d-teknoir-dev (any
+# teknoirbot-created-by, together with teknoirbot-device-guard and teknoirbot-device-delete-guard, on the LOCAL THROWAWAY
+# cluster context k3d-teknoir-dev (any
 # other context is refused). Repeatable: it creates the namespace tb-fence-test (the teamspace), a scratch ClusterRole
 # tb-fence-test and its binding (full CRUD on Devices and TeknoirBots for every impersonated identity, so only the
-# policies decide), the three policies and their bindings, the Device and TeknoirBot CRDs (only when the cluster lacks
+# policies decide), the four policies and their bindings, the Device and TeknoirBot CRDs (only when the cluster lacks
 # them), runs the cases and removes all of it again on exit.
 #
 # Identities are impersonated (kubectl --as=<user> [--as-group=<group>]); the admin (no --as) is system:masters.
@@ -21,7 +22,8 @@ CONTEXT=k3d-teknoir-dev
 NS=tb-fence-test
 SYS=teknoir-system          # the release namespace the identities below belong to (no such namespace is needed)
 ROLE=tb-fence-test
-POLICIES=(teknoirbot-device-guard teknoirbot-device-fence teknoirbot-created-by)
+# every ValidatingAdmissionPolicy the chart renders (all of them are applied below, so all of them are cleaned up)
+POLICIES=(teknoirbot-device-guard teknoirbot-device-delete-guard teknoirbot-device-fence teknoirbot-created-by)
 
 U_CTRL="system:serviceaccount:${SYS}:teknoirbot-controller"
 U_DC="system:serviceaccount:teknoir-system:device-controller-service-account"
