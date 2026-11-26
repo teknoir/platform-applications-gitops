@@ -21,6 +21,7 @@ SHA = "0123456789abcdef0123456789abcdef01234567"
 OTHER = "fedcba9876543210fedcba9876543210fedcba98"
 DEVHOST = "https://devhost-ci.example"
 PLUGIN_VERSION = "0.0.113"
+PLUGIN_GIT_PATH = "plugins/charts"
 
 # Serves the fixtures of $FAKE_KUBECTL: {"<ns>": {"application/<name>": {...}, "applications": {"items": [...]},
 # "configmap/<name>": {...}}}. An unknown object exits 1 like kubectl.
@@ -45,12 +46,27 @@ while i < len(args):
     elif name is None:
         name = a
     i += 1
-data = json.load(open(os.environ["FAKE_KUBECTL"]))
 if verb != "get":
     sys.stderr.write("fake kubectl: unsupported verb %r\\n" % verb)
     sys.exit(2)
 kind = kind.split(".")[0]          # applications.argoproj.io -> applications
 key = kind + ("/" + name if name else "")
+# A list serves one fixture set per poll, moving to the next when the poll's first read (the root Application)
+# arrives; the last set repeats. The script polls the root first, so the counter is per poll.
+path = os.environ["FAKE_KUBECTL"]
+raw = json.load(open(path))
+if isinstance(raw, list):
+    state = path + ".poll"
+    try:
+        i = int(open(state).read())
+    except (OSError, ValueError):
+        i = 0
+    if key == os.environ.get("FAKE_ROOT_KEY", "application/app-of-apps"):
+        with open(state, "w") as fh:
+            fh.write(str(i + 1))
+    data = raw[min(i, len(raw) - 1)]
+else:
+    data = raw
 obj = (data.get(ns) or {}).get(key)
 if obj is None:
     sys.stderr.write("fake kubectl: %s not found in %s\\n" % (key, ns))
@@ -92,8 +108,11 @@ def root(children=(), *, revision=SHA, sync="Synced", health="Healthy"):
                        "resources": [{"kind": "Application", "name": n} for n in children]}}
 
 
-def configmap(version=PLUGIN_VERSION):
-    return {"metadata": {"name": "profile-controller-config"}, "data": {"PLUGIN_CHART_VERSION": version}}
+def configmap(version=PLUGIN_VERSION, **data):
+    """The live profile-controller ConfigMap: PLUGIN_CHART_VERSION (chart mode) plus any PLUGIN_GIT_* keys."""
+    d = {"PLUGIN_CHART_VERSION": version}
+    d.update(data)
+    return {"metadata": {"name": "profile-controller-config"}, "data": d}
 
 
 class Scenario:
@@ -123,13 +142,13 @@ class Scenario:
     def configmap(self, cm, ns="teknoir-system"):
         return self.add(ns, "configmap/" + cm["metadata"]["name"], cm)
 
-    def run(self, **env):
+    def run(self, polls=None, **env):
         # The Application list is always readable (the kargo-verify Role grants list); a test that wants plugin
         # Applications sets them, otherwise the list is empty.
         self.data.setdefault("teknoir-system", {}).setdefault("applications", {"items": []})
         fixtures = os.path.join(self.tmp, "fixtures.json")
         with open(fixtures, "w") as fh:
-            json.dump(self.data, fh)
+            json.dump(self.data if polls is None else polls, fh)
         e = {"PATH": self.bin + os.pathsep + os.environ["PATH"], "FAKE_KUBECTL": fixtures,
              "REVISION": SHA, "REVISION_CHECK_TIMEOUT": "0", "REVISION_CHECK_INTERVAL": "0"}
         e.update({k: v for k, v in env.items() if v is not None})
@@ -350,8 +369,27 @@ class RevisionCheck(unittest.TestCase):
 
     # -- rule 4: profile-plugin Applications follow the profile-controller ConfigMap
 
-    def plugin(self, name="profile-plugin-jwks", target=PLUGIN_VERSION):
-        return app(name, repo="https://teknoir.github.io/profile-plugins-helm", chart=name, target=target)
+    def plugin(self, name="profile-plugin-jwks", target=PLUGIN_VERSION, **kw):
+        return app(name, repo="https://teknoir.github.io/profile-plugins-helm", chart=name, target=target, **kw)
+
+    def plugin_git(self, name="profile-plugin-jwks", path=None, target=SHA, syncrev=SHA, repo=REPO,
+                   sync="Synced", health="Healthy"):
+        """A plugin Application in git mode (P9.1): one source of this repository, path plugins/charts/<name>."""
+        obj = {"metadata": {"name": name},
+               "spec": {"source": {"repoURL": repo, "targetRevision": target,
+                                   "path": (path if path is not None else PLUGIN_GIT_PATH + "/" + name)},
+                        "destination": {"namespace": "ns", "server": "https://kubernetes.default.svc"}},
+               "status": {"sync": {"status": sync}, "health": {"status": health}}}
+        if syncrev is not None:
+            obj["status"]["sync"]["revision"] = syncrev
+        return obj
+
+    def in_git_mode(self, apps, **data):
+        """The revision-check scenario (root at SHA) whose ConfigMap switches the plugin rule to git mode."""
+        s = self.scenario()
+        s.applications(apps)
+        s.configmap(configmap(PLUGIN_GIT_REPO_URL=REPO, **data))
+        return s
 
     def test_a_plugin_application_follows_the_configmap_version(self):
         s = self.scenario()
@@ -384,6 +422,150 @@ class RevisionCheck(unittest.TestCase):
     def test_the_revision_is_required(self):
         run = self.scenario().run(REVISION="")
         self.assertNotEqual(run.returncode, 0, run.stdout + run.stderr)
+
+    # -- rule 4/5 selection and floor (P9.1)
+
+    def test_rule_4_prints_one_summary_line(self):
+        s = self.scenario()
+        s.applications([self.plugin()])
+        s.configmap(configmap())
+        run = s.run()
+        self.assertPasses(run)
+        self.assertIn(f"rule 4: 1 profile-plugin Applications at chart {PLUGIN_VERSION}", run.stdout)
+
+    def test_a_git_source_in_chart_mode_fails(self):
+        s = self.scenario()
+        s.applications([self.plugin_git()])
+        s.configmap(configmap())
+        self.assertFails(s.run(), "profile-plugin-jwks: git source (path plugins/charts/profile-plugin-jwks)"
+                                  " while profile-controller-config sets no PLUGIN_GIT_REPO_URL (chart mode)")
+
+    def test_a_plugin_application_out_of_sync_fails_in_chart_mode(self):
+        s = self.scenario()
+        s.applications([self.plugin(sync="OutOfSync")])
+        s.configmap(configmap())
+        self.assertFails(s.run(), "profile-plugin-jwks: sync OutOfSync")
+
+    def test_a_plugin_application_degraded_fails_in_chart_mode(self):
+        s = self.scenario()
+        s.applications([self.plugin(health="Degraded")])
+        s.configmap(configmap())
+        self.assertFails(s.run(), "profile-plugin-jwks: health Degraded")
+
+    def test_no_plugin_applications_fail_under_the_minimum(self):
+        """PLUGIN_MIN_APPS=1: a plugin set that vanished must not pass."""
+        s = self.scenario()
+        s.applications([])
+        self.assertFails(s.run(PLUGIN_MIN_APPS="1"), "profile plugins: 0 Applications found, want at least 1")
+
+    def test_no_plugin_applications_pass_with_a_zero_minimum(self):
+        s = self.scenario()
+        s.applications([])
+        run = s.run(PLUGIN_MIN_APPS="0")
+        self.assertPasses(run)
+        self.assertNotIn("rule 4: ", run.stdout)
+        self.assertNotIn("rule 5: ", run.stdout)
+
+    def test_an_excluded_plugin_application_is_skipped(self):
+        s = self.scenario()
+        s.applications([self.plugin(target="0.0.112")])
+        s.configmap(configmap())
+        self.assertPasses(s.run(EXCLUDE_APPS="profile-plugin-jwks"))
+
+    def test_an_excluded_plugin_application_does_not_meet_the_minimum(self):
+        s = self.scenario()
+        s.applications([self.plugin()])
+        s.configmap(configmap())
+        self.assertFails(s.run(EXCLUDE_APPS="profile-plugin-jwks", PLUGIN_MIN_APPS="1"),
+                         "profile plugins: 0 Applications found, want at least 1")
+
+    # -- rule 5: git mode (CI v4 P9.1)
+
+    def test_rule_5_passes_and_prints_one_summary_line(self):
+        run = self.in_git_mode([self.plugin_git()]).run()
+        self.assertPasses(run)
+        self.assertIn(f"rule 5: 1 profile-plugin Applications at {SHA}", run.stdout)
+        self.assertEqual(len([ln for ln in run.stdout.splitlines() if ln.startswith("rule 5:")]), 1, run.stdout)
+
+    def test_rule_5_counts_every_selected_application(self):
+        run = self.in_git_mode([self.plugin_git(), self.plugin_git(name="profile-plugin-emqx")]).run()
+        self.assertPasses(run)
+        self.assertIn(f"rule 5: 2 profile-plugin Applications at {SHA}", run.stdout)
+
+    def test_rule_5_accepts_the_repository_spelled_with_dot_git(self):
+        """REPO ends in .git: the ConfigMap and the Application carry it, GITOPS_REPO_URL does not."""
+        run = self.in_git_mode([self.plugin_git()]).run(GITOPS_REPO_URL=REPO[:-4])
+        self.assertPasses(run)
+
+    def test_rule_5_accepts_a_git_path_with_a_trailing_slash(self):
+        run = self.in_git_mode([self.plugin_git()], PLUGIN_GIT_PATH=PLUGIN_GIT_PATH + "/").run()
+        self.assertPasses(run)
+
+    def test_rule_5_fails_an_application_still_in_chart_mode(self):
+        self.assertFails(self.in_git_mode([self.plugin()]).run(),
+                         "profile-plugin-jwks: Helm chart profile-plugin-jwks in git mode"
+                         " (want plugins/charts/profile-plugin-<x>)")
+
+    def test_rule_5_fails_a_stale_target_revision(self):
+        self.assertFails(self.in_git_mode([self.plugin_git(target=OTHER)]).run(),
+                         f"profile-plugin-jwks: targetRevision {OTHER} (want {SHA})")
+
+    def test_rule_5_fails_a_stale_sync_revision(self):
+        self.assertFails(self.in_git_mode([self.plugin_git(syncrev=OTHER)]).run(),
+                         f"profile-plugin-jwks: sync revision {OTHER} (want {SHA})")
+
+    def test_rule_5_fails_a_missing_sync_revision(self):
+        self.assertFails(self.in_git_mode([self.plugin_git(syncrev=None)]).run(),
+                         "profile-plugin-jwks: sync revision <none>")
+
+    def test_rule_5_fails_out_of_sync(self):
+        self.assertFails(self.in_git_mode([self.plugin_git(sync="OutOfSync")]).run(),
+                         "profile-plugin-jwks: sync OutOfSync (want Synced)")
+
+    def test_rule_5_fails_degraded(self):
+        self.assertFails(self.in_git_mode([self.plugin_git(health="Degraded")]).run(),
+                         "profile-plugin-jwks: health Degraded (want Healthy)")
+
+    def test_rule_5_fails_progressing(self):
+        self.assertFails(self.in_git_mode([self.plugin_git(health="Progressing")]).run(),
+                         "profile-plugin-jwks: health Progressing (want Healthy)")
+
+    def test_rule_5_fails_a_foreign_repository(self):
+        self.assertFails(self.in_git_mode([self.plugin_git(repo="https://github.com/teknoir/elsewhere")]).run(),
+                         "profile-plugin-jwks: repoURL https://github.com/teknoir/elsewhere (want "
+                         "https://github.com/teknoir/platform-applications-gitops)")
+
+    def test_rule_5_fails_a_path_outside_the_git_path(self):
+        self.assertFails(self.in_git_mode([self.plugin_git(path="charts/profile-plugin-jwks")]).run(),
+                         "profile-plugin-jwks: path charts/profile-plugin-jwks"
+                         " (want plugins/charts/profile-plugin-<x>)")
+
+    def test_rule_5_fails_a_multi_source_application(self):
+        obj = multi("profile-plugin-jwks", [(REPO, SHA)])
+        obj["spec"]["sources"][0]["path"] = PLUGIN_GIT_PATH + "/profile-plugin-jwks"
+        self.assertFails(self.in_git_mode([obj]).run(),
+                         "profile-plugin-jwks: multi-source Application"
+                         " (want one source plugins/charts/profile-plugin-<x>)")
+
+    def test_rule_5_fails_when_the_configmap_names_another_repository(self):
+        s = self.scenario()
+        s.applications([self.plugin_git()])
+        s.configmap(configmap(PLUGIN_GIT_REPO_URL="https://github.com/teknoir/elsewhere"))
+        self.assertFails(s.run(), "teknoir-system/profile-controller-config: PLUGIN_GIT_REPO_URL"
+                                  " https://github.com/teknoir/elsewhere is not this repository"
+                                  " (want https://github.com/teknoir/platform-applications-gitops)")
+
+    def test_the_check_converges_when_a_later_poll_is_good(self):
+        """A promotion that had not converged yet (one plugin still stale) must pass on a later poll."""
+        def fixtures(revision):
+            return {"teknoir-system": {"application/app-of-apps": root(["backstage"]),
+                                       "application/backstage": app("backstage"),
+                                       "applications": {"items": [self.plugin_git(syncrev=revision)]},
+                                       "configmap/profile-controller-config": configmap(PLUGIN_GIT_REPO_URL=REPO)}}
+        run = Scenario(self).run(polls=[fixtures(OTHER), fixtures(SHA)], REVISION_CHECK_TIMEOUT="20")
+        self.assertPasses(run)
+        self.assertIn(f"rule 5: 1 profile-plugin Applications at {SHA}", run.stdout)
+        self.assertNotIn(f"sync revision {OTHER}", run.stdout)
 
 
 if __name__ == "__main__":

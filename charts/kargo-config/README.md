@@ -47,8 +47,11 @@ until those values are turned on.
 - `verification.*`: empty `browser.image` and empty `prometheus.address` render no such metric;
   `excludeApps` and `devhostCiServer` are what the revision check skips (see below).
   `verification.pluginConfigMap.name` is the one ConfigMap the revision-check Role may read, and the value the
-  script gets as `PLUGIN_CONFIGMAP`. A Prometheus address must be reachable without mTLS: `teknoir-system` is
-  STRICT mTLS and the Argo Rollouts controller (which runs the soak metric) has no sidecar.
+  script gets as `PLUGIN_CONFIGMAP`. `verification.pluginMinApps` (env `PLUGIN_MIN_APPS`, default 1) is the
+  fewest profile-plugin Applications the check must find: fewer fails the promotion (staging runs 8; 0 would let
+  a plugin set that vanished pass silently). A cluster that legitimately has no plugin Applications (a rehearsal)
+  sets it to 0. A Prometheus address must be reachable without mTLS:
+  `teknoir-system` is STRICT mTLS and the Argo Rollouts controller (which runs the soak metric) has no sidecar.
 
 ## Turning it off: two releases
 
@@ -84,10 +87,25 @@ the promoted revision, every child Application listed in it exists and is Synced
 revision (sources of other repositories and Helm charts are not revision-checked; a child whose
 destination server is `devhostCiServer` is revision-checked only, and a wrong or missing revision there is a
 `WARN` line instead of a failure while the Application is not comparable - sync `Unknown` or a
-`ComparisonError` condition, i.e. the dev host is down - so it never stalls a staging promotion), and every
-`profile-plugin-*`
-Application in `teknoir-system` follows `PLUGIN_CHART_VERSION` of the live `profile-controller-config`
-ConfigMap. Otherwise it prints one line per failing Application and exits 1.
+`ComparisonError` condition, i.e. the dev host is down - so it never stalls a staging promotion), and the
+`profile-plugin-*` Applications in `teknoir-system` are current. Otherwise it prints one line per failing
+Application and exits 1; on success it adds one summary line (`rule 4: N profile-plugin Applications at chart
+<version>` or `rule 5: N profile-plugin Applications at <revision>`).
+
+The plugin rule is mode-aware, decided by the live `profile-controller-config` ConfigMap:
+
+- **Chart mode** (no `PLUGIN_GIT_REPO_URL`): each selected Application's `spec.source.chart` starts with
+  `profile-plugin-`, its `targetRevision` equals `PLUGIN_CHART_VERSION`, and it is Synced and Healthy. A
+  selected Application with a git source (`spec.source.path`) is a failure: the plugins have moved on.
+- **Git mode** (CI v4 P9.1; non-empty `PLUGIN_GIT_REPO_URL`, which must be this repository): the plugin charts
+  live in this repository under `PLUGIN_GIT_PATH` (default `plugins/charts`), so each selected Application is
+  one source of this repository (no chart) with `spec.source.path ==
+  <PLUGIN_GIT_PATH>/profile-plugin-<x>`, `targetRevision`, `status.sync.revision` (missing counts as
+  `<none>`), sync `Synced` and health `Healthy` at the promoted revision.
+
+An Application is selected when `spec.source.chart` or `spec.source.path` (or any `spec.sources[]` entry) is
+`profile-plugin-*`; names in `excludeApps` are skipped. The ConfigMap is read only when at least one is
+selected, and fewer than `pluginMinApps` selected fails the check.
 `scripts/tests/test_revision_check.py` runs it against a fake `kubectl`.
 
 The root Application must carry `kargo.akuity.io/authorized-stage: "platform:staging"`; Kargo refuses
