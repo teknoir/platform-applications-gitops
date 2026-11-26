@@ -359,6 +359,94 @@ tests:
       - equal: {path: 'spec.promotionTemplate.spec.steps[4].uses', value: git-open-pr}
       - equal: {path: 'spec.promotionTemplate.spec.steps[5].uses', value: git-merge-pr}
 
+  - it: writes observatory-wss-mqtt into the shared profile-plugin-observatory values file
+    # CI v4 P9.1 S7: a public ghcr image, its own group and Warehouse, pinned in the plugin chart values.
+    set:
+      groups:
+        - name: observatory-wss-mqtt
+          enabled: true
+          sameCommit: false
+          images:
+            - {component: observatory-wss-mqtt, poll: ghcr.io/teknoir/observatory-wss-mqtt, repository: ghcr.io/teknoir/observatory-wss-mqtt, key: wssMqtt.image.version, style: tag, files: [plugins/charts/profile-plugin-observatory/values.yaml]}
+    documentSelector:
+      path: metadata.name
+      value: pin-observatory-wss-mqtt
+    asserts:
+      - isKind: {of: Stage}
+      - equal: {path: spec.requestedFreight, value: [{origin: {kind: Warehouse, name: img-observatory-wss-mqtt}, sources: {direct: true}}]}
+      - lengthEqual: {path: spec.promotionTemplate.spec.steps, count: 6}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[1].uses', value: yaml-update}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[1].config.path', value: ./src/plugins/charts/profile-plugin-observatory/values.yaml}
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[1].config.updates'
+          value:
+            - {key: wssMqtt.image.version, value: '${{ imageFrom("ghcr.io/teknoir/observatory-wss-mqtt").Tag }}@${{ imageFrom("ghcr.io/teknoir/observatory-wss-mqtt").Digest }}'}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[2].uses', value: git-commit}
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[2].config.message'
+          value: 'chore(pins): observatory-wss-mqtt ${{ imageFrom("ghcr.io/teknoir/observatory-wss-mqtt").Tag }} [kargo]'
+      - equal: {path: 'spec.promotionTemplate.spec.steps[3].uses', value: git-push}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[4].uses', value: git-open-pr}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[5].uses', value: git-merge-pr}
+
+  - it: writes observatory-snapshot-exporter into the shared profile-plugin-observatory values file
+    set:
+      groups:
+        - name: observatory-snapshot-exporter
+          enabled: true
+          sameCommit: false
+          images:
+            - {component: observatory-snapshot-exporter, poll: ghcr.io/teknoir/observatory-snapshot-exporter, repository: ghcr.io/teknoir/observatory-snapshot-exporter, key: snapshotExporter.image.version, style: tag, files: [plugins/charts/profile-plugin-observatory/values.yaml]}
+    documentSelector:
+      path: metadata.name
+      value: pin-observatory-snapshot-exporter
+    asserts:
+      - isKind: {of: Stage}
+      - equal: {path: spec.requestedFreight, value: [{origin: {kind: Warehouse, name: img-observatory-snapshot-exporter}, sources: {direct: true}}]}
+      - lengthEqual: {path: spec.promotionTemplate.spec.steps, count: 6}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[1].uses', value: yaml-update}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[1].config.path', value: ./src/plugins/charts/profile-plugin-observatory/values.yaml}
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[1].config.updates'
+          value:
+            - {key: snapshotExporter.image.version, value: '${{ imageFrom("ghcr.io/teknoir/observatory-snapshot-exporter").Tag }}@${{ imageFrom("ghcr.io/teknoir/observatory-snapshot-exporter").Digest }}'}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[2].uses', value: git-commit}
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[2].config.message'
+          value: 'chore(pins): observatory-snapshot-exporter ${{ imageFrom("ghcr.io/teknoir/observatory-snapshot-exporter").Tag }} [kargo]'
+      - equal: {path: 'spec.promotionTemplate.spec.steps[3].uses', value: git-push}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[4].uses', value: git-open-pr}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[5].uses', value: git-merge-pr}
+
+  - it: writes observatory-media-service into the shared profile-plugin-observatory values file
+    set:
+      groups:
+        - name: observatory-media-service
+          enabled: true
+          sameCommit: false
+          images:
+            - {component: observatory-media-service, poll: ghcr.io/teknoir/observatory-media-service, repository: ghcr.io/teknoir/observatory-media-service, key: mediaService.image.version, style: tag, files: [plugins/charts/profile-plugin-observatory/values.yaml]}
+    documentSelector:
+      path: metadata.name
+      value: pin-observatory-media-service
+    asserts:
+      - isKind: {of: Stage}
+      - equal: {path: spec.requestedFreight, value: [{origin: {kind: Warehouse, name: img-observatory-media-service}, sources: {direct: true}}]}
+      - lengthEqual: {path: spec.promotionTemplate.spec.steps, count: 6}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[1].uses', value: yaml-update}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[1].config.path', value: ./src/plugins/charts/profile-plugin-observatory/values.yaml}
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[1].config.updates'
+          value:
+            - {key: mediaService.image.version, value: '${{ imageFrom("ghcr.io/teknoir/observatory-media-service").Tag }}@${{ imageFrom("ghcr.io/teknoir/observatory-media-service").Digest }}'}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[2].uses', value: git-commit}
+      - equal:
+          path: 'spec.promotionTemplate.spec.steps[2].config.message'
+          value: 'chore(pins): observatory-media-service ${{ imageFrom("ghcr.io/teknoir/observatory-media-service").Tag }} [kargo]'
+      - equal: {path: 'spec.promotionTemplate.spec.steps[3].uses', value: git-push}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[4].uses', value: git-open-pr}
+      - equal: {path: 'spec.promotionTemplate.spec.steps[5].uses', value: git-merge-pr}
+
   - it: names the components, not the group, in the commit message (plan 7.1)
     documentSelector:
       path: metadata.name
