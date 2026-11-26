@@ -107,10 +107,15 @@ verification:
   # cluster Secret devhost-ci): on a mismatch every staging promotion fails whenever the dev host is down.
   devhostCiServer: "https://192.168.2.181:6443"
   # The profile-controller ConfigMap in rootApp.namespace whose PLUGIN_CHART_VERSION every profile-plugin
-  # Application must follow. The revision-check Role may read this one ConfigMap (resourceNames) and nothing
-  # else, and the script gets the same name as env PLUGIN_CONFIGMAP: one value, both places.
+  # Application must follow in chart mode, and whose PLUGIN_GIT_REPO_URL / PLUGIN_GIT_PATH switch the check to
+  # git mode (CI v4 P9.1: the plugin charts in this repository under plugins/charts, non-empty
+  # PLUGIN_GIT_REPO_URL). The revision-check Role may read this one ConfigMap (resourceNames) and nothing else,
+  # and the script gets the same name as env PLUGIN_CONFIGMAP: one value, both places.
   pluginConfigMap:
     name: profile-controller-config
+  # How many profile-plugin Applications the revision check must find (env PLUGIN_MIN_APPS): fewer fails the
+  # promotion. Staging runs 8; 0 would let a plugin set that vanished pass silently.
+  pluginMinApps: 1
   # sh + jq + kubectl for the revision-check Job (an index digest, like every pinned image; mirrored on Harbor
   # and the dev host).
   kubectlImage: docker.io/alpine/k8s:1.34.11@sha256:0382123ab8ae17d8da5d43cc299242933eb012cfbe56787b43731c942c3eed80

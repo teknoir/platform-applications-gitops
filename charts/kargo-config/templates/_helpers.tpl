@@ -112,9 +112,13 @@ wait-converged init container run the same script with it.
   value: {{ .Values.gitops.repoURL | quote }}
 # The profile-controller ConfigMap in the root Application's namespace; its
 # PLUGIN_CHART_VERSION key (charts/profile-controller templates/configmap.yaml) is the
-# version every profile-plugin Application must follow.
+# version every profile-plugin Application must follow, and a non-empty PLUGIN_GIT_REPO_URL
+# (plus PLUGIN_GIT_PATH, default plugins/charts) switches the check to git mode.
 - name: PLUGIN_CONFIGMAP
   value: {{ .Values.verification.pluginConfigMap.name | quote }}
 - name: PLUGIN_NAMESPACE
   value: {{ .Values.verification.rootApp.namespace | quote }}
+# Fewer selected profile-plugin Applications than this fails the promotion.
+- name: PLUGIN_MIN_APPS
+  value: {{ .Values.verification.pluginMinApps | quote }}
 {{- end -}}

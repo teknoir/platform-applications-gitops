@@ -94,6 +94,10 @@ tests:
       - contains:
           path: 'spec.metrics[0].provider.job.spec.template.spec.containers[0].env'
           content: {name: DEVHOST_CI_SERVER, value: "https://192.168.2.181:6443"}
+      # P9.1: fewer profile-plugin Applications than this fails the promotion (staging runs 8).
+      - contains:
+          path: 'spec.metrics[0].provider.job.spec.template.spec.containers[0].env'
+          content: {name: PLUGIN_MIN_APPS, value: "1"}
       - matchRegex: {path: 'spec.metrics[0].provider.job.spec.template.spec.containers[0].env[0].value', pattern: '^\{\{args\.revision\}\}$'}
 
   - it: renders no browser AnalysisTemplate without a verification image
@@ -149,6 +153,10 @@ tests:
       - contains:
           path: 'spec.metrics[0].provider.job.spec.template.spec.initContainers[0].env'
           content: {name: ROOT_APP_NAME, value: app-of-apps}
+      # The browser's wait-converged container runs the same script: it needs the plugin floor too.
+      - contains:
+          path: 'spec.metrics[0].provider.job.spec.template.spec.initContainers[0].env'
+          content: {name: PLUGIN_MIN_APPS, value: "1"}
       - contains:
           path: 'spec.metrics[0].provider.job.spec.template.spec.initContainers[0].volumeMounts'
           content: {name: kargo-verify-token, mountPath: /var/run/secrets/kubernetes.io/serviceaccount, readOnly: true}

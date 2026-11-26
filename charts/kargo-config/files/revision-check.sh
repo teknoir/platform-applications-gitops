@@ -19,9 +19,19 @@
 #      unreachable or the Application cannot be compared (status.sync.status Unknown, or a condition of type
 #      ComparisonError), ArgoCD may leave its revisions empty or stale, so a wrong or missing revision is a
 #      WARN line on stdout and NOT a failure: a dev host that is down must never stall a staging promotion;
-#   4. every profile-plugin Application in PLUGIN_NAMESPACE (spec.source.chart starts with profile-plugin-)
-#      has spec.source.targetRevision equal to PLUGIN_CHART_VERSION of the live profile-controller ConfigMap.
-#      This needs a ConfigMap only when such an Application exists.
+#   4. CHART MODE (the profile-controller ConfigMap has no PLUGIN_GIT_REPO_URL): every profile-plugin
+#      Application in PLUGIN_NAMESPACE has spec.source.chart starting with profile-plugin-, its
+#      spec.source.targetRevision equal to PLUGIN_CHART_VERSION of the ConfigMap, and is Synced and Healthy. A
+#      selected Application with a git source (spec.source.path) fails: the plugins have moved to git mode.
+#   5. GIT MODE (a non-empty PLUGIN_GIT_REPO_URL in that ConfigMap; CI v4 P9.1 moves the plugin charts into this
+#      repository under plugins/charts/profile-plugin-<x>): the ConfigMap's PLUGIN_GIT_REPO_URL is this
+#      repository, and every profile-plugin Application is a single source of this repository (no chart) with
+#      spec.source.path == <PLUGIN_GIT_PATH>/profile-plugin-<x> (default plugins/charts) and
+#      spec.source.targetRevision, status.sync.revision, sync status and health those of this release.
+#   Rules 4 and 5 select an Application whose spec.source.chart or spec.source.path (or any spec.sources[]
+#   entry) is a profile-plugin chart; names in EXCLUDE_APPS are skipped. A ConfigMap is needed only when at least
+#   one Application is selected; PLUGIN_MIN_APPS (default 0) fails the check when fewer are selected, so a set
+#   that vanished cannot pass silently.
 #
 # Environment (set by the AnalysisTemplate; the defaults are staging's):
 #   REVISION                  required: the 40-hex commit the staging Stage promoted
@@ -35,6 +45,7 @@
 #   GITOPS_REPO_URL           default https://github.com/teknoir/platform-applications-gitops.git
 #   PLUGIN_CONFIGMAP          default profile-controller-config
 #   PLUGIN_NAMESPACE          default teknoir-system
+#   PLUGIN_MIN_APPS           default 0: fail when fewer profile-plugin Applications are selected than this
 #
 # POSIX sh and jq only. Never prints a secret (it reads no Secret).
 set -u
@@ -49,10 +60,16 @@ DEVHOST=${DEVHOST_CI_SERVER:-}
 REPO=${GITOPS_REPO_URL:-https://github.com/teknoir/platform-applications-gitops.git}
 PLUGIN_NS=${PLUGIN_NAMESPACE:-teknoir-system}
 PLUGIN_CM=${PLUGIN_CONFIGMAP:-profile-controller-config}
+PLUGIN_MIN=${PLUGIN_MIN_APPS:-0}
 KUBECTL=${KUBECTL:-kubectl}
+# The separator of the one-line-per-Application records plugin_check reads back (a non-whitespace byte, so an
+# empty field is kept as one).
+SEP=$(printf '\037')
+PLUGIN_SUMMARY=
 
 FAILS=$(mktemp)
-trap 'rm -f "$FAILS"' EXIT
+PLUGIN_APPS=$(mktemp)
+trap 'rm -f "$FAILS" "$PLUGIN_APPS"' EXIT
 
 fail() {
     printf '%s\n' "$*" >> "$FAILS"
@@ -112,29 +129,115 @@ uncomparable() {
     printf '%s' "$1" | jq -e 'any(.status.conditions[]?; .type == "ComparisonError")' >/dev/null 2>&1
 }
 
-# plugin_check: rule 4. The Applications are listed first: the ConfigMap is required only when there is one.
+# plugin_path <path>: true when it is <PLUGIN_GIT_PATH>/profile-plugin-<x>, x of [a-z0-9-] (git mode).
+plugin_path() {
+    case "$1" in
+        "$PLUGIN_GIT_PATH"/profile-plugin-*) tail=${1#"$PLUGIN_GIT_PATH"/profile-plugin-} ;;
+        *) return 1 ;;
+    esac
+    [ -n "$tail" ] || return 1
+    case "$tail" in
+        *[!a-z0-9-]*) return 1 ;;
+    esac
+    return 0
+}
+
+# plugin_check: rules 4 and 5. The Applications are listed and counted first (EXCLUDE_APPS skipped): the
+# ConfigMap is required only when PLUGIN_MIN_APPS is met by at least one of them.
 plugin_check() {
+    PLUGIN_SUMMARY=
     apps=$(get "$PLUGIN_NS" applications.argoproj.io) || {
         fail "$PLUGIN_NS: cannot list Applications (needed for the profile plugins)"
         return
     }
-    plugins=$(printf '%s' "$apps" | jq -r '
-      .items[]?
-      | select(((.spec.source.chart // "") | startswith("profile-plugin-")))
-      | "\(.metadata.name)\t\(.spec.source.targetRevision // "")"')
-    [ -n "$plugins" ] || return 0
+    printf '%s' "$apps" | jq -r --arg sep "$SEP" '
+      def plugin:
+        ((.spec.source.chart // "") | startswith("profile-plugin-"))
+        or ((.spec.source.path // "") | test("(^|/)profile-plugin-[a-z0-9-]+$"))
+        or any((.spec.sources // [])[]?;
+               ((.chart // "") | startswith("profile-plugin-"))
+               or ((.path // "") | test("(^|/)profile-plugin-[a-z0-9-]+$")));
+      .items[]? | select(plugin)
+      | [ .metadata.name,
+          ((.spec.sources // []) | length),
+          (.spec.source.chart // ""),
+          (.spec.source.path // ""),
+          (.spec.source.repoURL // ""),
+          (.spec.source.targetRevision // ""),
+          (.status.sync.revision // "<none>"),
+          (.status.sync.status // "-"),
+          (.status.health.status // "-") ]
+      | join($sep)' > "$PLUGIN_APPS"
+
+    count=0
+    while IFS="$SEP" read -r name _; do
+        is_excluded "$name" || count=$((count + 1))
+    done < "$PLUGIN_APPS"
+    if [ "$count" -lt "$PLUGIN_MIN" ]; then
+        fail "profile plugins: $count Applications found, want at least $PLUGIN_MIN"
+        return
+    fi
+    [ "$count" -gt 0 ] || return 0
+
     cm=$(get "$PLUGIN_NS" configmap "$PLUGIN_CM") || {
-        fail "$PLUGIN_NS/$PLUGIN_CM: not found (the plugin chart version)"
+        fail "$PLUGIN_NS/$PLUGIN_CM: not found (the plugin chart version and git mode)"
         return
     }
+    git_repo=$(printf '%s' "$cm" | jq -r '.data.PLUGIN_GIT_REPO_URL // ""')
+    if [ -n "$git_repo" ]; then
+        # Rule 5: git mode. One ConfigMap key decides for every plugin Application.
+        if [ "$(norm "$git_repo")" != "$REPO_NORM" ]; then
+            fail "$PLUGIN_NS/$PLUGIN_CM: PLUGIN_GIT_REPO_URL $git_repo is not this repository (want $REPO_NORM)"
+            return
+        fi
+        PLUGIN_GIT_PATH=$(printf '%s' "$cm" | jq -r '.data.PLUGIN_GIT_PATH // ""' | sed 's:/*$::')
+        [ -n "$PLUGIN_GIT_PATH" ] || PLUGIN_GIT_PATH=plugins/charts
+        while IFS="$SEP" read -r name multi chart path repo target syncrev sync health; do
+            is_excluded "$name" && continue
+            if [ "$multi" != "0" ]; then
+                fail "$name: multi-source Application (want one source $PLUGIN_GIT_PATH/profile-plugin-<x>)"
+                continue
+            fi
+            if [ -n "$chart" ]; then
+                fail "$name: Helm chart $chart in git mode (want $PLUGIN_GIT_PATH/profile-plugin-<x>)"
+                continue
+            fi
+            [ "$(norm "$repo")" = "$REPO_NORM" ] || fail "$name: repoURL $repo (want $REPO_NORM)"
+            plugin_path "$path" || fail "$name: path $path (want $PLUGIN_GIT_PATH/profile-plugin-<x>)"
+            [ "$target" = "$REVISION" ] || fail "$name: targetRevision $target (want $REVISION)"
+            [ "$syncrev" = "$REVISION" ] || fail "$name: sync revision $syncrev (want $REVISION)"
+            [ "$sync" = "Synced" ] || fail "$name: sync $sync (want Synced)"
+            [ "$health" = "Healthy" ] || fail "$name: health $health (want Healthy)"
+        done < "$PLUGIN_APPS"
+        PLUGIN_SUMMARY="rule 5: $count profile-plugin Applications at $REVISION"
+        return
+    fi
+    # Rule 4: chart mode. PLUGIN_CHART_VERSION is the version every plugin chart must be at.
     version=$(printf '%s' "$cm" | jq -r '.data.PLUGIN_CHART_VERSION // ""')
     if [ -z "$version" ]; then
         fail "$PLUGIN_NS/$PLUGIN_CM: no data.PLUGIN_CHART_VERSION"
         return
     fi
-    printf '%s\n' "$plugins" | while IFS="$(printf '\t')" read -r name have; do
-        [ "$have" = "$version" ] || fail "$name: plugin chart $have (want $version, $PLUGIN_CM)"
-    done
+    while IFS="$SEP" read -r name multi chart path repo target syncrev sync health; do
+        is_excluded "$name" && continue
+        if [ "$multi" != "0" ]; then
+            fail "$name: multi-source Application, no spec.source.chart ($PLUGIN_CM)"
+            continue
+        fi
+        case "$chart" in
+            "")
+                fail "$name: git source (path $path) while $PLUGIN_CM sets no PLUGIN_GIT_REPO_URL (chart mode)"
+                continue ;;
+            profile-plugin-*) ;;
+            *)
+                fail "$name: plugin chart $chart is not a profile-plugin chart"
+                continue ;;
+        esac
+        [ "$target" = "$version" ] || fail "$name: plugin chart $target (want $version, $PLUGIN_CM)"
+        [ "$sync" = "Synced" ] || fail "$name: sync $sync (want Synced)"
+        [ "$health" = "Healthy" ] || fail "$name: health $health (want Healthy)"
+    done < "$PLUGIN_APPS"
+    PLUGIN_SUMMARY="rule 4: $count profile-plugin Applications at chart $version"
 }
 
 # check: one poll. Appends failure lines to $FAILS and returns 1 when there is any.
@@ -215,6 +318,8 @@ deadline=$(( $(date +%s) + TIMEOUT ))
 while :; do
     if check; then
         echo "revision-check: $ROOT_APP is Synced at $REVISION and every Application checked is current"
+        # The plugin summary, once, on the poll that passed (not every poll).
+        [ -z "$PLUGIN_SUMMARY" ] || printf '%s\n' "$PLUGIN_SUMMARY"
         exit 0
     fi
     now=$(date +%s)
