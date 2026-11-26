@@ -114,6 +114,7 @@ tests:
     set:
       autoPromotion.pins.wg-tunnel: false
       autoPromotion.pins.backstage: false
+      autoPromotion.pins.jwks-server: false
     asserts:
       - lengthEqual: {path: spec.promotionPolicies, count: 16}
       - contains:
@@ -128,8 +129,7 @@ tests:
       - contains:
           path: spec.promotionPolicies
           content: {stageSelector: {name: pin-backstage}, autoPromotionEnabled: false}
-      # jwks-server (CI v4 P9.1 S7) has its pin Stage and Warehouse, but autoPromotion.pins holds no entry for it
-      # yet: the policy exists and is off, so a new build is never pinned by Kargo on its own.
+      # jwks-server (CI v4 P9.1 S7): its policy follows autoPromotion.pins like every group.
       - contains:
           path: spec.promotionPolicies
           content: {stageSelector: {name: pin-jwks-server}, autoPromotionEnabled: false}
@@ -157,3 +157,13 @@ tests:
       - contains:
           path: spec.promotionPolicies
           content: {stageSelector: {name: pin-device-controller}, autoPromotionEnabled: false}
+
+  - it: pins jwks-server automatically with the shipped values (CI v4 P9.1 S7 P-b)
+    template: templates/project.yaml
+    documentSelector:
+      path: kind
+      value: ProjectConfig
+    asserts:
+      - contains:
+          path: spec.promotionPolicies
+          content: {stageSelector: {name: pin-jwks-server}, autoPromotionEnabled: true}
