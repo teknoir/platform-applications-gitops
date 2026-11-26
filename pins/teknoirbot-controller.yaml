@@ -3,4 +3,4 @@
 # pin-teknoirbot-controller and by scripts/pin-image; do not edit by hand.
 image:
   # required: '<tag>@sha256:<digest>' (scripts/pin-image teknoirbot-controller ...)
-  tag: sha-7fa977bf@sha256:8be4de32bff66b8b5108ad5d7aa83d49b5cf65615bf955a8d5d119f6d4d6e0d2
+  tag: sha-f8b60dfa@sha256:7e97d7712a3a6f26fc8e264f05118fd7d3efb151fd80e02560903eebcf60b5bf
