@@ -39,6 +39,9 @@ class HelmRepos(unittest.TestCase):
             self.assertEqual(added.count(url), 1, f"{url} added {added.count(url)} times: {added}")
         self.assertEqual(len(added), len(set(added)), f"a repository is added twice: {added}")
         self.assertNotIn("https://github.com/teknoir/platform-applications-gitops", added)
+        # profile-plugin-emqx depends on emqx 5.8.9, vendored as Chart.lock + charts/emqx-5.8.9.tgz: its repository is
+        # not added, so the render and the helm tests need no egress for it (plugins/charts/README.md).
+        self.assertNotIn("https://repos.emqx.io/charts", added)
         self.assertIn("repo update", lines[-1])
 
 

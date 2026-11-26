@@ -1,29 +1,40 @@
 #!/usr/bin/env bash
 # Render a release of platform-applications-gitops the way ArgoCD does: the root chart with
 # release=<sha> (the helm parameter Kargo passes as release=$ARGOCD_APP_REVISION), then every gitops
-# child Application with its own helm valueFiles and parameters, then the profile-plugin charts at the
-# pluginChartVersion of profile-controller.
-# Read-only: it never talks to a cluster; the only network use is `helm dependency build/update`, the
-# plugin chart repository and (with --plugins) its index.
+# child Application with its own helm valueFiles and parameters, then the profile-plugin charts (see --plugins).
+# Read-only: it never talks to a cluster; the only network use is `helm dependency build/update` and, in the
+# chart-repository plugin mode, the plugin chart repository and its index (tree mode is offline).
 #
 # valueFiles are resolved the way ArgoCD resolves them in the repository (not in the chart copy the render uses):
 # a relative entry against the chart's path in --tree, an absolute one (leading /) against the repository root.
 # Each must be a file inside the tree, and its content is part of the cache key.
 #
 #   staging-render.sh --tree DIR --release SHA --out DIR [--cache DIR]
-#                     [--plugins auto|none|VERSION] [--plugin-repo URL]
+#                     [--plugins auto|none|tree|VERSION] [--plugin-repo URL]
 #
 #   DIR/root.yaml            the rendered root chart
 #   DIR/apps/<name>.yaml     each gitops child, rendered with its Application's parameters
 #   DIR/apps.tsv             name, path, namespace (one per child)
-#   DIR/plugins/<chart>.yaml each profile-plugin-* chart at the plugin version, default values
-#   DIR/plugins.json         {"version": ..., "digests": {chart: index digest}}
+#   DIR/plugins/<chart>.yaml each profile-plugin-* chart, default values
+#   DIR/plugins.json         chart-repository mode: {"version": ..., "digests": {chart: index digest}}
+#                            tree mode: {"mode": "git", "revision": SHA, "charts": [...]}
 #   DIR/failed               names that failed to render (exit status 1)
+#
+# --plugins:
+#   auto     tree mode when the rendered profile-controller config ConfigMap carries a non-empty
+#            PLUGIN_GIT_REPO_URL (profile-controller renders the plugin chart from this repository), else the
+#            chart-repository mode at the ConfigMap's PLUGIN_CHART_VERSION (the published repository, today)
+#   tree     every plugins/charts/profile-plugin-* of --tree, offline and at the default values: the imported
+#            charts (CI v4 P9.1) are rendered, linted and kubeconformed from day one; the one dependency (emqx)
+#            is vendored in the tree, so no repository is fetched
+#   none     no plugin charts
+#   VERSION  chart-repository mode at VERSION
 #
 # Children whose chart content is unchanged since an earlier render (the same hash of the chart directory's
 # files, tracked or untracked-but-not-ignored, and the same parameters) are copied from the cache (default
 # ~/.cache/gitops-render), so a warm run renders only what changed: an uncommitted template edit
-# invalidates it. Plugin charts are immutable per version and cached by name@version.
+# invalidates it. Plugin charts are immutable per version and cached by name@version; a tree plugin chart is
+# cached by the content hash of its directory, so a gitops revision that changes it renders it again.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -142,20 +153,77 @@ while IFS=$'\t' read -r name path ns rel params vfiles; do
 done < "$OUT/apps.full.tsv"
 rm -f "$OUT/apps.full.tsv"
 
-# --- profile plugins at pluginChartVersion ---------------------------------------------------
+# --- profile plugins -------------------------------------------------------------------------
+# render_plugins_tree: every plugins/charts/profile-plugin-* of the tree, offline (the emqx dependency is vendored
+# and needs no repository; helm-repos.sh adds nothing for it), at the default values. The imported charts ship by
+# gitops revision, not by a version, so each render is cached by the content hash of its chart directory.
+render_plugins_tree() {
+  local d chart name ckey c
+  local charts=()
+  for d in "$TREE_ABS"/plugins/charts/profile-plugin-*/; do
+    [[ -f "$d/Chart.yaml" ]] || continue
+    chart=$(basename "$d")
+    charts+=("$chart")
+    name=${chart#profile-plugin-}
+    ckey=$(chart_key "plugins/charts/$chart") || ckey=nogit
+    c="$CACHE/plugin-git-$chart-$ckey.yaml"
+    if [[ "$ckey" != nogit && -s "$c" ]]; then
+      cp "$c" "$OUT/plugins/$chart.yaml"
+      echo "plugins  cached $chart"
+      continue
+    fi
+    if helm template "$name" "$d" --namespace teknoir-plugins > "$OUT/plugins/$chart.yaml" 2>"$CACHE/plugin.err"; then
+      [[ "$ckey" != nogit ]] && cp "$OUT/plugins/$chart.yaml" "$c"
+      echo "plugins  rendered $chart"
+    else
+      echo "FAILED   $chart: $(head -c 300 "$CACHE/plugin.err")" >&2
+      rm -f "$OUT/plugins/$chart.yaml"
+      failed+=("$chart")
+    fi
+  done
+  ((${#charts[@]})) || echo "plugins: no plugins/charts/profile-plugin-* under $TREE_ABS" >&2
+  python3 -I - "$OUT/plugins.json" "${RELEASE:-}" ${charts[@]+"${charts[@]}"} <<'PY'
+import json, sys
+with open(sys.argv[1], "w") as fh:
+    json.dump({"mode": "git", "revision": sys.argv[2] or None, "charts": sys.argv[3:]}, fh, indent=1)
+    fh.write("\n")
+PY
+}
+
 if [[ "$PLUGINS" != "none" ]]; then
-  VERSION="$PLUGINS"
+  MODE=chart VERSION="" GIT_REPO_URL=""
+  if [[ "$PLUGINS" == "tree" ]]; then
+    MODE=tree
+  elif [[ "$PLUGINS" != "auto" ]]; then
+    VERSION="$PLUGINS"
+  fi
   if [[ "$PLUGINS" == "auto" ]]; then
-    VERSION=$(python3 -I - "$OUT/apps/profile-controller.yaml" <<'PY' 2>/dev/null || true
+    # The controller's config ConfigMap says where a profile plugin's chart comes from: PLUGIN_GIT_REPO_URL (non-empty)
+    # means this repository (rendered from plugins/charts/ at the release), PLUGIN_CHART_VERSION the published chart
+    # repository at that version (today, until the CI v4 P9.1 switch).
+    CFG=$(python3 -I - "$OUT/apps/profile-controller.yaml" <<'PY' 2>/dev/null || true
 import sys, yaml
-for d in yaml.safe_load_all(open(sys.argv[1])):
-    if isinstance(d, dict) and d.get("kind") == "ConfigMap":
-        v = (d.get("data") or {}).get("PLUGIN_CHART_VERSION")
-        if v: print(v); break
+version = git = ""
+try:
+    docs = list(yaml.safe_load_all(open(sys.argv[1])))
+except OSError:
+    docs = []
+for d in docs:
+    if not isinstance(d, dict) or d.get("kind") != "ConfigMap":
+        continue
+    data = d.get("data") or {}
+    version = version or str(data.get("PLUGIN_CHART_VERSION") or "")
+    git = git or str(data.get("PLUGIN_GIT_REPO_URL") or "")
+print(f"{version}\t{git}")
 PY
 )
+    IFS=$'\t' read -r VERSION GIT_REPO_URL <<<"$CFG"
+    [[ -n "$GIT_REPO_URL" ]] && MODE=tree
   fi
-  if [[ -z "$VERSION" ]]; then
+  if [[ "$MODE" == tree ]]; then
+    echo "plugins  tree ${RELEASE:-unknown}: $(ls -d "$TREE_ABS"/plugins/charts/profile-plugin-*/ 2>/dev/null | wc -l) charts"
+    render_plugins_tree
+  elif [[ -z "$VERSION" ]]; then
     echo "plugins: no pluginChartVersion in the profile-controller render, skipping" >&2
     echo '{"version": null, "digests": {}}' > "$OUT/plugins.json"
   else

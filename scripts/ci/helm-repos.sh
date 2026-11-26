@@ -8,6 +8,10 @@
 # Sources (https:// only, de-duplicated):
 #   charts/*/Chart.yaml    dependencies[].repository (a commented-out line never counts)
 #   charts/*/Chart.lock    dependencies[].repository
+#   plugins/charts/*/      the same two, for a profile plugin chart whose dependency is not vendored: a chart whose
+#                          Chart.lock archives are all committed under its charts/ directory (the emqx 5.8.9 of
+#                          profile-plugin-emqx, plugins/charts/README.md) needs no repository at all, so nothing
+#                          is added for it and a render stays offline
 #   charts/app-of-apps/templates/*.yaml
 #                          the repoURL of a child Application that pulls a Helm chart (a `chart:` field next to
 #                          it). The templates are not valid YAML before rendering, so this is a line regex.
@@ -18,9 +22,34 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 
+# vendored: Chart.lock exists and every dependency archive it names is committed under charts/. helm dependency
+# build reports such a dependency ok and never fetches it, so its repository would only be a network dependency.
+vendored() { # chart-dir
+  local name version n=0
+  [[ -f "$1/Chart.lock" ]] || return 1
+  while read -r name version; do
+    n=$((n + 1))
+    [[ -f "$1/charts/$name-$version.tgz" ]] || return 1
+  done < <(awk '/^- name:/ { n = $3 } /^  version:/ { print n, $2 }' "$1/Chart.lock")
+  ((n > 0))
+}
+
+sources=(charts/*/Chart.yaml charts/*/Chart.lock)
+for d in plugins/charts/*/; do
+  d=${d%/}
+  [[ -f "$d/Chart.yaml" ]] || continue
+  grep -q '^dependencies:' "$d/Chart.yaml" || continue
+  if vendored "$d"; then
+    echo "helm-repos: vendored, no repository added: $d" >&2
+  else
+    sources+=("$d/Chart.yaml")
+    if [[ -f "$d/Chart.lock" ]]; then sources+=("$d/Chart.lock"); fi
+  fi
+done
+
 repos=$(
   {
-    awk '$1 == "repository:" && $2 ~ /^"?https:\/\// { gsub(/"/, "", $2); print $2 }' charts/*/Chart.yaml charts/*/Chart.lock
+    awk '$1 == "repository:" && $2 ~ /^"?https:\/\// { gsub(/"/, "", $2); print $2 }' "${sources[@]}"
     awk '
       { line[NR] = $0 }
       END {

@@ -198,11 +198,11 @@ class Applications(unittest.TestCase):
 
 
 class ChartDeps(unittest.TestCase):
-    def charts(self, *versions):
+    def charts(self, *versions, tree="charts"):
         d = H.tmpdir()
         for i, v in enumerate(versions):
-            os.makedirs(os.path.join(d, "charts", f"c{i}"))
-            with open(os.path.join(d, "charts", f"c{i}", "Chart.yaml"), "w") as fh:
+            os.makedirs(os.path.join(d, *tree.split("/"), f"c{i}"))
+            with open(os.path.join(d, *tree.split("/"), f"c{i}", "Chart.yaml"), "w") as fh:
                 fh.write(f"name: c{i}\ndependencies:\n  - name: x\n    version: {v!r}\n    repository: https://x\n")
         return d
 
@@ -213,9 +213,25 @@ class ChartDeps(unittest.TestCase):
         for v in ("^1.2.3", "~1.2.0", ">=1.0.0", "1.x", "*", "1.2.3 - 2.0.0", "1.2", ""):
             self.assertEqual(codes(CP.check_chart_deps(self.charts(v))), ["chart-dependency-range"], v)
 
+    def test_a_range_in_the_plugin_tree_fails(self):
+        # plugins/charts/: the imported profile plugin charts (CI v4 P9.1) are checked like charts/
+        f = CP.check_chart_deps(self.charts("~1.2.0", tree="plugins/charts"))
+        self.assertEqual(codes(f), ["chart-dependency-range"])
+        self.assertEqual(f[0].where, "plugins/charts/c0/Chart.yaml")
+
+    def test_a_repo_without_a_plugin_tree_is_fine(self):
+        self.assertEqual(CP.check_chart_deps(H.tmpdir()), [])
+
     def test_the_real_charts_have_exact_dependencies(self):
         root = os.path.dirname(H.SCRIPTS)
         self.assertEqual(CP.check_chart_deps(root), [])
+
+    def test_the_emqx_dependency_is_exact(self):
+        root = os.path.dirname(H.SCRIPTS)
+        self.assertTrue(os.path.isfile(os.path.join(root, "plugins/charts/profile-plugin-emqx/Chart.yaml")))
+        with open(os.path.join(root, "plugins/charts/profile-plugin-emqx/Chart.yaml")) as fh:
+            deps = CP.yaml.safe_load(fh)["dependencies"]
+        self.assertEqual([(d["name"], d["version"]) for d in deps], [("emqx", "5.8.9")])
 
 
 class FleetPointers(unittest.TestCase):
