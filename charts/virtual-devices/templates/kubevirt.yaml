@@ -22,6 +22,12 @@ spec:
     virtualMachineOptions:
       disableSerialConsoleLog: {}
     {{- end }}
+    {{- if .Values.kubevirt.launcherSeccompRuntimeDefault }}
+    seccompConfiguration:
+      virtualMachineInstanceProfile:
+        customProfile:
+          runtimeDefaultProfile: true
+    {{- end }}
   imagePullPolicy: IfNotPresent
   infra:
     replicas: {{ int .Values.kubevirt.infraReplicas }}
