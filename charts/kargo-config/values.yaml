@@ -83,6 +83,9 @@ autoPromotion:
     # jwks-server (CI v4 P9.1 S7, first profile-plugin group): Kargo writes plugins/charts/profile-plugin-jwks/values.yaml;
     # a pin restarts jwks in every teamspace with the plugin (one replica, Recreate). The first Freight equals the pin.
     jwks-server: true
+    # fleet-metrics (CI v4 P9.1 S7): metrics-processor and metrics-publisher from one commit; a pin restarts the
+    # fleet-metrics pod of every teamspace with the plugin. The first Freight (sha-ba6ed3e0) equals the pin.
+    fleet-metrics: true
 
 staging:
   # P4.3 (b) fallback: also set the root Application's Helm parameter `release` to the Freight commit (besides
