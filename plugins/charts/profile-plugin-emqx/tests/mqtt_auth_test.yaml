@@ -78,12 +78,12 @@ tests:
       - notExists:
           path: data.EMQX_AUTHENTICATION__4__MECHANISM
 
-  - it: observe mode - no_match allow, deny_action ignore, never use_username_as_clientid
+  - it: authz enforce (0.0.114) - no_match deny, deny_action ignore, never use_username_as_clientid
     template: charts/emqx/templates/configmap.yaml
     asserts:
       - equal:
           path: data.EMQX_AUTHORIZATION__NO_MATCH
-          value: allow
+          value: deny
       - equal:
           path: data.EMQX_AUTHORIZATION__DENY_ACTION
           value: ignore
@@ -103,24 +103,15 @@ tests:
           path: data.EMQX_AUTHORIZATION__SOURCES__1__PATH
           pattern: '^/opt/emqx-acl/acl-[0-9a-f]{12}\.conf$'
 
-  - it: source 2 is the jwks audit sink
+  - it: the ACL file is the only authorization source (the audit sink is gone since 0.0.114)
     template: charts/emqx/templates/configmap.yaml
     asserts:
-      - equal:
+      - notExists:
           path: data.EMQX_AUTHORIZATION__SOURCES__2__TYPE
-          value: http
-      - equal:
-          path: data.EMQX_AUTHORIZATION__SOURCES__2__METHOD
-          value: post
-      - equal:
+      - notExists:
           path: data.EMQX_AUTHORIZATION__SOURCES__2__URL
-          value: http://jwks:8083/api/v1/mqtt/authz-audit
-      - equal:
-          path: data.EMQX_AUTHORIZATION__SOURCES__2__REQUEST_TIMEOUT
-          value: 2s
-      - equal:
+      - notExists:
           path: data.EMQX_AUTHORIZATION__SOURCES__2__BODY
-          value: '{"action":"${action}","clientid":"${clientid}","qos":"${qos}","retain":"${retain}","topic":"${topic}","username":"${username}"}'
       - notExists:
           path: data.EMQX_AUTHORIZATION__SOURCES__3__TYPE
 

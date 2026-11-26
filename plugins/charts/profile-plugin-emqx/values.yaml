@@ -98,19 +98,13 @@ emqx:
     # Legacy fallback only (README "MQTT authentication and authorization"); 0.0.115 removes it.
     EMQX_AUTHENTICATION__3__ACL_CLAIM_NAME: "x_teknoir_unused_acl"
     EMQX_AUTHENTICATION__3__VERIFY_CLAIMS: '{aud= \"teknoir\"}'
-    # Authorization: the chart's ACL file (templates/acl-configmap.yaml), then the jwks audit sink,
-    # which only sees what the file did not allow and logs it as would_deny.
-    EMQX_AUTHORIZATION__NO_MATCH: "allow"                  # 0.0.114: "deny"
+    # Authorization: the chart's ACL file (templates/acl-configmap.yaml) is the only source; what it
+    # does not allow is refused (0.0.114 authz enforce; the jwks audit sink was removed with it).
+    EMQX_AUTHORIZATION__NO_MATCH: "deny"
     EMQX_AUTHORIZATION__DENY_ACTION: "ignore"
     EMQX_AUTHORIZATION__SOURCES__1__TYPE: "file"
     EMQX_AUTHORIZATION__SOURCES__1__ENABLE: "true"
     EMQX_AUTHORIZATION__SOURCES__1__PATH: '/opt/emqx-acl/{{ include "teknoir.emqx.aclFile" . }}'
-    EMQX_AUTHORIZATION__SOURCES__2__TYPE: "http"           # observe only; removed in 0.0.114
-    EMQX_AUTHORIZATION__SOURCES__2__ENABLE: "true"
-    EMQX_AUTHORIZATION__SOURCES__2__METHOD: "post"
-    EMQX_AUTHORIZATION__SOURCES__2__URL: "http://jwks:8083/api/v1/mqtt/authz-audit"
-    EMQX_AUTHORIZATION__SOURCES__2__REQUEST_TIMEOUT: "2s"
-    EMQX_AUTHORIZATION__SOURCES__2__BODY: {username: "${username}", clientid: "${clientid}", topic: "${topic}", action: "${action}", qos: "${qos}", retain: "${retain}"}
     # Retained messages are stored on disc (the emqx-data volume at /opt/emqx/data), so they
     # survive an EMQX restart. device-controller publishes each device's config as a retained
     # message on /devices/<device>/config and republishes it only when the config changes.

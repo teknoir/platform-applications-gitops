@@ -60,9 +60,11 @@ Everything else falls to `authorization.no_match`. The file has no allow-all lin
 only a change of the env ConfigMap rolls the pod, so the file name carries the first 12 hex
 digits of the content's sha256: an ACL change changes `SOURCES__1__PATH` and restarts EMQX.
 
-While observing, source 2 is an HTTP audit sink, `POST http://jwks:8083/api/v1/mqtt/authz-audit`.
-It sees only requests the file did not decide, always answers "ignore", and jwks-server logs them
-as `mqtt_authz_audit decision=would_deny`. `no_match` is `allow`, so nothing is refused yet.
+Since 0.0.114 the file is the only source and `no_match` is `deny`: a request the file does not
+allow is refused (with `deny_action: ignore`, a refused publish is dropped and the client stays
+connected; a refused subscribe gets reason code 0x87). Until 0.0.113-p2, source 2 was an HTTP
+audit sink (`POST http://jwks:8083/api/v1/mqtt/authz-audit`, always "ignore", logged by
+jwks-server as `mqtt_authz_audit decision=would_deny`) and `no_match` was `allow`.
 Do not set `mqtt.use_username_as_clientid`: platform clients share the user `teknoir` with
 distinct clientids and would take over each other's sessions.
 
@@ -77,8 +79,9 @@ distinct clientids and would take over each other's sessions.
 | 0.0.114 authz enforce | `enforce` | `deny` | removed | yes | EMQX |
 | 0.0.115 fail closed | `enforce` | `deny` | removed | removed | EMQX |
 
-Who would be denied while observing:
+Who would be denied while observing (up to 0.0.113-p2):
 `kubectl -n <ns> logs deploy/jwks -c jwks | grep -E 'mqtt_(authn|authz_audit)' | grep -v decision=allow`.
+Since 0.0.114, refusals are in EMQX: `kubectl -n <ns> exec deploy/emqx -- emqx ctl metrics | grep -E 'authorization\.(deny|nomatch)'`.
 
 **Rollback.** Pin the previous plugin chart version (profile-controller `pluginChartVersion`
 through a staging release); EMQX and jwks get the old env and image back exactly. Do not change
