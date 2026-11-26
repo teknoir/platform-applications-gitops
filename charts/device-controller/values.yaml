@@ -119,6 +119,12 @@ virtualDevices:
   # internet: virtual devices reach the platform gateway and the public internet
   # (private ranges excluded); platform-only: the platform gateway only.
   egress: internet
+  # Pod Security level enforced in the <teamspace>-vdev namespaces (warn and audit are
+  # restricted already). restricted since 2026-11-26 (plans/teknoirbot/root-in-vm.md R4):
+  # the virt-launcher pods run with RuntimeDefault seccomp (charts/virtual-devices) and
+  # otherwise already met it; CDI importer pods set a restricted security context. A
+  # server-side dry-run of the label on r415 listed no violating pod. Rollback: baseline.
+  podSecurityEnforce: restricted
   # One runtime namespace <teamspace>-vdev per entry, with the quota derived from
   # the allowance (devices, whole vCPUs, whole Gi). Teamspace name: at most 58 chars.
   # Removing an entry (or disabling the block, or reverting it) keeps the namespace

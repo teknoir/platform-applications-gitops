@@ -36,7 +36,7 @@ metadata:
     teknoir.org/component: virtual-device-runtime
     # No sidecars: the device reaches the platform like an external device.
     istio-injection: disabled
-    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce: {{ $.Values.virtualDevices.podSecurityEnforce | default "baseline" }}
     pod-security.kubernetes.io/enforce-version: latest
     pod-security.kubernetes.io/warn: restricted
     pod-security.kubernetes.io/warn-version: latest

@@ -69,7 +69,7 @@ tests:
           value: disabled
       - equal:
           path: metadata.labels["pod-security.kubernetes.io/enforce"]
-          value: baseline
+          value: restricted
       - equal:
           path: metadata.labels["pod-security.kubernetes.io/enforce-version"]
           value: latest
