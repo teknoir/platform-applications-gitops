@@ -143,7 +143,7 @@ class Refs(unittest.TestCase):
                 if c.get("values_files"):                                       # a grouped row pinned in chart values
                     self.assertIsNone(c["pins_file"], c)
                     for f in PI.image_paths(c):
-                        self.assertTrue(f.startswith("charts/"), c)
+                        self.assertTrue(f.startswith(("charts/", "plugins/charts/")), c)
                 else:
                     self.assertTrue(PI.image_path(c).startswith("pins/"), c)    # a grouped row pins in pins/<group>.yaml
                 self.assertFalse(c.get("values_file"), c)
@@ -210,6 +210,10 @@ class PinFlow(unittest.TestCase):
         for rel in self.arc_files:
             with open(os.path.join(arc, os.path.basename(rel))) as fh:
                 self.write(rel, fh.read())
+        # jwks-server is pinned in the profile-plugin-jwks values under plugins/charts/ (values_files, CI v4 P9.1 S7)
+        self.plugin_file = "plugins/charts/profile-plugin-jwks/values.yaml"
+        with open(os.path.join(os.path.dirname(H.SCRIPTS), self.plugin_file)) as fh:
+            self.write(self.plugin_file, fh.read())
         self.out = []
 
     def write(self, rel, text):
@@ -257,6 +261,24 @@ class PinFlow(unittest.TestCase):
             # the comment block above the pinned line and the neighbouring keys stay as written
             self.assertIn("Pinned by Kargo Stage pin-ci-runner", text)
             self.assertIn("imagePullPolicy: IfNotPresent", text)
+
+    def test_a_plugin_values_row_rewrites_only_the_version_line(self):
+        # the profile-plugin values under plugins/charts/ (values_files): a tag-style pin, one plain key, and the
+        # registry next to it stays as written (Kargo's yaml-update, which pin-image mirrors, writes one key)
+        before = self.read(self.plugin_file)
+        res = self.pin(FakeSys()).pin("jwks-server", "sha-abcdef12", write=True)
+        want = "sha-abcdef12@" + D
+        self.assertEqual(res["new"], want)
+        self.assertEqual(res["files"], [self.plugin_file])
+        after = self.read(self.plugin_file)
+        self.assertEqual(PI.get_leaf(after, "jwks.image.version"), want)
+        self.assertEqual(PI.get_leaf(after, "jwks.image.registry"), "harbor.teknoir.cloud/teknoir/jwks-server")
+        self.assertEqual(len(after.split("\n")), len(before.split("\n")))
+        changed = [i for i, (a, b) in enumerate(zip(before.split("\n"), after.split("\n"))) if a != b]
+        self.assertEqual(len(changed), 1, changed)
+        self.assertEqual(before.split("\n")[changed[0]].strip().split(":")[0], "version")
+        # the comment above the pin stays
+        self.assertIn("Pinned by Kargo Stage pin-jwks-server", after)
 
     def test_a_values_files_row_keeps_the_index_paths_comments_and_line_count(self):
         before = {rel: self.read(rel) for rel in self.arc_files}

@@ -108,14 +108,14 @@ tests:
     documentSelector:
       path: kind
       value: ProjectConfig
-    # 15 = staging + staging-verified + one per group in values.yaml (a policy exists for every group, enabled or
-    # not; ci-runner included). Helm merges maps, so `pins: {}` cannot clear a default: the asserted pin policies
-    # are set off explicitly.
+    # 16 = staging + staging-verified + one per group in values.yaml (a policy exists for every group, enabled or
+    # not; ci-runner and jwks-server included). Helm merges maps, so `pins: {}` cannot clear a default: the
+    # asserted pin policies are set off explicitly.
     set:
       autoPromotion.pins.wg-tunnel: false
       autoPromotion.pins.backstage: false
     asserts:
-      - lengthEqual: {path: spec.promotionPolicies, count: 15}
+      - lengthEqual: {path: spec.promotionPolicies, count: 16}
       - contains:
           path: spec.promotionPolicies
           content: {stageSelector: {name: staging}, autoPromotionEnabled: true}
@@ -128,6 +128,11 @@ tests:
       - contains:
           path: spec.promotionPolicies
           content: {stageSelector: {name: pin-backstage}, autoPromotionEnabled: false}
+      # jwks-server (CI v4 P9.1 S7) has its pin Stage and Warehouse, but autoPromotion.pins holds no entry for it
+      # yet: the policy exists and is off, so a new build is never pinned by Kargo on its own.
+      - contains:
+          path: spec.promotionPolicies
+          content: {stageSelector: {name: pin-jwks-server}, autoPromotionEnabled: false}
 
   - it: turns one policy on without touching the others
     template: templates/project.yaml

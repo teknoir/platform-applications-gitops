@@ -2,8 +2,9 @@
 sections 1 and 2): every grouped image row is pinned in pins/<group>.yaml and empty in its chart values, and it makes
 its chart's child Application list ../../pins/<group>.yaml for project teknoir-cloud; a grouped row with values_files
 (such as ci-runner) is pinned in those chart values files instead, which the scale-set Applications already list as
-their `$values` source. No Application lists valueFiles for teknoir-online or teknoir-local (those branches have no
-pins/ directory, and their root render must not change).
+their `$values` source, or (a profile-plugin row, CI v4 P9.1 S7) in the plugin chart values under plugins/charts/,
+which the plugin tree render uses. No Application lists valueFiles for teknoir-online or teknoir-local (those branches
+have no pins/ directory, and their root render must not change).
 
 PinsLiveInTheGroupFiles reads files only and never skips. PinsWiring renders the root with helm: without helm on PATH
 that class skips."""
@@ -25,6 +26,13 @@ IMAGES = os.path.join(H.SCRIPTS, "images.yaml")
 CLOUD, ONLINE, LOCAL = "teknoir-cloud", "teknoir-online", "teknoir-local"
 # chart directory -> Application name, where they differ
 APP_NAME = {"auth": "auth", "ztna": "ztna"}
+# A pinned value in the shape of its row's style (scripts/images.yaml: ref = repo:tag@digest, tag = tag@digest,
+# digest = the digest alone).
+PIN_RE = {
+    "ref": r"^[^@\s]+:[^@\s]+@sha256:[0-9a-f]{64}$",
+    "tag": r"^[^@\s]+@sha256:[0-9a-f]{64}$",
+    "digest": r"^sha256:[0-9a-f]{64}$",
+}
 
 
 def load_images():
@@ -81,11 +89,15 @@ class PinsLiveInTheGroupFiles(unittest.TestCase):
                 continue
             name = row["component"]
             if row.get("values_files"):
-                # pinned where it is consumed (the ARC scale-set values): set in every listed file
+                # pinned where it is consumed (the ARC scale-set values, a profile-plugin values file): set in every
+                # listed file, in the shape of the row's style
                 for f in row["values_files"]:
-                    pin = value_at(os.path.join(ROOT, f), row["key_path"])
+                    path = os.path.join(ROOT, f)
+                    self.assertTrue(os.path.isfile(path), f"{name}: {f} does not exist")
+                    pin = value_at(path, row["key_path"])
                     self.assertIsInstance(pin, str, f"{name}: {f} has no {row['key_path']}")
                     self.assertTrue(pin.strip(), f"{name}: {f} {row['key_path']} is empty")
+                    self.assertRegex(pin.strip(), PIN_RE[row["style"]], f"{name}: {f} {row['key_path']}")
                 continue
             pin = value_at(os.path.join(ROOT, row["pins_file"]), row["key_path"])
             self.assertIsInstance(pin, str, f"{name}: {row['pins_file']} has no {row['key_path']}")
@@ -124,13 +136,28 @@ class PinsWiring(unittest.TestCase):
                 continue
             if row.get("values_files"):
                 # the scale-set Applications already list these files as their `$values` source: the template
-                # renders one scale-set Application per set of its $scaleSets list over this directory
+                # renders one scale-set Application per set of its $scaleSets list over this directory; a
+                # profile-plugin row pins the plugin chart values, which the plugin tree render (scripts/
+                # staging-render.sh --plugins tree) renders from plugins/charts/
                 for f in row["values_files"]:
                     m = re.match(r"^charts/ci-runners/arc/([a-z0-9-]+)\.yaml$", f)
+                    if m:
+                        self.assertIn("$values/charts/ci-runners/arc/", ci_runners, f"{row['component']}: {f}")
+                        self.assertRegex(ci_runners, r"\$scaleSets := list[^\n]*\b%s\b" % re.escape(m.group(1)),
+                                         f"{row['component']}: {f}")
+                        continue
+                    m = re.match(r"^plugins/charts/(profile-plugin-[a-z0-9-]+)/values\.yaml$", f)
                     self.assertIsNotNone(m, f"{row['component']}: {f}")
-                    self.assertIn("$values/charts/ci-runners/arc/", ci_runners, f"{row['component']}: {f}")
-                    self.assertRegex(ci_runners, r"\$scaleSets := list[^\n]*\b%s\b" % re.escape(m.group(1)),
-                                     f"{row['component']}: {f}")
+                    chart = m.group(1)
+                    self.assertEqual(row["chart"], chart, f"{row['component']}: {f}")
+                    path = os.path.join(ROOT, "plugins", "charts", chart)
+                    self.assertTrue(os.path.isfile(os.path.join(path, "Chart.yaml")), f"{row['component']}: {f}")
+                    pin = value_at(os.path.join(ROOT, f), row["key_path"])
+                    self.assertIsInstance(pin, str, f"{row['component']}: {f} has no {row['key_path']}")
+                    # the tree render of the chart takes its own values file: the pin reaches the manifests
+                    out = subprocess.run(["helm", "template", chart, path], check=True, capture_output=True,
+                                         text=True).stdout
+                    self.assertIn(pin, out, f"{row['component']}: the render of {chart} does not use {f}")
                 continue
             self.assertEqual(row["pins_file"], f"pins/{row['group']}.yaml", row["component"])
             self.assertFalse(row.get("values_file"), row["component"])

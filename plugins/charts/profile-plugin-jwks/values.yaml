@@ -35,10 +35,9 @@ mqttAuth:
 
 jwks:
   image:
-    registry: ghcr.io/teknoir/jwks-server
-    # jwks-server main 425041a3 (#13): MQTT authn endpoint and GET /api/v1/keys/legacy with
-    # LEGACY_KEYS_EXCLUDE_PREFIXES. linux/amd64 manifest digest. Never pin a tag that cannot be
-    # pulled: jwks is one replica with strategy Recreate.
+    registry: harbor.teknoir.cloud/teknoir/jwks-server
+    # Pinned by Kargo Stage pin-jwks-server (scripts/images.yaml) from Harbor since CI v4 P9.1: never
+    # edit by hand. Never pin a tag that cannot be pulled: jwks is one replica with strategy Recreate.
     version: sha-425041a3@sha256:c3414743e135e2363bba003702dc5676c04e1184f6a9d3ea2cf233501a717575
   resources:
     requests:
