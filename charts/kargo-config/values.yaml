@@ -80,6 +80,9 @@ autoPromotion:
     devstudio-cloud: true
     # ci-runner (P6.4): the runner image of the three ARC scale sets on devhost-ci; a pin rolls the runner pods.
     ci-runner: true
+    # jwks-server (CI v4 P9.1 S7, first profile-plugin group): Kargo writes plugins/charts/profile-plugin-jwks/values.yaml;
+    # a pin restarts jwks in every teamspace with the plugin (one replica, Recreate). The first Freight equals the pin.
+    jwks-server: true
 
 staging:
   # P4.3 (b) fallback: also set the root Application's Helm parameter `release` to the Freight commit (besides
