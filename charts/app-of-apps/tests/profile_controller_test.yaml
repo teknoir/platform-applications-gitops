@@ -1,0 +1,84 @@
+suite: profile-controller Application, plugin git mode (CI v4 P9.1)
+# templates/controllers.yaml passes config.pluginGit.repoURL and config.pluginGit.revision to the profile-controller
+# Application when app-of-apps values profileController.pluginGit.enabled is on AND the project is teknoir-cloud
+# (app-of-apps.pluginGitEnabled). Production and airgapped pass nothing and keep chart mode.
+templates:
+  - templates/controllers.yaml
+set:
+  release: "0123456789abcdef0123456789abcdef01234567"
+tests:
+  - it: passes no parameter while the switch is off (chart mode, the shipped default)
+    set: {project: teknoir-cloud}
+    documentSelector: {path: metadata.name, value: profile-controller}
+    asserts:
+      - notExists: {path: spec.source.helm.parameters}
+      - equal:
+          path: spec.source.helm.valueFiles
+          value: [values.yaml, ../../pins/profile-controller.yaml]
+
+  - it: treats the string "false" as off (a quoted value or an Argo string parameter)
+    set: {project: teknoir-cloud, profileController.pluginGit.enabled: "false"}
+    documentSelector: {path: metadata.name, value: profile-controller}
+    asserts:
+      - notExists: {path: spec.source.helm.parameters}
+
+  - it: treats the string "true" as on
+    set: {project: teknoir-cloud, profileController.pluginGit.enabled: "true"}
+    documentSelector: {path: metadata.name, value: profile-controller}
+    asserts:
+      - lengthEqual: {path: spec.source.helm.parameters, count: 2}
+
+  - it: keeps an all-digit revision a string
+    set: {project: teknoir-cloud, profileController.pluginGit.enabled: true, release: "1234567890123456789012345678901234567890"}
+    documentSelector: {path: metadata.name, value: profile-controller}
+    asserts:
+      - equal:
+          path: spec.source.helm.parameters[1].value
+          value: "1234567890123456789012345678901234567890"
+
+  - it: passes the repository and the release revision for teknoir-cloud with the switch on
+    set: {project: teknoir-cloud, profileController.pluginGit.enabled: true}
+    documentSelector: {path: metadata.name, value: profile-controller}
+    asserts:
+      - equal:
+          path: spec.source.helm.parameters
+          value:
+            - name: config.pluginGit.repoURL
+              value: https://github.com/teknoir/platform-applications-gitops
+            - name: config.pluginGit.revision
+              value: "0123456789abcdef0123456789abcdef01234567"
+              forceString: true
+
+  - it: keeps the pin valueFiles next to the parameters
+    set: {project: teknoir-cloud, profileController.pluginGit.enabled: true}
+    documentSelector: {path: metadata.name, value: profile-controller}
+    asserts:
+      - equal:
+          path: spec.source.helm.valueFiles
+          value: [values.yaml, ../../pins/profile-controller.yaml]
+
+  - it: follows the branch (main) while release is unset
+    set: {project: teknoir-cloud, profileController.pluginGit.enabled: true, release: null}
+    documentSelector: {path: metadata.name, value: profile-controller}
+    asserts:
+      - contains:
+          path: spec.source.helm.parameters
+          content: {name: config.pluginGit.revision, value: main, forceString: true}
+
+  - it: passes nothing on teknoir-online (production), even with the switch on
+    set: {project: teknoir-online, profileController.pluginGit.enabled: true}
+    documentSelector: {path: metadata.name, value: profile-controller}
+    asserts:
+      - notExists: {path: spec.source.helm}
+
+  - it: passes nothing on teknoir-local (airgapped), even with the switch on
+    set: {project: teknoir-local, profileController.pluginGit.enabled: true}
+    documentSelector: {path: metadata.name, value: profile-controller}
+    asserts:
+      - notExists: {path: spec.source.helm}
+
+  - it: leaves the other controllers alone with the switch on
+    set: {project: teknoir-cloud, profileController.pluginGit.enabled: true}
+    documentSelector: {path: metadata.name, value: notebook-controller}
+    asserts:
+      - notExists: {path: spec.source.helm.parameters}

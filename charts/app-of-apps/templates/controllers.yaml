@@ -115,6 +115,19 @@ spec:
       valueFiles:
         - values.yaml
         - ../../pins/profile-controller.yaml
+{{- if include "app-of-apps.pluginGitEnabled" . }}
+      parameters:
+        # Plugin git mode (CI v4 P9.1, app-of-apps values profileController.pluginGit): the plugin charts live in
+        # this repository, and profile-controller renders each profile-plugin-<x> Application from
+        # plugins/charts/profile-plugin-<x> at the root's revision (app-of-apps.revision) instead of the
+        # pluginChartVersion chart. Staging only (this allowlist): every other environment renders chart mode.
+        # Quoted and forceString: a hex revision such as 12e45... must stay a string, never a number.
+        - name: config.pluginGit.repoURL
+          value: https://github.com/teknoir/platform-applications-gitops
+        - name: config.pluginGit.revision
+          value: {{ include "app-of-apps.revision" . | quote }}
+          forceString: true
+{{- end }}
 {{- end }}
   project: {{ .Values.project }}
   syncPolicy:

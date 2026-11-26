@@ -2,6 +2,11 @@
 
 replicaCount: 1
 
+# One replica and no leader election: Recreate, because a RollingUpdate would run an old and a new controller over
+# the same Profiles during a release (each creates plugin Applications and teamspace resources).
+strategy:
+  type: Recreate
+
 image:
   repository: harbor.teknoir.cloud/teknoir/profile-controller
   # pinned in pins/profile-controller.yaml (Kargo stage pin-profile-controller)
@@ -41,6 +46,9 @@ config:
   # Plugin chart repository (env PLUGIN_CHART_REPO). Empty: the controller default, https://teknoir.github.io/profile-plugins-helm
   pluginChartRepo: ""
   # Chart version for every profile-plugin (env PLUGIN_CHART_VERSION). Empty: the compiled-in default (0.0.99).
+  # This is the chart-mode version (see pluginGit below) and the rollback anchor of the git-mode switch: setting
+  # pluginGit.repoURL back to "" returns every plugin to this version, so it must stay a published version that
+  # works. Never bump it to follow git mode, and it is ignored while git mode is on.
   # 0.0.101: EMQX 5 listener names, so 8883 serves domain-wildcard-tls; deadend stunnel image.
   # 0.0.102: EMQX restarts on a config change. 0.0.103/0.0.104: jwks key writes only from device-controller (DENY policy).
   # 0.0.105: every first-party plugin image is pinned as tag@sha256 (IfNotPresent); release only after chart-releaser has published it.
@@ -59,6 +67,19 @@ config:
   # 0.0.113-p2: EMQX fences TeknoirBot computers (tb- usernames), legacy JWT authenticator reads the key set without
   #   them, retained configs on disc up to 3MB. emqx-0 is recreated once.
   pluginChartVersion: "0.0.113-p2"
+  # Git mode for the profile plugins (CI v4 P9.1, plugins/charts/README.md): the plugin charts live in this
+  # repository under pluginGit.path, and profile-controller renders each profile-plugin-<x> Application from
+  # <path>/profile-plugin-<x> at the revision found in the ConfigMap <fullname>-plugin-revision
+  # (templates/plugin-revision-configmap.yaml, which profile-controller watches) instead of the pluginChartVersion
+  # chart from pluginChartRepo. Empty repoURL: chart mode, the behaviour above.
+  # Only app-of-apps sets repoURL and revision (charts/app-of-apps values profileController.pluginGit, project
+  # teknoir-cloud), so a checkout of this chart alone renders no git-mode key and no revision ConfigMap.
+  # The revision must NOT go into configmap.yaml: the Deployment hashes that file (checksum/config) and would then
+  # restart profile-controller on every release, which is why it has its own ConfigMap template.
+  pluginGit:
+    repoURL: ""          # https://github.com/teknoir/platform-applications-gitops when on
+    path: plugins/charts
+    revision: ""         # the root's verified revision; set with repoURL, required in git mode
   # Issuer and JWKS URI of the teamspace RequestAuthentication jwt-policy (env OIDC_ISSUER, OIDC_JWKS_URI).
   # Empty issuer: https://auth.<domain>/auth/realms/master, derived from `domain` above (same as the auth chart).
   # Empty jwksUri: the controller uses <issuer>/protocol/openid-connect/certs.

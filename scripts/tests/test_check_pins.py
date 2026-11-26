@@ -314,6 +314,41 @@ class Crs(unittest.TestCase):
         self.assertEqual(codes(CP.check_profiles([prof])), ["profile-version"] * 3)
 
 
+class PluginRevisions(unittest.TestCase):
+    """The <profile-controller>-plugin-revision ConfigMap of plugin git mode (CI v4 P9.1) must hold the release."""
+
+    @staticmethod
+    def cm(name, rev, **data):
+        return ("f.yaml", {"kind": "ConfigMap", "metadata": {"name": name}, "data": {"revision": rev, **data}})
+
+    def test_the_release_revision_passes(self):
+        self.assertEqual(CP.check_plugin_revisions([self.cm("profile-controller-plugin-revision", SHA)], SHA), [])
+
+    def test_another_revision_is_an_error(self):
+        f = CP.check_plugin_revisions([self.cm("profile-controller-plugin-revision", "f" * 40)], SHA)
+        self.assertEqual(codes(f), ["plugin-revision-not-release"])
+        self.assertEqual(f[0].level, "error")
+        self.assertIn("ConfigMap/profile-controller-plugin-revision", f[0].where)
+
+    def test_a_missing_revision_is_an_error(self):
+        doc = ("f.yaml", {"kind": "ConfigMap", "metadata": {"name": "profile-controller-plugin-revision"}, "data": {"x": "y"}})
+        self.assertEqual(codes(CP.check_plugin_revisions([doc], SHA)), ["plugin-revision-not-release"])
+
+    def test_no_release_skips_the_check(self):
+        # a pull request is not on a release yet, and chart mode has no such ConfigMap at all
+        self.assertEqual(CP.check_plugin_revisions([self.cm("profile-controller-plugin-revision", "main")], None), [])
+
+    def test_other_configmaps_and_kinds_are_ignored(self):
+        docs = [self.cm("profile-controller-config", "x"),
+                ("f", {"kind": "Secret", "metadata": {"name": "a-plugin-revision"}, "data": {"revision": "x"}})]
+        self.assertEqual(CP.check_plugin_revisions(docs, SHA), [])
+
+    def test_the_lint_reports_it_as_an_error(self):
+        f = CP.lint([self.cm("profile-controller-plugin-revision", "f" * 40)], policy=policy(), release=SHA,
+                    project="teknoir-cloud", repo_root=None, today=TODAY)
+        self.assertEqual(codes(f, "error"), ["plugin-revision-not-release"])
+
+
 class Roundtrip(unittest.TestCase):
     """argocd-server rewrites the Application through its Go types (omitempty), see check_roundtrip."""
 

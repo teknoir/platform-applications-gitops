@@ -1,0 +1,19 @@
+{{- /* The revision profile-controller renders the plugin Applications at (CI v4 P9.1, git mode; plugins/charts/README.md).
+
+It is a ConfigMap of its own, not a key of configmap.yaml, because the Deployment hashes configmap.yaml
+(checksum/config): a revision there would restart profile-controller on every release. profile-controller watches this
+ConfigMap instead. Rendered only in git mode (config.pluginGit.repoURL set); the revision comes from app-of-apps
+(charts/app-of-apps templates/controllers.yaml, app-of-apps.revision = the root's verified commit). */}}
+{{- with (.Values.config).pluginGit }}
+{{- with .repoURL }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "profile-controller.fullname" $ }}-plugin-revision
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "profile-controller.labels" $ | nindent 4 }}
+data:
+  revision: {{ required "config.pluginGit.revision: set by app-of-apps" $.Values.config.pluginGit.revision | quote }}
+{{- end }}
+{{- end }}

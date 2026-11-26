@@ -5,6 +5,8 @@ Checks the rendered manifests of a release (scripts/staging-render.sh output, or
 
   errors, from day 1
     revision-not-release   a gitops Application whose targetRevision is not the release SHA (release given only)
+    plugin-revision-not-release  a <name>-plugin-revision ConfigMap whose data.revision is not the release SHA
+                           (release given only; CI v4 P9.1 plugin git mode)
     release-invalid        the release given is not a 40-hex commit SHA
     chart-dependency-range a chart dependency that is a range, not an exact version
     fleet-pointer          a fleet/<class>.yaml that is not one class named after its file with a 40-hex revision
@@ -302,6 +304,28 @@ def check_applications(docs: list[tuple[str, dict]], release: str | None, projec
     return out
 
 
+def check_plugin_revisions(docs: list[tuple[str, dict]], release: str | None) -> list[Finding]:
+    """A rendered <profile-controller>-plugin-revision ConfigMap carries the revision profile-controller renders the
+    profile-plugin Applications at in git mode (CI v4 P9.1, charts/profile-controller templates/
+    plugin-revision-configmap.yaml). Every release overwrites it with the root's verified commit, so any other value
+    means plugins would be rendered at a commit this release does not hold. Only checked when a release is given (a
+    pull request is not on one); a staging render without git mode has no such ConfigMap and nothing is reported."""
+    out: list[Finding] = []
+    if not release:
+        return out
+    for _, d in docs:
+        if d.get("kind") != "ConfigMap":
+            continue
+        name = str((d.get("metadata") or {}).get("name", ""))
+        if not name.endswith("-plugin-revision"):
+            continue
+        rev = (d.get("data") or {}).get("revision")
+        if rev != release:
+            out.append(Finding("error", "plugin-revision-not-release",
+                               f"data.revision is {rev!r}, want the release {release[:12]}", f"ConfigMap/{name}"))
+    return out
+
+
 # Application fields that ArgoCD's Go types (v3.5.1, pkg/apis/application/v1alpha1) serialize even when empty
 # (no `omitempty`); an empty value there survives a round trip. Everything else empty is dropped.
 _KEEP_EMPTY_STRING = {"project", "repoURL", "kind"}
@@ -486,6 +510,7 @@ def lint(docs, *, policy: dict, release: str | None, project: str, repo_root: st
          verbose: bool = False) -> list[Finding]:
     out: list[Finding] = []
     out += check_applications(docs, release, project)
+    out += check_plugin_revisions(docs, release)
     out += check_roundtrip(docs)
     out += check_exceptions(policy, today)
     if repo_root:

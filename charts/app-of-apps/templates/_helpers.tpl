@@ -67,6 +67,23 @@ VMs use the public gateway's egress rules) and the teknoir-cloud allowlist. One 
 {{- end -}}
 
 {{/*
+Plugin git mode gate (CI v4 P9.1): renders "true" or "". Both required:
+  - profileController.pluginGit.enabled is true in this environment's values (a missing key, false or the string
+    "false" is off; only true or "true" is on);
+  - the environment (.Values.project) is in the allowlist below.
+When it is true, templates/controllers.yaml passes config.pluginGit.repoURL (this repository) and
+config.pluginGit.revision (app-of-apps.revision, the root's verified commit) to the profile-controller Application,
+and profile-controller renders every profile-plugin-<x> Application from plugins/charts/profile-plugin-<x> instead of
+the pluginChartVersion chart (charts/profile-controller values.yaml, plugins/charts/README.md).
+The allowlist lives here, not in values, for the same reason as in app-of-apps.ztnaEnabled: a cherry-pick of this file
+and an enabled flag onto teknoir-online (production) or teknoir-local (airgapped) must still render nothing there.
+*/}}
+{{- define "app-of-apps.pluginGitEnabled" -}}
+{{- $allowedProjects := list "teknoir-cloud" -}}
+{{- if and (eq (toString ((.Values.profileController).pluginGit).enabled) "true") (has .Values.project $allowedProjects) -}}true{{- end -}}
+{{- end -}}
+
+{{/*
 The device-controller retainedConfigRepublish value of this environment (plans/teknoirbot/root-in-vm.md R0, D13):
 app-of-apps values deviceController.retainedConfigRepublish, passed to the device-controller Application as a helm
 parameter by templates/controllers.yaml, inside its teknoir-cloud allowlist. Renders "off", "log", "on" or the raw

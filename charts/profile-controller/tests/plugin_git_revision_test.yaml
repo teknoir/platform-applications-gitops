@@ -1,0 +1,33 @@
+suite: profile-controller plugin revision ConfigMap (CI v4 P9.1, plugin git mode)
+# The per-release revision of the plugin Applications (config.pluginGit.revision, set by app-of-apps): its own ConfigMap,
+# not a key of configmap.yaml, which the Deployment hashes. Rendered only in git mode.
+templates:
+  - templates/plugin-revision-configmap.yaml
+release:
+  name: profile-controller
+  namespace: teknoir-system
+tests:
+  - it: chart mode (empty repoURL) renders no revision ConfigMap
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: git mode renders the revision ConfigMap with the release revision
+    set:
+      config.pluginGit.repoURL: https://github.com/teknoir/platform-applications-gitops
+      config.pluginGit.revision: 0123456789abcdef0123456789abcdef01234567
+    asserts:
+      - hasDocuments: {count: 1}
+      - isKind: {of: ConfigMap}
+      - equal: {path: metadata.name, value: profile-controller-plugin-revision}
+      - equal: {path: metadata.namespace, value: teknoir-system}
+      - equal:
+          path: metadata.labels["app.kubernetes.io/name"]
+          value: profile-controller
+      - equal: {path: data.revision, value: "0123456789abcdef0123456789abcdef01234567"}
+
+  - it: fails on git mode without a revision (set by app-of-apps)
+    set:
+      config.pluginGit.repoURL: https://github.com/teknoir/platform-applications-gitops
+    asserts:
+      - failedTemplate:
+          errorPattern: "config.pluginGit.revision: set by app-of-apps"
