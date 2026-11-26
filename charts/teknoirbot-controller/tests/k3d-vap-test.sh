@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Behavioural test of the ValidatingAdmissionPolicy teknoirbot-device-guard (templates/admission.yaml) on the LOCAL
+# Behavioural test of the ValidatingAdmissionPolicies teknoirbot-device-guard and teknoirbot-device-delete-guard
+# (templates/admission.yaml) on the LOCAL
 # THROWAWAY cluster context k3d-teknoir-dev (any other context is refused). Repeatable: it creates the namespaces
 # tb-vap-test (the teamspace) and tb-vap-sys (stands in for teknoir-system), the chart's ServiceAccount, ClusterRole,
 # ClusterRoleBinding, VAP and binding, the Device CRD (only when the cluster lacks it), tests, and removes all of it again
@@ -28,11 +29,14 @@ NS=tb-vap-test
 SYS=tb-vap-sys
 SA=teknoirbot-controller
 POLICY=teknoirbot-device-guard
+DPOLICY=teknoirbot-device-delete-guard
 
 for t in kubectl helm jq; do command -v "$t" >/dev/null || { echo "missing tool: $t" >&2; exit 2; }; done
 KC=(kubectl --context "$CONTEXT")
 "${KC[@]}" get ns >/dev/null 2>&1 || { echo "context $CONTEXT is not reachable (k3d cluster start teknoir-dev)" >&2; exit 2; }
 if "${KC[@]}" get validatingadmissionpolicy "$POLICY" >/dev/null 2>&1 \
+  || "${KC[@]}" get validatingadmissionpolicy "$DPOLICY" >/dev/null 2>&1 \
+  || "${KC[@]}" get clusterrole tb-vap-delete >/dev/null 2>&1 \
   || "${KC[@]}" get clusterrole teknoirbot-controller >/dev/null 2>&1 \
   || "${KC[@]}" get clusterrolebinding teknoirbot-other >/dev/null 2>&1 \
   || "${KC[@]}" get ns "$NS" >/dev/null 2>&1 || "${KC[@]}" get ns "$SYS" >/dev/null 2>&1; then
@@ -53,10 +57,10 @@ cleanup() {
   done
   "${KC[@]}" delete devices.teknoir.org --all -n "$NS" --wait=false >/dev/null 2>&1 || true
   "${KC[@]}" delete teknoirbots.teknoir.org --all -n "$NS" --wait=false >/dev/null 2>&1 || true
-  "${KC[@]}" delete validatingadmissionpolicybinding "$POLICY" --ignore-not-found >/dev/null 2>&1 || true
-  "${KC[@]}" delete validatingadmissionpolicy "$POLICY" --ignore-not-found >/dev/null 2>&1 || true
-  "${KC[@]}" delete clusterrolebinding teknoirbot-controller teknoirbot-other --ignore-not-found >/dev/null 2>&1 || true
-  "${KC[@]}" delete clusterrole teknoirbot-controller --ignore-not-found >/dev/null 2>&1 || true
+  "${KC[@]}" delete validatingadmissionpolicybinding "$POLICY" "$DPOLICY" --ignore-not-found >/dev/null 2>&1 || true
+  "${KC[@]}" delete validatingadmissionpolicy "$POLICY" "$DPOLICY" --ignore-not-found >/dev/null 2>&1 || true
+  "${KC[@]}" delete clusterrolebinding teknoirbot-controller teknoirbot-other tb-vap-delete --ignore-not-found >/dev/null 2>&1 || true
+  "${KC[@]}" delete clusterrole teknoirbot-controller tb-vap-delete --ignore-not-found >/dev/null 2>&1 || true
   "${KC[@]}" delete ns "$NS" "$SYS" --ignore-not-found --wait=true --timeout=60s >/dev/null 2>&1 || true
   [[ $installed_crd == 1 ]] && "${KC[@]}" delete crd devices.teknoir.org --ignore-not-found >/dev/null 2>&1
   [[ $installed_tb == 1 ]] && "${KC[@]}" delete crd teknoirbots.teknoir.org --ignore-not-found >/dev/null 2>&1
@@ -88,9 +92,12 @@ python3 -I - "$TMP/all.yaml" "$TMP/apply.yaml" <<'PY'
 import sys
 docs = open(sys.argv[1]).read().split("\n---\n")
 keep = ("kind: ServiceAccount", "kind: ClusterRole\n", "kind: ClusterRoleBinding", "kind: ValidatingAdmissionPolicy")
-# of the policies only teknoirbot-device-guard (the fence has its own test, k3d-fence-test.sh)
+# of the policies only teknoirbot-device-guard and teknoirbot-device-delete-guard (the fence has its own test,
+# k3d-fence-test.sh)
+mine = ("teknoirbot-device-guard", "teknoirbot-device-delete-guard")
 out = [d for d in docs if any(("\n" + k) in ("\n" + d + "\n") for k in keep)
-       and ("kind: ValidatingAdmissionPolicy" not in d or "\n  name: teknoirbot-device-guard\n" in d or "policyName: teknoirbot-device-guard" in d)]
+       and ("kind: ValidatingAdmissionPolicy" not in d
+            or any(("\n  name: %s\n" % n) in d or ("policyName: %s\n" % n) in (d + "\n") for n in mine))]
 open(sys.argv[2], "w").write("\n---\n".join(out))
 PY
 "${KC[@]}" apply -f "$TMP/apply.yaml" >/dev/null || { echo "cannot apply the chart objects" >&2; exit 2; }
@@ -99,12 +106,17 @@ PY
 "${KC[@]}" -n "$SYS" create sa tb-other >/dev/null
 "${KC[@]}" create clusterrolebinding teknoirbot-other --clusterrole=teknoirbot-controller --serviceaccount="$SYS:tb-other" >/dev/null
 
+# The chart's ClusterRole has no delete on Devices until the reset ships (R7 release 2): grant it to the bot here, so a
+# DELETE verdict below is the delete policy's, not RBAC's.
+"${KC[@]}" create clusterrole tb-vap-delete --verb=delete --resource=devices.teknoir.org >/dev/null
+"${KC[@]}" create clusterrolebinding tb-vap-delete --clusterrole=tb-vap-delete --serviceaccount="$SYS:$SA" >/dev/null
+
 BOT=(--as="system:serviceaccount:${SYS}:${SA}")
 OTHER=(--as="system:serviceaccount:${SYS}:tb-other")
 
 # the TeknoirBots the Devices are owned by, created by the admin (real uids: the garbage collector deletes Devices whose
 # owner does not resolve)
-for b in bot scout a preset own unit; do
+for b in bot scout a preset own unit del noref wo; do
   "${KC[@]}" -n "$NS" apply -f - >/dev/null <<EOF || { echo "cannot create TeknoirBot $b" >&2; exit 2; }
 apiVersion: teknoir.org/v1alpha1
 kind: TeknoirBot
@@ -115,7 +127,7 @@ done
 BOTUID=$("${KC[@]}" -n "$NS" get teknoirbots.teknoir.org bot -o jsonpath='{.metadata.uid}')
 SCOUTUID=$("${KC[@]}" -n "$NS" get teknoirbots.teknoir.org scout -o jsonpath='{.metadata.uid}')
 declare -A UIDS
-for b in bot scout a preset own unit; do UIDS[$b]=$("${KC[@]}" -n "$NS" get teknoirbots.teknoir.org "$b" -o jsonpath='{.metadata.uid}'); done
+for b in bot scout a preset own unit del noref wo; do UIDS[$b]=$("${KC[@]}" -n "$NS" get teknoirbots.teknoir.org "$b" -o jsonpath='{.metadata.uid}'); done
 
 # device <name> <labelled 0|1> <device_type> <annotations-json> [owned 0|1 (default: owned when labelled)] -> Device JSON
 # A labelled body carries a controller ownerReference to the TeknoirBot it is named after (tb-<bot>, one of UIDS; else "bot").
@@ -146,7 +158,7 @@ desired() { # <name> [extra-spec-json]
 }
 
 # expect allow|deny <description> <identity: bot|other|admin> [message-substring (deny only)] -- <kubectl args...>
-# A deny passes only when the output names this policy AND the substring of the rule that must have fired, and has no
+# A deny passes only when the output names this policy ($EXPECT_POLICY, default $POLICY) AND the substring of the rule that must have fired, and has no
 # CEL runtime error ("resulted in error": with failurePolicy Fail a broken rule would otherwise look like a denial).
 expect() {
   local want=$1 desc=$2 id=$3 msg=""; shift 3
@@ -159,7 +171,7 @@ expect() {
   case "$want" in
     allow) [[ $rc -eq 0 ]] && ok "allow $desc" || bad "allow $desc (rc=$rc) ${out:0:400}" ;;
     deny)
-      if [[ $rc -ne 0 && "$out" == *"ValidatingAdmissionPolicy '${POLICY}'"* && "$out" == *"$msg"* && "$out" != *"resulted in error"* ]]; then
+      if [[ $rc -ne 0 && "$out" == *"ValidatingAdmissionPolicy '${EXPECT_POLICY:-$POLICY}'"* && "$out" == *"$msg"* && "$out" != *"resulted in error"* ]]; then
         ok "deny  $desc"
       else
         bad "deny  $desc (rc=$rc, wanted \"$msg\") ${out:0:400}"
@@ -293,6 +305,31 @@ geometry 1280x800 "admin stored spec.desktop.geometry"
 expect allow "admin adds teknoir.org/disabled to a Device"               admin -- -n "$NS" annotate devices.teknoir.org plain teknoir.org/disabled=true
 expect allow "admin patches the Device without the label"                admin -- "${P[@]}" plain "${MERGE[@]}" '{"spec":{"virtual":{"cpu":"3"}}}'
 expect allow "admin removes the teknoirbot label"                        admin -- -n "$NS" label devices.teknoir.org tb-preset teknoir.org/teknoirbot-
+
+# ---- DELETE: teknoirbot-device-delete-guard (the reset of a bot computer) ------------------------------------------
+# The first failing rule is reported, so each denied Device breaks exactly one rule.
+EXPECT_POLICY=$DPOLICY
+DEL=(-n "$NS" delete devices.teknoir.org --wait=false)
+DRY=(-n "$NS" delete devices.teknoir.org --dry-run=server)
+expect allow "bot creates tb-del (labelled del, owned by TeknoirBot del)" bot   -- create -f <(device tb-del 1 virtual '{}')
+expect allow "bot deletes its bot computer tb-del"                       bot   -- "${DEL[@]}" tb-del
+expect allow "bot deletes tb-scout (dry run, the exact desiredDevice body)" bot  -- "${DRY[@]}" tb-scout
+expect allow "admin creates tb-bot: labelled and owned but not virtual"  admin -- create -f <(device tb-bot 1 jetson '{}')
+expect deny  "bot deletes a physical Device (tb-bot, jetson)"            bot   "only virtual Devices" -- "${DRY[@]}" tb-bot
+expect deny  "bot deletes a virtual Device without the label (plain)"    bot   "non-empty teknoir.org/teknoirbot label" -- "${DRY[@]}" plain
+expect allow "admin creates tb-noref: labelled noref, no ownerReference" admin -- create -f <(device tb-noref 1 virtual '{}' 0)
+expect deny  "bot deletes a tb- Device without the TeknoirBot reference" bot   "is its controller reference" -- "${DRY[@]}" tb-noref
+expect allow "admin creates tb-wo: labelled wo, owned by TeknoirBot bot" admin -- create -f <(device tb-wo 1 virtual '{}' | jq --arg uid "$BOTUID" '.metadata.ownerReferences[0].name="bot" | .metadata.ownerReferences[0].uid=$uid')
+expect deny  "bot deletes a Device owned by another TeknoirBot"          bot   "is its controller reference" -- "${DRY[@]}" tb-wo
+expect allow "admin creates cam-08: labelled bot, owned by bot, another name" admin -- create -f <(device cam-08 1 virtual '{}')
+expect deny  "bot deletes a labelled Device under another name (cam-08)" bot   "named tb-<bot>" -- "${DRY[@]}" cam-08
+expect allow "admin removes the label of tb-own"                          admin -- -n "$NS" label devices.teknoir.org tb-own teknoir.org/teknoirbot- --overwrite
+expect deny  "bot deletes its owner-referenced tb-own while the label is gone" bot "non-empty teknoir.org/teknoirbot label" -- "${DRY[@]}" tb-own
+expect allow "admin deletes a physical Device (not matched)"              admin -- "${DEL[@]}" tb-bot
+expect allow "admin deletes a Device without the label (not matched)"     admin -- "${DRY[@]}" plain
+deleted=$("${KC[@]}" -n "$NS" get devices.teknoir.org tb-del -o jsonpath='{.metadata.deletionTimestamp}' 2>&1)
+[[ $deleted == *NotFound* || -n $deleted ]] && ok "tb-del is gone or being deleted" || bad "tb-del still exists without deletionTimestamp: $deleted"
+unset EXPECT_POLICY
 
 echo "----"
 echo "$pass passed, $failn failed"

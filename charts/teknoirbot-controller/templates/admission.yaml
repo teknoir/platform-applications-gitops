@@ -27,7 +27,20 @@ spec.keys. So the policy requires:
   9. every write: metadata.name == 'tb-' + the teknoir.org/teknoirbot label (the name is immutable, so this also freezes
      the label: a removed label may be restored, never set to another bot).
 
-Break-glass: a cluster-admin deletes the ValidatingAdmissionPolicyBinding (pause the Application's auto-sync first).
+A second policy, teknoirbot-device-delete-guard (below), pins the controller's DELETE of Devices to its own bot
+computers (the reset of a bot computer, plans/teknoirbot/root-in-vm.md R7 and D14). The ClusterRole only gains the delete
+verb in a later release, after this policy is live. The old object must be:
+  a. spec.device_type virtual;
+  b. labelled with a non-empty teknoir.org/teknoirbot;
+  c. named tb-<that label>;
+  d. controller-referenced by the teknoir.org/v1alpha1 TeknoirBot of that name.
+So the controller can never delete a physical Device, a Device somebody else created, or another bot's computer. The fence
+(fence.yaml) exempts the controller and is unchanged; backstage-api's deletes (Remove of a robot-less device or of a robot
+with its device) are not matched here.
+
+Break-glass: a cluster-admin deletes the ValidatingAdmissionPolicyBinding of the policy in the way (pause the
+Application's auto-sync first). Deleting teknoirbot-device-delete-guard's binding while the ClusterRole has delete lets
+the controller delete any Device: remove the verb first.
 */ -}}
 {{- $sa := printf "system:serviceaccount:%s:%s" .Release.Namespace .Values.serviceAccount.name }}
 ---
@@ -110,4 +123,47 @@ metadata:
     {{- include "teknoirbot-controller.labels" . | nindent 4 }}
 spec:
   policyName: teknoirbot-device-guard
+  validationActions: [Deny]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: teknoirbot-device-delete-guard
+  labels:
+    {{- include "teknoirbot-controller.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["teknoir.org"]
+        apiVersions: ["*"]
+        operations: ["DELETE"]
+        resources: ["devices"]
+  matchConditions:
+    - name: only-the-teknoirbot-controller
+      expression: "request.userInfo.username == '{{ $sa }}'"
+  # On DELETE only oldObject is set. The validations run in this order and the first one that fails is reported.
+  variables:
+    - name: bot
+      expression: "oldObject.metadata.?labels.orValue({})[?'teknoir.org/teknoirbot'].orValue('')"
+  validations:
+    - expression: "oldObject.spec.?device_type.orValue('') == 'virtual'"
+      message: "teknoirbot-controller deletes only virtual Devices (a bot computer); this Device is not virtual"
+    - expression: "variables.bot != ''"
+      message: "teknoirbot-controller deletes only a Device with a non-empty teknoir.org/teknoirbot label"
+    - expression: "oldObject.metadata.name == 'tb-' + variables.bot"
+      message: "teknoirbot-controller deletes a Device only when it is named tb-<bot>, the bot in its teknoir.org/teknoirbot label"
+    - expression: >-
+        oldObject.metadata.?ownerReferences.orValue([]).exists(r, r.apiVersion == 'teknoir.org/v1alpha1' && r.kind == 'TeknoirBot' &&
+          r.?controller.orValue(false) && r.name == variables.bot)
+      message: "teknoirbot-controller deletes a Device only when the TeknoirBot named in its label is its controller reference"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: teknoirbot-device-delete-guard
+  labels:
+    {{- include "teknoirbot-controller.labels" . | nindent 4 }}
+spec:
+  policyName: teknoirbot-device-delete-guard
   validationActions: [Deny]

@@ -8,7 +8,7 @@ Deploys the TeknoirBot controller (`harbor.teknoir.cloud/teknoir/teknoirbot-cont
 - a leader-election Role and RoleBinding (when `leaderElection`, default on; create on Leases plus get/update/patch only on
   the controller's own Lease `teknoirbot-controller.teknoir.org`, which must match `LeaderElectionID` in the controller);
 - the Deployment (1 replica, metrics on 8080, probes on 8081; the label `kustomize.component` is what the monitoring PodMonitor selects);
-- the ValidatingAdmissionPolicy `teknoirbot-device-guard` and its binding (below);
+- the ValidatingAdmissionPolicies `teknoirbot-device-guard` and `teknoirbot-device-delete-guard` and their bindings (below);
 - the bot fence: the policies `teknoirbot-device-fence` and `teknoirbot-created-by` and their bindings ("Bot fence").
 
 A TeknoirBot gets one virtual Device `tb-<name>` in its teamspace; the controller creates it and corrects the fields it owns.
@@ -38,6 +38,17 @@ label (6) and an empty `spec.manifest` with no `spec.applications`, `spec.overri
 leaves `spec.manifest`, `spec.applications`, `spec.overrides`, `spec.plugins`, `metadata.ownerReferences` and
 `metadata.finalizers` as they were (8); every write keeps `metadata.name == tb-<label>` (9). `failurePolicy: Fail`, action `Deny`. Test: `tests/k3d-vap-test.sh` (context `k3d-teknoir-dev` only).
 Break-glass: pause the Application's auto-sync, delete the binding, act, restore.
+
+## Admission policy `teknoirbot-device-delete-guard`
+
+Pins the controller's DELETE of a Device (the reset of a bot computer, `plans/teknoirbot/root-in-vm.md` R7) to its own bot
+computers: the old object is `device_type: virtual`, has a non-empty label `teknoir.org/teknoirbot`, is named
+`tb-<label>` and has a controller ownerReference to the `teknoir.org/v1alpha1` TeknoirBot of that name. Only the
+controller's service account is evaluated (the fence exempts it and is unchanged; backstage-api's Remove of a robot-less
+device or of a robot with its device is not affected). The policy ships before the ClusterRole gets `delete` on Devices;
+the unit test `the ClusterRole has no delete on Devices yet` guards that order. Test: the DELETE cases of
+`tests/k3d-vap-test.sh` (which grants the verb to the test identity itself). Break-glass as above, but remove the verb
+from the ClusterRole first: without this binding the controller could delete any Device.
 
 ## Bot fence
 
