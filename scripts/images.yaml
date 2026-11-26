@@ -47,6 +47,9 @@ groups:
   # The first profile-plugin image (CI v4 P9.1 S7): pinned in plugins/charts/profile-plugin-jwks/values.yaml.
   # jwks is one replica with strategy Recreate, so a pin restarts it once.
   jwks-server: {same_commit: false, enabled: true}
+  # The second profile-plugin image group (CI v4 P9.1 S7): both images from one teknoir/fleet-metrics commit,
+  # pinned in plugins/charts/profile-plugin-fleet-metrics/values.yaml.
+  fleet-metrics: {same_commit: true, enabled: true}
 
 images:
   - component: backstage-app
@@ -234,6 +237,30 @@ images:
     repository: harbor.teknoir.cloud/teknoir/jwks-server
     poll: harbor.teknoir.cloud/teknoir/jwks-server
     note: "the teamspace JWKS/MQTT authn server (profile-plugin-jwks, plugins/charts)"
+
+  - component: metrics-processor
+    group: fleet-metrics
+    pins_file: null
+    values_files:
+      - plugins/charts/profile-plugin-fleet-metrics/values.yaml
+    chart: profile-plugin-fleet-metrics
+    key_path: metricsProcessor.image.version
+    style: tag
+    repository: harbor.teknoir.cloud/teknoir/fleet-metrics/metrics-processor
+    poll: harbor.teknoir.cloud/teknoir/fleet-metrics/metrics-processor
+    note: "the fleet-metrics processor (profile-plugin-fleet-metrics, plugins/charts)"
+
+  - component: metrics-publisher
+    group: fleet-metrics
+    pins_file: null
+    values_files:
+      - plugins/charts/profile-plugin-fleet-metrics/values.yaml
+    chart: profile-plugin-fleet-metrics
+    key_path: metricsPublisher.image.version
+    style: tag
+    repository: harbor.teknoir.cloud/teknoir/fleet-metrics/metrics-publisher
+    poll: harbor.teknoir.cloud/teknoir/fleet-metrics/metrics-publisher
+    note: "the fleet-metrics publisher (profile-plugin-fleet-metrics, plugins/charts)"
 
   # Third party images: no group, pinned by hand into the chart values file with scripts/pin-image.
   - component: postgres

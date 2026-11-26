@@ -108,15 +108,15 @@ tests:
     documentSelector:
       path: kind
       value: ProjectConfig
-    # 16 = staging + staging-verified + one per group in values.yaml (a policy exists for every group, enabled or
-    # not; ci-runner and jwks-server included). Helm merges maps, so `pins: {}` cannot clear a default: the
-    # asserted pin policies are set off explicitly.
+    # 17 = staging + staging-verified + one per group in values.yaml (a policy exists for every group, enabled or
+    # not; ci-runner, jwks-server and fleet-metrics included). Helm merges maps, so `pins: {}` cannot clear a
+    # default: the asserted pin policies are set off explicitly.
     set:
       autoPromotion.pins.wg-tunnel: false
       autoPromotion.pins.backstage: false
       autoPromotion.pins.jwks-server: false
     asserts:
-      - lengthEqual: {path: spec.promotionPolicies, count: 16}
+      - lengthEqual: {path: spec.promotionPolicies, count: 17}
       - contains:
           path: spec.promotionPolicies
           content: {stageSelector: {name: staging}, autoPromotionEnabled: true}
@@ -129,10 +129,14 @@ tests:
       - contains:
           path: spec.promotionPolicies
           content: {stageSelector: {name: pin-backstage}, autoPromotionEnabled: false}
-      # jwks-server (CI v4 P9.1 S7): its policy follows autoPromotion.pins like every group.
+      # jwks-server (P-b on) is set off explicitly above; fleet-metrics (CI v4 P9.1 S7 P-a) has no autoPromotion.pins
+      # entry yet, so its policy exists and is off.
       - contains:
           path: spec.promotionPolicies
           content: {stageSelector: {name: pin-jwks-server}, autoPromotionEnabled: false}
+      - contains:
+          path: spec.promotionPolicies
+          content: {stageSelector: {name: pin-fleet-metrics}, autoPromotionEnabled: false}
 
   - it: turns one policy on without touching the others
     template: templates/project.yaml
