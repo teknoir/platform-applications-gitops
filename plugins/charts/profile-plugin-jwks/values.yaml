@@ -38,7 +38,7 @@ jwks:
     registry: harbor.teknoir.cloud/teknoir/jwks-server
     # Pinned by Kargo Stage pin-jwks-server (scripts/images.yaml) from Harbor since CI v4 P9.1: never
     # edit by hand. Never pin a tag that cannot be pulled: jwks is one replica with strategy Recreate.
-    version: sha-425041a3@sha256:c3414743e135e2363bba003702dc5676c04e1184f6a9d3ea2cf233501a717575
+    version: sha-6b2ed8db@sha256:ca89900e279212823b3f26484d1fbf49026006c0fb0844fb37f54d9b6cb2f93e
   resources:
     requests:
       cpu: 25m
