@@ -64,6 +64,18 @@ deviceController:
   # "log" or "on" only with a pins/device-controller.yaml image that reads RETAINED_CONFIG_REPUBLISH.
   retainedConfigRepublish: "on"
 
+# profile-controller settings passed to the profile-controller Application as helm parameters (templates/controllers.yaml),
+# teknoir-cloud only (allowlist in the template), so a cherry-pick onto another environment branch passes nothing and
+# that environment keeps the chart default.
+profileController:
+  # Plugin git mode (CI v4 P9.1, plugins/charts/README.md): profile-controller renders every profile-plugin-<x>
+  # Application from plugins/charts/profile-plugin-<x> of this repository at the root's revision, instead of the
+  # published pluginChartVersion chart. Off: chart mode, the behaviour since the plugin charts were released. This is
+  # the staging switch a later one-line PR turns on; turning it off again is the rollback (profile-controller keeps
+  # config.pluginChartVersion, so its plugins return to that published version).
+  pluginGit:
+    enabled: false
+
 # CI/CD on the cluster (plans/ci-argo-workflows.md), teknoir-cloud only (allowlist in
 # templates/harbor.yaml): Harbor as the registry (harbor.teknoir.cloud), which staging pulls its
 # first-party images through. The vpro-era on-cluster CI (Argo Workflows) is retired.

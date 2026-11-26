@@ -1,0 +1,113 @@
+suite: profile-controller plugin git mode, config (CI v4 P9.1, plugins/charts/README.md)
+# config.pluginGit (charts/app-of-apps values profileController.pluginGit passes repoURL and revision): profile-controller
+# renders every profile-plugin-<x> Application from <path>/profile-plugin-<x> of repoURL at the revision of the
+# <fullname>-plugin-revision ConfigMap. Empty repoURL is chart mode: no PLUGIN_GIT_* key, so every render of every other
+# install is unchanged. The fail cases live here too because helm-unittest attributes a failed render to the templates
+# of the suite: one template in the suite, or it reports "No failed document".
+templates:
+  - templates/configmap.yaml
+release:
+  name: profile-controller
+  namespace: teknoir-system
+set:
+  # The Deployment requires the pin; charts/app-of-apps passes pins/profile-controller.yaml.
+  image.tag: sha-0123456789ab@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+tests:
+  - it: chart mode (empty repoURL) renders no PLUGIN_GIT_* key
+    asserts:
+      - notExists: {path: data.PLUGIN_GIT_REPO_URL}
+      - notExists: {path: data.PLUGIN_GIT_PATH}
+      - notExists: {path: data.PLUGIN_REVISION_CONFIGMAP}
+
+  - it: chart mode still renders the chart version (the rollback anchor)
+    asserts:
+      - exists: {path: data.PLUGIN_CHART_VERSION}
+
+  - it: git mode renders the three env keys
+    set:
+      config.pluginGit.repoURL: https://github.com/teknoir/platform-applications-gitops
+      config.pluginGit.revision: 0123456789abcdef0123456789abcdef01234567
+    asserts:
+      - equal: {path: data.PLUGIN_GIT_REPO_URL, value: "https://github.com/teknoir/platform-applications-gitops"}
+      - equal: {path: data.PLUGIN_GIT_PATH, value: plugins/charts}
+      - equal: {path: data.PLUGIN_REVISION_CONFIGMAP, value: "teknoir-system/profile-controller-plugin-revision"}
+      # the chart version stays in the ConfigMap: it is the version a rollback to chart mode returns to
+      - exists: {path: data.PLUGIN_CHART_VERSION}
+
+  - it: git mode trims a trailing / from the path
+    set:
+      config.pluginGit.repoURL: https://github.com/teknoir/platform-applications-gitops
+      config.pluginGit.revision: 0123456789abcdef0123456789abcdef01234567
+      config.pluginGit.path: plugins/charts/
+    asserts:
+      - equal: {path: data.PLUGIN_GIT_PATH, value: plugins/charts}
+
+  - it: the revision is not in the hashed ConfigMap, so a new revision never restarts the pod
+    # The Deployment hashes this template (checksum/config). The revision lives in
+    # templates/plugin-revision-configmap.yaml, which is not hashed; helm-unittest cannot compare two renders, so this
+    # pins the reason and scripts/tests/test_plugin_revision_render.py compares the full renders byte for byte.
+    set:
+      config.pluginGit.repoURL: https://github.com/teknoir/platform-applications-gitops
+      config.pluginGit.revision: 0123456789abcdef0123456789abcdef01234567
+    asserts:
+      - notExists: {path: data.revision}
+      - notMatchRegexRaw: {pattern: "0123456789abcdef0123456789abcdef01234567"}
+
+  - it: fails on an oci:// repoURL (a chart repository, not a git one)
+    set:
+      config.pluginGit.repoURL: oci://ghcr.io/teknoir/charts
+      config.pluginGit.revision: 0123456789abcdef0123456789abcdef01234567
+    asserts:
+      - failedTemplate:
+          errorPattern: "config.pluginGit.repoURL: a git repository URL"
+
+  - it: fails on a repoURL that is not https://
+    set:
+      config.pluginGit.repoURL: http://github.com/teknoir/platform-applications-gitops
+      config.pluginGit.revision: 0123456789abcdef0123456789abcdef01234567
+    asserts:
+      - failedTemplate:
+          errorPattern: "config.pluginGit.repoURL: must start with https://"
+
+  - it: fails on a trailing .git
+    set:
+      config.pluginGit.repoURL: https://github.com/teknoir/platform-applications-gitops.git
+      config.pluginGit.revision: 0123456789abcdef0123456789abcdef01234567
+    asserts:
+      - failedTemplate:
+          errorPattern: "no trailing \\.git"
+
+  - it: fails on a trailing /
+    set:
+      config.pluginGit.repoURL: https://github.com/teknoir/platform-applications-gitops/
+      config.pluginGit.revision: 0123456789abcdef0123456789abcdef01234567
+    asserts:
+      - failedTemplate:
+          errorPattern: "no trailing /"
+
+  - it: fails on an absolute path
+    set:
+      config.pluginGit.repoURL: https://github.com/teknoir/platform-applications-gitops
+      config.pluginGit.revision: 0123456789abcdef0123456789abcdef01234567
+      config.pluginGit.path: "/plugins/charts"
+    asserts:
+      - failedTemplate:
+          errorPattern: "a relative path"
+
+  - it: fails on a path with ..
+    set:
+      config.pluginGit.repoURL: https://github.com/teknoir/platform-applications-gitops
+      config.pluginGit.revision: 0123456789abcdef0123456789abcdef01234567
+      config.pluginGit.path: "plugins/../charts"
+    asserts:
+      - failedTemplate:
+          errorPattern: "no \\.\\."
+
+  - it: fails on a path of only /
+    set:
+      config.pluginGit.repoURL: https://github.com/teknoir/platform-applications-gitops
+      config.pluginGit.revision: 0123456789abcdef0123456789abcdef01234567
+      config.pluginGit.path: "/"
+    asserts:
+      - failedTemplate:
+          errorPattern: "a relative path"

@@ -27,6 +27,34 @@ data:
   {{- with .Values.config.pluginChartVersion }}
   PLUGIN_CHART_VERSION: {{ . | toString | quote }}
   {{- end }}
+  {{- /* Git mode for the profile plugins (CI v4 P9.1, plugins/charts/README.md): profile-controller renders each
+  profile-plugin-<x> Application from <PLUGIN_GIT_PATH>/profile-plugin-<x> of PLUGIN_GIT_REPO_URL at the revision in
+  the ConfigMap PLUGIN_REVISION_CONFIGMAP ("<namespace>/<name>", key "revision"), which it watches. That second
+  ConfigMap carries the per-release revision and is deliberately not hashed by the Deployment. An empty repoURL is
+  chart mode: nothing renders here, so the release render of every other install is unchanged. */}}
+  {{- $pluginGit := (.Values.config).pluginGit | default dict }}
+  {{- with $pluginGit.repoURL }}
+  {{- $repoURL := . | toString }}
+  {{- if hasPrefix "oci://" $repoURL }}
+  {{- fail "config.pluginGit.repoURL: a git repository URL, not a chart repository (no oci:// prefix)" }}
+  {{- end }}
+  {{- if not (hasPrefix "https://" $repoURL) }}
+  {{- fail "config.pluginGit.repoURL: must start with https://" }}
+  {{- end }}
+  {{- if hasSuffix ".git" $repoURL }}
+  {{- fail "config.pluginGit.repoURL: no trailing .git (the controller compares it with the Application repoURL)" }}
+  {{- end }}
+  {{- if hasSuffix "/" $repoURL }}
+  {{- fail "config.pluginGit.repoURL: no trailing / (the controller compares it with the Application repoURL)" }}
+  {{- end }}
+  {{- $path := $pluginGit.path | default "plugins/charts" | toString | trimSuffix "/" }}
+  {{- if or (not $path) (hasPrefix "/" $path) (has ".." (splitList "/" $path)) (ne $path (trim $path)) }}
+  {{- fail "config.pluginGit.path: a relative path inside the repository (not empty, no leading /, no .., no surrounding whitespace)" }}
+  {{- end }}
+  PLUGIN_GIT_REPO_URL: {{ $repoURL | quote }}
+  PLUGIN_GIT_PATH: {{ $path | quote }}
+  PLUGIN_REVISION_CONFIGMAP: {{ printf "%s/%s-plugin-revision" $.Release.Namespace (include "profile-controller.fullname" $) | quote }}
+  {{- end }}
   {{- /* Issuer and JWKS URI of the RequestAuthentication jwt-policy that profile-controller creates in every
   teamspace. Derived from config.domain, like the auth chart (auth.<domain>). Unset keys would leave the
   controller default (the production Keycloak, https://auth.teknoir.online). */}}

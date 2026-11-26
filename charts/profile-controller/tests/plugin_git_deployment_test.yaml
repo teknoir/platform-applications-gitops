@@ -1,0 +1,30 @@
+suite: profile-controller Deployment in plugin git mode (CI v4 P9.1)
+# The pod template must not carry the plugin revision (it is in the watchable <fullname>-plugin-revision ConfigMap, not
+# in the hashed configmap.yaml), and a release recreates the pod instead of overlapping two controllers.
+templates:
+  # deployment.yaml includes configmap.yaml for the checksum/config annotation, so both must be in the render.
+  - templates/configmap.yaml
+  - templates/deployment.yaml
+release:
+  name: profile-controller
+  namespace: teknoir-system
+set:
+  # The Deployment requires the pin; charts/app-of-apps passes pins/profile-controller.yaml.
+  image.tag: sha-0123456789ab@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  config.pluginGit.repoURL: https://github.com/teknoir/platform-applications-gitops
+  config.pluginGit.revision: 0123456789abcdef0123456789abcdef01234567
+tests:
+  - it: keeps the checksum/config annotation on the pod in git mode
+    template: templates/deployment.yaml
+    asserts:
+      - matchRegex:
+          path: spec.template.metadata.annotations["checksum/config"]
+          pattern: "^[0-9a-f]{64}$"
+      # the revision ConfigMap is a separate object and has no place on the pod template
+      - notMatchRegexRaw: {pattern: "plugin-revision"}
+
+  - it: recreates the pod instead of overlapping two controllers during a release
+    template: templates/deployment.yaml
+    asserts:
+      - equal: {path: spec.strategy.type, value: Recreate}
+      - equal: {path: spec.replicas, value: 1}
