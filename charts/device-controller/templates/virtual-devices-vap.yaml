@@ -1,0 +1,174 @@
+{{- /*
+ValidatingAdmissionPolicy virtual-device-shape (R10, plan WP3): the shape of the VMs and VMIs that back virtual
+devices, in the runtime namespaces only (label teknoir.org/component=virtual-device-runtime, set on
+<teamspace>-vdev by virtual-devices-runtime.yaml).
+
+Why: a teamspace may write in its own runtime namespace (the device-controller does, for an admitted Device), so a
+user with edit rights there could otherwise run a VM that is shaped like a privileged pod: a hostDisk volume (a host
+path written from the guest), a hostDevice or GPU (host PCI), a filesystem (a host directory in the guest), a bridge
+or multus network (the pod network of another teamspace), accessCredentials (the guest agent), TPM, launchSecurity,
+dedicated CPU placement or hugepages, or a VM with a hook sidecar (a privileged container in the virt-launcher pod).
+The policy allow-lists what BuildVM (device-controller internal/controller/plugin_virtualdevice/vm.go) builds, so the
+controller is unaffected; anything else is denied in a runtime namespace and unknown everywhere else.
+
+Scope (matchConstraints):
+  - kubevirt.io/v1 virtualmachines: CREATE and UPDATE, validated on spec.template.spec;
+  - kubevirt.io/v1 virtualmachineinstances: CREATE only, validated on spec. VMI UPDATE is deliberately left out:
+    virt-handler and virt-controller write the VMI (status, migration, hotplug) and must never be blocked.
+  - a status subresource (virtualmachines/status, virtualmachineinstances/status) is never matched, and neither is a
+    namespace without the label.
+
+UPDATE is validated only when the spec changed (matchCondition only-when-the-spec-changed): virt-controller writes
+labels, annotations and finalizers on VMs, ArgoCD re-applies the same spec, and a VM created before this policy
+(scout's) must stay patchable and deletable. Deleting a VM is DELETE, which the policy does not match at all.
+
+Every expression uses the optional syntax (object.?spec.orValue({}), has()) so a missing field can never make the
+evaluation fail: failurePolicy Fail turns an evaluation error into a denial, and a denial of every VMI create would
+keep every virtual device from starting. The validations name the exact field in their message.
+
+Break-glass: delete the ValidatingAdmissionPolicyBinding virtual-device-shape (pause the Application's auto-sync
+first) and the policy no longer acts; delete the policy to remove it. Through GitOps: virtualDevices.shapePolicy.
+enabled: false renders neither object.
+*/ -}}
+{{- $vd := .Values.virtualDevices | default dict -}}
+{{- $sp := $vd.shapePolicy | default dict -}}
+{{- $shape := true -}}
+{{- if hasKey $sp "enabled" -}}
+{{- $shape = $sp.enabled -}}
+{{- end -}}
+{{- if and $vd.enabled $shape }}
+{{- $actions := list "Deny" -}}
+{{- if and (hasKey $sp "validationActions") (not (kindIs "invalid" $sp.validationActions)) -}}
+{{- $actions = $sp.validationActions -}}
+{{- end -}}
+{{- if not (kindIs "slice" $actions) -}}
+{{- fail "virtualDevices.shapePolicy.validationActions must be a list of Deny, Warn or Audit" -}}
+{{- end -}}
+{{- if not $actions -}}
+{{- fail "virtualDevices.shapePolicy.validationActions must not be empty (Deny, Warn or Audit)" -}}
+{{- end -}}
+{{- range $a := $actions -}}
+{{- if not (has $a (list "Deny" "Warn" "Audit")) -}}
+{{- fail (printf "virtualDevices.shapePolicy.validationActions: %q is not Deny, Warn or Audit" $a) -}}
+{{- end -}}
+{{- end }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: virtual-device-shape
+  labels:
+    {{- include "device-controller.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["kubevirt.io"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["virtualmachines"]
+      - apiGroups: ["kubevirt.io"]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
+        resources: ["virtualmachineinstances"]
+    # Only the runtime namespaces (<teamspace>-vdev, virtual-devices-runtime.yaml). A namespace scope also keeps the
+    # policy away from a VMI in any other namespace (there is no way to narrow a policy to "no other namespace").
+    namespaceSelector:
+      matchLabels:
+        teknoir.org/component: virtual-device-runtime
+  matchConditions:
+    # A VM is validated only when its spec changed (see the header); a CREATE is always validated. .?spec with
+    # orValue() keeps a malformed object from turning into an evaluation error (which would deny).
+    - name: only-when-the-spec-changed
+      expression: "request.operation != 'UPDATE' || object.?spec.orValue({}) != oldObject.?spec.orValue({})"
+  variables:
+    # The pod template spec: a VM's spec.template.spec, a VMI's spec (the same KubeVirt type).
+    - name: podSpec
+      expression: "request.resource.resource == 'virtualmachines' ? object.?spec.orValue({}).?template.orValue({}).?spec.orValue({}) : object.?spec.orValue({})"
+    - name: vmTemplate
+      expression: "object.?spec.orValue({}).?template.orValue({})"
+    - name: domain
+      expression: "variables.podSpec.?domain.orValue({})"
+    - name: devices
+      expression: "variables.domain.?devices.orValue({})"
+    # Lists and maps read whole. .? keeps a missing field from erroring, but an explicit JSON null
+    # ("volumes": null) comes back as a CEL null that .all(), size() and in would error on; each is
+    # replaced by its empty value here, and each element an .all() walks is guarded with type(v) == map
+    # (from a stub CRD with x-kubernetes-preserve-unknown-fields an element may be a string or null), so
+    # no validation can error for any input: with failurePolicy Fail an evaluation error is a denial.
+    - name: volumes
+      expression: "variables.podSpec.?volumes.orValue([]) == null ? [] : variables.podSpec.?volumes.orValue([])"
+    - name: networks
+      expression: "variables.podSpec.?networks.orValue([]) == null ? [] : variables.podSpec.?networks.orValue([])"
+    - name: interfaces
+      expression: "variables.devices.?interfaces.orValue([]) == null ? [] : variables.devices.?interfaces.orValue([])"
+    - name: disks
+      expression: "variables.devices.?disks.orValue([]) == null ? [] : variables.devices.?disks.orValue([])"
+    - name: hostDevices
+      expression: "variables.devices.?hostDevices.orValue([]) == null ? [] : variables.devices.?hostDevices.orValue([])"
+    - name: gpus
+      expression: "variables.devices.?gpus.orValue([]) == null ? [] : variables.devices.?gpus.orValue([])"
+    - name: filesystems
+      expression: "variables.devices.?filesystems.orValue([]) == null ? [] : variables.devices.?filesystems.orValue([])"
+    - name: accessCredentials
+      expression: "variables.podSpec.?accessCredentials.orValue([]) == null ? [] : variables.podSpec.?accessCredentials.orValue([])"
+    - name: annotations
+      expression: "object.metadata.?annotations.orValue({}) == null ? {} : object.metadata.?annotations.orValue({})"
+    # spec.template.metadata.annotations of a VM (empty for a VMI, which has none and which virt-controller copies
+    # the VM's template annotations onto).
+    - name: templateAnnotations
+      expression: "variables.vmTemplate.?metadata.orValue({}).?annotations.orValue({}) == null ? {} : variables.vmTemplate.?metadata.orValue({}).?annotations.orValue({})"
+  validations:
+    # volumes: the controller's two sources only (a dataVolume PVC and the cloud-init Secret).
+    - expression: "variables.volumes.all(v, type(v) == map && v.filter(k, k != 'name').all(k, k in ['dataVolume', 'cloudInitNoCloud']))"
+      message: "a virtual device volume may only be dataVolume or cloudInitNoCloud (no hostDisk, persistentVolumeClaim, containerDisk, secret, serviceAccount, configMap, emptyDisk, ephemeral, sysprep or memoryDump volume)"
+    # devices: no host PCI, GPU or host directory.
+    - expression: "size(variables.hostDevices) == 0"
+      message: "spec.domain.devices.hostDevices is not allowed on a virtual device (no host PCI passthrough)"
+    - expression: "size(variables.gpus) == 0"
+      message: "spec.domain.devices.gpus is not allowed on a virtual device (no GPU passthrough)"
+    - expression: "size(variables.filesystems) == 0"
+      message: "spec.domain.devices.filesystems is not allowed on a virtual device (no host directory shared into the guest)"
+    # accessCredentials (guest agent, injected SSH keys), TPM, launchSecurity (SEV and the like).
+    - expression: "size(variables.accessCredentials) == 0"
+      message: "spec.accessCredentials is not allowed on a virtual device"
+    - expression: "!has(variables.devices.tpm)"
+      message: "spec.domain.devices.tpm is not allowed on a virtual device"
+    - expression: "!has(variables.podSpec.launchSecurity)"
+      message: "spec.launchSecurity is not allowed on a virtual device"
+    # host CPU and memory: dedicated placement pins guest vCPUs, hugepages pre-allocate host memory.
+    - expression: "!variables.domain.?cpu.orValue({}).?dedicatedCpuPlacement.orValue(false)"
+      message: "spec.domain.cpu.dedicatedCpuPlacement is not allowed on a virtual device"
+    - expression: "!has(variables.domain.?memory.orValue({}).hugepages)"
+      message: "spec.domain.memory.hugepages is not allowed on a virtual device"
+    # autoattachVSOCK: a host<->guest vsock channel to qemu.
+    - expression: "!variables.devices.?autoattachVSOCK.orValue(false)"
+      message: "spec.domain.devices.autoattachVSOCK is not allowed on a virtual device"
+    # interfaces: masquerade only (bridge and macvtap reach the host network, sriov a host VF, slirp and passt a
+    # userspace stack with host access).
+    - expression: "variables.interfaces.all(i, type(i) == map && has(i.masquerade) && !has(i.bridge) && !has(i.sriov) && !has(i.slirp) && !has(i.passt) && !has(i.macvtap))"
+      message: "a virtual device interface may only be masquerade (no bridge, sriov, slirp, passt or macvtap interface)"
+    # networks: pod only (multus attaches an arbitrary CNI attachment, sriov a VF, bridge the node bridge).
+    - expression: "variables.networks.all(n, type(n) == map && has(n.pod) && !has(n.multus) && !has(n.sriov) && !has(n.bridge))"
+      message: "a virtual device network may only be pod (no multus, sriov or bridge network)"
+    # disks: disk only (a lun is a raw host block device or iSCSI target, a cdrom a host device or image).
+    - expression: "variables.disks.all(d, type(d) == map && !has(d.lun) && !has(d.cdrom))"
+      message: "a virtual device disk may only be disk (no lun or cdrom disk)"
+    # hooks.kubevirt.io/hookSidecars runs extra containers (with the virt-launcher's rights) next to qemu.
+    - expression: "!('hooks.kubevirt.io/hookSidecars' in variables.annotations)"
+      message: "the annotation hooks.kubevirt.io/hookSidecars is not allowed on a virtual device's VirtualMachine or VirtualMachineInstance"
+    - expression: "!('hooks.kubevirt.io/hookSidecars' in variables.templateAnnotations)"
+      message: "the annotation hooks.kubevirt.io/hookSidecars is not allowed in spec.template.metadata.annotations of a virtual device's VirtualMachine"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: virtual-device-shape
+  labels:
+    {{- include "device-controller.labels" . | nindent 4 }}
+spec:
+  policyName: virtual-device-shape
+  # Deny by default; [Warn, Audit] observes without blocking (values.yaml, a value only).
+  validationActions:
+    {{- toYaml $actions | nindent 4 }}
+{{- end }}

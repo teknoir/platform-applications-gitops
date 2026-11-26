@@ -1,0 +1,87 @@
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  annotations:
+    teknoir.org/k3s-version: v1.34.11+k3s1
+    teknoir.org/os-image: docker://quay.io/containerdisks/debian@sha256:6b992c4a8a62ca57858cbbf60110e673928d27b2885ea2a106660bc26b112b5b
+  labels:
+    app.kubernetes.io/managed-by: device-controller
+    teknoir.org/component: virtual-device
+    teknoir.org/device: vd-1
+    teknoir.org/teamspace: teamspace
+  name: vd-1
+  namespace: teamspace-vdev
+spec:
+  dataVolumeTemplates:
+  - metadata:
+      labels:
+        app.kubernetes.io/managed-by: device-controller
+        teknoir.org/component: virtual-device
+        teknoir.org/device: vd-1
+        teknoir.org/teamspace: teamspace
+      name: vd-1-root
+    spec:
+      source:
+        registry:
+          pullMethod: node
+          url: docker://quay.io/containerdisks/debian@sha256:6b992c4a8a62ca57858cbbf60110e673928d27b2885ea2a106660bc26b112b5b
+      storage:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 20Gi
+        storageClassName: local-path
+        volumeMode: Filesystem
+  runStrategy: Always
+  template:
+    metadata:
+      annotations:
+        sidecar.istio.io/inject: "false"
+      labels:
+        app.kubernetes.io/managed-by: device-controller
+        kubevirt.io/domain: vd-1
+        teknoir.org/component: virtual-device
+        teknoir.org/device: vd-1
+        teknoir.org/teamspace: teamspace
+    spec:
+      domain:
+        cpu:
+          cores: 2
+          sockets: 1
+          threads: 1
+        devices:
+          disks:
+          - disk:
+              bus: virtio
+            name: root
+          - disk:
+              bus: virtio
+            name: cloudinit
+          interfaces:
+          - macAddress: e6:0a:76:c5:b4:5c
+            masquerade: {}
+            name: default
+          logSerialConsole: false
+          rng: {}
+        resources:
+          limits:
+            cpu: "2"
+            memory: 4Gi
+          requests:
+            cpu: 1000m
+            memory: 4Gi
+      evictionStrategy: None
+      networks:
+      - name: default
+        pod: {}
+      priorityClassName: teknoir-virtual-device
+      terminationGracePeriodSeconds: 120
+      volumes:
+      - dataVolume:
+          name: vd-1-root
+        name: root
+      - cloudInitNoCloud:
+          secretRef:
+            name: vd-1-cloudinit
+        name: cloudinit

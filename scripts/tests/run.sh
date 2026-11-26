@@ -6,8 +6,9 @@
 #     fallback origin/main when origin/HEAD is missing): identical except for the removal of the
 #     fields ArgoCD's Go types drop (`sources: [ ]` on every child, monitoring's `group: ""`), see EXPECTED below; ROOT_RENDER_EXPECTED="project ..." accepts an intended difference of a project (a mismatch fails the run).
 #   - K3D=1: charts/backstage/tests/k3d-rbac-test.sh (can-i matrix and the identity admission policy of the
-#     Backstage API service account) and charts/teknoirbot-controller/tests/k3d-vap-test.sh and k3d-fence-test.sh
-#     (the device guard and the bot fence) against the throwaway cluster k3d-teknoir-dev
+#     Backstage API service account), charts/teknoirbot-controller/tests/k3d-vap-test.sh and k3d-fence-test.sh
+#     (the device guard and the bot fence) and charts/device-controller/tests/k3d-vdev-vap-test.sh (the virtual
+#     device VM/VMI shape policy) against the throwaway cluster k3d-teknoir-dev
 #   Output: verbose for humans and CI. Under a coding agent (CLAUDECODE, AI_AGENT, Codex) it prints only the section
 #   totals, plus the end of the log on failure; the full log is always written to .test-logs/ (git-ignored).
 set -euo pipefail
@@ -93,6 +94,8 @@ if [[ "${K3D:-}" == "1" ]]; then
   echo "== TeknoirBot device guard and bot fence on k3d-teknoir-dev (impersonated identities)"
   charts/teknoirbot-controller/tests/k3d-vap-test.sh
   charts/teknoirbot-controller/tests/k3d-fence-test.sh
+  echo "== Virtual device VM/VMI shape policy on k3d-teknoir-dev (stub KubeVirt CRDs, BuildVM goldens)"
+  charts/device-controller/tests/k3d-vdev-vap-test.sh
 fi
 
 exit "$rc"
