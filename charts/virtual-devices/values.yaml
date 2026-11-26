@@ -32,6 +32,12 @@ kubevirt:
   # cloud-init and bootstrap output into pod logs (readable through any Kubernetes
   # log path) and onto r415's small /var.
   disableSerialConsoleLog: true
+  # virt-launcher pods (QEMU, virtqemud, the launcher) get the RuntimeDefault seccomp
+  # profile. Without it the pod runs unconfined (kubelet seccompDefault=false on r415);
+  # only QEMU's own -sandbox filter applied (plans/teknoirbot/root-in-vm.md F2, R4).
+  # KubeVirt v1.8.4 reads it without a feature gate. Running VMs get it at their next
+  # start (suspend and resume the bot).
+  launcherSeccompRuntimeDefault: true
   # Refuse to delete the KubeVirt CR while VMs exist.
   uninstallStrategy: BlockUninstallIfWorkloadsExist
 

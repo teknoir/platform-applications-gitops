@@ -103,6 +103,8 @@ def main():
         # and re-applied by Argo CD (k3d e2e, Argo CD v3.5.1).
         check("developerConfiguration" not in conf, "KubeVirt: no empty developerConfiguration/featureGates (operator drops it, Argo CD would re-apply)")
         check(conf.get("virtualMachineOptions", {}).get("disableSerialConsoleLog") == {}, "KubeVirt: serial console log disabled")
+        check(conf.get("seccompConfiguration") == {"virtualMachineInstanceProfile": {"customProfile": {"runtimeDefaultProfile": True}}},
+              "KubeVirt: virt-launcher pods run with the RuntimeDefault seccomp profile (R4)")
         check(not conf.get("developerConfiguration", {}).get("useEmulation"), "KubeVirt: no software emulation")
         check(kv["spec"].get("uninstallStrategy") == "BlockUninstallIfWorkloadsExist", "KubeVirt: uninstall blocked while workloads exist")
         check(kv["metadata"]["annotations"].get("argocd.argoproj.io/sync-wave") == "1", "KubeVirt CR in sync wave 1")
