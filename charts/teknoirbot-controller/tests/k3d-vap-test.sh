@@ -36,7 +36,6 @@ KC=(kubectl --context "$CONTEXT")
 "${KC[@]}" get ns >/dev/null 2>&1 || { echo "context $CONTEXT is not reachable (k3d cluster start teknoir-dev)" >&2; exit 2; }
 if "${KC[@]}" get validatingadmissionpolicy "$POLICY" >/dev/null 2>&1 \
   || "${KC[@]}" get validatingadmissionpolicy "$DPOLICY" >/dev/null 2>&1 \
-  || "${KC[@]}" get clusterrole tb-vap-delete >/dev/null 2>&1 \
   || "${KC[@]}" get clusterrole teknoirbot-controller >/dev/null 2>&1 \
   || "${KC[@]}" get clusterrolebinding teknoirbot-other >/dev/null 2>&1 \
   || "${KC[@]}" get ns "$NS" >/dev/null 2>&1 || "${KC[@]}" get ns "$SYS" >/dev/null 2>&1; then
@@ -59,8 +58,8 @@ cleanup() {
   "${KC[@]}" delete teknoirbots.teknoir.org --all -n "$NS" --wait=false >/dev/null 2>&1 || true
   "${KC[@]}" delete validatingadmissionpolicybinding "$POLICY" "$DPOLICY" --ignore-not-found >/dev/null 2>&1 || true
   "${KC[@]}" delete validatingadmissionpolicy "$POLICY" "$DPOLICY" --ignore-not-found >/dev/null 2>&1 || true
-  "${KC[@]}" delete clusterrolebinding teknoirbot-controller teknoirbot-other tb-vap-delete --ignore-not-found >/dev/null 2>&1 || true
-  "${KC[@]}" delete clusterrole teknoirbot-controller tb-vap-delete --ignore-not-found >/dev/null 2>&1 || true
+  "${KC[@]}" delete clusterrolebinding teknoirbot-controller teknoirbot-other --ignore-not-found >/dev/null 2>&1 || true
+  "${KC[@]}" delete clusterrole teknoirbot-controller --ignore-not-found >/dev/null 2>&1 || true
   "${KC[@]}" delete ns "$NS" "$SYS" --ignore-not-found --wait=true --timeout=60s >/dev/null 2>&1 || true
   [[ $installed_crd == 1 ]] && "${KC[@]}" delete crd devices.teknoir.org --ignore-not-found >/dev/null 2>&1
   [[ $installed_tb == 1 ]] && "${KC[@]}" delete crd teknoirbots.teknoir.org --ignore-not-found >/dev/null 2>&1
@@ -106,10 +105,8 @@ PY
 "${KC[@]}" -n "$SYS" create sa tb-other >/dev/null
 "${KC[@]}" create clusterrolebinding teknoirbot-other --clusterrole=teknoirbot-controller --serviceaccount="$SYS:tb-other" >/dev/null
 
-# The chart's ClusterRole has no delete on Devices until the reset ships (R7 release 2): grant it to the bot here, so a
-# DELETE verdict below is the delete policy's, not RBAC's.
-"${KC[@]}" create clusterrole tb-vap-delete --verb=delete --resource=devices.teknoir.org >/dev/null
-"${KC[@]}" create clusterrolebinding tb-vap-delete --clusterrole=tb-vap-delete --serviceaccount="$SYS:$SA" >/dev/null
+# The chart's ClusterRole has delete on Devices (the reset, R7 release 2), so a DELETE verdict below is the delete
+# policy's, not RBAC's: no extra grant.
 
 BOT=(--as="system:serviceaccount:${SYS}:${SA}")
 OTHER=(--as="system:serviceaccount:${SYS}:tb-other")
@@ -311,6 +308,8 @@ expect allow "admin removes the teknoirbot label"                        admin -
 EXPECT_POLICY=$DPOLICY
 DEL=(-n "$NS" delete devices.teknoir.org --wait=false)
 DRY=(-n "$NS" delete devices.teknoir.org --dry-run=server)
+can=$("${KC[@]}" auth can-i delete devices.teknoir.org -n "$NS" "${BOT[@]}" 2>&1)
+[[ $can == yes ]] && ok "the chart's ClusterRole grants the bot delete on Devices" || bad "the bot may not delete Devices by RBAC: $can"
 expect allow "bot creates tb-del (labelled del, owned by TeknoirBot del)" bot   -- create -f <(device tb-del 1 virtual '{}')
 expect allow "bot deletes its bot computer tb-del"                       bot   -- "${DEL[@]}" tb-del
 expect allow "bot deletes tb-scout (dry run, the exact desiredDevice body)" bot  -- "${DRY[@]}" tb-scout
@@ -325,6 +324,9 @@ expect allow "admin creates cam-08: labelled bot, owned by bot, another name" ad
 expect deny  "bot deletes a labelled Device under another name (cam-08)" bot   "named tb-<bot>" -- "${DRY[@]}" cam-08
 expect allow "admin removes the label of tb-own"                          admin -- -n "$NS" label devices.teknoir.org tb-own teknoir.org/teknoirbot- --overwrite
 expect deny  "bot deletes its owner-referenced tb-own while the label is gone" bot "non-empty teknoir.org/teknoirbot label" -- "${DRY[@]}" tb-own
+expect allow "admin creates cam-09: a robot-less real Device (jetson, no label, no owner)" admin -- create -f <(device cam-09 0 jetson '{}')
+expect deny  "bot deletes the robot-less real Device cam-09"              bot   "only virtual Devices" -- "${DRY[@]}" cam-09
+expect allow "other SA deletes cam-09 (not matched: backstage-api's Remove of a robot-less device)" other -- "${DEL[@]}" cam-09
 expect allow "admin deletes a physical Device (not matched)"              admin -- "${DEL[@]}" tb-bot
 expect allow "admin deletes a Device without the label (not matched)"     admin -- "${DRY[@]}" plain
 deleted=$("${KC[@]}" -n "$NS" get devices.teknoir.org tb-del -o jsonpath='{.metadata.deletionTimestamp}' 2>&1)
