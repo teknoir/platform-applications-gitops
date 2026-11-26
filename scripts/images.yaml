@@ -50,6 +50,11 @@ groups:
   # The second profile-plugin image group (CI v4 P9.1 S7): both images from one teknoir/fleet-metrics commit,
   # pinned in plugins/charts/profile-plugin-fleet-metrics/values.yaml.
   fleet-metrics: {same_commit: true, enabled: true}
+  # The historian plugin images (CI v4 P9.1 S7): one group per source repo, all three pinned in
+  # plugins/charts/profile-plugin-historian/values.yaml.
+  historian-middle-end-api: {same_commit: false, enabled: true}
+  historian-api: {same_commit: false, enabled: true}
+  observatory-event-processing-app: {same_commit: false, enabled: true}
 
 images:
   - component: backstage-app
@@ -261,6 +266,42 @@ images:
     repository: harbor.teknoir.cloud/teknoir/fleet-metrics/metrics-publisher
     poll: harbor.teknoir.cloud/teknoir/fleet-metrics/metrics-publisher
     note: "the fleet-metrics publisher (profile-plugin-fleet-metrics, plugins/charts)"
+
+  - component: historian-middle-end-api
+    group: historian-middle-end-api
+    pins_file: null
+    values_files:
+      - plugins/charts/profile-plugin-historian/values.yaml
+    chart: profile-plugin-historian
+    key_path: historianMiddleend.image.version
+    style: tag
+    repository: harbor.teknoir.cloud/teknoir/historian-middle-end-api
+    poll: harbor.teknoir.cloud/teknoir/historian-middle-end-api
+    note: "the historian middle-end API (profile-plugin-historian, plugins/charts)"
+
+  - component: historian-api
+    group: historian-api
+    pins_file: null
+    values_files:
+      - plugins/charts/profile-plugin-historian/values.yaml
+    chart: profile-plugin-historian
+    key_path: historianApi.image.version
+    style: tag
+    repository: harbor.teknoir.cloud/teknoir/historian-api
+    poll: harbor.teknoir.cloud/teknoir/historian-api
+    note: "the historian API (profile-plugin-historian, plugins/charts)"
+
+  - component: observatory-event-processing-app
+    group: observatory-event-processing-app
+    pins_file: null
+    values_files:
+      - plugins/charts/profile-plugin-historian/values.yaml
+    chart: profile-plugin-historian
+    key_path: historianStreams.image.version
+    style: tag
+    repository: harbor.teknoir.cloud/teknoir/observatory-event-processing-app
+    poll: harbor.teknoir.cloud/teknoir/observatory-event-processing-app
+    note: "the historian event-processing streams worker (profile-plugin-historian, plugins/charts)"
 
   # Third party images: no group, pinned by hand into the chart values file with scripts/pin-image.
   - component: postgres

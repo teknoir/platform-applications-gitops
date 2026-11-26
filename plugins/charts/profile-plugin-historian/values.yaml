@@ -3,8 +3,9 @@ domainPrefix:
 
 historianApi:
   image:
-    registry: ghcr.io/teknoir/historian-api
-    version: latest@sha256:746a129e64a65c077fca9540f0c407657026a40659af34a4053656f906cb2164
+    registry: harbor.teknoir.cloud/teknoir/historian-api
+    # Pinned by Kargo Stage pin-historian-api (scripts/images.yaml) from Harbor since CI v4 P9.1: never edit by hand.
+    version: sha-776e30bd@sha256:11c7412d23ad3bb1312995e0b32ef76060807231fae35620092cf3105f3f9eaa
   resources:
     requests:
       cpu: 25m
@@ -12,8 +13,9 @@ historianApi:
 
 historianMiddleend:
   image:
-    registry: ghcr.io/teknoir/historian-middle-end-api
-    version: latest@sha256:9eff60a54e2a0409aa7ac4b5971606a46278beaa7122e0d33ff5258c21fb1b8e
+    registry: harbor.teknoir.cloud/teknoir/historian-middle-end-api
+    # Pinned by Kargo Stage pin-historian-middle-end-api (scripts/images.yaml) from Harbor since CI v4 P9.1: never edit by hand.
+    version: sha-b0b93267@sha256:6c206ff16352abe145275d86b7a195b948845672c4718892562b2cee0a6ad5f6
   resources:
     requests:
       cpu: 25m
@@ -21,8 +23,9 @@ historianMiddleend:
 
 historianStreams:
   image:
-    registry: ghcr.io/teknoir/observatory-event-processing-app
-    version: latest@sha256:dd13619de2c5ee13c0a1276c7df58598251b9a3b039f66d86ff72d0930c418b5
+    registry: harbor.teknoir.cloud/teknoir/observatory-event-processing-app
+    # Pinned by Kargo Stage pin-observatory-event-processing-app (scripts/images.yaml) from Harbor since CI v4 P9.1: never edit by hand.
+    version: sha-7b9c43ca@sha256:3f81c9745d452382583ff3b1be26e2043e7497f15bdb08566a448cc0e4a2ff33
 
 mongodb:
   image:

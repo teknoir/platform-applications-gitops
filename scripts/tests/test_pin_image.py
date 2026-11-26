@@ -218,6 +218,10 @@ class PinFlow(unittest.TestCase):
         self.fm_file = "plugins/charts/profile-plugin-fleet-metrics/values.yaml"
         with open(os.path.join(os.path.dirname(H.SCRIPTS), self.fm_file)) as fh:
             self.write(self.fm_file, fh.read())
+        # the three historian groups (CI v4 P9.1 S7): one row each, all pinned in the same plugin values file
+        self.hist_file = "plugins/charts/profile-plugin-historian/values.yaml"
+        with open(os.path.join(os.path.dirname(H.SCRIPTS), self.hist_file)) as fh:
+            self.write(self.hist_file, fh.read())
         self.out = []
 
     def write(self, rel, text):
@@ -305,6 +309,28 @@ class PinFlow(unittest.TestCase):
         self.assertEqual(len(changed), 1, changed)
         # the comment above the pin stays
         self.assertIn("Pinned by Kargo Stage pin-fleet-metrics", after)
+
+    def test_a_historian_row_rewrites_only_its_own_version_line(self):
+        # historian-api: three groups pin into plugins/charts/profile-plugin-historian/values.yaml. pin-image pins
+        # one component, so the two sibling image blocks keep their registry and version lines as written.
+        before = self.read(self.hist_file)
+        want = "sha-abcdef12@" + D
+        res = self.pin(FakeSys()).pin("historian-api", "sha-abcdef12", write=True)
+        self.assertEqual(res["new"], want)
+        self.assertEqual(res["files"], [self.hist_file])
+        after = self.read(self.hist_file)
+        self.assertEqual(PI.get_leaf(after, "historianApi.image.version"), want)
+        self.assertEqual(PI.get_leaf(after, "historianApi.image.registry"),
+                         "harbor.teknoir.cloud/teknoir/historian-api")
+        for key in ("historianMiddleend.image.version", "historianStreams.image.version",
+                    "historianMiddleend.image.registry", "historianStreams.image.registry"):
+            self.assertEqual(PI.get_leaf(after, key), PI.get_leaf(before, key), key)
+        self.assertEqual(len(after.split("\n")), len(before.split("\n")))
+        changed = [i for i, (a, b) in enumerate(zip(before.split("\n"), after.split("\n"))) if a != b]
+        self.assertEqual(len(changed), 1, changed)
+        self.assertEqual(before.split("\n")[changed[0]].strip().split(":")[0], "version")
+        # the comment above the pin stays
+        self.assertIn("Pinned by Kargo Stage pin-historian-api", after)
 
     def test_a_values_files_row_keeps_the_index_paths_comments_and_line_count(self):
         before = {rel: self.read(rel) for rel in self.arc_files}
