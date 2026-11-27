@@ -7,8 +7,8 @@ backstage:
   # backstage main f62e26e3 (#462: device credentials carry the Harbor registry mirror, harbor plan phase 1b), built by
   # image.yml (run 45416862713). Previous pin, main dce12b42 (#457):
   # ghcr.io/teknoir/backstage-app:sha-dce12b42@sha256:5fbb6712c427765204bead405c315f96436ec63a1557428475490b2b8d82ea68
-  image: harbor.teknoir.cloud/teknoir/backstage-app:sha-1d829627@sha256:4a952b778fa972bb4de21e168f9630f8e96ed3186e6778fde8d7ad426afa0628
+  image: harbor.teknoir.cloud/teknoir/backstage-app:sha-5cd88d05@sha256:b13861e2a95278548e24490a6df68c8521002a149b2fce4179048d258422feb9
 backstageApi:
   # backstage main f62e26e3 (see backstage.image). Previous pin:
   # ghcr.io/teknoir/backstage:sha-dce12b42@sha256:d1a8622c573258385041a7f73bfeac969f721288b0fd7929991bbabed62f0d54
-  image: harbor.teknoir.cloud/teknoir/backstage:sha-1d829627@sha256:fa4a459f12f515257f148f33bba14029c417282a6030f98b3de6e68c37718494
+  image: harbor.teknoir.cloud/teknoir/backstage:sha-5cd88d05@sha256:ba9514e28a8a0eeb3b15492ee4d6334a5b8d2b20beea5b356f32f2ef408eb9c5
